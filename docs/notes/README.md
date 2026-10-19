@@ -8,3 +8,6 @@ that depends on it starts.
 |---|---|---|---|
 | `persistent-naming.md` | DOC-11 | DOC-06 | Not started |
 | `kernel-metrics.md` | KH-02 / KH-05 | KH-03, KH-08 | Not started |
+| `units-and-quantities.md` | S00 refinement (2026-10-19) | FND-10, DOC-04 | Draft (owner question on mm–t–s units) |
+| `sketch-solver.md` | S03 refinement (2026-10-19); benchmark in SK-13 | SK-03 (ADR-007 gate) | Draft (pending SK-13 and ADR-007) |
+| `mesh-processing.md` | S07 refinement (2026-10-19) | MESH-01 | Written |

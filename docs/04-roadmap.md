@@ -11,9 +11,9 @@ scheduled in an earlier phase than any of its dependencies.
 |---|---|---|
 | A — Kernel & solid modeling | S02, S04, S05, S20 | `amg-occt-sys`, `amg-brep`, `amg-nurbs`, `amg-features::{solid,construct}`, `amg-ui::inspect` |
 | B — Sketch | S03 | `amg-sketch`, `amg-features::sketch` |
-| C — Mesh & implicit | S07, S08, S09 | `amg-mesh`, `amg-implicit`, `amg-subd`, `amg-features::{mesh,implicit,form}`, `amg-ui::{mesh,form}` |
+| C — Mesh & implicit | S07, S08, S09 | `amg-mesh`, `amg-manifold-sys`, `amg-implicit`, `amg-subd`, `amg-features::{mesh,implicit,form}`, `amg-ui::{mesh,form}` |
 | D — Viewport & UI framework | S10, S11 | `amg-render`, `amg-app`, `amg-ui` framework (shell, widgets, generic dialogs, viewport input, browser, timeline, sketch-mode UX) |
-| E — Document & API | S00, S01, S06, S18 | `amg-core`, `amg-jobs`, `amg-doc`, `amg-script`, `amg-cli`, `amg-features::assembly` |
+| E — Document & API | S00, S01, S06, S18 | `amg-core`, `amg-jobs`, `amg-testkit`, `amg-doc`, `amg-script`, `amg-cli`, `amg-features::assembly` |
 | F — Numerics & simulation | S15, S13, S14 | `amg-compute`, `amg-fem`, `amg-topopt`, `amg-features::sim`, `amg-ui::{sim,generative}` |
 | G — AM, I/O, materials | S12, S16, S17 | `amg-io`, `amg-am`, `amg-materials`, `amg-ui::{am,io,materials}` |
 
@@ -27,17 +27,19 @@ module needs a framework change, that change is lane D's (see AGENTS.md §Interf
 | Before starting | Needs |
 |---|---|
 | Every lane-A WP that calls OCCT: BREP-\*, SOL-\*, CON-\*, INS-03..07, KH-01..06, KH-08..11 | ADR-002 (OpenCASCADE) accepted |
-| MESH-05 | ADR-003 (Manifold) accepted |
+| MESH-05, MESH-27 | ADR-003 (Manifold) accepted |
 | RND-01, UI-01 | ADR-004 (wgpu) and ADR-005 (egui) accepted |
-| SK-03 | ADR-007 (own sketch solver) decided — SK-03 refinement prototypes both options |
+| FND-09 | ADR-004 (wgpu) accepted |
+| SK-03 | ADR-007 (own sketch solver) decided — SK-13 prototypes and benchmarks both options (ungated) |
 
-FND-01..06 have no gate, so Phase 0 can start before these are settled. INS-01, INS-02 and
+FND-01..08 and FND-10 have no gate, so Phase 0 can start before these are settled. INS-01, INS-02 and
 KH-07 (`amg-nurbs`) don't touch OCCT and are not gated by ADR-002. The GitHub remote exists
 (QUESTIONS #5), so FND-05 (CI) is unblocked.
 
 ## Phase 0 — Foundation (serial, small)
 Goal: everyone can build; shared types exist.
-`FND-01 → FND-02 → (FND-03, FND-04 in parallel)`, then `FND-03 → FND-06`.
+`FND-01 → FND-02 → (FND-03, FND-04 in parallel)`, then `FND-03 → (FND-06, FND-10)` and
+`FND-04 → FND-09` (FND-09 gated by ADR-004).
 Then spikes in parallel to de-risk the big unknowns: **BREP-01** (OCCT builds and links on
 Windows), **RND-01** (mesh spinning in an egui window), **MESH-01**, **SK-01**, **DOC-01**.
 
@@ -46,19 +48,21 @@ Open STL/3MF/OBJ → view → analyse → repair / remesh / reduce / smooth → 
 shell → measure, section → overhang analysis on a build plate → export 3MF → open in slicer.
 - A: INS-01 (measure on meshes), INS-02 (section analysis); in the background for Phase 2:
   BREP-02..04, BREP-08, KH-01
-- B: SK-02..06 (in the background, preparing Phase 2; SK-01 is a Phase 0 spike)
-- C: MESH-02..10, MESH-16, IMP-03
+- B: SK-02, SK-14, SK-13 (ADR-007 benchmark), SK-03..06, SK-15, SK-20, SK-21 (in the background,
+  preparing Phase 2; SK-01 is a Phase 0 spike)
+- C: MESH-28 (corpus), MESH-02..10, MESH-16..23, MESH-26, MESH-27, IMP-03
 - D: RND-02..04, RND-06..08, UI-01..04, UI-07, UI-08, UI-10
-- E: DOC-02..05, DOC-07, DOC-09, DOC-11 (persistent naming design note), FND-05, FND-07, FND-08
+- E: DOC-02..05, DOC-12, DOC-07, DOC-09, DOC-14, DOC-11 (persistent naming design note), FND-05,
+  FND-07, FND-08
 - G: IO-01, IO-02, IO-03, IO-05, AM-01, AM-02, AM-03, AM-06, MAT-01
 
 ## Phase 2 — Parametric core
 Sketch → extrude/revolve → fillet/chamfer/shell → patterns → timeline edits that don't break
 (persistent naming) → parameters → STEP in/out → components.
 - A: BREP-05..07, BREP-09, BREP-10, SOL-01..09, CON-01, CON-02, INS-03, INS-07, KH-02, KH-03, KH-05, KH-07
-- B: SK-07, SK-09
+- B: SK-07, SK-16..19, SK-22, SK-09
 - D: UI-05, UI-06, UI-09, UI-12
-- E: DOC-06, ASM-01, ASM-02
+- E: DOC-06, DOC-13, ASM-01, ASM-02, FND-12
 - G: IO-06, IO-09
 - F (starts early, independent): CMP-01..03
 
@@ -67,7 +71,7 @@ Sweep/loft/holes/threads/text, mesh→B-rep, wall thickness, implicit modeling w
 joints, direct mode, Python API.
 - A: BREP-11, SOL-10..13, INS-04..06, KH-04, KH-06, KH-08 (loft builder lands with SOL-11)
 - B: SK-08, SK-10, SK-11
-- C: MESH-11..15, IMP-01, IMP-02, IMP-04..06, IMP-08
+- C: MESH-11..15, MESH-24, MESH-25, IMP-01, IMP-02, IMP-04..06, IMP-08
 - D: RND-05, RND-09, UI-11
 - E: DOC-08, ASM-03..05, SCR-01..03, SCR-05
 - G: IO-04, IO-07, IO-08, IO-10, MAT-02, MAT-03, AM-07
