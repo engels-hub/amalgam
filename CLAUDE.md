@@ -1,0 +1,1 @@
+See @AGENTS.md for how to work on this project, and `docs/` for vision, architecture, decisions, roadmap and specs.
