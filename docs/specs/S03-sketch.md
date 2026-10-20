@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 |
 | **Crates** | `amg-sketch`, `amg-features::sketch` (sketch-mode UX in `amg-ui` is lane D's UI-09) |
 | **Lane** | B |

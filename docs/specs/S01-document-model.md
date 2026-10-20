@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 |
 | **Crates** | `amg-doc` |
 | **Depends on** | S00 (FND-03 ids/units/errors, FND-04 jobs, FND-07 crash hook); data types from S02 (BREP-02 `Shape`, BREP-05 history), S03 (SK-01 entity/profile keys), S07 (MESH-02 `IndexedMesh`), S08, S09 — stubbed in `amg-doc::stub` until those land |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 |
 | **Crates** | workspace root, `amg-core`, `amg-jobs`, `amg-cli` (skeleton; subcommands filled by S18), `amg-testkit` (`amg-app` belongs to lane D) |
 | **Lane** | E |

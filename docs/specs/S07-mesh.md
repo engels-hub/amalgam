@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 (core of the owner's AM workflow) |
 | **Crates** | `amg-mesh`, `amg-manifold-sys` (new FFI crate, MESH-05), `amg-features::mesh`, `amg-ui::mesh` |
 | **Lane** | C |
