@@ -13,6 +13,14 @@ rayon.workspace = true
 crossbeam-channel.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+tracing-tracy = { workspace = true, optional = true }
+
+[features]
+# Tracy profiler layer in `diag::init` (builds the Tracy C++ client).
+tracy = ["dep:tracing-tracy"]
 
 [dev-dependencies]
 criterion.workspace = true

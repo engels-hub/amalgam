@@ -41,7 +41,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
-| tracing, tracing-subscriber | logging (S00) | MIT | no | no | Planned |
+| tracing, tracing-subscriber | logging (S00), `amg-jobs::diag`, `amg-cli` | MIT | no | no | In use (tracing 0.1.44, tracing-subscriber 0.3.23 with `env-filter`) |
 | serde, serde_json | `.amg` file format (ADR-010) | MIT / Apache-2.0 | no | no | In use (serde 1.0.229; serde_json 1.0.154) |
 | zip (zip-rs/zip2) 9.0.x, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | Planned |
 | quick-xml 0.42.0 | `amg-io` 3MF XML (S12) | MIT | no | no | Planned |
@@ -66,8 +66,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | parking_lot | locks, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.12.5) |
 | bytemuck | GPU buffer casts, `amg-jobs::gpu` (S00); bulk FFI buffer casts, `amg-brep` (S02) | Zlib / MIT / Apache-2.0 | no | no | Planned |
 | pollster | `Gpu::new_blocking`, `amg-jobs::gpu` (S00) | MIT / Apache-2.0 | no | no | In use (1.0.1; `amg-testkit` GPU probe) |
-| tracing-appender | rolling log files (S00) | MIT | no | no | Planned |
-| tracing-tracy | optional profiler integration (S00) | MIT / Apache-2.0 | no | yes (`tracy`) | Planned |
+| tracing-appender | rolling log files, `amg-jobs::diag` (S00) | MIT | no | no | In use (0.2.5) |
+| tracing-tracy (+ tracy-client 0.19.0, tracy-client-sys 0.30.1 which builds the bundled Tracy C++ client) | optional profiler layer, `amg-jobs::diag` (S00); its default features minus `crash-handler` (the diag panic hook and FND-12 own crash handling) | tracing-tracy, tracy-client: MIT / Apache-2.0; tracy-client-sys: (MIT OR Apache-2.0) AND BSD-3-Clause | no | yes (`tracy` on `amg-jobs` / `amg-cli`) | In use (0.12.0, feature-gated) |
 | clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | In use (4.6.7) |
 | approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | In use (0.5.1, dev-only) |
 | toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07); machine library files, `amg-am` runtime (S16); material libraries, `amg-materials` (S17) | MIT / Apache-2.0 | no | no | In use (1.1.8; `amg-testkit` golden files) |

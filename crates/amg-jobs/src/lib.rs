@@ -1,7 +1,7 @@
 //! Job system: CPU pools, cancellable jobs with progress, the shared GPU device and diagnostics.
 //!
-//! Spec: S00 §4. Lane: E. This crate currently holds the CPU job system (FND-04); the GPU
-//! (`gpu`, FND-09) and diagnostics (`diag`, FND-07) modules land later.
+//! Spec: S00 §4. Lane: E. This crate holds the CPU job system (FND-04) and diagnostics
+//! ([`diag`], FND-07); the GPU module (`gpu`, FND-09) lands later.
 //!
 //! # Model
 //! - A [`JobSystem`] owns two rayon pools: [`Priority::Interactive`] (recompute, previews) and
@@ -37,6 +37,7 @@
 mod cancel;
 mod core;
 mod ctx;
+pub mod diag;
 mod handle;
 mod os;
 mod system;

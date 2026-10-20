@@ -49,6 +49,9 @@ parking_lot = "0.12.5"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2.5"
+# Optional profiler layer (amg-jobs feature `tracy`). Tracy's own crash handler is left off:
+# the diag panic hook and FND-12 minidumps own crash handling.
+tracing-tracy = { version = "0.12.0", default-features = false, features = ["enable", "system-tracing", "context-switch-tracing", "sampling", "code-transfer", "broadcast", "callstack-inlines"] }
 # wgpu major must equal the one egui-wgpu uses (S00 §4, FND-09): egui-wgpu 0.36/0.37 -> wgpu 30.
 wgpu = "30.0.1"
 bytemuck = { version = "1.25.2", features = ["derive"] }

@@ -6,7 +6,7 @@ use std::{
     fmt,
     marker::PhantomData,
     num::NonZeroUsize,
-    panic::{AssertUnwindSafe, catch_unwind},
+    panic::AssertUnwindSafe,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -356,7 +356,7 @@ pub(crate) fn execute<J: Job>(job: J, ctx: JobCtx, tx: Sender<JobResult<J::Outpu
     if !core.try_start() {
         return; // cancelled out of the queue
     }
-    let outcome = catch_unwind(AssertUnwindSafe(|| job.run(&ctx)));
+    let outcome = crate::diag::catch_panic(AssertUnwindSafe(|| job.run(&ctx)));
     drop(ctx);
     let (result, code, detail) = match outcome {
         Ok(Ok(v)) => (Ok(v), SUCCEEDED, None),
