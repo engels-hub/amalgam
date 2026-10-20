@@ -42,7 +42,9 @@ fn allowed(krate: &str) -> Option<BTreeSet<&'static str>> {
         "amg-mesh" => vec!["amg-manifold-sys"],
         "amg-brep" => vec!["amg-occt-sys", "amg-nurbs"],
         "amg-implicit" => vec!["amg-mesh"],
-        "amg-subd" => vec!["amg-brep", "amg-mesh"],
+        // QUESTIONS #41 (owner, 2026-10-20): FRM-06 builds SubD -> NURBS on `amg-nurbs`
+        // (ADR-013 "NURBS math shared later by Form").
+        "amg-subd" => vec!["amg-brep", "amg-mesh", "amg-nurbs"],
         "amg-io" => vec!["amg-brep", "amg-mesh", "amg-sketch", "amg-materials"],
         "amg-fem" => vec!["amg-mesh", "amg-materials"],
         "amg-topopt" => vec!["amg-fem", "amg-implicit", "amg-mesh"],

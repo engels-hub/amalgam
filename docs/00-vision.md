@@ -38,6 +38,7 @@ additive build prep) — runs on the local machine, primarily on the GPU.
 | Viewport, 5 M-triangle mesh, orbit | ≥ 60 fps |
 | Recompute of a typical 50-feature part after editing an early sketch | < 500 ms |
 | Mesh boolean, two 1 M-triangle meshes | < 1 s |
+| Import a 1 GB binary STL (20 M triangles) | < 5 s |
 | Linear static FEA, ~500 k DOF | < 30 s |
 | Topology optimization, 1 M voxels, 100 iterations | < 5 min |
 | UI never blocks for more than | 16 ms (everything heavier goes to the job system) |

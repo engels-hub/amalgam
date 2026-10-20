@@ -20,6 +20,12 @@ swap or mix in `truck` later. OCCT's weak spots (fillet robustness, boolean spee
 the mesh path for AM workflows.
 **Note (2026-10-19, S00 refinement):** the vcpkg `opencascade` port is now 8.0.0. BREP-01 decides
 whether to take 8.0.0 or pin 7.9.x.
+**Note (2026-10-20, S02/S20, owner accepted, QUESTIONS #42; `docs/notes/occt-integration.md` §1):**
+BREP-01 pins OCCT 8.0.0 (vcpkg `opencascade` 8.0.0#1 at baseline `2026.07.29`); fallback
+7.9.3#1. The port is built with `default-features: false` and without TBB, so it can't clash
+with Manifold's oneTBB. The move to 8.0.1 follows QUESTIONS #27 (baseline bump scheduled as
+FND-13 before BREP-01). S20 supports 8.0.1 (reworked `GeomFill_Gordon`, thread-local fillet
+state).
 **Amendment (2026-10-20, owner):** supported versions are OCCT 7.9.x or 8.0.x via vcpkg, replacing
 "7.8+". BREP-01 picks and pins one. The vcpkg triplet stays open in S02.
 
@@ -54,6 +60,13 @@ reworking callers.
 Immediate-mode UI is fast to iterate on and fits tool-heavy apps; `egui_dock` for dockable panels,
 `egui-wgpu` to share the device with the viewport. Alternative considered: Slint (prettier, slower
 to iterate), iced (less mature docking). Revisit if egui's look becomes a blocker.
+**Amendment (2026-10-20, S11, owner accepted, QUESTIONS #42; `docs/notes/ui-framework.md`):**
+- The docking crate sits behind `amg_ui::dock::DockHost`; egui_dock is preferred.
+- If egui_dock lags the pinned egui, pin egui to the previous minor (QUESTIONS #23, owner
+  chose this: egui/eframe/egui-wgpu 0.36.2 until egui_dock supports 0.37) or use `egui_tiles`
+  (MIT OR Apache-2.0) as the fallback.
+- New egui widget crates are allowed only if they release in lockstep with egui or sit behind
+  a facade.
 
 ## ADR-006 — Math: glam (f64) + nalgebra/faer where needed (Accepted 2026-10-20)
 `glam::DVec3/DMat4/DQuat` for geometry (f64 everywhere in the model), `glam::Vec3` (f32) only on
@@ -112,7 +125,11 @@ sewing, booleans and validation. Fillets get strategy wrappers and an analytic f
 A Rust rewrite of the fillet engine, and any further replacement of OCCT operations, is
 scheduled **after all other roadmap work (Phase 7)** and only ships if it beats the existing
 path on the failure corpora (S20).
-**Consequences:** extra crate in the domain layer; NURBS math shared later by Form (S09 SubD→NURBS).
+**Consequences:** extra crate in the domain layer; NURBS math shared later by Form (S09 SubD→NURBS);
+`amg-subd → amg-nurbs` is an allowed edge (QUESTIONS #41, owner, 2026-10-20).
+**Note (2026-10-20, S20, owner accepted, QUESTIONS #42; `docs/notes/nurbs-library.md` §2):** build
+decision confirmed: no crates.io NURBS crate covers approximate compatibility, end-conditioned
+skinning or correct Gordon surfaces. `curvo` (MIT) is used only as a dev-dependency test oracle.
 
 ## ADR-014 — Document state split, ids and undo model (Accepted 2026-10-20)
 **Context:** architecture §Core data model puts body geometry and feature health inside the
@@ -135,4 +152,7 @@ determinism.
 - Features never mutate authored state during recompute.
 - The `amg-brep` `Shape` must be `Sync`. S02 currently says OCCT objects are "Send but not
   Sync", and S02 refinement must resolve this.
+  **Note (2026-10-20, owner accepted, QUESTIONS #42; `docs/notes/occt-integration.md` §4):**
+  resolved by S02 refinement 2026-10-20: `amg_brep::Shape` is an immutable `Arc` handle and is
+  `Send + Sync`. No change to the decision.
 - Studies and print setups attach as extension records.

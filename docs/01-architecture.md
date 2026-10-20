@@ -40,13 +40,13 @@ depend on each other except where listed in the table below (keeps parallel work
 | `amg-core` | f64 math (`glam::DVec3` etc.), units, tolerances, ids, `Error`, bounding boxes, transforms, 2D/3D primitive curves | — | S00 |
 | `amg-jobs` | rayon pool, cancellable jobs, progress reporting, shared `wgpu` device for compute | — | S00 |
 | `amg-compute` | GPU kernel helpers, voxel/brick grids, sparse matrices, iterative/direct/eigen solvers | — | S15 |
-| `amg-occt-sys` | `cxx` bridge to OpenCASCADE 7.8+ | — | S02 |
+| `amg-occt-sys` | `cxx` bridge to OpenCASCADE 8.0.x (7.9.x fallback) | — | S02 |
 | `amg-brep` | `BrepKernel` trait, OCCT backend, shape handles, tessellation, topology queries, history, robustness strategies (S20) | occt-sys, nurbs | S02, S20 |
 | `amg-nurbs` | pure-Rust NURBS curves/surfaces: evaluation, knot ops, fitting, skinning, Gordon surfaces (ADR-013); converted to OCCT in `amg-brep` | — | S20 |
 | `amg-sketch` | 2D sketch entities, constraint solver, profile/region detection | — | S03 |
 | `amg-mesh` | half-edge/indexed meshes, repair, remesh, decimate, booleans (Manifold), analysis | — | S07 |
 | `amg-implicit` | SDF expression graph, GPU evaluation, lattices, meshing (dual contouring) | mesh | S08 |
-| `amg-subd` | Catmull–Clark subdivision modeling with creases, SubD→NURBS | brep, mesh | S09 |
+| `amg-subd` | Catmull–Clark subdivision modeling with creases, SubD→NURBS | brep, mesh, nurbs | S09 |
 | `amg-materials` | physical + appearance material library | — | S17 |
 | `amg-io` | STEP/IGES (via brep), STL, 3MF, OBJ, PLY, DXF, SVG | brep, mesh, sketch, materials | S12 |
 | `amg-fem` | tet meshing, FE assembly, solvers, result fields | mesh, materials | S13 |
@@ -97,8 +97,11 @@ Document
 - **GPU**: one `wgpu::Device` shared by render and compute (`amg-jobs::Gpu`). Compute workloads
   use WGSL compute shaders. CUDA (via `cudarc`) is an allowed optional backend for solvers only
   if wgpu proves too slow — behind a cargo feature, never required.
-- **OCCT is not thread-safe for all ops**: the brep backend serializes calls per shape graph and
-  only parallelizes independent operations (tessellation of distinct bodies, etc.).
+- **B-rep shapes** (amended 2026-10-20, owner accepted, QUESTIONS #42): `amg_brep::Shape` is
+  immutable and `Send + Sync`. Kernel ops never mutate their inputs: non-destructive booleans,
+  and private topology copies for meshing and healing. Only IGES I/O (and, on OCCT 8.0.0, text
+  `.brep` and STEP reads) take a process-wide lock. Independent operations, including different
+  ops on the same shape, may run in parallel.
 
 ## Geometry representations and conversions
 
@@ -114,9 +117,11 @@ Booleans across types are resolved by converting to the "lowest common" represen
 
 ## Rendering pipeline (summary — full detail in S10)
 
-wgpu (DX12 on Windows, Vulkan elsewhere). Forward+ shading, MSAA, GPU picking via ID buffer,
-edge/silhouette rendering, section planes with capping, transparent bodies via weighted OIT,
+wgpu (DX12 on Windows, Vulkan elsewhere). forward shading (2–3 fixed studio lights), MSAA, GPU picking via ID buffer,
+edge/silhouette rendering, section planes via fragment discard (DX12 has no clip distances) with one-pass back-face caps, transparent bodies via weighted OIT,
 analysis overlays (zebra, curvature, draft, overhang, FEA fringe plots) as shader variants.
+On-canvas text is painted by egui. (Rendering wording amended 2026-10-20, owner accepted,
+QUESTIONS #42.)
 Render scene is a flat list of GPU meshes + instances derived from the document; `amg-render`
 does not know about features.
 

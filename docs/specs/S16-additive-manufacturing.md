@@ -773,16 +773,21 @@ generator. Anything above 16 ms runs as a job.
    use it as the default resin machine? Is the MMU mod the **CoPrint KCM** (4 filament slots,
    one nozzle), as the owner's Orca preset "… - Connected KCM" suggests?
    *Default:* yes to both.
+   **Resolved 2026-10-20 (owner, QUESTIONS #34):** yes to both (assumed; the owner may correct).
+   Both ship as built-in AM-01 profiles.
 3. **(owner, new)** Default critical overhang angle: 45° (DfAM rule, Fusion default; flags more
    faces than Orca will actually support) or 30° (OrcaSlicer's default `support_threshold_angle`,
    so "red" ≈ "Orca will add supports")?
    *Default:* 45° for analysis, with the imported Orca process value offered once AM-10 lands.
+   **Resolved 2026-10-20 (owner, QUESTIONS #35):** 45°, as proposed.
 4. Resolved: the angle convention follows Orca/Prusa ("slope from horizontal below α"), and the
    Cura conversion is documented (note §1.1).
 5. Resolved: print setups are extension records with an embedded machine snapshot, not
    timeline features (S01 §11, ADR-014).
 6. Resolved: Phase 1 hand-off is per-object filament slots. Per-face painting waits for IO-04
    and the S12 per-triangle extruder support (P1).
+   Chitubox hand-off (QUESTIONS #32, owner, 2026-10-20): STL until the AM-06 manual 3MF check
+   passes.
 7. Resolved at implementation (AM-06 check, not an owner decision): whether Chitubox gets 3MF or
    STL, and which Orca 3MF metadata keeps positions and extruders. The result is recorded in
    the Refinement log.

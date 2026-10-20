@@ -814,7 +814,7 @@ pub enum ImportPrepError {
     - binary STL through the same `export`.
   - The print setup (AM-01) supplies `filaments` and per-body filament for
     `ExportPrep`.
-  - Resin hand-off uses binary STL (note §3.4) until the Chitubox question is answered.
+  - Resin hand-off uses binary STL (note §3.4) until the AM-06 manual 3MF check passes (QUESTIONS #32, owner, 2026-10-20).
 - **S17:**
   - `scene_from_document` uses the body's material/appearance name and colour for
     `MaterialSlot` when no print-setup filament is set. The S17 draft's `Appearance::to_3mf()`
@@ -916,12 +916,19 @@ budget row yet; the refinement report proposes adding "1 GB binary STL import < 
    (multi-material extruders in Orca, but not strictly valid 3MF because of `paint_color`)?
    *Recommended:* Generic for File > Export. Orca is selected automatically by AM-06 "Send to
    OrcaSlicer", and the dialog remembers the last choice.
+   **Resolved 2026-10-20 (owner, QUESTIONS #30):** Generic is the File > Export default.
 2. **(owner)** Non-watertight 3MF export: block by default with "Repair first" / "Export
    anyway" (*recommended*, matching the vision's "fail loudly"), or warn only?
+   **Resolved 2026-10-20 (owner, QUESTIONS #31):** block by default, with "Repair first" and
+   "Export anyway".
 3. **(owner)** Which Chitubox edition/version do you use, and does it open 3MF? This decides
    whether resin hand-off is STL (default) or 3MF.
+   **Resolved 2026-10-20 (owner, QUESTIONS #32):** STL hand-off until the AM-06 manual 3MF
+   check passes on the owner's Chitubox (edition not stated).
 4. **(owner)** Add a vision budget row "Import 1 GB binary STL < 5 s"? FND-08's `BUDGETS` and
    its row-count test would then need one more entry.
+   **Resolved 2026-10-20 (owner, QUESTIONS #33):** yes. The row is in `docs/00-vision.md`;
+   FND-08's `BUDGETS` table (lane E) gets the entry when the FND-08 branch is merged.
 5. **(resolved, see log)** Import as a parametric timeline feature (Fusion "Insert Mesh"), or
    as plain baked bodies? → feature.
 6. **(resolved, see log)** Own parsers vs crates for STL/OBJ/PLY/3MF → own, with crates as

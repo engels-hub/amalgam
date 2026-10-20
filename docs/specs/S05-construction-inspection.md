@@ -834,10 +834,14 @@ Release build, reference machine, BVHs already built unless stated.
 ## Open questions
 1. **(owner)** Default material for mass when a body has none: PLA 1.24 g/cm³ (recommended for
    an AM tool) or Steel (Fusion's default)? Should mass display in g by default (recommended)
-   or kg? → QUESTIONS (proposed).
+   or kg? → QUESTIONS #28.
+   **Resolved 2026-10-20 (owner, QUESTIONS #28):** PLA 1.24 g/cm³, changeable in preferences;
+   mass shown in g.
 2. **(owner)** Several visible section analyses combine (kept region = intersection of their
    kept sides, up to 6 planes, which allows box sections; recommended), or only one is visible
-   at a time? → QUESTIONS (proposed).
+   at a time? → QUESTIONS #29.
+   **Resolved 2026-10-20 (owner, QUESTIONS #29):** combine, up to 6 planes
+   (`MAX_SECTION_PLANES = 6`); S10 RND-06 is updated to 6 planes.
 3. Resolved: measurement math lives in `amg-features::inspect`, not a new domain crate (no ADR
    needed). See Design §1 and the note §1.
 4. Resolved: section caps are geometric (CPU, exact, multi-plane, with stats). GPU stencil

@@ -62,16 +62,19 @@ The full reasoning, library survey and layout diagram are in the
 ### 1. Stack and versions
 - `egui`, `eframe` (features `wgpu` and `accesskit`; `persistence` off, because
   layout and prefs are our own files), `egui-wgpu` and
-  `egui_extras` (features `svg`, `serde`): all **0.37.0**. **wgpu 30.0.1** (egui-wgpu 0.37
+  `egui_extras` (features `svg`, `serde`): all **0.36.2** (owner decision 2026-10-20, QUESTIONS
+  #23, ADR-005 amendment; move to 0.37 when egui_dock supports it). Where this spec names
+  0.37 APIs (`App::logic`/`App::ui`, `Panel`, `egui_kittest` 0.37), UI-01 uses the 0.36.2
+  equivalents; the facades hide the difference. **wgpu 30.0.1** (egui-wgpu 0.37
   requires `wgpu ^30.0`). `egui_kittest` 0.37.0 (`snapshot`, `wgpu`, `eframe`) is a
   dev-dependency.
 - **Docking (ADR-005):** `egui_dock`, behind the `amg_ui::dock::DockHost` facade.
   - As of 2026-10-20 egui_dock 0.21.1 still requires egui 0.36, and no 0.37 release exists.
-  - If that is still true when UI-01 starts, the egui family is pinned to **0.36.2** until
-    egui_dock 0.22 ships. egui-wgpu 0.36.2 also uses wgpu 30, so FND-09 and S10 are not
+  - Decided 2026-10-20 (owner, QUESTIONS #23): the egui family is pinned to **0.36.2** until
+    egui_dock supports 0.37 (0.22 expected). egui-wgpu 0.36.2 also uses wgpu 30, so FND-09 and S10 are not
     affected.
   - Second fallback: `egui_tiles` 0.18 (already on egui 0.37).
-  - Open question 1 (owner).
+  - Open question 1 (resolved 2026-10-20).
 - Only egui-family crates that ship together with egui are allowed as dependencies, and every
   further egui widget crate needs a facade. Icons, toasts and the tree are built in-house
   (note §1).
@@ -973,12 +976,17 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
    FND-09/S10) until egui_dock 0.22 ships (*default*), or
    (b) switch the docking facade to `egui_tiles` 0.18 (already on 0.37, but no floating
    windows), or (c) use egui_dock from git.
+   **Resolved 2026-10-20 (owner, QUESTIONS #23):** (a). The egui family stays on 0.36.2 until
+   egui_dock supports 0.37; the ADR-005 amendment records it.
 2. **(owner)** Several documents as tabs in one window, as in Fusion (*default*), or one
    document per window?
+   **Resolved 2026-10-20 (owner, QUESTIONS #24):** tabs in one window.
 3. **(owner)** Workspace grouping. Follow current Fusion: Mesh and Form are tabs in Design;
    Simulation, Generative and Manufacture-AM are workspaces (*default*). Or keep Mesh and Form
    as separate workspaces as the Draft summary lists? Only lane C's registration data
    changes.
+   **Resolved 2026-10-20 (owner, QUESTIONS #25):** follow current Fusion (Mesh and Form are
+   tabs inside Design).
 4. Feature dialogs float (anchored top-right, movable) instead of docking. Decided: Fusion
    parity. Revisit after Phase 1 use.
 5. Phase 1 mesh dialogs: MESH-23 hand-builds them (QUESTIONS #22). UI-15 widgets are in Phase 1
@@ -989,8 +997,8 @@ Requests to other specs. The owning spec decides; nothing is edited here.
 
 **S00:**
 - **R-S00-1:** `[workspace.dependencies]` uses `wgpu = "30.0.1"` (S00 lists `"29"`).
-- **R-S00-2:** also add `egui`, `eframe`, `egui-wgpu`, `egui_extras` = `0.37.0`, and
-  `egui_kittest` = `0.37.0` as a dev-dependency.
+- **R-S00-2:** also add `egui`, `eframe`, `egui-wgpu`, `egui_extras` = `0.36.2` (owner pin,
+  QUESTIONS #23; was 0.37.0), and the matching `egui_kittest` 0.36.x as a dev-dependency.
 - **R-S00-3:** FND-09's doctest for `WgpuSetup::Existing` targets egui-wgpu 0.37
   (`WgpuSetupExisting { instance, adapter, device, queue }`, checked).
 

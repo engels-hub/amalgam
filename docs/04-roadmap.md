@@ -42,6 +42,8 @@ Goal: everyone can build; shared types exist.
 `FND-01 → FND-02 → (FND-03, FND-04 in parallel)`, then `FND-03 → (FND-06, FND-10)` and
 `FND-04 → FND-09` (FND-09 gated by ADR-004). FND-05 (CI) also runs in Phase 0 after FND-02,
 because BREP-01's done-when includes the CI vcpkg cache (S02 refinement 2026-10-20).
+**FND-13** (bump the vcpkg baseline to a tag shipping OCCT 8.0.1, QUESTIONS #27) follows FND-05
+and must be Done before BREP-01.
 Then spikes in parallel to de-risk the big unknowns: **BREP-01** (OCCT builds and links on
 Windows), **RND-01** (mesh spinning in an egui window), **MESH-01**, **SK-01**, **DOC-01**.
 

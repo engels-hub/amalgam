@@ -1127,7 +1127,7 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
      `Transaction`.
   3. The baked map is persisted in `bodies/` by DOC-07 in Phase 1, not first in DOC-08 (Phase 3).
 - **From S17 (materials; MAT-06 implements and flags the PR; typed tables vs extension records is
-  QUESTIONS #39).**
+  QUESTIONS #39, resolved 2026-10-20: typed tables, owner).**
   - `Design` tables `materials: PMap<MaterialId, Arc<Material>>` and
     `appearances: PMap<AppearanceId, Arc<Appearance>>`.
   - Commands `SetMaterial`, `RemoveMaterial` (refused while in use, `CommandError::InUse`),

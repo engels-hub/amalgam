@@ -616,17 +616,24 @@ here.
 1. **Owner:** default material for unassigned bodies (mass properties only). It could be
    `PLA (FFF)`, recommended for the AM focus, or Steel as in Fusion. *Default:* PLA, changeable
    in preferences. Not blocking (MAT-06).
+   **Resolved 2026-10-20 (owner, QUESTIONS #28):** PLA (FFF), changeable in preferences; mass
+   displays in g.
 2. **Owner:** which resin brand and type do you print with on the MSLA printer, and which
    filament brands most often? MAT-05 then cites those TDS first, or adds them as extra
    entries. *Default:* the generic set in note §3.3. Not blocking.
+   **Resolved 2026-10-20 (owner, QUESTIONS #36):** generic set; no brand preference given.
 3. **Owner:** default currency for material cost (`AmInfo::cost`, used by S16 estimates).
    *Default:* EUR. Not blocking.
+   **Resolved 2026-10-20 (owner, QUESTIONS #37):** EUR.
 4. **Owner:** licence of the built-in library data file. Amalgam's own licence is still open
    (ADR-012). *Default:* same as the code, with the per-value source citations kept. Not
    blocking.
+   **Resolved 2026-10-20 (owner, QUESTIONS #38):** same licence as the code, citations kept.
 5. **S01 owner (lane E):** accept typed `materials`/`appearances` tables + 4 commands in
    `Design` (MAT-06), or use the extension-record fallback? *Recommended:* typed tables. Not
    blocking: MAT-06 can start on the fallback.
+   **Resolved 2026-10-20 (owner, QUESTIONS #39):** typed tables. MAT-06 implements them as an
+   additive S01 change (see S01 Interface changes); the extension-record fallback is not used.
 6. Resolved in refinement: anisotropy representation (transversely isotropic about the build
    axis, orthotropic available; QUESTIONS #3), file format (TOML + unit strings), document
    embedding, appearance model (glTF MR core). See the Refinement log.

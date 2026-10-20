@@ -910,15 +910,22 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
    escalate up to **1e-3 mm** on its own, showing a health warning (recommended; far below
    FFF/MSLA resolution)? Or should it stop at 1e-5 mm and require an explicit "try harder"
    above that? Affects KH-17 defaults (`RetryPolicy::recompute`).
+   **Resolved 2026-10-20 (owner, QUESTIONS #40):** auto up to 1e-3 mm with a health warning
+   (`tol_cap` default 1e-3 mm, as specified).
 4. **(architecture, proposed ADR change)** The architecture allow-list keeps `amg-sketch` and
    `amg-subd` from depending on `amg-nurbs`. S09 FRM-06 (SubD→NURBS) should build on
    `amg-nurbs` (ADR-013 "NURBS math shared later by Form"), so `amg-subd → amg-nurbs`
    should be allowed. `amg-sketch → amg-nurbs` would let SK-08 reuse evaluation and fitting,
    but S03 is `Ready` with its own `BSpline2`. Recommendation: allow `subd → nurbs` now and
    leave sketch as is.
+   **Resolved 2026-10-20 (owner, QUESTIONS #41, #42):** `amg-subd → amg-nurbs` allowed;
+   `amg-sketch` unchanged. Applied in architecture §Crates and the layering test allow-list.
 5. Tangent-merge angle threshold for loft sections (provisional `1e3 × Tolerance::angular` =
    1e-6 rad). It may need to be looser (about 1e-4 rad) for DXF-imported sketches. KH-06 measures
    on the corpus and records the value.
+6. **Resolved 2026-10-20 (owner, QUESTIONS #27):** the vcpkg baseline bump to a tag shipping
+   OCCT 8.0.1 (R15) is scheduled as S00 WP FND-13, before BREP-01. KH-16 and KH-18 can rely on
+   the 8.0.1 Gordon engine once FND-13 is Done.
 
 ## Refinement log
 ### 2026-10-20 — S20 refinement (lane A agent)
