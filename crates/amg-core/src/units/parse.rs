@@ -163,6 +163,13 @@ pub fn parse_quantity(input: &str) -> Result<ParsedQuantity, ParseQuantityError>
                 return Err(c.trailing());
             }
             value = value * 12.0 + inches;
+            if !value.is_finite() {
+                let end = input.trim_end_matches(is_ws_char).len();
+                return Err(ParseQuantityError::InvalidNumber {
+                    span: start..end,
+                    text: input[start..end].to_owned(),
+                });
+            }
             unit = Some(Unit::Inch);
         }
     }
@@ -177,8 +184,20 @@ struct Cursor<'a> {
     pos: usize,
 }
 
-fn is_ws(b: u8) -> bool {
-    b == b' ' || b == b'\t'
+/// Byte length of the whitespace character at the start of `b` (0 if none): space, tab,
+/// CR, LF, NBSP (U+00A0) and narrow NBSP (U+202F, a French unit separator).
+fn ws_len(b: &[u8]) -> usize {
+    match b {
+        [b' ' | b'\t' | b'\r' | b'\n', ..] => 1,
+        [0xC2, 0xA0, ..] => 2,
+        [0xE2, 0x80, 0xAF, ..] => 3,
+        _ => 0,
+    }
+}
+
+/// The characters [`ws_len`] accepts.
+fn is_ws_char(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\r' | '\n' | '\u{A0}' | '\u{202F}')
 }
 
 impl Cursor<'_> {
@@ -193,8 +212,12 @@ impl Cursor<'_> {
     }
     fn skip_ws(&mut self) -> usize {
         let start = self.pos;
-        while self.peek().is_some_and(is_ws) {
-            self.pos += 1;
+        loop {
+            let n = ws_len(&self.s.as_bytes()[self.pos..]);
+            if n == 0 {
+                break;
+            }
+            self.pos += n;
         }
         self.pos - start
     }
@@ -217,9 +240,8 @@ impl Cursor<'_> {
     }
     /// End of the whitespace-delimited token starting at `from`.
     fn token_end(&self, from: usize) -> usize {
-        self.s.as_bytes()[from..]
-            .iter()
-            .position(|&b| is_ws(b))
+        self.s[from..]
+            .find(is_ws_char)
             .map_or(self.s.len(), |p| from + p)
     }
     fn invalid_number(&self, from: usize) -> ParseQuantityError {
@@ -253,7 +275,20 @@ impl Cursor<'_> {
     }
 
     /// `mixed | fraction | decimal`; `token_start` is where an error span starts (the sign).
+    /// Values that overflow `f64` (`1e400`, 400-digit integers) are `InvalidNumber`.
     fn magnitude(&mut self, token_start: usize) -> Result<f64, ParseQuantityError> {
+        let v = self.magnitude_raw(token_start)?;
+        if v.is_finite() {
+            Ok(v)
+        } else {
+            Err(ParseQuantityError::InvalidNumber {
+                span: token_start..self.pos,
+                text: self.s[token_start..self.pos].to_owned(),
+            })
+        }
+    }
+
+    fn magnitude_raw(&mut self, token_start: usize) -> Result<f64, ParseQuantityError> {
         let start = self.pos;
         let int_len = self.digits();
         self.check_comma()?;
@@ -349,7 +384,7 @@ impl Cursor<'_> {
 fn boundary(sym: &str, after: &str) -> bool {
     match after.as_bytes().first() {
         None => true,
-        Some(&b) if is_ws(b) => true,
+        Some(_) if ws_len(after.as_bytes()) > 0 => true,
         Some(&b) => {
             let punct = sym.chars().last().is_some_and(|c| !c.is_alphanumeric());
             punct && (b.is_ascii_digit() || b == b'.')

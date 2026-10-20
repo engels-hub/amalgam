@@ -24,5 +24,9 @@ serde_json.workspace = true
 name = "units"
 harness = false
 
+[[bench]]
+name = "geom"
+harness = false
+
 [lints]
 workspace = true

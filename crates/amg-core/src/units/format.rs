@@ -75,6 +75,9 @@ impl FormatSpec {
 
 /// Formats `q` in `unit`.
 ///
+/// If the value overflows `f64` in `unit` (only possible for units with scale < 1), it is
+/// printed as with [`FormatStyle::Exact`] in the canonical unit, symbol always shown.
+///
 /// `Err(DimensionMismatch)` if `q.dim != unit.dimension()` (for `FeetInch`: unless `q` is a
 /// length); `Err(InvalidArgument)` if the value is not finite.
 ///
@@ -116,6 +119,16 @@ pub fn format_quantity(q: Quantity, unit: Unit, spec: &FormatSpec) -> Result<Str
             s
         }
     };
+    let decimal_like = matches!(
+        spec.style,
+        FormatStyle::Decimal | FormatStyle::Fraction { .. }
+    );
+    if decimal_like && !unit.from_canonical(q.value).is_finite() {
+        // Finite canonical value that overflows in `unit` (f64::MAX mm in um): print it
+        // exactly in the canonical unit, so the output always parses back.
+        let (s, u, _) = exact(q.value, unit);
+        return Ok(with_unit(s, u, true));
+    }
     Ok(match spec.style {
         FormatStyle::Decimal => with_unit(
             decimal(unit.from_canonical(q.value), spec),

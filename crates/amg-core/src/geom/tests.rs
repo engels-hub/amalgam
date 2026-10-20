@@ -467,6 +467,28 @@ fn line_line_closest() {
     assert!(line_line(&a, &c, &T).is_none());
 }
 
+/// Regression: angles just above `tol.angular` used to give `1 - (da·db)² == 0` and NaN.
+#[test]
+fn line_line_nearly_parallel() {
+    for angle in [2e-9f64, 1e-8, 1e-6] {
+        let a = Line3 {
+            point: Point3::ZERO,
+            dir: Dir3::X,
+        };
+        let b = Line3 {
+            point: p3(5.0, 0.0, 1.0),
+            dir: dir(angle.cos(), angle.sin(), 0.0),
+        };
+        let (pa, pb) = line_line(&a, &b, &T).unwrap();
+        assert!(!pa.is_nan() && !pb.is_nan(), "angle {angle}");
+        assert_relative_eq!(pa, p3(5.0, 0.0, 0.0), epsilon = 1e-5);
+        assert_relative_eq!(pb, p3(5.0, 0.0, 1.0), epsilon = 1e-5);
+        // The connecting segment is perpendicular to both lines.
+        let w = pb - pa;
+        assert!(w.dot(a.dir.get()).abs() < 1e-6 && w.dot(b.dir.get()).abs() < 1e-6);
+    }
+}
+
 #[test]
 fn point_segment_distance_cases() {
     let s = Segment3 {
@@ -514,6 +536,18 @@ fn point_triangle_closest_regions() {
     let q = point_triangle_closest(p3(1.5, 1.0, 0.0), &deg);
     assert!(!q.is_nan());
     assert_relative_eq!(q, p3(1.5, 0.0, 0.0), epsilon = 1e-12);
+    // Regression (review probe): a sliver whose apex lies past `b` on the line `ab`.
+    let sliver = Triangle3 {
+        a: Point3::ZERO,
+        b: p3(10.0, 0.0, 0.0),
+        c: p3(20.0, 1e-12, 0.0),
+    };
+    let p = p3(5.0, 3.0, 1.0);
+    assert_relative_eq!(
+        point_triangle_closest(p, &sliver),
+        p3(5.0, 0.0, 0.0),
+        epsilon = 1e-9
+    );
 }
 
 #[test]
@@ -541,6 +575,24 @@ fn segment2_segment2_cases() {
         segment2_segment2(&s(0.0, 0.0, 1.0, 0.0), &s(1.0 + 5e-7, -1.0, 1.0 + 5e-7, 1.0), &T),
         Seg2Intersection::Point { t, .. } if (t - 1.0).abs() < 1e-12
     ));
+    // Regression: shallow crossing outside both segments, but `b.a` is 5e-7 from `a`.
+    match segment2_segment2(&s(0.0, 0.0, 10.0, 0.0), &s(5.0, 5e-7, 15.0, 0.01), &T) {
+        Seg2Intersection::Point { t, u, p } => {
+            assert_relative_eq!(t, 0.5, epsilon = 1e-12);
+            assert_relative_eq!(u, 0.0);
+            assert_relative_eq!(p, p2(5.0, 0.0), epsilon = 1e-12);
+        }
+        other => panic!("{other:?}"),
+    }
+    // Same with the roles swapped, and an endpoint just outside tolerance.
+    assert!(matches!(
+        segment2_segment2(&s(5.0, 5e-7, 15.0, 0.01), &s(0.0, 0.0, 10.0, 0.0), &T),
+        Seg2Intersection::Point { t, u, .. } if t == 0.0 && (u - 0.5).abs() < 1e-12
+    ));
+    assert_eq!(
+        segment2_segment2(&s(0.0, 0.0, 10.0, 0.0), &s(5.0, 2e-6, 15.0, 0.01), &T),
+        Seg2Intersection::None
+    );
     // Parallel, not collinear.
     assert_eq!(
         segment2_segment2(&s(0.0, 0.0, 1.0, 0.0), &s(0.0, 1.0, 1.0, 1.0), &T),
@@ -746,6 +798,26 @@ proptest! {
         }
     }
 
+    /// Slivers (height 1e-6 .. 1e-16 of a ~10 mm edge) are no worse than their edges and
+    /// no better than the edges minus the sliver height.
+    #[test]
+    fn prop_point_triangle_closest_slivers(
+        a in arb_point(10.0), b in arb_point(10.0), s in -2.0f64..2.0,
+        noise in arb_point(1.0), k in 6i32..17, p in arb_point(10.0),
+    ) {
+        let eps = 10f64.powi(-k);
+        let c = a + (b - a) * s + (noise - Point3::ZERO) * eps;
+        let tri = Triangle3 { a, b, c };
+        let q = point_triangle_closest(p, &tri);
+        let d = q.distance(p);
+        let e = [Segment3 { a, b }, Segment3 { a: b, b: c }, Segment3 { a: c, b: a }]
+            .iter()
+            .map(|s| point_segment_distance(p, s))
+            .fold(f64::INFINITY, f64::min);
+        prop_assert!(d <= e + 1e-9, "excess {}", d - e);
+        prop_assert!(d >= e - 2.0 * eps - 1e-9, "too close by {}", e - d);
+    }
+
     /// `ray_triangle` hit points lie on the ray and inside the triangle.
     #[test]
     fn prop_ray_triangle_hit_is_consistent(o in arb_point(10.0), a in arb_point(5.0), b in arb_point(5.0), c in arb_point(5.0), w in (0.0f64..1.0, 0.0f64..1.0)) {
@@ -799,6 +871,75 @@ fn fan(n: usize, radius: f64, apex_z: f64) -> Vec<Triangle3> {
             c: rim[(i + 1) % n],
         })
         .collect()
+}
+
+/// Grid mesh on integer coordinates (z = 0): each unit square split into two triangles, so
+/// vertices and shared edges sit on exactly representable values.
+fn grid(n: i32) -> Vec<Triangle3> {
+    let mut tris = Vec::new();
+    for i in 0..n {
+        for j in 0..n {
+            let (x, y) = (f64::from(i), f64::from(j));
+            let (p00, p10, p01, p11) = (
+                p3(x, y, 0.0),
+                p3(x + 1.0, y, 0.0),
+                p3(x, y + 1.0, 0.0),
+                p3(x + 1.0, y + 1.0, 0.0),
+            );
+            tris.push(Triangle3 {
+                a: p00,
+                b: p10,
+                c: p11,
+            });
+            tris.push(Triangle3 {
+                a: p00,
+                b: p11,
+                c: p01,
+            });
+        }
+    }
+    tris
+}
+
+/// Rays aimed exactly at grid vertices and along axis-aligned and diagonal shared edges
+/// make edge functions exactly zero; none may slip through.
+#[test]
+fn ray_triangle_grid_vertices_and_edges_are_watertight() {
+    let n = 8;
+    let mesh = grid(n);
+    let dirs = [
+        Dir3::NEG_Z,
+        Dir3::Z,
+        dir(0.0, 0.0, -1.0),
+        dir(0.3, -0.2, -1.0),
+        dir(-1.0, 0.0, -1.0),
+        dir(0.0, 1.0, -1.0),
+    ];
+    let mut targets = Vec::new();
+    for i in 1..n {
+        for j in 1..n {
+            let (x, y) = (f64::from(i), f64::from(j));
+            targets.push(p3(x, y, 0.0)); // interior vertex
+            targets.push(p3(x + 0.5, y, 0.0)); // horizontal shared edge
+            targets.push(p3(x, y + 0.25, 0.0)); // vertical shared edge
+            targets.push(p3(x - 0.5, y - 0.5, 0.0)); // diagonal shared edge
+        }
+    }
+    for d in dirs {
+        for &target in &targets {
+            let o = target - d.get() * 7.0;
+            let r = ray(o, d);
+            let hits = mesh
+                .iter()
+                .filter(|t| ray_triangle(&r, t).is_some())
+                .count();
+            assert!(hits >= 1, "ray {d:?} at {target:?} missed the grid");
+            // Axis-aligned rays have exactly-zero edge functions on the shared edges.
+            if d.get().x == 0.0 && d.get().y == 0.0 {
+                assert!(hits >= 2, "ray {d:?} at {target:?} hit only {hits}");
+            }
+        }
+    }
 }
 
 /// Deterministic sweep: every shared edge (at several points) and the shared apex.

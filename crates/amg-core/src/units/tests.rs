@@ -438,6 +438,62 @@ fn other_errors() {
     );
 }
 
+/// Regression: overflow used to parse as `Ok(inf)`.
+#[test]
+fn overflow_is_an_invalid_number() {
+    let invalid = |s: &str, span: std::ops::Range<usize>| {
+        let e = err(s);
+        assert!(
+            matches!(&e, ParseQuantityError::InvalidNumber { span: sp, text } if *sp == span && *text == s[span.clone()]),
+            "{s:?}: {e:?}"
+        );
+    };
+    invalid("1e400 mm", 0..5);
+    invalid(" -1e400", 1..7);
+    let nines = "9".repeat(400);
+    invalid(&nines, 0..400);
+    invalid(&format!("{nines}/1 in"), 0..402);
+    invalid(&format!("{nines} 1/2"), 0..404);
+    invalid("1e308' 1e308\"", 0..13);
+    // Underflow is a legitimate (tiny) number, and huge denominators give 0.
+    assert_eq!(parse("1e-400 mm").value.to_bits(), 0);
+    assert_eq!(parse(&format!("1/{nines}")).value.to_bits(), 0);
+    assert!(parse("1.7976931348623157e308").value.is_finite());
+}
+
+/// Surrounding CR/LF and non-breaking spaces (U+00A0, U+202F) are whitespace.
+#[test]
+fn whitespace_variants() {
+    let cases: &[(&str, f64, Option<Unit>)] = &[
+        ("12.5 mm\r\n", 12.5, Some(Unit::Millimetre)),
+        ("\r\n 12.5\n", 12.5, None),
+        ("12.5\u{A0}mm", 12.5, Some(Unit::Millimetre)),
+        ("\u{A0}1\u{A0}1/4\u{A0}in\u{A0}", 1.25, Some(Unit::Inch)),
+        ("5'\u{202F}3\"", 63.0, Some(Unit::Inch)),
+        ("30\u{202F}deg", 30.0, Some(Unit::Degree)),
+    ];
+    for &(s, v, u) in cases {
+        let p = parse(s);
+        assert_eq!(p.unit, u, "{s:?}");
+        assert_relative_eq!(p.value, v);
+    }
+    assert_eq!(err("\r\n\u{A0}"), ParseQuantityError::Empty);
+    assert_eq!(
+        err("3\u{A0}foo\u{A0}"),
+        ParseQuantityError::UnknownUnit {
+            span: 3..6,
+            text: "foo".into()
+        }
+    );
+    assert_eq!(
+        err("1 m\u{A0}20 cm"),
+        ParseQuantityError::Trailing {
+            span: 5..10,
+            text: "20 cm".into()
+        }
+    );
+}
+
 #[test]
 fn error_spans_and_hints() {
     assert_eq!(ParseQuantityError::Empty.span(), None);
@@ -781,6 +837,29 @@ fn exact_falls_back_to_canonical_unit() {
     assert_eq!(s, "1.7976931348623157e308 mm");
 }
 
+/// Regression: finite values that overflow in the target unit printed `inf um`.
+#[test]
+fn rounded_styles_fall_back_on_overflow() {
+    let big = Quantity::new(f64::MAX, Dimension::LENGTH);
+    for style in [
+        FormatStyle::Decimal,
+        FormatStyle::Fraction {
+            max_denominator: 64,
+        },
+    ] {
+        let s = FormatSpec {
+            show_unit: false,
+            ..spec(style, 3)
+        };
+        let text = format_quantity(big, Unit::Micrometre, &s).unwrap();
+        assert_eq!(text, "1.7976931348623157e308 mm");
+        assert_eq!(
+            parse(&text).resolve(Unit::Micrometre).value.to_bits(),
+            f64::MAX.to_bits()
+        );
+    }
+}
+
 #[test]
 fn format_errors() {
     let q = Quantity::new(1.0, Dimension::LENGTH);
@@ -829,10 +908,10 @@ proptest! {
         prop_assert_eq!(back.value.to_bits(), v.to_bits(), "{} -> {}", v, s);
     }
 
-    /// `Decimal` stays within half a unit of the last printed digit.
+    /// `Decimal` stays within half a unit of the last printed digit, for any finite value.
     #[test]
     fn prop_decimal_within_printed_precision(
-        v in -1e9..1e9f64, u in arb_unit(), precision in 0u8..9, trim in any::<bool>(),
+        v in arb_finite(), u in arb_unit(), precision in 0u8..9, trim in any::<bool>(),
     ) {
         let s = FormatSpec { style: FormatStyle::Decimal, precision, trim_zeros: trim, show_unit: true };
         let text = format_quantity(Quantity::new(v, u.dimension()), u, &s).unwrap();
@@ -843,7 +922,7 @@ proptest! {
     /// `Fraction` and `FeetInch` obey the same bound (fractions match within it).
     #[test]
     fn prop_fraction_and_feet_inch_within_precision(
-        v in -1e6..1e6f64, max_denominator in 1u32..128, precision in 0u8..7,
+        v in arb_finite(), max_denominator in 1u32..128, precision in 0u8..7,
     ) {
         let q = Quantity::new(v, Dimension::LENGTH);
         for (style, unit) in [
@@ -880,4 +959,15 @@ proptest! {
             prop_assert!(s.is_char_boundary(span.start) && s.is_char_boundary(span.end));
         }
     }
+}
+
+/// Absolute temperatures are affine: only differences (in K) and explicit offsets.
+#[test]
+fn temperature_is_affine() {
+    let a = Temperature::celsius(30.0);
+    let b = Temperature::celsius(20.0);
+    let dk: f64 = a - b;
+    assert_relative_eq!(dk, 10.0, epsilon = 1e-12);
+    assert_relative_eq!(b.offset_k(dk).get(), a.get(), epsilon = 1e-12);
+    assert!(b < a);
 }

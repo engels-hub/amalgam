@@ -2,7 +2,9 @@
 //!
 //! Each type has `ZERO`, `from_canonical`/`get` (canonical raw value), a named constructor per
 //! unit (`Length::inches(0.25)`) with a matching `to_*` accessor (`l.to_inches()`), and
-//! `Add`/`Sub`/`Neg`/`Mul<f64>`/`Div<f64>`/`Div<Self> -> f64`. They convert to [`Quantity`]
+//! `Add`/`Sub`/`Neg`/`Mul<f64>`/`Div<f64>`/`Div<Self> -> f64`. [`Temperature`] is absolute
+//! (affine), so it only has `Temperature - Temperature -> f64` (kelvin) and
+//! [`Temperature::offset_k`]: differences stay explicit. They convert to [`Quantity`]
 //! with `From` and back with `TryFrom` (`Err(DimensionMismatch)`), and serialise as the bare
 //! canonical `f64`.
 
@@ -59,58 +61,6 @@ macro_rules! typed_quantity {
             )+
         }
 
-        impl std::ops::Add for $name {
-            type Output = $name;
-            fn add(self, o: $name) -> $name {
-                $name(self.0 + o.0)
-            }
-        }
-        impl std::ops::Sub for $name {
-            type Output = $name;
-            fn sub(self, o: $name) -> $name {
-                $name(self.0 - o.0)
-            }
-        }
-        impl std::ops::AddAssign for $name {
-            fn add_assign(&mut self, o: $name) {
-                self.0 += o.0;
-            }
-        }
-        impl std::ops::SubAssign for $name {
-            fn sub_assign(&mut self, o: $name) {
-                self.0 -= o.0;
-            }
-        }
-        impl std::ops::Neg for $name {
-            type Output = $name;
-            fn neg(self) -> $name {
-                $name(-self.0)
-            }
-        }
-        impl std::ops::Mul<f64> for $name {
-            type Output = $name;
-            fn mul(self, k: f64) -> $name {
-                $name(self.0 * k)
-            }
-        }
-        impl std::ops::Mul<$name> for f64 {
-            type Output = $name;
-            fn mul(self, q: $name) -> $name {
-                $name(self * q.0)
-            }
-        }
-        impl std::ops::Div<f64> for $name {
-            type Output = $name;
-            fn div(self, k: f64) -> $name {
-                $name(self.0 / k)
-            }
-        }
-        impl std::ops::Div for $name {
-            type Output = f64;
-            fn div(self, o: $name) -> f64 {
-                self.0 / o.0
-            }
-        }
         impl From<$name> for Quantity {
             fn from(q: $name) -> Quantity {
                 Quantity::new(q.0, $dim)
@@ -254,12 +204,89 @@ typed_quantity! {
 }
 
 typed_quantity! {
-    /// An absolute temperature (canonical K). Arithmetic treats values as absolute kelvin;
-    /// enter differences in K.
+    /// An absolute temperature (canonical K). No `+`, `*` or `/`: subtracting two gives the
+    /// difference in kelvin, and [`offset_k`](Temperature::offset_k) applies one.
     Temperature, Dimension::TEMPERATURE, "K";
     kelvin / to_kelvin => Kelvin,
     celsius / to_celsius => DegreeCelsius,
     fahrenheit / to_fahrenheit => DegreeFahrenheit,
+}
+
+/// Linear arithmetic for every typed quantity except the affine [`Temperature`].
+macro_rules! linear_ops {
+    ($($name:ident),+) => {$(
+        impl std::ops::Add for $name {
+            type Output = $name;
+            fn add(self, o: $name) -> $name {
+                $name(self.0 + o.0)
+            }
+        }
+        impl std::ops::Sub for $name {
+            type Output = $name;
+            fn sub(self, o: $name) -> $name {
+                $name(self.0 - o.0)
+            }
+        }
+        impl std::ops::AddAssign for $name {
+            fn add_assign(&mut self, o: $name) {
+                self.0 += o.0;
+            }
+        }
+        impl std::ops::SubAssign for $name {
+            fn sub_assign(&mut self, o: $name) {
+                self.0 -= o.0;
+            }
+        }
+        impl std::ops::Neg for $name {
+            type Output = $name;
+            fn neg(self) -> $name {
+                $name(-self.0)
+            }
+        }
+        impl std::ops::Mul<f64> for $name {
+            type Output = $name;
+            fn mul(self, k: f64) -> $name {
+                $name(self.0 * k)
+            }
+        }
+        impl std::ops::Mul<$name> for f64 {
+            type Output = $name;
+            fn mul(self, q: $name) -> $name {
+                $name(self * q.0)
+            }
+        }
+        impl std::ops::Div<f64> for $name {
+            type Output = $name;
+            fn div(self, k: f64) -> $name {
+                $name(self.0 / k)
+            }
+        }
+        impl std::ops::Div for $name {
+            type Output = f64;
+            fn div(self, o: $name) -> f64 {
+                self.0 / o.0
+            }
+        }
+    )+};
+}
+
+linear_ops!(
+    Length, Angle, Area, Volume, Mass, Time, Force, Pressure, Density, Energy
+);
+
+impl std::ops::Sub for Temperature {
+    type Output = f64;
+    /// The difference in kelvin (a temperature difference is not an absolute temperature).
+    fn sub(self, o: Temperature) -> f64 {
+        self.0 - o.0
+    }
+}
+
+impl Temperature {
+    /// This temperature shifted by a difference of `dk` kelvin (= `dk` delta_degC).
+    pub fn offset_k(self, dk: f64) -> Temperature {
+        Temperature(self.0 + dk)
+    }
 }
 
 macro_rules! cross_op {

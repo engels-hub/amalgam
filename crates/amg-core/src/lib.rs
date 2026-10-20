@@ -19,7 +19,7 @@ pub mod math;
 pub mod tolerance;
 pub mod units;
 
-pub use error::{Cancelled, Diagnostic, Error, Result, Severity, report};
+pub use error::{Cancelled, Diagnostic, Error, Result, Severity, report, report_diagnostic};
 pub use geom::{Aabb2, Aabb3, Line2, Line3, Plane, Ray3, Segment2, Segment3, Triangle3, intersect};
 pub use id::{DenseSlotMap, Key, KeyData, PersistentId, SecondaryMap, SlotMap, SparseSecondaryMap};
 pub use math::{

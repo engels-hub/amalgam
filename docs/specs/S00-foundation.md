@@ -1273,3 +1273,37 @@ resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR
   - `format_quantity` returns `Err(InvalidArgument)` for NaN/±inf.
 - `amg-core` gains `criterion` as a dev-dependency (bench `units`: `units/parse_quantity/*`,
   `units/format_quantity/*`).
+
+### 2026-10-20 — review fixes for FND-03 and FND-10 (`amg-core`, lane E)
+- **`line_line`** now computes `s = ((w × db)·n)/|n|²`, `t = ((w × da)·n)/|n|²` with
+  `n = da × db`, `w = b.point − a.point`. The old `1 − (da·db)²` denominator cancelled to 0
+  for angles below about 1.5e-8 rad that still pass the `tol.angular` check, giving NaN.
+- **`point_triangle_closest`**: slivers with `|ab × ac| ≤ 1e-8 · max_edge²` (height below
+  about 1e-8 of the longest edge) return the closest point of the three edges. Ericson's
+  region tests gave wrong points for them (up to 22.9 mm off for 10 mm slivers). The edge
+  answer is within the sliver height of the exact one.
+- **`segment2_segment2`** now honours its documented endpoint tolerance in the non-parallel
+  case: if the lines cross outside the segments, an endpoint within `tol.linear` of the
+  other segment still gives `Point` (the closest of the four endpoint checks; `t`/`u` are
+  the endpoint's and its projection's parameters, `p` is on the first segment).
+- **`report` does not render hints** (a `dyn Error` has none); the Interfaces comment
+  "message + hint + source chain" is met by the additive
+  `report_diagnostic(e: &dyn Diagnostic) -> String` (user message, `  hint: …` line, then
+  the `  caused by: …` chain), re-exported at the crate root.
+- **`parse_quantity` rejects overflow**: a magnitude (decimal, fraction, mixed number) or
+  feet-inch total that is not finite (`1e400`, 400-digit integers) is `InvalidNumber`
+  spanning the number (the whole literal for feet-inch). Underflow (`1e-400`) parses as 0.
+- **Whitespace** in quantity literals is space, tab, CR, LF, NBSP (U+00A0) and narrow NBSP
+  (U+202F), both around the literal and between its parts.
+- **`Decimal` and `Fraction` never print `inf`**: a finite value that overflows in the target
+  unit (only units with scale < 1, e.g. `f64::MAX` mm in µm) is printed as `Exact` in the
+  canonical unit with its symbol, so the output always parses back. The round-trip
+  proptests now cover every finite `f64`.
+- **`Temperature` is affine**: it no longer has `Add`, `AddAssign`, `SubAssign`, `Neg`,
+  `Mul<f64>`, `f64 * Temperature`, `Div<f64>` or `Div<Self>`. `Temperature - Temperature`
+  returns the difference in kelvin as `f64`, and `Temperature::offset_k(dk)` applies one.
+  Nothing in the workspace used the removed operators. All other typed quantities keep the
+  full linear set.
+- New criterion bench `amg-core/benches/geom.rs` (`geom/ray_triangle`, throughput in
+  ray/triangle tests per second; target ≥ 50 M/s). Measured 2026-10-20: about 63 M tests/s
+  on one thread on a loaded dev machine (Windows 11, MSVC).
