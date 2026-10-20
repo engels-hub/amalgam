@@ -8,7 +8,8 @@
 //! or fails and leaves the design unchanged. Loading checks the same invariants
 //! ([`Design::validate`]), so a file can't hold a state the edit API couldn't produce.
 //!
-//! The timeline (DOC-02) and parameter table (DOC-04) join `Design` in their work packages.
+//! The timeline and its edits live in [`crate::timeline`] (DOC-02); the parameter table
+//! (DOC-04) joins `Design` in its work package.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -17,9 +18,10 @@ use amg_core::{PersistentId, Tolerance, Transform};
 use serde::{Deserialize, Serialize};
 
 use crate::eval::BodyGeom;
-use crate::id::{BodyId, ComponentId, ExtKey, FeatureId, JointId, OccurrenceId, Revision};
+use crate::id::{BodyId, ComponentId, ExtKey, FeatureId, GroupId, JointId, OccurrenceId, Revision};
 use crate::pcoll::{PMap, entries};
 use crate::stub::{AppearanceKey, LengthUnit, MaterialKey};
+use crate::timeline::Timeline;
 
 /// Immutable authored state shared between the document, undo stack and recompute jobs.
 pub type DesignSnapshot = Arc<Design>;
@@ -37,19 +39,21 @@ pub const ID_LIMIT: u64 = 1 << 53;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(try_from = "DesignRepr")]
 pub struct Design {
-    meta: DesignMeta,
+    pub(crate) meta: DesignMeta,
     root: ComponentId,
     #[serde(serialize_with = "entries::serialize")]
     components: PMap<ComponentId, Arc<Component>>,
     #[serde(serialize_with = "entries::serialize")]
     occurrences: PMap<OccurrenceId, Arc<Occurrence>>,
     #[serde(serialize_with = "entries::serialize")]
-    body_props: PMap<BodyId, Arc<BodyProps>>,
+    pub(crate) body_props: PMap<BodyId, Arc<BodyProps>>,
     /// Baked bodies: direct mode, base feature, imports (DOC-08, S12).
     #[serde(serialize_with = "entries::serialize")]
-    baked: PMap<BodyId, Arc<BakedBody>>,
+    pub(crate) baked: PMap<BodyId, Arc<BakedBody>>,
     #[serde(serialize_with = "entries::serialize")]
     extensions: PMap<ExtKey, Arc<ExtRecord>>,
+    /// The parametric timeline (DOC-02; edits in `timeline.rs`).
+    pub(crate) timeline: Timeline,
     /// Runtime only: authored changes since the design was created or loaded.
     #[serde(skip)]
     revision: Revision,
@@ -244,6 +248,15 @@ pub enum ModelError {
         /// The intended parent.
         parent: ComponentId,
     },
+    /// The edit would place `feature` before (or make it read) its input `input` (ordering
+    /// rule, S01 §2).
+    #[error("{feature} would come before its input {input}")]
+    WouldBreakDependency {
+        /// The feature whose input would come later.
+        feature: FeatureId,
+        /// The input's producer.
+        input: FeatureId,
+    },
     /// A value is out of range (non-finite, outside its domain, mismatched kind).
     #[error("invalid {field}: {msg}")]
     InvalidValue {
@@ -299,6 +312,7 @@ impl Design {
             body_props: PMap::new(),
             baked: PMap::new(),
             extensions: PMap::new(),
+            timeline: Timeline::default(),
             revision: Revision(0),
         }
     }
@@ -430,9 +444,15 @@ impl Design {
     }
 
     /// Sets (or, with the defaults, clears) the properties of a body. The body's origin must
-    /// be an allocated id that isn't a component, occurrence or extension.
+    /// be a timeline feature, or the body must be baked.
     pub fn set_body_props(&mut self, id: BodyId, props: BodyProps) -> Result<(), ModelError> {
         self.check_body_id(id)?;
+        if !self.timeline.contains(id.origin) && !self.baked.contains_key(&id) {
+            return Err(ModelError::NotFound {
+                what: "feature",
+                id: id.origin.0,
+            });
+        }
         props.check()?;
         if self.body_props(id) == props {
             return Ok(());
@@ -446,7 +466,9 @@ impl Design {
         Ok(())
     }
 
-    /// Sets or removes a baked body. Same id rules as [`Design::set_body_props`].
+    /// Sets or removes a baked body. The origin is a timeline feature (imports, base feature)
+    /// or, in direct mode (DOC-08), an allocated id that no other entity type owns. Removing
+    /// a baked body whose origin is not a timeline feature also removes its properties.
     pub fn set_baked(&mut self, id: BodyId, baked: Option<BakedBody>) -> Result<(), ModelError> {
         self.check_body_id(id)?;
         if self.baked.get(&id).map(|b| &**b) == baked.as_ref() {
@@ -454,7 +476,12 @@ impl Design {
         }
         match baked {
             Some(b) => self.baked.insert(id, Arc::new(b)),
-            None => self.baked.remove(&id),
+            None => {
+                if !self.timeline.contains(id.origin) {
+                    self.body_props.remove(&id);
+                }
+                self.baked.remove(&id)
+            }
         };
         self.bump();
         Ok(())
@@ -522,14 +549,14 @@ impl Design {
 
     // ---- internals -----------------------------------------------------------------------
 
-    fn alloc(&mut self) -> Result<u64, ModelError> {
+    pub(crate) fn alloc(&mut self) -> Result<u64, ModelError> {
         let id = self.meta.next_id;
         let next = id.checked_add(1).filter(|&n| n <= ID_LIMIT);
         self.meta.next_id = next.ok_or(ModelError::IdsExhausted)?;
         Ok(id)
     }
 
-    fn ensure_ids(&self, n: u64) -> Result<(), ModelError> {
+    pub(crate) fn ensure_ids(&self, n: u64) -> Result<(), ModelError> {
         match self.meta.next_id.checked_add(n) {
             Some(end) if end <= ID_LIMIT => Ok(()),
             _ => Err(ModelError::IdsExhausted),
@@ -562,11 +589,11 @@ impl Design {
         Ok(id)
     }
 
-    fn bump(&mut self) {
+    pub(crate) fn bump(&mut self) {
         self.revision = self.revision.next();
     }
 
-    fn require_component(&self, id: ComponentId) -> Result<(), ModelError> {
+    pub(crate) fn require_component(&self, id: ComponentId) -> Result<(), ModelError> {
         if self.components.contains_key(&id) {
             Ok(())
         } else {
@@ -581,22 +608,20 @@ impl Design {
         self.extensions.keys().find(|k| k.id == id)
     }
 
-    /// The entity type an allocated id belongs to, if any. Body origins count as `"feature"`.
-    fn owner_of(&self, id: u64) -> Option<&'static str> {
-        let feature = BodyId {
-            origin: FeatureId(id),
-            slot: 0,
-        }..=BodyId {
-            origin: FeatureId(id),
-            slot: u32::MAX,
-        };
+    /// The entity type an allocated id belongs to, if any. Timeline nodes and body origins
+    /// count as `"feature"`.
+    pub(crate) fn owner_of(&self, id: u64) -> Option<&'static str> {
+        let feature = origin_range(FeatureId(id));
         if self.components.contains_key(&ComponentId(id)) {
             Some("component")
         } else if self.occurrences.contains_key(&OccurrenceId(id)) {
             Some("occurrence")
         } else if self.ext_with_id(id).is_some() {
             Some("extension")
-        } else if self.body_props.range(feature.clone()).next().is_some()
+        } else if self.timeline.group(GroupId(id)).is_some() {
+            Some("group")
+        } else if self.timeline.contains(FeatureId(id))
+            || self.body_props.range(feature.clone()).next().is_some()
             || self.baked.range(feature).next().is_some()
         {
             Some("feature")
@@ -605,9 +630,8 @@ impl Design {
         }
     }
 
-    /// A body origin must be an allocated id that no non-feature entity owns.
-    ///
-    /// TODO(DOC-02): require `origin` to be a timeline feature (or the base feature).
+    /// A body origin must be an allocated id that no non-feature entity owns. Body props
+    /// additionally need a timeline feature or a baked body (`set_body_props`).
     fn check_body_id(&self, id: BodyId) -> Result<(), ModelError> {
         let raw = id.origin.0;
         if raw == 0 || raw >= self.meta.next_id {
@@ -685,15 +709,32 @@ impl Design {
         for k in self.extensions.keys() {
             claim(k.id, "extension")?;
         }
+        for (g, _) in self.timeline.groups() {
+            claim(g.0, "group")?;
+        }
+        for n in self.timeline.nodes() {
+            claim(n.id.0, "feature")?;
+        }
         let origins: BTreeSet<u64> = self
             .body_props
             .keys()
             .chain(self.baked.keys())
             .map(|b| b.origin.0)
+            .filter(|&o| !self.timeline.contains(FeatureId(o)))
             .collect();
         for o in origins {
             claim(o, "feature")?;
         }
+        if let Some(b) = self
+            .body_props
+            .keys()
+            .find(|b| !self.timeline.contains(b.origin) && !self.baked.contains_key(*b))
+        {
+            return bad(format!(
+                "body props for {b:?}, whose origin is neither a timeline feature nor baked"
+            ));
+        }
+        self.validate_timeline()?;
 
         for (cid, comp) in self.components() {
             if let Some(j) = comp.joints.first() {
@@ -766,6 +807,14 @@ impl Design {
     }
 }
 
+/// All body ids whose origin is `f`.
+pub(crate) fn origin_range(f: FeatureId) -> std::ops::RangeInclusive<BodyId> {
+    BodyId { origin: f, slot: 0 }..=BodyId {
+        origin: f,
+        slot: u32::MAX,
+    }
+}
+
 impl Component {
     fn named(name: &str) -> Component {
         Component {
@@ -796,6 +845,9 @@ struct DesignRepr {
     baked: PMap<BodyId, Arc<BakedBody>>,
     #[serde(deserialize_with = "entries::deserialize")]
     extensions: PMap<ExtKey, Arc<ExtRecord>>,
+    /// Added by DOC-02 (defaulted, per the wire-format policy).
+    #[serde(default)]
+    timeline: Timeline,
 }
 
 impl TryFrom<DesignRepr> for Design {
@@ -809,6 +861,7 @@ impl TryFrom<DesignRepr> for Design {
             body_props: r.body_props,
             baked: r.baked,
             extensions: r.extensions,
+            timeline: r.timeline,
             revision: Revision(0),
         };
         d.validate()?;
@@ -844,9 +897,13 @@ mod tests {
         back
     }
 
-    /// Stand-in for DOC-02's feature allocation.
+    /// Adds a `test.box` feature to the timeline (body origins must be timeline features).
     fn reserve_feature(d: &mut Design) -> u64 {
-        d.alloc().unwrap()
+        let f = crate::FeatureBox::new(crate::testing::TestBox {
+            size: [1.0, 2.0, 3.0],
+        });
+        let root = d.root();
+        d.add_feature(None, f, root, None).unwrap().0
     }
 
     /// Root + 3 components (one placed twice, one nested), body props, a baked body and an
@@ -1154,6 +1211,7 @@ mod tests {
     #[test]
     fn no_op_edits_do_not_bump_the_revision() {
         let mut d = sample();
+        let f = reserve_feature(&mut d);
         let rev = d.revision();
         let (bid, props) = d
             .explicit_body_props()
@@ -1161,7 +1219,6 @@ mod tests {
             .next()
             .unwrap();
         d.set_body_props(bid, props).unwrap();
-        let f = reserve_feature(&mut d);
         d.set_body_props(body(f, 0), BodyProps::default()).unwrap();
         d.set_baked(body(f, 0), None).unwrap();
         let (bb, baked) = d
@@ -1254,7 +1311,8 @@ mod tests {
                 "extensions",
                 "meta",
                 "occurrences",
-                "root"
+                "root",
+                "timeline"
             ]
         );
         let s = serde_json::to_string(&d).unwrap();

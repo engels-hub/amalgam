@@ -53,7 +53,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | lib3mf 2.5.0 (PyPI, 3MF Consortium), xmlschema 4.3.2 (PyPI) | CI validation of written 3MF, not linked (S12) | lib3mf: BSD-2-Clause; xmlschema: MIT | no | n/a (tool) | Planned (CI tool) |
 | 3MF Consortium test_suites (pinned commit) | `amg-io` test data, fetch-only (optional ≤ 50 MB LFS subset) (S12) | BSD-2-Clause | no | n/a (data) | Planned (test data) |
 | winreg 0.56 | `amg-am` slicer detection, Windows-only (S16) | MIT | no | no | Planned |
-| inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
+| inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.3.25) |
 | imbl | persistent collections, `amg-doc` (S01; DOC-01 bench confirmed; `im` is unmaintained). Pulls in `imbl-sized-chunks` (MPL-2.0+), `archery` (MIT), `wide`/`safe_arch` (Zlib/Apache-2.0/MIT), `rand_xoshiro`, `rand_core` 0.9 (MIT/Apache-2.0) | MPL-2.0 (crates.io: `MPL-2.0+`) | weak | no | In use (7.0.2) |
 | rpds | fallback persistent collections; DOC-01 bench comparison, `amg-doc` dev-only (S01) | MIT (1.x; older releases MPL-2.0) | no | — | In use (1.2.1, dev-only) |
 | ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |

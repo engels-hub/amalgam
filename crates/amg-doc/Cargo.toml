@@ -22,11 +22,19 @@ amg-fem.workspace = true
 amg-topopt.workspace = true
 amg-am.workspace = true
 imbl.workspace = true
+inventory.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 
+[features]
+# Registers the test-only features (`test.counter`, `test.box`, `test.add_mesh`) in
+# `amg_doc::testing`. Never enabled by binaries; this crate's integration tests and benches get
+# it through the self dev-dependency below.
+test-features = []
+
 [dev-dependencies]
+amg-doc = { path = ".", features = ["test-features"] }
 criterion.workspace = true
 rpds.workspace = true
 

@@ -60,6 +60,8 @@ proptest = "1.12.0"
 # amg-doc (S01): persistent collections; rpds is the bench comparison / fallback (DOC-01).
 imbl = "7.0.2"
 rpds = "1.2.1"
+# amg-doc (S01, DOC-02): link-time feature registry.
+inventory = "0.3.25"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
