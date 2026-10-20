@@ -54,7 +54,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | 3MF Consortium test_suites (pinned commit) | `amg-io` test data, fetch-only (optional ≤ 50 MB LFS subset) (S12) | BSD-2-Clause | no | n/a (data) | Planned (test data) |
 | winreg 0.56 | `amg-am` slicer detection, Windows-only (S16) | MIT | no | no | Planned |
 | inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
-| imbl (fallback: rpds) | persistent collections, `amg-doc` (S01; DOC-01 bench confirms; `im` is unmaintained) | MPL-2.0 | weak | no | Planned |
+| imbl | persistent collections, `amg-doc` (S01; DOC-01 bench confirmed; `im` is unmaintained). Pulls in `imbl-sized-chunks` (MPL-2.0+), `archery` (MIT), `wide`/`safe_arch` (Zlib/Apache-2.0/MIT), `rand_xoshiro`, `rand_core` 0.9 (MIT/Apache-2.0) | MPL-2.0 (crates.io: `MPL-2.0+`) | weak | no | In use (7.0.2) |
+| rpds | fallback persistent collections; DOC-01 bench comparison, `amg-doc` dev-only (S01) | MIT (1.x; older releases MPL-2.0) | no | — | In use (1.2.1, dev-only) |
 | ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |
 | dxf 0.6.2 (ixmilia) | DXF import (S03 SK-11), DXF export (S12 IO-08) | MIT | no | no | Planned |
 | usvg 0.48.1 | SVG import (S03 SK-11) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |

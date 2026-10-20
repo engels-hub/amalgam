@@ -21,6 +21,18 @@ amg-io.workspace = true
 amg-fem.workspace = true
 amg-topopt.workspace = true
 amg-am.workspace = true
+imbl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+rpds.workspace = true
+
+[[bench]]
+name = "snapshot"
+harness = false
 
 [lints]
 workspace = true
