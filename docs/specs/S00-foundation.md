@@ -980,7 +980,7 @@ pub mod budget {
 | FND-01 | Dev setup doc + toolchain install: rustup, VS Build Tools 2022 17.14 (4 components), CMake 4.3, Ninja 1.13.2, vcpkg at `2026.07.29`, git-lfs, nextest, deny. `scripts/check-env.ps1`. | — | P0 | Done | `docs/dev-setup.md` contains the 9 sections of §1. On the owner's machine `scripts/check-env.ps1` exits 0 and prints every pinned tool version. A throwaway `cargo new` binary builds and runs with the MSVC linker. `vcpkg install zlib:x64-windows` (classic mode, outside the repo) succeeds, which proves the C++ toolchain works. The vcpkg baseline SHA is recorded in the doc. |
 | FND-02 | Cargo workspace: 23 crates from §2 as stubs with architecture-conformant intra-workspace deps, `[workspace.dependencies]`, `[workspace.lints]`, profiles, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.gitattributes`, `.editorconfig`, `.config/nextest.toml`, layering test, `amg-cli` skeleton (`--version`, `info`) | FND-01 | P0 | Done | `cargo build --workspace`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `cargo deny check` all pass locally. `cargo metadata` lists exactly the 23 `amg-*` packages. The layering test passes, and fails when a forbidden edge such as `amg-render → amg-doc` is added (shown in the PR description). `amg-cli --version` prints version + git SHA. |
 | FND-03 | `amg-core` (part 1): math aliases + `gpu` conversions, `Dir3`, `Tolerance`, ids (`define_id!`, `PersistentId` v7/v5), `Aabb3/Aabb2`, `Plane`, `Ray3`, `Line3/Line2`, `Segment3/Segment2`, `Triangle3`, `intersect` module, `Error`/`Result`/`Cancelled`/`Diagnostic`/`report` | FND-02 | P0 | Review | Every Interfaces item for these modules exists with doc comments (`missing_docs` clean). Tests pass: ≥ 1 unit test per pub fn. Proptests: `ray_aabb` agrees with brute-force sampling; `ray_triangle` gives no misses for rays through shared edges/vertices of a 1000-triangle fan (watertightness); `Plane::to_world(to_local(p))` round-trips within 1e-9 mm; `Aabb3::transformed` contains all 8 transformed corners. `PersistentId::derive` is stable across runs (a fixed-vector test). `cargo clippy -D warnings` is clean. |
-| FND-04 | `amg-jobs` CPU job system: two pools, `Job`/`JobCtx`/`JobHandle`/`CancelToken`/`JobInfo`, progress sub-ranges, child jobs, panic capture, notifier, UI-thread guard (no GPU) | FND-02 | P0 | Todo | Tests pass. (a) 1000 jobs spawned, `cancel_all` mid-way: every handle resolves (`Cancelled` or `Succeeded`) within 100 ms and none hang. (b) A panicking job yields `JobError::Panicked` and the system keeps working. (c) Progress is monotone and nested `sub()` ranges map correctly. (d) Cancelling a parent cancels its children. (e) A nested `ctx.wait` in a 1-thread pool completes (no deadlock). (f) `try_take`/`state` never block: criterion shows < 1 µs median. (g) Spawn-to-start latency on an idle pool is < 50 µs median. (h) A Background job saturating its pool does not delay an Interactive job by more than 5 ms. |
+| FND-04 | `amg-jobs` CPU job system: two pools, `Job`/`JobCtx`/`JobHandle`/`CancelToken`/`JobInfo`, progress sub-ranges, child jobs, panic capture, notifier, UI-thread guard (no GPU) | FND-02 | P0 | Review | Tests pass. (a) 1000 jobs spawned, `cancel_all` mid-way: every handle resolves (`Cancelled` or `Succeeded`) within 100 ms and none hang. (b) A panicking job yields `JobError::Panicked` and the system keeps working. (c) Progress is monotone and nested `sub()` ranges map correctly. (d) Cancelling a parent cancels its children. (e) A nested `ctx.wait` in a 1-thread pool completes (no deadlock). (f) `try_take`/`state` never block: criterion shows < 1 µs median. (g) Spawn-to-start latency on an idle pool is < 50 µs median. (h) A Background job saturating its pool does not delay an Interactive job by more than 5 ms. |
 | FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Todo | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
 | FND-06 | Test data infrastructure: `testdata/` with git-LFS patterns, `amg-testkit` metrics (volume, area, bbox, Euler, edges, Hausdorff with BVH), golden files + bless workflow, `testdata()` / `gpu_available()` helpers | FND-03 | P0 | Todo | Tests pass. A 10 mm cube soup gives volume 1000 ± 1e-9 mm³ and area 600 ± 1e-9 mm². Sphere tessellations converge to 4/3πr³ (error halves as the triangle count quadruples). Hausdorff of two concentric spheres r=10 and r=10.5 is 0.5 ± 0.01 mm, and 1M-triangle inputs finish in < 2 s. `AMG_BLESS=1` writes a golden file and the next run passes. An un-fetched LFS pointer is skipped locally and fails with `AMG_REQUIRE_TESTDATA=1`. |
 | FND-07 | Diagnostics: `diag::init` (tracing, env-filter `AMG_LOG`, rolling file logs, optional `tracy` feature), panic hook with `crash-<utc>.txt`, `RecoveryHook` registry; wired into `amg-cli` | FND-04 | P1 | Todo | An integration test runs a child process that panics. Afterwards the log file contains the panic message and a backtrace, `crash-*.txt` exists with version, git SHA and the last log lines, and the registered test recovery hook ran: stderr contains `Recovery file: <path>` and the file exists. A panic inside a job does not end the process. `amg-cli info` writes to the log. |
@@ -1307,3 +1307,35 @@ resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR
 - New criterion bench `amg-core/benches/geom.rs` (`geom/ray_triangle`, throughput in
   ray/triangle tests per second; target ≥ 50 M/s). Measured 2026-10-20: about 63 M tests/s
   on one thread on a loaded dev machine (Windows 11, MSVC).
+
+### 2026-10-20 — FND-04 (`amg-jobs` CPU job system, lane E)
+Additive:
+- `JobState::is_finished(&self) -> bool`.
+- `JobSystemConfig` derives `Clone` and `Default` (the derived `Default` is the spec's).
+  `JobSystem`, `JobSystemConfig`, `JobCtx` and `JobHandle` have hand-written `Debug` impls
+  (the workspace lint `missing_debug_implementations` applies).
+
+Behaviour the interface left open (now documented on the items):
+- `JobSystem::jobs()` lists *unfinished* non-hidden jobs, sorted by id. A job leaves the list
+  before its handle reports finished, and `cancel(id)` returns `false` for finished jobs.
+- Cancelling a *queued* job through `JobHandle::cancel`, `JobSystem::cancel` or `cancel_all`
+  finishes it as `Cancelled` immediately; the pool skips it later. A queued child cancelled only
+  through its parent's token resolves when a pool thread reaches it (it does not run).
+- `JobCtx::spawn_child` on a detached context (`detached` / `with_token`) runs the child inline,
+  synchronously. Such children get ids from a separate counter starting at `1 << 63`.
+- `JobCtx::wait` off a pool thread blocks (condvar); on a pool thread it work-steals with
+  `rayon::yield_now` and, when idle, parks for 200 µs slices. `wait` and `wait_blocking` panic if
+  the result was already taken with `try_take`.
+- `JobSystem::shutdown`: jobs spawned afterwards are cancelled immediately.
+- Progress messages arriving faster than 30 Hz are dropped (the fraction is never dropped).
+  Progress notifications are rate-limited to 30 Hz per job; state-change notifications are not.
+  Panics in the notifier are swallowed.
+- Background below-normal priority uses a minimal `kernel32` FFI (`SetThreadPriority`) in
+  `amg-jobs/src/os.rs`; it is a no-op on non-Windows targets.
+- `JobInfo::started` is set when a pool thread picks the job up (always `Some` once `Running`).
+- `Diagnostic for JobError<E>`: `Failed` delegates to `E` (so a failure that is itself a
+  cancellation stays `is_cancelled`); `Cancelled` is `Severity::Info` with `is_cancelled()`;
+  `Panicked` is an `Error` with a generic "internal error" user message and a hint, while the
+  panic text stays in `Display` / `report()` for logs.
+- `.config/nextest.toml`: tests named `timing_*` run alone (`threads-required =
+  "num-test-threads"`); the `ci` profile also retries them twice.
