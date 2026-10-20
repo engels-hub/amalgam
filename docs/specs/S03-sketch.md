@@ -692,7 +692,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| SK-01 | Entity model, `ParamStore` layout, sketch plane (`amg_core::Plane`), constraint/dimension data types, ids, validation, serde | FND-03 | P0 | Todo | 1. All P0 entity kinds (point, line, circle, arc) and every `ConstraintKind`/`DimensionKind` variant can be created through the API. 2. Kind validation returns `WrongEntityKind` (≥ 1 negative test per variant). 3. Three fixture sketches round-trip through serde bit-identically. 4. `remove_entities` cascades to constraints (unit test). |
+| SK-01 | Entity model, `ParamStore` layout, sketch plane (`amg_core::Plane`), constraint/dimension data types, ids, validation, serde | FND-03 | P0 | Review | 1. All P0 entity kinds (point, line, circle, arc) and every `ConstraintKind`/`DimensionKind` variant can be created through the API. 2. Kind validation returns `WrongEntityKind` (≥ 1 negative test per variant). 3. Three fixture sketches round-trip through serde bit-identically. 4. `remove_entities` cascades to constraints (unit test). |
 | SK-02 | Residuals + analytic Jacobians for all P0 constraints and dimensions; `system::Residual`; chirality capture | SK-01 | P0 | Todo | 1. Every P0 constraint and dimension passes a central-difference Jacobian check (relative error < 1e-6) on 1000 random configurations each (proptest). 2. Captured `Side`/`TangentKind`/`AngleBranch` make the residual zero at creation (unit test). |
 | SK-14 | Solver test corpus + runner: corpus file format (JSON), `.slvs` 2D importer, ezpz text importer, hand-ported PlaneGCS cases, expected-result schema | SK-01 | P0 | Todo | 1. `testdata/sketch/corpus/` holds ≥ 120 cases: ≥ 60 from SolveSpace 2D (`test/constraint/*`), ≥ 20 PlaneGCS, ≥ 20 ezpz, ≥ 20 own. 2. Each case has expected DOF and status. 3. The runner reports pass/fail per case. 4. Licence notices are in each source subfolder. |
 | SK-13 | Solver prototype + ADR-007 benchmark: native prototype vs `libslvs` (feature `slvs`) vs ezpz on decision cases D1–D10 (note §5) | SK-02, SK-14 | P0 | Todo | 1. `docs/notes/sketch-solver-benchmark.md` reports every §5.3 metric for every option on D1–D10. 2. Proposed ADR-007 wording is in the PR. 3. The owner's decision is recorded. *This WP produces the decision, so it is not behind the ADR-007 gate.* |
@@ -948,4 +948,43 @@ Reference machine (vision doc), single thread.
 - The papers listed above (full citations in the note §2.5)
 
 ## Interface changes
-None yet (spec not `Ready`).
+### 2026-10-20 — SK-01 (data model, lane B)
+- **Deferred to their WPs (additive later; new serde variants do not break old files):**
+  `EntityKind::{Ellipse, EllipticArc}` and `DimensionKind::{EllipseMajor, EllipseMinor}`
+  (SK-22); `EntityKind::{Spline, Conic}`, `SplineDef` and `ConstraintKind::Curvature`
+  (SK-08). `geom::Curve2` has only `Line`/`Circle`/`Arc` for now (`Ellipse`/`BSpline` with
+  SK-22/SK-08). `Curve2` methods and `geom::intersect`/`CurveHit` land with SK-06;
+  `Sketch::add_constraint_oriented` with SK-02; `SketchGeom`/`ProfileKey` with SK-06/SK-15
+  (they need `SolveReport`/`ProfileSet`). `SketchEntityKey = EntityId` exists now.
+- **Additive:**
+  - `SketchError::UnknownParam(ParamId)`; `SketchError` implements `amg_core::Diagnostic`
+    and `From<amg_core::Cancelled>` (S00 error convention).
+  - Ids are `#[serde(transparent)]` and have `index() -> usize`.
+  - `ParamStore::{set_flags, contains, is_empty}`.
+  - `EntityKind::{name, children, own_params}`, `ConstraintKind::{name, entities,
+    as_dimension}`, `DimensionKind::{name, entities}`, `Sketch::point(EntityId) ->
+    Option<Point2>`, `Arc2::from_center_start_end`.
+- **Behaviour the interface left open:**
+  - Revisions are unique process-wide (one global counter), are not serialised, and are fresh
+    after a load. Compare them only for equality. `structure_rev` changes on entity/constraint
+    add/remove, `set_driving`, `alloc_param` and `compact`. `values_rev` changes on those and on
+    `params_mut`, `set_dimension_value`, `set_construction` and `set_plane`.
+  - Deserialising a `Sketch` validates the structure: dangling ids, wrong kinds, parameters
+    out of range or owned twice, id counters behind existing ids. Values are not checked on
+    load.
+  - `remove_entities` removes dependents (curves built on a removed point) and orphaned points
+    (points of a removed curve that no surviving entity uses), then every constraint touching
+    any of them. It is atomic: an unknown id removes nothing.
+  - `add_arc` projects `end` radially onto the circle through `start`, so the arc's internal
+    equation holds at creation. `add_entity` with `EntityOrigin::Projected` locks the entity's
+    own params. `compact` also drops `alloc_param` slots no entity or constraint owns.
+  - Kind validation (`WrongEntityKind`) follows the constraint table. `Tangent::AtEndpoint`
+    needs line/arc pairs with at least one arc. `Distance` accepts every pair except
+    circle/arc–circle/arc. `Equal` accepts line–line, line–arc and circle/arc–circle/arc.
+    `Symmetric` needs two entities of the same kind and a line axis. `NotApplicable` covers the
+    same entity referenced twice, a point constrained onto its own curve, and a midpoint at the
+    line's own endpoint. Dimension values: distances/length ≥ 0; radius, diameter and arc length
+    > 0; angles finite (`InvalidValue`).
+- **For S01 / DOC (`.amg` writer, ADR-010):** a bit-identical JSON round trip needs
+  `serde_json`'s `float_roundtrip` feature when parsing. `amg-sketch` enables it for its own
+  tests; the document loader should enable it too.

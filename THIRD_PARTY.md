@@ -47,7 +47,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | In use (0.5.1) |
 | toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07) | MIT / Apache-2.0 | no | no | Planned |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |
-| smallvec | small inline vectors, `amg-sketch`, `amg-mesh` (S03, S07) | MIT / Apache-2.0 | no | no | Planned |
+| smallvec | small inline vectors, `amg-sketch`, `amg-mesh` (S03, S07) | MIT / Apache-2.0 | no | no | In use (1.16.3, `amg-sketch`) |
 | fontdb | system font discovery for sketch text (S03, SK-10) | MIT | no | no | Planned |
 | kcl-ezpz | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | Planned (dev-only) |
 | robust | exact orientation predicates, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | Planned |
