@@ -986,7 +986,7 @@ pub mod budget {
 | FND-07 | Diagnostics: `diag::init` (tracing, env-filter `AMG_LOG`, rolling file logs, optional `tracy` feature), panic hook with `crash-<utc>.txt`, `RecoveryHook` registry; wired into `amg-cli` | FND-04 | P1 | Todo | An integration test runs a child process that panics. Afterwards the log file contains the panic message and a backtrace, `crash-*.txt` exists with version, git SHA and the last log lines, and the registered test recovery hook ran: stderr contains `Recovery file: <path>` and the file exists. A panic inside a job does not end the process. `amg-cli info` writes to the log. |
 | FND-08 | Benchmark harness: `amg_testkit::budget::BUDGETS` (one per vision budget row), criterion placeholder benches `budget/<id>`, optional `workflow_dispatch` bench job | FND-06 | P1 | Todo | `cargo bench -p amg-testkit -- --test` runs one placeholder per vision budget row (7 rows today). A unit test asserts `BUDGETS.len()` equals the number of rows parsed from `docs/00-vision.md`. The bench job can be triggered manually and uploads the criterion HTML report. |
 | FND-09 | `amg-jobs::gpu`: `GpuConfig` (+ `AMG_WGPU_BACKEND`), `Gpu` (instance/adapter/device/queue, optional features, device-lost flag), `upload`/`storage`/`Readback`, compute-pipeline cache; `amg-cli info` prints adapter. **Gate: ADR-004 (wgpu) accepted.** | FND-04 | P0 | Todo | The smoke test (add two 1M-element f32 buffers in WGSL) matches the CPU result bit-exactly on the owner's RTX 5060 Ti (DX12) and on WARP in CI. `Readback::try_get` returns `None` at least once before `Some` in a polled test, and never blocks for more than 1 ms per call. Pipeline-cache tests: the same desc gives `Arc::ptr_eq`, and an invalid WGSL gives `GpuError::Shader` with a message. Without an adapter the GPU tests skip (and fail if `AMG_REQUIRE_GPU=1`). `Gpu::new` takes < 300 ms on the owner's machine. A doc example shows building `egui_wgpu::WgpuSetup::Existing` from a `Gpu`, compiled as a doctest only if egui-wgpu is already a workspace dep, otherwise as a `text` block. |
-| FND-10 | `amg-core::units` (part 2 of core): `Dimension`, `Quantity`, typed quantities, `Unit` table, `LengthUnit`, `parse_quantity` (grammar in units note §7), `format_quantity` (Decimal/Fraction/FeetInch/Exact), `ParseQuantityError` with spans | FND-03 | P0 | Todo | Tests pass. Every `Unit` symbol and alias parses (table-driven test generated from `Unit::all()`). Examples: `1/4 in` = 6.35 mm, `1 1/4"` = 31.75 mm, `5' 3 1/2"` = 1612.9 mm, `30 deg` = π/6, `20 degC` = 293.15 K, `7.85 g/cm^3` = 7.85e-9 t/mm³, `-.5e1 mm` = −5 mm. Errors carry correct spans for `12,5 mm`, `3 foo`, `1/0 in` and `1 m 20 cm`. Proptest round-trip: `Exact` style round-trips bit-for-bit, and `Decimal` stays within ½ ulp of the printed precision. `Fraction` prints `1 1/4 in` for 31.75 mm. Parsing a typical literal takes < 1 µs median (criterion). |
+| FND-10 | `amg-core::units` (part 2 of core): `Dimension`, `Quantity`, typed quantities, `Unit` table, `LengthUnit`, `parse_quantity` (grammar in units note §7), `format_quantity` (Decimal/Fraction/FeetInch/Exact), `ParseQuantityError` with spans | FND-03 | P0 | Review | Tests pass. Every `Unit` symbol and alias parses (table-driven test generated from `Unit::all()`). Examples: `1/4 in` = 6.35 mm, `1 1/4"` = 31.75 mm, `5' 3 1/2"` = 1612.9 mm, `30 deg` = π/6, `20 degC` = 293.15 K, `7.85 g/cm^3` = 7.85e-9 t/mm³, `-.5e1 mm` = −5 mm. Errors carry correct spans for `12,5 mm`, `3 foo`, `1/0 in` and `1 m 20 cm`. Proptest round-trip: `Exact` style round-trips bit-for-bit, and `Decimal` stays within ½ ulp of the printed precision. `Fraction` prints `1 1/4 in` for 31.75 mm. Parsing a typical literal takes < 1 µs median (criterion). |
 | FND-12 | Native crash capture: out-of-process minidumps via `crash-handler` + `minidumper` (access violations inside C++ deps), wired into `amg-app` and `amg-cli` | FND-07, BREP-01 | P2 | Todo | A test binary that dereferences null through FFI produces a `.dmp` in the crash dir, and the recovery hooks ran. The dump opens in WinDbg/`minidump-stackwalk` with symbolised Rust frames. |
 
 FND-11 is reserved for analytic curve primitives in `amg-core`. Create it when S02/S03
@@ -1227,3 +1227,49 @@ resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR
   - `PersistentId` deliberately has no `Default` (a random id must be asked for explicitly).
   - `Aabb3::center` is NaN for an empty box; `size`/`diagonal` are zero.
   - `Seg2Intersection::Overlap { t0, t1 }` are parameters on the first segment, `t0 < t1`.
+
+### 2026-10-20 — FND-10 (`amg-core::units`, lane E)
+- **`Error::Parse` and `Error::DimensionMismatch` added** as specified, with `Diagnostic`
+  hints (`Parse` delegates to the new additive `impl Diagnostic for ParseQuantityError`).
+  `ParseQuantityError` also derives `Eq`.
+- **New unit `Unit::TonnePerCubicMillimetre` (`t/mm^3`, scale 1)**, not in the note's table.
+  Every dimension now has a canonical unit, which `FormatStyle::Exact` needs for its
+  fallback (below); FEA decks use t/mm³ directly. `Unit::all()` has 49 entries.
+  `FormatSpec::for_unit(TonnePerCubicMillimetre)` is `FormatSpec::EXACT` (values ~1e-9).
+- **Typed accessors are `to_*`** (`p.to_mpa()`, `m.to_kg()`, `l.to_inches()`), because the
+  constructors already use the bare names (`Pressure::mpa(v)`); the note's `p.mpa()` would
+  collide. `Length::to_mm`/`Angle::to_rad` exist besides `get()`. Additive on every typed
+  quantity: `DIMENSION`, `in_unit(Unit) -> Result<f64>`, `AddAssign`/`SubAssign`,
+  `f64 * T`. Additive cross-type ops beyond the listed ones: `Length*Area`, `Area/Length`,
+  `Volume/Length`, `Volume/Area`, `Pressure*Area`, `Density*Volume`, `Energy/Length`.
+- Other additive items: `Dimension::new`, `Unit::scale()`, `Display` for `Unit` (symbol)
+  and `Quantity` (canonical value + `Dimension`), `LengthUnit::ALL`,
+  `TryFrom<Unit> for LengthUnit` (`Err(unit)`), `FormatSpec::EXACT`.
+- Clarifications of behaviour the interface left open:
+  - Conversion is `canonical = (v + offset) · scale` with the offset in the unit itself
+    (°C +273.15, °F +459.67, scale 5/9), equal to the note's figures. Units without an
+    offset multiply only, so `-0.0` keeps its sign.
+  - `Dimension` exponent arithmetic saturates at the `i8` range. `Display`: named units for
+    the twelve constants (`1` for dimensionless), otherwise `mm*t/s^3`, `1/s^2/K`.
+  - `checked_add`/`checked_sub` report `expected = self.dim`; `in_unit`/`expect_dim` report
+    the unit's/requested dimension as `expected`.
+  - `Angle::normalized_0_2pi` is `[0, 2π)`, `normalized_pm_pi` is `(-π, π]`.
+  - Parser: feet-inch accepts any foot/inch alias and no space after `'` (`5'3"`); its value
+    is returned in inches (`5' 3"` → 63, `Unit::Inch`). Mixed numbers do not require a
+    proper fraction. Spans: `ZeroDenominator` covers the fraction (`1/0`), `DecimalComma`
+    the comma, `UnknownUnit` the token up to the next whitespace, `Trailing` from the first
+    unexpected byte to the end, `InvalidNumber` the token including its sign.
+  - `FormatStyle::Fraction` uses binary denominators (1, 2, 4, … ≤ `max_denominator`) and
+    matches within the printed precision `0.5 · 10^-precision`; otherwise it prints decimals.
+    `FeetInch` requires a length (any target unit), ignores `show_unit`, prints `5' 3 1/2"`,
+    `5'`, `3 1/4"`, `0"`, and carries rounded inches into feet.
+  - `FormatStyle::Exact` prints the shortest round-trip decimal (`{}`; exponent form `{:e}`
+    outside `[1e-5, 1e16)`). If no `f64` in the target unit converts back to the identical
+    canonical bits (non-power-of-two scales leave gaps; overflow), it prints the canonical
+    unit instead and always shows its symbol, so the bit-for-bit contract holds for every
+    unit.
+  - The `Decimal` round-trip bound also allows the float rounding of the unit conversion
+    (a few ulp of the value), which the note's formula leaves out.
+  - `format_quantity` returns `Err(InvalidArgument)` for NaN/±inf.
+- `amg-core` gains `criterion` as a dev-dependency (bench `units`: `units/parse_quantity/*`,
+  `units/format_quantity/*`).

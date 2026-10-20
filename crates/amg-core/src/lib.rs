@@ -7,8 +7,8 @@
 //!
 //! Geometry is f64, millimetres and radians. f32 appears only through [`gpu`].
 //!
-//! The `units` module (`Dimension`, `Quantity`, typed quantities, parsing and formatting) is
-//! work package FND-10 and is not part of this crate yet.
+//! Physical quantities at API boundaries (parameters, dialogs, materials, FEA) go through
+//! [`units`]: canonical values in the coherent mm–t–s–K–rad system, parsing and formatting.
 
 #![warn(missing_docs)]
 
@@ -17,7 +17,7 @@ pub mod geom;
 pub mod id;
 pub mod math;
 pub mod tolerance;
-// `pub mod units;` lands with FND-10.
+pub mod units;
 
 pub use error::{Cancelled, Diagnostic, Error, Result, Severity, report};
 pub use geom::{Aabb2, Aabb3, Line2, Line3, Plane, Ray3, Segment2, Segment3, Triangle3, intersect};
@@ -26,6 +26,11 @@ pub use math::{
     Dir3, Mat3, Mat4, Point2, Point3, Quat, Transform, Transform2, Vec2, Vec3, glam, gpu,
 };
 pub use tolerance::Tolerance;
+pub use units::{
+    Angle, Area, Density, Dimension, Energy, Force, FormatSpec, FormatStyle, Length, LengthUnit,
+    Mass, ParseQuantityError, ParsedQuantity, Pressure, Quantity, Temperature, Time, Unit, Volume,
+    format_quantity, parse_quantity,
+};
 
 #[doc(hidden)]
 pub mod __private {

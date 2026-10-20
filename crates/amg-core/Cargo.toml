@@ -16,8 +16,13 @@ uuid.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+criterion.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
+
+[[bench]]
+name = "units"
+harness = false
 
 [lints]
 workspace = true

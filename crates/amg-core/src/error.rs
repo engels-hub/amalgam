@@ -5,17 +5,29 @@
 //! - Every library crate defines its own `thiserror` enum, implements [`Diagnostic`] and
 //!   `From<Cancelled>`, so `ctx.checkpoint()?` works everywhere.
 
+use crate::units::{Dimension, ParseQuantityError};
+
 /// Shared cancellation marker; every crate's error implements `From<Cancelled>`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("operation cancelled")]
 pub struct Cancelled;
 
 /// Errors raised by `amg-core`.
-///
-/// The `Parse` and `DimensionMismatch` variants of the spec arrive with `units` (FND-10).
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A quantity literal could not be parsed.
+    #[error(transparent)]
+    Parse(#[from] ParseQuantityError),
+    /// A value has the wrong physical dimension (`10 mm + 5 deg`, a force where a length is
+    /// expected).
+    #[error("unit mismatch: expected {expected}, got {found}")]
+    DimensionMismatch {
+        /// The required dimension.
+        expected: Dimension,
+        /// The dimension of the value.
+        found: Dimension,
+    },
     /// Geometry is too small or degenerate for the operation (zero-length vector, collinear
     /// points, ...).
     #[error("degenerate geometry: {what}")]
@@ -85,6 +97,10 @@ impl Diagnostic for Cancelled {
 impl Diagnostic for Error {
     fn hint(&self) -> Option<String> {
         match self {
+            Error::Parse(e) => e.hint(),
+            Error::DimensionMismatch { expected, .. } => {
+                Some(format!("Enter a value in {expected} or a compatible unit."))
+            }
             Error::Degenerate { .. } => {
                 Some("Check for zero-length edges or coincident points.".to_owned())
             }
