@@ -981,7 +981,7 @@ pub mod budget {
 | FND-02 | Cargo workspace: 23 crates from §2 as stubs with architecture-conformant intra-workspace deps, `[workspace.dependencies]`, `[workspace.lints]`, profiles, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.gitattributes`, `.editorconfig`, `.config/nextest.toml`, layering test, `amg-cli` skeleton (`--version`, `info`) | FND-01 | P0 | Done | `cargo build --workspace`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `cargo deny check` all pass locally. `cargo metadata` lists exactly the 23 `amg-*` packages. The layering test passes, and fails when a forbidden edge such as `amg-render → amg-doc` is added (shown in the PR description). `amg-cli --version` prints version + git SHA. |
 | FND-03 | `amg-core` (part 1): math aliases + `gpu` conversions, `Dir3`, `Tolerance`, ids (`define_id!`, `PersistentId` v7/v5), `Aabb3/Aabb2`, `Plane`, `Ray3`, `Line3/Line2`, `Segment3/Segment2`, `Triangle3`, `intersect` module, `Error`/`Result`/`Cancelled`/`Diagnostic`/`report` | FND-02 | P0 | Review | Every Interfaces item for these modules exists with doc comments (`missing_docs` clean). Tests pass: ≥ 1 unit test per pub fn. Proptests: `ray_aabb` agrees with brute-force sampling; `ray_triangle` gives no misses for rays through shared edges/vertices of a 1000-triangle fan (watertightness); `Plane::to_world(to_local(p))` round-trips within 1e-9 mm; `Aabb3::transformed` contains all 8 transformed corners. `PersistentId::derive` is stable across runs (a fixed-vector test). `cargo clippy -D warnings` is clean. |
 | FND-04 | `amg-jobs` CPU job system: two pools, `Job`/`JobCtx`/`JobHandle`/`CancelToken`/`JobInfo`, progress sub-ranges, child jobs, panic capture, notifier, UI-thread guard (no GPU) | FND-02 | P0 | Review | Tests pass. (a) 1000 jobs spawned, `cancel_all` mid-way: every handle resolves (`Cancelled` or `Succeeded`) within 100 ms and none hang. (b) A panicking job yields `JobError::Panicked` and the system keeps working. (c) Progress is monotone and nested `sub()` ranges map correctly. (d) Cancelling a parent cancels its children. (e) A nested `ctx.wait` in a 1-thread pool completes (no deadlock). (f) `try_take`/`state` never block: criterion shows < 1 µs median. (g) Spawn-to-start latency on an idle pool is < 50 µs median. (h) A Background job saturating its pool does not delay an Interactive job by more than 5 ms. |
-| FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Todo | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
+| FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Review | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
 | FND-06 | Test data infrastructure: `testdata/` with git-LFS patterns, `amg-testkit` metrics (volume, area, bbox, Euler, edges, Hausdorff with BVH), golden files + bless workflow, `testdata()` / `gpu_available()` helpers | FND-03 | P0 | Todo | Tests pass. A 10 mm cube soup gives volume 1000 ± 1e-9 mm³ and area 600 ± 1e-9 mm². Sphere tessellations converge to 4/3πr³ (error halves as the triangle count quadruples). Hausdorff of two concentric spheres r=10 and r=10.5 is 0.5 ± 0.01 mm, and 1M-triangle inputs finish in < 2 s. `AMG_BLESS=1` writes a golden file and the next run passes. An un-fetched LFS pointer is skipped locally and fails with `AMG_REQUIRE_TESTDATA=1`. |
 | FND-07 | Diagnostics: `diag::init` (tracing, env-filter `AMG_LOG`, rolling file logs, optional `tracy` feature), panic hook with `crash-<utc>.txt`, `RecoveryHook` registry; wired into `amg-cli` | FND-04 | P1 | Todo | An integration test runs a child process that panics. Afterwards the log file contains the panic message and a backtrace, `crash-*.txt` exists with version, git SHA and the last log lines, and the registered test recovery hook ran: stderr contains `Recovery file: <path>` and the file exists. A panic inside a job does not end the process. `amg-cli info` writes to the log. |
 | FND-08 | Benchmark harness: `amg_testkit::budget::BUDGETS` (one per vision budget row), criterion placeholder benches `budget/<id>`, optional `workflow_dispatch` bench job | FND-06 | P1 | Todo | `cargo bench -p amg-testkit -- --test` runs one placeholder per vision budget row (7 rows today). A unit test asserts `BUDGETS.len()` equals the number of rows parsed from `docs/00-vision.md`. The bench job can be triggered manually and uploads the criterion HTML report. |
@@ -1339,3 +1339,56 @@ Behaviour the interface left open (now documented on the items):
   panic text stays in `Display` / `report()` for logs.
 - `.config/nextest.toml`: tests named `timing_*` run alone (`threads-required =
   "num-test-threads"`); the `ci` profile also retries them twice.
+
+### 2026-10-20 — FND-05 deviations from §7 (lane E)
+CI files: `.github/workflows/ci.yml`, the local composite action `.github/actions/vcpkg/action.yml`,
+`vcpkg.json` (no deps, `builtin-baseline` = `9e593bb1…` = tag `2026.07.29`),
+`vcpkg-configuration.json` (overlay `./triplets`), `triplets/x64-windows-amg.cmake`. Where the
+implementation differs from §7:
+- **Action versions.** §7 says `actions/cache@v4`. The current majors on 2026-10-20 are used
+  instead, each pinned by commit SHA with a version comment: `actions/checkout` v7.0.1,
+  `actions/cache` v6.1.0, `actions/upload-artifact` v7.0.2, `Swatinem/rust-cache` v2.9.3,
+  `taiki-e/install-action` v2.87.29, `actions/download-artifact` v8.0.2. Tools:
+  `cargo-nextest@0.9`, `cargo-deny@0.20`.
+- **Concurrency.** `cancel-in-progress` is `true` only for `pull_request` events. Pushes to
+  `main` are never cancelled, so every `main` commit gets a complete run and saves caches.
+- **Toolchain step.** Every job runs `rustup toolchain install --no-self-update` (reads
+  `rust-toolchain.toml`) before rust-cache, instead of relying on the first `cargo` call. It
+  makes the install explicit and ensures rust-cache keys on the pinned rustc.
+- **vcpkg steps** live in one composite action (`.github/actions/vcpkg`) used by `clippy`,
+  `test` and `bench`. `fmt`, `deny` and `golden` don't need it (`golden` runs prebuilt,
+  statically linked binaries). The action fails fast if the cloned tag's commit differs from
+  `builtin-baseline`. It sets `VCPKG_DEFAULT_TRIPLET` and `VCPKG_DEFAULT_HOST_TRIPLET` to
+  `x64-windows-amg` (host tools are built once, release-only), and installs with
+  `--x-buildtrees-root=<runner.temp>b` to keep OCCT build paths under MAX_PATH.
+  BREP-01: if OCCT needs runtime resource files from `vcpkg_installed/`, add the action back to
+  `golden`.
+- **vcpkg cache key** is `vcpkg-<triplet>-<ImageVersion>-<hash(vcpkg.json, vcpkg-configuration.json,
+  triplets/**)>`, with restore keys `vcpkg-<triplet>-<ImageVersion>-`, `vcpkg-<triplet>-` and
+  `vcpkg-`. `ImageVersion` is a runner machine variable, not part of the `env` expression
+  context, so a step reads `$env:ImageVersion` and passes it to the key as a step output. With the §7 key a runner-image compiler update would hit the exact key, so the
+  rebuilt binaries would never be saved. Known limitation: the `files` directory grows with
+  stale ABI entries until the key prefix changes.
+- **golden LFS.** It checks out with `lfs: false`, writes `git lfs ls-files --long` object ids to
+  `.lfs-assets-id`, restores `.git/lfs` from `actions/cache` keyed by that file's hash, and then
+  runs `git lfs pull`. `lfs: true` on checkout would download everything before the cache is
+  restored, so the cache would never save bandwidth. The job also sets
+  `AMG_REQUIRE_TESTDATA=1` and runs nextest with `--no-tests=pass` (there are no `golden_`
+  tests yet).
+- **golden doesn't rebuild.** `test` runs `cargo nextest archive --profile ci` and uploads the
+  archive (artifact `nextest-archive`, kept 1 day). `golden` downloads it and runs
+  `cargo nextest run --archive-file … --workspace-remap . --extract-to <runner.temp>
+extest
+  --extract-overwrite -E 'test(golden_)'` on the LFS checkout. `test` runs
+  `-E 'not test(golden_)'`, so golden tests run once, with their data. The archive round-trip
+  and the remap were checked locally on Windows with nextest 0.9.148.
+- **clippy** runs twice: default features and `--all-features`, so feature-gated code is linted.
+- **WARP.** The local action `.github/actions/install-warp` downloads the
+  `Microsoft.Direct3D.WARP` NuGet package, pinned to version 1.0.20 with its sha256 (the
+  version wgpu's CI uses; 1.0.21 also exists). It copies `d3d10warp.dll` into
+  `target/debug` and `target/debug/deps` (in `golden`, the extract tree). The loader searches
+  the exe's directory before System32, so this DLL is used instead of the image's inbox copy,
+  and `AMG_REQUIRE_GPU=1` doesn't depend on what the runner image ships. This is the same
+  approach as wgpu's xtask `install-warp`. The DLL is CI-only and never shipped.
+- **bench job** runs only on `workflow_dispatch` with the input `bench: true`, so a manual
+  dispatch for an ordinary CI run doesn't also run benches. FND-08 adds the benches it runs.
