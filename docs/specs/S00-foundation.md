@@ -1229,15 +1229,6 @@ resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR
   - `Seg2Intersection::Overlap { t0, t1 }` are parameters on the first segment, `t0 < t1`.
 
 ### 2026-10-20 — FND-04 (`amg-jobs` CPU job system, lane E)
-Temporary, until FND-03 lands (FND-03 and FND-04 were implemented in parallel):
-- `amg_jobs::Cancelled` is defined locally in `amg-jobs` with exactly the `amg_core::Cancelled`
-  declaration (`Clone, Copy, Debug, PartialEq, Eq, thiserror::Error`, "operation cancelled"),
-  marked `TODO(FND-03)`. Reconcile by replacing it with `pub use amg_core::Cancelled;`; the
-  path `amg_jobs::Cancelled` stays the same.
-- `impl<E: amg_core::Diagnostic> amg_core::Diagnostic for JobError<E>` is not implemented yet
-  (`TODO(FND-03)` in `lib.rs`): `Failed` delegates to `E`, `Cancelled` has
-  `is_cancelled() == true`, `Panicked` gives an "internal error" message.
-
 Additive:
 - `JobState::is_finished(&self) -> bool`.
 - `JobSystemConfig` derives `Clone` and `Default` (the derived `Default` is the spec's).
@@ -1262,3 +1253,9 @@ Behaviour the interface left open (now documented on the items):
 - Background below-normal priority uses a minimal `kernel32` FFI (`SetThreadPriority`) in
   `amg-jobs/src/os.rs`; it is a no-op on non-Windows targets.
 - `JobInfo::started` is set when a pool thread picks the job up (always `Some` once `Running`).
+- `Diagnostic for JobError<E>`: `Failed` delegates to `E` (so a failure that is itself a
+  cancellation stays `is_cancelled`); `Cancelled` is `Severity::Info` with `is_cancelled()`;
+  `Panicked` is an `Error` with a generic "internal error" user message and a hint, while the
+  panic text stays in `Display` / `report()` for logs.
+- `.config/nextest.toml`: tests named `timing_*` run alone (`threads-required =
+  "num-test-threads"`); the `ci` profile also retries them twice.

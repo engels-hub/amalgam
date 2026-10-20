@@ -50,12 +50,7 @@ pub use handle::JobHandle;
 pub use system::{JobSystem, JobSystemConfig, JobSystemError, ShutdownReport, SpawnOptions};
 pub use ui::{is_ui_thread, mark_ui_thread};
 
-// TODO(FND-03): replace this definition with `pub use amg_core::Cancelled;` once FND-03 lands.
-// It is declared exactly as in the S00 interface, so the swap is source-compatible.
-/// Shared cancellation marker; every crate's error implements `From<Cancelled>`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("operation cancelled")]
-pub struct Cancelled;
+pub use amg_core::Cancelled;
 
 /// Identifies a job. Monotonically increasing per [`JobSystem`], starting at 1.
 ///
@@ -155,6 +150,83 @@ pub enum JobError<E> {
     Failed(E),
 }
 
-// TODO(FND-03): add `impl<E: amg_core::Diagnostic> amg_core::Diagnostic for JobError<E>`
-// (delegating to `E` for `Failed`, `is_cancelled() == true` for `Cancelled`, an "internal error"
-// message for `Panicked`) once `amg_core::Diagnostic` exists.
+/// `Failed` delegates to `E`; `Cancelled` is an `Info` that reports `is_cancelled()`; `Panicked`
+/// is an internal error whose panic text stays in `Display` (for logs), not in the user message.
+impl<E: amg_core::Diagnostic> amg_core::Diagnostic for JobError<E> {
+    fn user_message(&self) -> String {
+        match self {
+            JobError::Cancelled => "The operation was cancelled.".to_owned(),
+            JobError::Panicked(_) => "An internal error occurred.".to_owned(),
+            JobError::Failed(e) => e.user_message(),
+        }
+    }
+
+    fn hint(&self) -> Option<String> {
+        match self {
+            JobError::Cancelled => None,
+            JobError::Panicked(_) => {
+                Some("This is a bug in Amalgam; the log has the details.".to_owned())
+            }
+            JobError::Failed(e) => e.hint(),
+        }
+    }
+
+    fn severity(&self) -> amg_core::Severity {
+        match self {
+            JobError::Cancelled => amg_core::Severity::Info,
+            JobError::Panicked(_) => amg_core::Severity::Error,
+            JobError::Failed(e) => e.severity(),
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        match self {
+            JobError::Cancelled => true,
+            JobError::Panicked(_) => false,
+            JobError::Failed(e) => e.is_cancelled(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amg_core::{Diagnostic, Severity};
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("profile open")]
+    struct Open;
+    impl Diagnostic for Open {
+        fn hint(&self) -> Option<String> {
+            Some("close it".into())
+        }
+        fn severity(&self) -> Severity {
+            Severity::Warning
+        }
+    }
+
+    #[test]
+    fn job_error_diagnostic_delegates_and_classifies() {
+        let f: JobError<Open> = JobError::Failed(Open);
+        assert_eq!(f.user_message(), "profile open");
+        assert_eq!(f.hint().as_deref(), Some("close it"));
+        assert_eq!(f.severity(), Severity::Warning);
+        assert!(!f.is_cancelled());
+
+        let c: JobError<Open> = JobError::Cancelled;
+        assert!(c.is_cancelled());
+        assert_eq!(c.severity(), Severity::Info);
+        assert_eq!(c.hint(), None);
+
+        let p: JobError<Open> = JobError::Panicked("index out of bounds".into());
+        assert!(!p.is_cancelled());
+        assert_eq!(p.severity(), Severity::Error);
+        assert!(!p.user_message().contains("index"));
+        assert!(p.hint().is_some());
+        assert!(amg_core::report(&p).contains("index out of bounds"));
+
+        // A failure that is itself a cancellation stays a cancellation.
+        let fc: JobError<amg_core::Error> = JobError::Failed(amg_core::Error::Cancelled(Cancelled));
+        assert!(fc.is_cancelled());
+    }
+}
