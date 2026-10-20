@@ -982,7 +982,7 @@ pub mod budget {
 | FND-03 | `amg-core` (part 1): math aliases + `gpu` conversions, `Dir3`, `Tolerance`, ids (`define_id!`, `PersistentId` v7/v5), `Aabb3/Aabb2`, `Plane`, `Ray3`, `Line3/Line2`, `Segment3/Segment2`, `Triangle3`, `intersect` module, `Error`/`Result`/`Cancelled`/`Diagnostic`/`report` | FND-02 | P0 | Review | Every Interfaces item for these modules exists with doc comments (`missing_docs` clean). Tests pass: ≥ 1 unit test per pub fn. Proptests: `ray_aabb` agrees with brute-force sampling; `ray_triangle` gives no misses for rays through shared edges/vertices of a 1000-triangle fan (watertightness); `Plane::to_world(to_local(p))` round-trips within 1e-9 mm; `Aabb3::transformed` contains all 8 transformed corners. `PersistentId::derive` is stable across runs (a fixed-vector test). `cargo clippy -D warnings` is clean. |
 | FND-04 | `amg-jobs` CPU job system: two pools, `Job`/`JobCtx`/`JobHandle`/`CancelToken`/`JobInfo`, progress sub-ranges, child jobs, panic capture, notifier, UI-thread guard (no GPU) | FND-02 | P0 | Todo | Tests pass. (a) 1000 jobs spawned, `cancel_all` mid-way: every handle resolves (`Cancelled` or `Succeeded`) within 100 ms and none hang. (b) A panicking job yields `JobError::Panicked` and the system keeps working. (c) Progress is monotone and nested `sub()` ranges map correctly. (d) Cancelling a parent cancels its children. (e) A nested `ctx.wait` in a 1-thread pool completes (no deadlock). (f) `try_take`/`state` never block: criterion shows < 1 µs median. (g) Spawn-to-start latency on an idle pool is < 50 µs median. (h) A Background job saturating its pool does not delay an Interactive job by more than 5 ms. |
 | FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Todo | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
-| FND-06 | Test data infrastructure: `testdata/` with git-LFS patterns, `amg-testkit` metrics (volume, area, bbox, Euler, edges, Hausdorff with BVH), golden files + bless workflow, `testdata()` / `gpu_available()` helpers | FND-03 | P0 | Todo | Tests pass. A 10 mm cube soup gives volume 1000 ± 1e-9 mm³ and area 600 ± 1e-9 mm². Sphere tessellations converge to 4/3πr³ (error halves as the triangle count quadruples). Hausdorff of two concentric spheres r=10 and r=10.5 is 0.5 ± 0.01 mm, and 1M-triangle inputs finish in < 2 s. `AMG_BLESS=1` writes a golden file and the next run passes. An un-fetched LFS pointer is skipped locally and fails with `AMG_REQUIRE_TESTDATA=1`. |
+| FND-06 | Test data infrastructure: `testdata/` with git-LFS patterns, `amg-testkit` metrics (volume, area, bbox, Euler, edges, Hausdorff with BVH), golden files + bless workflow, `testdata()` / `gpu_available()` helpers | FND-03 | P0 | Review | Tests pass. A 10 mm cube soup gives volume 1000 ± 1e-9 mm³ and area 600 ± 1e-9 mm². Sphere tessellations converge to 4/3πr³ (error halves as the triangle count quadruples). Hausdorff of two concentric spheres r=10 and r=10.5 is 0.5 ± 0.01 mm, and 1M-triangle inputs finish in < 2 s. `AMG_BLESS=1` writes a golden file and the next run passes. An un-fetched LFS pointer is skipped locally and fails with `AMG_REQUIRE_TESTDATA=1`. |
 | FND-07 | Diagnostics: `diag::init` (tracing, env-filter `AMG_LOG`, rolling file logs, optional `tracy` feature), panic hook with `crash-<utc>.txt`, `RecoveryHook` registry; wired into `amg-cli` | FND-04 | P1 | Todo | An integration test runs a child process that panics. Afterwards the log file contains the panic message and a backtrace, `crash-*.txt` exists with version, git SHA and the last log lines, and the registered test recovery hook ran: stderr contains `Recovery file: <path>` and the file exists. A panic inside a job does not end the process. `amg-cli info` writes to the log. |
 | FND-08 | Benchmark harness: `amg_testkit::budget::BUDGETS` (one per vision budget row), criterion placeholder benches `budget/<id>`, optional `workflow_dispatch` bench job | FND-06 | P1 | Todo | `cargo bench -p amg-testkit -- --test` runs one placeholder per vision budget row (7 rows today). A unit test asserts `BUDGETS.len()` equals the number of rows parsed from `docs/00-vision.md`. The bench job can be triggered manually and uploads the criterion HTML report. |
 | FND-09 | `amg-jobs::gpu`: `GpuConfig` (+ `AMG_WGPU_BACKEND`), `Gpu` (instance/adapter/device/queue, optional features, device-lost flag), `upload`/`storage`/`Readback`, compute-pipeline cache; `amg-cli info` prints adapter. **Gate: ADR-004 (wgpu) accepted.** | FND-04 | P0 | Todo | The smoke test (add two 1M-element f32 buffers in WGSL) matches the CPU result bit-exactly on the owner's RTX 5060 Ti (DX12) and on WARP in CI. `Readback::try_get` returns `None` at least once before `Some` in a polled test, and never blocks for more than 1 ms per call. Pipeline-cache tests: the same desc gives `Arc::ptr_eq`, and an invalid WGSL gives `GpuError::Shader` with a message. Without an adapter the GPU tests skip (and fail if `AMG_REQUIRE_GPU=1`). `Gpu::new` takes < 300 ms on the owner's machine. A doc example shows building `egui_wgpu::WgpuSetup::Existing` from a `Gpu`, compiled as a doctest only if egui-wgpu is already a workspace dep, otherwise as a `text` block. |
@@ -1227,3 +1227,42 @@ resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR
   - `PersistentId` deliberately has no `Default` (a random id must be asked for explicitly).
   - `Aabb3::center` is NaN for an empty box; `size`/`diagonal` are zero.
   - `Seg2Intersection::Overlap { t0, t1 }` are parameters on the first segment, `t0 < t1`.
+
+### 2026-10-20 — FND-06 (`amg-testkit`, lane E)
+- **`amg-testkit` depends on `amg-core`** (the interface's `TriSoup` borrows
+  `amg_core::Point3` and `MeshMetrics` holds an `amg_core::Aabb3`). The FND-02 layering
+  allow-list had `amg-testkit -> {}`; it is now `amg-testkit -> {amg-core}`. It still depends
+  on no other workspace crate. Consequence: `amg-core` must not use `amg-testkit` in its own
+  tests (the dev-cycle would give two copies of the core types); S00 already keeps the core
+  unit tests golden-free.
+- **Third-party deps:** `rayon` (parallel BVH build and queries), `toml` (golden files),
+  `wgpu` + `pollster` (`gpu_available` probes one adapter per process; `AMG_WGPU_BACKEND`
+  `dx12|vulkan|warp` is honoured, `warp` = DX12 fallback adapter), `criterion` (dev).
+  `wgpu` is the workspace pin FND-09 also uses; it brings `cargo deny` duplicate *warnings*
+  for `hashbrown` and `syn` (not errors).
+- Additive API:
+  - `TriSoup::corners(t)`; `one_sided_hausdorff(from, to, samples)`.
+  - `shapes::{TriMesh, cube, icosphere}` (also `amg_testkit::TriMesh`): reference meshes for
+    tests. `icosphere(c, r, k)` has `20·4^k` triangles, so each step quadruples the count.
+  - `testdata_dir()` and `external_testdata(rel)`: resolves `$AMG_TESTDATA_DIR/<rel>` and
+    skips (never fails, CI has no such corpus) when the variable is unset or the file is
+    absent. `testdata/external.toml` is the manifest format (path, sha256, source).
+  - `GoldenTolerances: Default` (1e-6 rel volume/area, 1e-6 mm bbox, no Hausdorff).
+- Clarifications of behaviour the interface left open:
+  - `MeshMetrics::vertices` counts distinct *referenced* indices; edges/Euler use indices as
+    given (callers weld first if their mesh does not share vertices).
+  - `signed_volume` sums about the bbox centre to avoid cancellation far from the origin.
+  - `hausdorff` samples point `i` from a SplitMix64 stream seeded with `SEED + i`, so the
+    result is bit-identical regardless of thread count. Both soups empty (or `samples == 0`)
+    gives 0, exactly one empty gives `+inf`.
+  - `testdata(rel)` panics if the file does not exist (a typo is a bug, not a skip).
+  - Golden files: bless keeps the existing `[tolerances]` table (hand-tuned once). When
+    `hausdorff_abs` is set, bless also writes `<case>.stl` (binary STL, f32, LFS-tracked) next
+    to the TOML and the check computes the Hausdorff distance to it with 20 k samples; an
+    un-fetched reference skips that check locally and fails with `AMG_REQUIRE_TESTDATA=1`.
+    Counts are compared exactly; relative tolerances become absolute when the expected
+    value is 0. Golden tests should be named `golden_*` for CI's `golden` job filter.
+  - LFS patterns in `.gitattributes` are repo-wide (`*.stl *.3mf *.step *.stp *.obj *.ply
+    *.amg`, plus upper-case `STL/STEP/STP`), so golden reference meshes are covered too.
+- Measured: `hausdorff` on two 1 310 720-triangle icospheres, 100 k samples each, BVH builds
+  included: **~0.99 s** median (criterion, bench profile, `benches/hausdorff.rs`), target < 2 s.

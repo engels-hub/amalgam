@@ -29,7 +29,10 @@ const DOMAINS: &[&str] = &[
 /// crate above the foundation layer may also use the whole foundation layer.
 fn allowed(krate: &str) -> Option<BTreeSet<&'static str>> {
     let extra: Vec<&'static str> = match krate {
-        "amg-core" | "amg-occt-sys" | "amg-testkit" => return Some(BTreeSet::new()),
+        "amg-core" | "amg-occt-sys" => return Some(BTreeSet::new()),
+        // S00 §Interfaces: `TriSoup` borrows `amg_core::Point3`. Never a domain crate, since
+        // domain crates dev-depend on the testkit.
+        "amg-testkit" => return Some(["amg-core"].into()),
         "amg-jobs" => return Some(["amg-core"].into()),
         "amg-compute" => return Some(["amg-core", "amg-jobs"].into()),
         // render is fed through `RenderScene`, never amg-doc.

@@ -7,10 +7,24 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+# Dev-only: other crates list this under [dev-dependencies]. It must never depend on a domain
+# crate (they dev-depend on it); geometry comes in as a borrowed `TriSoup`.
 [dependencies]
+amg-core.workspace = true
+pollster.workspace = true
+rayon.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+wgpu.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 serde_json.workspace = true
+
+[[bench]]
+name = "hausdorff"
+harness = false
 
 [lints]
 workspace = true
