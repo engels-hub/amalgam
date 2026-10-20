@@ -4,7 +4,9 @@
 //! Each budget's criterion bench lives in the crate that owns the scenario and is named
 //! `budget/<id>`: a benchmark group [`BENCH_GROUP`] with one function per id. Until an owner
 //! writes the real bench, `amg-testkit/benches/budgets.rs` holds a placeholder under that
-//! name; the owner deletes the placeholder when the real bench lands.
+//! name. When the real bench lands, its owner adds the id to `REAL` in that file (a lane-E
+//! file, edited cross-lane and listed in S00's Interface changes); the placeholder then stops
+//! running so two benches never share one criterion report.
 //!
 //! Adding a row to the vision table needs exactly one new [`BUDGETS`] entry whose
 //! `description` is the row's *Scenario* text verbatim. A unit test parses the table and
@@ -130,20 +132,51 @@ mod tests {
             .collect()
     }
 
-    /// Parses `< 2 s`, `≥ 60 fps`, `< 5 min`, `16 ms (…)`.
+    /// Parses `< 2 s`, `≤ 2 s`, `≥ 60 fps`, `< 5 min`, `16 ms (…)`. Panics on anything else:
+    /// a wrong comparison direction, a non-positive or fractional value (after unit scaling).
     fn parse_limit(cell: &str) -> Limit {
-        let s = cell.trim_start_matches(['<', '≤', '≥', '>']).trim_start();
-        let mut words = s.split_whitespace();
+        let (op, rest) = match cell.chars().next() {
+            Some(c @ ('<' | '≤' | '≥' | '>')) => (Some(c), &cell[c.len_utf8()..]),
+            _ => (None, cell),
+        };
+        let mut words = rest.split_whitespace();
         let value: f64 = words
             .next()
             .and_then(|v| v.parse().ok())
             .unwrap_or_else(|| panic!("no number in budget {cell:?}"));
-        let ms = |scale: f64| Limit::MaxMillis((value * scale).round() as u64);
-        match words.next() {
-            Some("ms") => ms(1.0),
-            Some("s") => ms(1_000.0),
-            Some("min") => ms(60_000.0),
-            Some("fps") => Limit::MinFps(value.round() as u32),
+        assert!(
+            value.is_finite() && value > 0.0,
+            "value must be > 0 in budget {cell:?}"
+        );
+        let exact = |scale: f64| {
+            let v = value * scale;
+            assert!(
+                (v - v.round()).abs() < 1e-9,
+                "budget {cell:?} is not a whole number"
+            );
+            v.round() as u64
+        };
+        let unit = words.next();
+        match unit {
+            Some("fps") => {
+                assert!(
+                    matches!(op, Some('≥' | '>')),
+                    "fps budget {cell:?} must be `≥` or `>`"
+                );
+                Limit::MinFps(u32::try_from(exact(1.0)).expect("fps fits u32"))
+            }
+            Some("ms" | "s" | "min") => {
+                assert!(
+                    matches!(op, None | Some('<' | '≤')),
+                    "time budget {cell:?} must be `<`, `≤` or have no operator"
+                );
+                let scale = match unit {
+                    Some("ms") => 1.0,
+                    Some("s") => 1_000.0,
+                    _ => 60_000.0,
+                };
+                Limit::MaxMillis(exact(scale))
+            }
             unit => panic!("unknown unit {unit:?} in budget {cell:?}"),
         }
     }
@@ -189,6 +222,37 @@ mod tests {
         assert_eq!(parse_limit("≥ 60 fps"), Limit::MinFps(60));
         assert_eq!(parse_limit("< 5 min"), Limit::MaxMillis(300_000));
         assert_eq!(parse_limit("16 ms (heavier work)"), Limit::MaxMillis(16));
+        assert_eq!(parse_limit("≤ 1.5 s"), Limit::MaxMillis(1_500));
+    }
+
+    #[test]
+    #[should_panic(expected = "must be `≥`")]
+    fn parse_limit_rejects_wrong_fps_direction() {
+        parse_limit("< 60 fps");
+    }
+
+    #[test]
+    #[should_panic(expected = "must be `<`")]
+    fn parse_limit_rejects_wrong_time_direction() {
+        parse_limit("≥ 2 s");
+    }
+
+    #[test]
+    #[should_panic(expected = "whole number")]
+    fn parse_limit_rejects_fractional_millis() {
+        parse_limit("0.4 ms");
+    }
+
+    #[test]
+    #[should_panic(expected = "whole number")]
+    fn parse_limit_rejects_fractional_fps() {
+        parse_limit("≥ 59.94 fps");
+    }
+
+    #[test]
+    #[should_panic(expected = "> 0")]
+    fn parse_limit_rejects_zero() {
+        parse_limit("< 0 s");
     }
 
     #[test]

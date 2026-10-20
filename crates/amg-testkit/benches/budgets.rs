@@ -2,9 +2,9 @@
 //! [`amg_testkit::budget::BUDGETS`] (S00 §5, FND-08).
 //!
 //! The placeholders measure nothing real; they reserve the bench names and keep the
-//! bench job wired. When an owner adds the real `budget/<id>` bench in its own crate, it
-//! adds the id to `REAL` below so the placeholder stops running (two benches with one
-//! name would overwrite each other's criterion report).
+//! bench job wired. When an owner adds the real `budget/<id>` bench in its own crate, its
+//! owner adds the id to `REAL` below (a cross-lane edit to this lane-E file) so the placeholder
+//! stops running; two benches with one name would overwrite each other's criterion report.
 //!
 //! Run: `cargo bench -p amg-testkit --bench budgets` (`-- --test` runs each once).
 
@@ -20,6 +20,12 @@ use criterion::{Criterion, criterion_group, criterion_main};
 const REAL: &[&str] = &[];
 
 fn placeholders(c: &mut Criterion) {
+    for id in REAL {
+        assert!(
+            amg_testkit::budget::get(id).is_some(),
+            "REAL lists unknown budget id {id:?}"
+        );
+    }
     let mut g = c.benchmark_group(BENCH_GROUP);
     g.warm_up_time(Duration::from_millis(200))
         .measurement_time(Duration::from_millis(500));

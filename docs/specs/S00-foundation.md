@@ -1474,9 +1474,16 @@ extest
 - `benches/budgets.rs` registers one placeholder per `BUDGETS` entry (a trivial body; the
   numbers mean nothing). Its `REAL` list holds the ids whose real bench exists in the owning
   crate, so the placeholder stops running and the two do not share a criterion report dir.
-- `amg-testkit` enables criterion's `html_reports` feature (no new crates; `Cargo.lock`
-  unchanged). Cargo unifies it into every crate's criterion in a `cargo bench --workspace`
-  build, so the CI artifact `criterion` contains `report/index.html`.
+  `REAL` is the single mechanism (placeholders are never deleted); the owner of a real bench
+  adds its id there, a minimal cross-lane edit to this lane-E file. The bench asserts every
+  `REAL` id is in `BUDGETS`. Duplicate `budget/<id>` names across crates are not detected.
+- The root `Cargo.toml` `[workspace.dependencies]` criterion entry enables `html_reports` (no
+  new crates; `Cargo.lock` unchanged), so `-p` and `--workspace` builds share one feature set
+  and the CI artifact `criterion` contains `report/index.html`.
+- The vision-table parser checks the comparison direction (`<`/`≤`/none for times, `≥`/`>` for
+  fps) and panics on wrong direction, zero, or non-whole values instead of rounding.
+- Not enforced yet: nothing compares criterion estimates to `Limit::is_met_by`; budgets are
+  reserved names only (follow-up WP).
 - CI `bench` job: new `workflow_dispatch` string input `bench-filter` (criterion regex, e.g.
   `^budget/`; empty runs all benches), and the report upload now fails if nothing was written.
 - No existing bench measures a vision scenario itself, so none is renamed. Existing benches
