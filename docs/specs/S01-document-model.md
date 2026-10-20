@@ -857,7 +857,7 @@ inventory::collect!(ExtRegistration);
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| DOC-01 | Core data model: typed ids, `Design`/`DesignMeta`/`Component`/`Occurrence`/`BodyProps`/`ExtRecord`, `PMap`/`PVec` aliases over `imbl`, `DesignSnapshot`, `amg-doc::stub` geometry placeholders, `Evaluated`/`BodyGeom` skeleton; criterion bench imbl vs rpds vs `Arc<Vec<Arc<T>>>` | FND-03 | P0 | Todo | Unit tests create a design with ≥ 3 components, occurrences and body props. Bench at 10⁴ entries shows snapshot clone < 1 µs and one mutation after a clone < 5 µs. Results are recorded in the Refinement log, and the alias is switched if `imbl` misses either number. `serde_json` round-trip of a `Design` is byte-identical twice in a row (determinism). |
+| DOC-01 | Core data model: typed ids, `Design`/`DesignMeta`/`Component`/`Occurrence`/`BodyProps`/`ExtRecord`, `PMap`/`PVec` aliases over `imbl`, `DesignSnapshot`, `amg-doc::stub` geometry placeholders, `Evaluated`/`BodyGeom` skeleton; criterion bench imbl vs rpds vs `Arc<Vec<Arc<T>>>` | FND-03 | P0 | Review (wp/DOC-01-doc-core) | Unit tests create a design with ≥ 3 components, occurrences and body props. Bench at 10⁴ entries shows snapshot clone < 1 µs and one mutation after a clone < 5 µs. Results are recorded in the Refinement log, and the alias is switched if `imbl` misses either number. `serde_json` round-trip of a `Design` is byte-identical twice in a row (determinism). |
 | DOC-02 | `Feature` trait, `FeatureBox` serde via registry, `register_feature!` + `inventory` registry, `UnknownFeature`, `Timeline` (marker, suppression, groups, ordering rule), `link()` convention; test-only features (`test.counter`, `test.box`, `test.add_mesh`) | DOC-01 | P0 | Todo | 1. Timeline of test features serializes and deserializes to equal JSON. 2. An unknown kind loads as `UnknownFeature` and re-serializes byte-identical. 3. A duplicate kind fails at startup. 4. A registry test asserts expected kinds are linked. 5. `MoveFeature` before a dependency is rejected. |
 | DOC-03 | Recompute engine core (synchronous): producer map, `Dependency` resolution, blake3 cache keys with `ENGINE_SALT`, `GeomCache` (LRU by bytes), `RecomputeCtx`, health propagation (error = no effect, upstream causes), suppression/marker handling | DOC-02, DOC-04 | P0 | Todo | Property test on random DAGs of `test.counter` features: after editing feature *k*, exactly the nodes transitively depending on *k* run (counter check); all others hit the cache. A failing feature leaves its input bodies unmodified and gives dependants `ErrorCause::Upstream`. Keys are identical across two process runs. Engine overhead < 5 ms for 200 cached features (criterion). |
 | DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Todo | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
@@ -1002,6 +1002,34 @@ Phase 2 lane E (its SOL deps are Phase 2).
   evaluated state and derives `BodyId`. That is a change to the core data model, so an ADR has
   been proposed to the coordinator (not added to 02-decisions.md).
 
+**2026-10-20 — DOC-01 implementation (lane E).**
+- **Benchmark** (`crates/amg-doc/benches/snapshot.rs`, criterion 0.8.2, release, Windows 11 /
+  MSVC, machine shared with parallel builds so treat as upper bounds; median of
+  `--warm-up-time 1 --measurement-time 3`). Value type `Arc<BodyProps>` keyed by `BodyId`.
+
+  | Operation | n | imbl `OrdMap` | rpds `RedBlackTreeMapSync` | `Arc<Vec<Arc<T>>>` |
+  |---|---|---|---|---|
+  | clone | 10³ / 10⁴ / 10⁵ | 4.4 ns / **4.4 ns** / 6.6 ns | 4.1 / 4.5 / 4.6 ns | 4.1 / 4.4 / 6.4 ns |
+  | 1 mutation after clone | 10³ / 10⁴ / 10⁵ | 0.66 µs / **0.61 µs** / 1.0 µs | 0.56 / 1.07 / 1.60 µs | 5.8 µs / 59 µs / 1.85 ms |
+  | 100 mutations after clone | 10³ / 10⁴ / 10⁵ | 26 / 60 / 98 µs | 48 / 100 / 151 µs | 6.0 / 70 µs / 4.2 ms |
+  | ordered iteration | 10³ / 10⁴ / 10⁵ | 9.5 µs / 112 µs / 5.0 ms | 15 µs / 169 µs / 28 ms | 1.6 / 22 / 244 µs |
+  | diff after 1 mutation | 10³ / 10⁴ / 10⁵ | 1.6 / 1.0 / 2.7 µs (`OrdMap::diff`) | 36 µs / 230 µs / 3.6 ms (no diff; full ordered walk) | 0.5 / 9.8 / 82 µs (full walk) |
+  | `Design` clone (`snapshot`) | 10³ / 10⁴ / 10⁵ body props | 191 / **143** / 189 ns | — | — |
+  | `Design::set_body_props` after clone | 10³ / 10⁴ / 10⁵ | 1.13 / **1.00** / 0.99 µs | — | — |
+
+  At 10⁴ entries imbl meets both targets with margin (clone 4.4 ns < 1 µs; one mutation after a
+  clone 0.61 µs < 5 µs; a whole `Design` clone, which also clones the meta strings, 143 ns).
+  **The `PMap` alias stays on `imbl`.** rpds is close on single mutations but has no subtree-
+  skipping diff (DOC-09 relies on it) and iterates 2–6× slower. Per-entity `Arc` COW fails the
+  single-mutation target at 10⁴ (59 µs) as predicted. Its iteration is fastest, which doesn't
+  matter at our sizes.
+- **Licence correction:** `rpds` 1.x is MIT (not MPL-2.0); `imbl` is `MPL-2.0+` on crates.io.
+- **`design.json` encoding:** persistent maps serialize as arrays of `[key, value]` pairs in key
+  order, since most keys are structs (`BodyId`, `ExtKey`) and JSON object keys must be strings.
+  Duplicate keys, unknown fields and broken invariants (root missing, dangling occurrence
+  references, a child list that disagrees with `Occurrence::parent`, component cycles, ids
+  ≥ `next_id`) are load errors. Save → load → save is byte-identical (unit test).
+
 **Sources:**
 - RustSec RUSTSEC-2026-0250 (https://rustsec.org/advisories/RUSTSEC-2026-0250.html)
 - imbl docs (https://docs.rs/crate/imbl/latest)
@@ -1017,4 +1045,42 @@ Phase 2 lane E (its SOL deps are Phase 2).
 - Kripac 1997; Marcheix & Pierra 2002; Farjana & Han 2018
 
 ## Interface changes
-None yet (spec not `Ready`).
+### 2026-10-20 — DOC-01 (core data model, lane E)
+Additive unless marked; the shapes in Interfaces otherwise hold.
+- **`DesignMeta::uuid` is `amg_core::PersistentId`** (FND-03's UUID v7 newtype, serialized as
+  the hyphenated string), not a raw `Uuid`. `DesignMeta` also carries the crate-private
+  `next_id` counter (§1); `Design::revision()` is runtime only and not serialized (loads as 0).
+- **`JointId`** added to the typed authored ids (Interfaces referenced `JointId /* S06 */`).
+- **`Design` read API** additions: `occurrences()`, `explicit_body_props()`, `baked(id)`,
+  `exts()`, `occurrence_paths(component)`. `timeline()` and `params()` arrive with DOC-02 and
+  DOC-04 (the fields don't exist yet, so `design.json` grows then; `FORMAT_VERSION` is fixed by
+  DOC-07).
+- **Low-level edit API on `Design`** (pub, documented as the layer DOC-05 commands build on;
+  application code still mutates documents only via `Document::apply`): `Design::new(name)`,
+  `Design::with_uuid(name, uuid)`, `add_component(parent, name, transform) ->
+  (ComponentId, OccurrenceId)`, `add_occurrence(parent, component, transform)` (rejects cycles),
+  `set_body_props(id, props)` (default props clear the entry), `new_ext_key(kind)`,
+  `set_ext(key, Option<ExtRecord>)`, `set_name(name)`. Errors are the new
+  `ModelError { NotFound, WouldCycle, Inconsistent }`; DOC-05 maps it into `CommandError`.
+- **`Evaluated`** is `Clone + Default`, with `Evaluated::new(revision)`, `nodes()` and
+  builder methods for the engine (`set_body`, `remove_body`, `set_sketch`, `set_construction`,
+  `set_node`). `BodyGeom::same_as(&other)` compares geometry by pointer (for DOC-09).
+- **`BodyGeom::Solid(stub::Shape)`**: the stub `Shape` is a cheap-clone `Send + Sync` handle with
+  `ptr_eq`. The "wrap it in a mutex" fallback (§3) is only needed if BREP-02's real `Shape`
+  isn't `Sync`.
+- **Stubs in `amg-doc::stub`**: `Shape`, `IndexedMesh`, `SdfGraph`, `SubdMesh`, `SketchGeom`
+  (no data), `SketchEntityKey(u64)`, `ProfileKey(u64)`, `MaterialKey(String)`,
+  `AppearanceKey(String)`, and `LengthUnit` (same variants and serde names as S00's
+  `amg_core::units::LengthUnit`, TODO(FND-10)). `UnitPrefs` is `{ length: LengthUnit }` until
+  FND-10 lands. No `amg-jobs` (FND-04) types are needed yet.
+- **`BlobRef(pub String)`**: path of a binary entry inside the `.amg` container. DOC-07 may
+  refine it.
+- **Provisional naming types are in `amg-doc::naming` now** (data only: `EntityRef`, `TopoRef`,
+  `TopoKind`, `TopoName`, `NameSeg`, `Role`, `NameSource`, `GeomFingerprint`, `GeomClass`,
+  `BodyNaming`, `MatchQuality`, `Resolved`, `ResolveError`), because `EvalBody::naming` and
+  `eval::Diagnostic::entities` need them. `TopoName` has `new(segments)` and `segments()` and
+  serializes as an array. `GeomFingerprint` `Eq`/`Hash` quantise to `QUANTUM = 1e-6`
+  (provisional, DOC-11). `NamingBuilder` and the resolver stay in DOC-06.
+- **Naming clash:** `amg_doc::Diagnostic` (struct, per Interfaces) and `amg_core::Diagnostic`
+  (trait) share a name. Kept as specified, with a doc note. `ModelError` and `ResolveError`
+  implement the `amg_core::Diagnostic` trait.

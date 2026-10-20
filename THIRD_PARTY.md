@@ -28,13 +28,14 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
 | tracing, tracing-subscriber | logging (S00) | MIT | no | no | Planned |
-| serde, serde_json, zip | `.amg` file format (ADR-010); serde_json also in the `amg-testkit` layering test | MIT / Apache-2.0 (zip: MIT) | no | no | serde in use (1.0.229); serde_json in use (1.0.154, dev-only); zip Planned |
+| serde, serde_json, zip | `.amg` file format (ADR-010); serde_json also in the `amg-testkit` layering test | MIT / Apache-2.0 (zip: MIT) | no | no | serde in use (1.0.229); serde_json in use (1.0.154; `amg-doc`, dev-only elsewhere); zip Planned |
 | inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
-| imbl (fallback: rpds) | persistent collections, `amg-doc` (S01; DOC-01 bench confirms; `im` is unmaintained) | MPL-2.0 | weak | no | Planned |
+| imbl | persistent collections, `amg-doc` (S01; DOC-01 bench confirmed; `im` is unmaintained). Pulls in `imbl-sized-chunks` (MPL-2.0+), `archery` (MIT), `wide`/`safe_arch` (Zlib/Apache-2.0/MIT), `rand_xoshiro`, `rand_core` 0.9 (MIT/Apache-2.0) | MPL-2.0 (crates.io: `MPL-2.0+`) | weak | no | In use (7.0.2) |
+| rpds | fallback persistent collections; DOC-01 bench comparison, `amg-doc` dev-only (S01) | MIT (1.x; older releases MPL-2.0) | no | — | In use (1.2.1, dev-only) |
 | ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |
 | dxf | DXF import (S03) | MIT | no | no | Planned |
 | usvg | SVG import (S03) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
-| criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion Planned |
+| criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only, `amg-doc` benches) |
 | blake3 | cache keys and manifest hashes, `amg-doc` (S01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | Planned |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | Planned |
