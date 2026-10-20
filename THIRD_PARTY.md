@@ -28,7 +28,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | Planned |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | Planned |
 | tracing, tracing-subscriber | logging (S00) | MIT | no | no | Planned |
-| serde, serde_json, zip | `.amg` file format (ADR-010) | MIT / Apache-2.0 (zip: MIT) | no | no | Planned |
+| serde, serde_json, zip | `.amg` file format (ADR-010); serde_json also in the `amg-testkit` layering test | MIT / Apache-2.0 (zip: MIT) | no | no | serde_json in use (1.0.154, dev-only); others Planned |
 | inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | imbl (fallback: rpds) | persistent collections, `amg-doc` (S01; DOC-01 bench confirms; `im` is unmaintained) | MPL-2.0 | weak | no | Planned |
 | ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |
@@ -43,7 +43,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | pollster | `Gpu::new_blocking`, `amg-jobs::gpu` (S00) | MIT / Apache-2.0 | no | no | Planned |
 | tracing-appender | rolling log files (S00) | MIT | no | no | Planned |
 | tracing-tracy | optional profiler integration (S00) | MIT / Apache-2.0 | no | yes (`tracy`) | Planned |
-| clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | Planned |
+| clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | In use (4.6.7) |
 | approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | Planned |
 | toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07) | MIT / Apache-2.0 | no | no | Planned |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |

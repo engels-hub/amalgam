@@ -1,0 +1,17 @@
+[package]
+name = "amg-brep"
+description = "B-rep kernel: BrepKernel trait, OCCT backend, shape handles, tessellation, topology and history."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+amg-occt-sys.workspace = true
+amg-nurbs.workspace = true
+
+[lints]
+workspace = true

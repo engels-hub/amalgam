@@ -1,0 +1,16 @@
+[package]
+name = "amg-implicit"
+description = "Implicit modeling: SDF expression graph, GPU evaluation, lattices and meshing."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+amg-mesh.workspace = true
+
+[lints]
+workspace = true

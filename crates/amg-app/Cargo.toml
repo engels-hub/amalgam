@@ -1,0 +1,23 @@
+[package]
+name = "amg-app"
+description = "The Amalgam desktop application."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "amg-app"
+path = "src/main.rs"
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+amg-doc.workspace = true
+amg-features.workspace = true
+amg-render.workspace = true
+amg-ui.workspace = true
+
+[lints]
+workspace = true

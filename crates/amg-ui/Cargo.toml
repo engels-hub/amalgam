@@ -1,0 +1,18 @@
+[package]
+name = "amg-ui"
+description = "egui app shell, command system, tools, dialogs, browser tree and timeline UI. Lane D owns the framework; domain lanes own their modules."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+amg-doc.workspace = true
+amg-features.workspace = true
+amg-render.workspace = true
+
+[lints]
+workspace = true

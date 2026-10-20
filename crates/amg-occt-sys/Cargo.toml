@@ -1,0 +1,13 @@
+[package]
+name = "amg-occt-sys"
+description = "FFI bridge to OpenCASCADE. Pure-Rust stub until BREP-01 adds the cxx bridge."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

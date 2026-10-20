@@ -1,0 +1,94 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "LicenseRef-Amalgam-Personal"
+publish = false
+
+[workspace.dependencies]
+# Workspace crates.
+amg-core = { path = "crates/amg-core" }
+amg-jobs = { path = "crates/amg-jobs" }
+amg-compute = { path = "crates/amg-compute" }
+amg-testkit = { path = "crates/amg-testkit" }
+amg-occt-sys = { path = "crates/amg-occt-sys" }
+amg-nurbs = { path = "crates/amg-nurbs" }
+amg-brep = { path = "crates/amg-brep" }
+amg-sketch = { path = "crates/amg-sketch" }
+amg-mesh = { path = "crates/amg-mesh" }
+amg-implicit = { path = "crates/amg-implicit" }
+amg-subd = { path = "crates/amg-subd" }
+amg-materials = { path = "crates/amg-materials" }
+amg-io = { path = "crates/amg-io" }
+amg-fem = { path = "crates/amg-fem" }
+amg-topopt = { path = "crates/amg-topopt" }
+amg-am = { path = "crates/amg-am" }
+amg-doc = { path = "crates/amg-doc" }
+amg-features = { path = "crates/amg-features" }
+amg-render = { path = "crates/amg-render" }
+amg-ui = { path = "crates/amg-ui" }
+amg-script = { path = "crates/amg-script" }
+
+# Third party. Every entry is listed in THIRD_PARTY.md (ADR-012).
+# glam: never enable `fast-math`, it breaks determinism (see deny.toml).
+glam = { version = "0.34.1", features = ["serde", "approx-05", "bytemuck"] }
+approx = "0.5.1"
+slotmap = "1.1.1"
+uuid = { version = "1.28.0", features = ["v5", "v7", "serde"] }
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+rayon = "1.12.0"
+crossbeam-channel = "0.5.17"
+parking_lot = "0.12.5"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-appender = "0.2.5"
+# wgpu major must equal the one egui-wgpu uses (S00 §4, FND-09): egui-wgpu 0.36/0.37 -> wgpu 30.
+wgpu = "30.0.1"
+bytemuck = { version = "1.25.2", features = ["derive"] }
+pollster = "1.0.1"
+clap = { version = "4.6.7", features = ["derive"] }
+toml = "1.1.8"
+criterion = "0.8.2"
+proptest = "1.12.0"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+# -sys crates and documented FFI/GPU modules use #![allow(unsafe_code)] / #[allow] with a SAFETY doc.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"    # allowed in tests via clippy.toml
+expect_used = "warn"    # ditto; use `?` or document the invariant with #[allow] + reason
+float_cmp = "warn"      # geometry compares through Tolerance
+print_stdout = "warn"   # binaries allow at crate level
+large_types_passed_by_value = "warn"
+
+[profile.dev]
+# Geometry and OCCT-adjacent code is unusably slow at -O0.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+debug = "line-tables-only" # symbolised crash reports
+panic = "unwind"           # required: jobs catch panics, and pyo3 needs unwinding
+
+[profile.bench]
+inherits = "release"
+debug = true

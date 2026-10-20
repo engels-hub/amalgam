@@ -1,0 +1,27 @@
+[package]
+name = "amg-features"
+description = "Timeline features implementing Feature. Split by module; each domain lane owns its module."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+amg-doc.workspace = true
+amg-nurbs.workspace = true
+amg-brep.workspace = true
+amg-sketch.workspace = true
+amg-mesh.workspace = true
+amg-implicit.workspace = true
+amg-subd.workspace = true
+amg-materials.workspace = true
+amg-io.workspace = true
+amg-fem.workspace = true
+amg-topopt.workspace = true
+amg-am.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,20 @@
+[test-groups]
+# GPU tests share one device; run them one at a time.
+gpu = { max-threads = 1 }
+
+[profile.default]
+
+[[profile.default.overrides]]
+filter = 'test(/gpu/)'
+test-group = 'gpu'
+
+[profile.ci]
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+[[profile.ci.overrides]]
+filter = 'test(/gpu/)'
+test-group = 'gpu'
+
+[profile.ci.junit]
+path = "junit.xml"

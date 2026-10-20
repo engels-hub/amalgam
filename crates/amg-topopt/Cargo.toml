@@ -1,0 +1,19 @@
+[package]
+name = "amg-topopt"
+description = "Topology and shape optimization (generative design)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+amg-compute.workspace = true
+amg-fem.workspace = true
+amg-implicit.workspace = true
+amg-mesh.workspace = true
+
+[lints]
+workspace = true
