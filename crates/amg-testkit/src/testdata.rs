@@ -2,7 +2,7 @@
 //! private corpus outside the repo under `AMG_TESTDATA_DIR` (S00 open question 2).
 
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::env;
 
@@ -27,7 +27,8 @@ pub fn testdata_dir() -> PathBuf {
 /// ```
 ///
 /// # Panics
-/// If the file does not exist (a typo is a bug, not a skip), or as described above.
+/// If `rel` is absolute or has `.`/`..` components, if the file does not exist (a typo is a
+/// bug, not a skip), or as described above.
 pub fn testdata(rel: &str) -> Option<PathBuf> {
     resolve(&testdata_dir(), rel, env::flag(env::REQUIRE_TESTDATA))
 }
@@ -36,13 +37,27 @@ pub fn testdata(rel: &str) -> Option<PathBuf> {
 /// for the repo (scans, big STEP assemblies, owner files; listed in `testdata/external.toml`).
 ///
 /// Returns `None` with a skip notice when `AMG_TESTDATA_DIR` is unset or the file is absent.
-/// It never fails the test: CI does not have this corpus.
+/// It never fails the test (CI does not have this corpus), but panics if `rel` is absolute or
+/// has `.`/`..` components.
 pub fn external_testdata(rel: &str) -> Option<PathBuf> {
     let root = std::env::var_os(env::TESTDATA_DIR).map(PathBuf::from);
     resolve_external(root.as_deref(), rel)
 }
 
+/// Panics unless `rel` is a non-empty relative path made only of normal components (no
+/// absolute path, drive prefix, `.` or `..`), so test data cannot escape its root.
+fn assert_relative(rel: &str) {
+    let p = Path::new(rel);
+    assert!(
+        !rel.is_empty()
+            && p.components().all(|c| matches!(c, Component::Normal(_)))
+            && !rel.starts_with(['/', '\\']),
+        "test data path must be relative without `.`/`..` components, got {rel:?}"
+    );
+}
+
 pub(crate) fn resolve(root: &Path, rel: &str, require: bool) -> Option<PathBuf> {
+    assert_relative(rel);
     let path = root.join(rel);
     assert!(
         path.is_file(),
@@ -68,6 +83,7 @@ pub(crate) fn resolve(root: &Path, rel: &str, require: bool) -> Option<PathBuf> 
 }
 
 fn resolve_external(root: Option<&Path>, rel: &str) -> Option<PathBuf> {
+    assert_relative(rel);
     let Some(root) = root else {
         eprintln!(
             "SKIP: external test data {rel} needs {} (unset)",
@@ -141,6 +157,30 @@ pub(crate) mod tests {
     fn missing_file_panics() {
         let dir = scratch("missing-file");
         let _ = resolve(&dir, "nope.stl", false);
+    }
+
+    #[test]
+    fn escaping_paths_are_rejected() {
+        let dir = scratch("escape");
+        std::fs::write(dir.join("ok.stl"), b"x").unwrap();
+        assert!(resolve(&dir, "ok.stl", false).is_some());
+        let abs = dir.join("ok.stl").display().to_string();
+        for bad in [
+            "",
+            "../ok.stl",
+            "a/../ok.stl",
+            "./ok.stl",
+            abs.as_str(),
+            "/ok.stl",
+            "\\ok.stl",
+            "C:ok.stl",
+        ] {
+            let r = std::panic::catch_unwind(|| resolve(&dir, bad, false));
+            assert!(r.is_err(), "{bad:?} must be rejected");
+            let r = std::panic::catch_unwind(|| resolve_external(Some(&dir), bad));
+            assert!(r.is_err(), "{bad:?} must be rejected (external)");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

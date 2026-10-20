@@ -9,6 +9,7 @@ pub(crate) const REQUIRE_GPU: &str = "AMG_REQUIRE_GPU";
 /// `AMG_TESTDATA_DIR=<dir>`: root of the large / private corpus kept outside the repo.
 pub(crate) const TESTDATA_DIR: &str = "AMG_TESTDATA_DIR";
 /// `AMG_WGPU_BACKEND=dx12|vulkan|warp`: backend override (shared with `amg_jobs::gpu`).
+#[cfg(feature = "gpu")]
 pub(crate) const WGPU_BACKEND: &str = "AMG_WGPU_BACKEND";
 
 /// True when `name` is set to `1`, `true` or `yes` (case-insensitive).

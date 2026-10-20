@@ -4,6 +4,8 @@
 //! SplitMix64 stream seeded with `SEED + i`, so results do not depend on thread count or
 //! scheduling. Each sample's nearest-triangle distance is found through [`Bvh`].
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use amg_core::Point3;
 use rayon::prelude::*;
 
@@ -12,12 +14,19 @@ use crate::bvh::Bvh;
 
 const SEED: u64 = 0x416D_616C_6761_6D21; // "Amalgam!"
 
-/// Symmetric Hausdorff distance in mm, estimated from `samples` area-weighted surface points
-/// on each soup (fixed seed, so the result is reproducible bit for bit).
+/// Symmetric Hausdorff distance in mm, estimated from every referenced vertex plus `samples`
+/// area-weighted surface points on each soup (fixed seed, so the result is reproducible bit
+/// for bit).
 ///
 /// This is a lower bound of the true distance that converges as `samples` grows; 100 k
-/// samples per mesh resolve features down to about `sqrt(area / 100 000)`.
-/// Returns 0 if both soups are empty (or `samples == 0`) and `+inf` if exactly one is empty.
+/// samples per mesh resolve features down to about `sqrt(area / 100 000)`, and the vertex
+/// queries catch corners and spikes exactly. `samples == 0` measures vertices only.
+///
+/// Empty and zero-area soups: a direction *from* a soup without triangles contributes 0, and
+/// a direction *to* a soup without triangles is `+inf`. So two empty soups give 0 and exactly
+/// one empty soup gives `+inf`. A zero-area soup (all triangles degenerate) still has
+/// vertices: they are measured from, and they are valid targets (distance to a degenerate
+/// triangle is distance to its nearest edge).
 ///
 /// # Panics
 /// If a triangle index is out of range.
@@ -37,15 +46,35 @@ pub fn one_sided_hausdorff(from: TriSoup<'_>, to: TriSoup<'_>, samples: usize) -
 }
 
 fn directed(from: TriSoup<'_>, to: &Bvh<'_>, samples: usize) -> f64 {
-    let sampler = Sampler::new(from);
-    if sampler.total <= 0.0 || samples == 0 {
+    if from.triangles.is_empty() {
         return 0.0;
     }
-    let d2 = (0..samples)
+    // Running max of squared distances, as f64 bits (monotone for non-negative values). It is
+    // only an early-out bound for the BVH: every returned value is either exact or `<=` the
+    // max at that moment, so the final max is exact and independent of scheduling.
+    let max = AtomicU64::new(0.0f64.to_bits());
+    let query = |p: Point3| {
+        let floor = f64::from_bits(max.load(Ordering::Relaxed));
+        let d2 = to.closest_dist2_until(p, floor);
+        max.fetch_max(d2.to_bits(), Ordering::Relaxed);
+    };
+    // Every referenced vertex: the samples would miss isolated corners and spikes.
+    let mut used = vec![false; from.positions.len()];
+    for &i in from.triangles.iter().flatten() {
+        used[i as usize] = true;
+    }
+    (0..from.positions.len())
         .into_par_iter()
-        .map(|i| to.closest_dist2(sampler.sample(i as u64)))
-        .reduce(|| 0.0, f64::max);
-    d2.sqrt()
+        .filter(|&i| used[i])
+        .for_each(|i| query(from.positions[i]));
+    let sampler = Sampler::new(from);
+    // A zero-area soup has no surface to sample: its vertices are all there is to measure.
+    if sampler.total > 0.0 {
+        (0..samples)
+            .into_par_iter()
+            .for_each(|i| query(sampler.sample(i as u64)));
+    }
+    f64::from_bits(max.into_inner()).sqrt()
 }
 
 /// Area-weighted surface sampler.
@@ -167,6 +196,62 @@ mod tests {
         assert_eq!(hausdorff(e, e, 100).to_bits(), 0.0f64.to_bits());
         assert!(hausdorff(s.soup(), e, 100).is_infinite());
         assert_eq!(hausdorff(s.soup(), s.soup(), 0).to_bits(), 0.0f64.to_bits());
+        assert!(hausdorff(e, s.soup(), 100).is_infinite(), "symmetric");
+    }
+
+    #[test]
+    fn early_out_gives_the_exact_max() {
+        let a = shapes::icosphere(Point3::new(0.3, 0.0, 0.0), 4.0, 3);
+        let b = shapes::cube(Point3::splat(-3.0), 6.0);
+        let bvh = Bvh::new(b.soup());
+        let sampler = Sampler::new(a.soup());
+        let exact = a
+            .positions
+            .iter()
+            .copied()
+            .chain((0..2000).map(|i| sampler.sample(i)))
+            .map(|p| bvh.closest_dist2(p))
+            .fold(0.0, f64::max)
+            .sqrt();
+        let fast = one_sided_hausdorff(a.soup(), b.soup(), 2000);
+        assert_eq!(fast.to_bits(), exact.to_bits(), "{fast} vs {exact}");
+    }
+
+    #[test]
+    fn vertices_catch_spikes_that_samples_miss() {
+        // A cube with one corner pulled out 5 mm along the diagonal: the spike has little
+        // area, but its tip vertex is exactly 5 mm from the original cube's corner region.
+        let base = shapes::cube(Point3::ZERO, 10.0);
+        let mut spiky = base.clone();
+        let dir = amg_core::Vec3::splat(1.0).normalize();
+        spiky.positions[7] += 5.0 * dir; // vertex 7 is (10, 10, 10)
+        let h = one_sided_hausdorff(spiky.soup(), base.soup(), 0);
+        assert!((h - 5.0).abs() < 1e-12, "vertex-only query: {h}");
+        let h = one_sided_hausdorff(spiky.soup(), base.soup(), 3);
+        assert!(
+            (h - 5.0).abs() < 1e-12,
+            "few samples, still exact at the tip: {h}"
+        );
+    }
+
+    #[test]
+    fn zero_area_soup_is_measured_by_its_vertices() {
+        // A degenerate triangle on a line 2 mm above a unit square.
+        let pos = [
+            Point3::new(0.0, 0.0, 2.0),
+            Point3::new(1.0, 0.0, 2.0),
+            Point3::new(0.5, 0.0, 2.0),
+        ];
+        let flat = TriSoup {
+            positions: &pos,
+            triangles: &[[0, 1, 2]],
+        };
+        let square = shapes::cube(Point3::new(0.0, 0.0, -1.0), 1.0);
+        let h = one_sided_hausdorff(flat, square.soup(), 1000);
+        assert!((h - 2.0).abs() < 1e-12, "{h}");
+        // As a target, the degenerate triangle is its segment.
+        let back = one_sided_hausdorff(flat, flat, 10);
+        assert!(back < 1e-12, "{back}");
     }
 
     #[test]

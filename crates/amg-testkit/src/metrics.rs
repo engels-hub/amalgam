@@ -7,6 +7,7 @@ use crate::TriSoup;
 
 /// Metrics compared by golden tests.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MeshMetrics {
     /// Signed enclosed volume, mm³ (positive for outward-facing triangles).
     pub volume: f64,
@@ -18,7 +19,8 @@ pub struct MeshMetrics {
     pub vertices: usize,
     /// Number of triangles.
     pub triangles: usize,
-    /// Undirected edges used by exactly one triangle.
+    /// Undirected edges used by exactly one triangle. Self-loop "edges" of degenerate
+    /// triangles with a repeated index (`[a, a, b]`) are not edges and are never counted.
     pub boundary_edges: usize,
     /// Undirected edges used by more than two triangles.
     pub non_manifold_edges: usize,
@@ -47,6 +49,9 @@ pub fn metrics(m: TriSoup<'_>) -> MeshMetrics {
     let mut edges: Vec<u64> = Vec::with_capacity(m.triangles.len() * 3);
     for &[a, b, c] in m.triangles {
         for (p, q) in [(a, b), (b, c), (c, a)] {
+            if p == q {
+                continue; // degenerate triangle: not an edge
+            }
             let (lo, hi) = if p < q { (p, q) } else { (q, p) };
             edges.push((u64::from(lo) << 32) | u64::from(hi));
         }
@@ -184,6 +189,23 @@ mod tests {
         let m = metrics(fins);
         assert_eq!((m.boundary_edges, m.non_manifold_edges), (6, 1));
         assert_eq!(m.euler, 5 - 7 + 3);
+    }
+
+    #[test]
+    fn degenerate_triangles_add_no_boundary_edges() {
+        // A closed cube plus a sliver [0, 0, 1] on an existing edge: the self-loop is ignored,
+        // and 0-1 gains two more uses, so it is non-manifold rather than "boundary".
+        let mut cube = shapes::cube(Point3::ZERO, 10.0);
+        cube.triangles.push([0, 0, 1]);
+        let m = metrics(cube.soup());
+        assert_eq!(m.boundary_edges, 0);
+        assert!((m.volume - 1000.0).abs() <= 1e-9 && (m.area - 600.0).abs() <= 1e-9);
+        // A fully collapsed [3, 3, 3] adds no edge at all.
+        let mut cube = shapes::cube(Point3::ZERO, 10.0);
+        cube.triangles.push([3, 3, 3]);
+        let m = metrics(cube.soup());
+        assert_eq!((m.boundary_edges, m.non_manifold_edges), (0, 0));
+        assert_eq!(m.euler, 8 - 18 + 13);
     }
 
     #[test]

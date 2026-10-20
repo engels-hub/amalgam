@@ -11,12 +11,17 @@ publish.workspace = true
 # crate (they dev-depend on it); geometry comes in as a borrowed `TriSoup`.
 [dependencies]
 amg-core.workspace = true
-pollster.workspace = true
+pollster = { workspace = true, optional = true }
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true
-wgpu.workspace = true
+wgpu = { workspace = true, optional = true }
+
+[features]
+default = ["gpu"]
+# `gpu_available()` probes a wgpu adapter. Without it, GPU tests always skip.
+gpu = ["dep:wgpu", "dep:pollster"]
 
 [dev-dependencies]
 criterion.workspace = true

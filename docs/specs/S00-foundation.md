@@ -1232,12 +1232,18 @@ resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR
 - **`amg-testkit` depends on `amg-core`** (the interface's `TriSoup` borrows
   `amg_core::Point3` and `MeshMetrics` holds an `amg_core::Aabb3`). The FND-02 layering
   allow-list had `amg-testkit -> {}`; it is now `amg-testkit -> {amg-core}`. It still depends
-  on no other workspace crate. Consequence: `amg-core` must not use `amg-testkit` in its own
-  tests (the dev-cycle would give two copies of the core types); S00 already keeps the core
-  unit tests golden-free.
+  on no other workspace crate. Consequence for `amg-core` only: its *unit* tests
+  (`#[cfg(test)]` inside the lib) cannot pass their `amg_core` types to testkit functions,
+  because the dev-dependency cycle links a second copy of `amg-core` and the types do not
+  unify (a compile error, not a silent bug). `amg-core` integration tests (`tests/*.rs`) see
+  the same single copy as the testkit and may use it. The layering test therefore keeps
+  allowing the `amg-core -> amg-testkit` dev edge.
 - **Third-party deps:** `rayon` (parallel BVH build and queries), `toml` (golden files),
   `wgpu` + `pollster` (`gpu_available` probes one adapter per process; `AMG_WGPU_BACKEND`
   `dx12|vulkan|warp` is honoured, `warp` = DX12 fallback adapter), `criterion` (dev).
+  `wgpu`/`pollster` sit behind the default-on cargo feature **`gpu`**; a crate that uses
+  `amg-testkit` with `default-features = false` gets a `gpu_available()` that always skips
+  (and panics under `AMG_REQUIRE_GPU=1`, since its GPU tests cannot run).
   `wgpu` is the workspace pin FND-09 also uses; it brings `cargo deny` duplicate *warnings*
   for `hashbrown` and `syn` (not errors).
 - Additive API:
@@ -1250,19 +1256,38 @@ resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR
   - `GoldenTolerances: Default` (1e-6 rel volume/area, 1e-6 mm bbox, no Hausdorff).
 - Clarifications of behaviour the interface left open:
   - `MeshMetrics::vertices` counts distinct *referenced* indices; edges/Euler use indices as
-    given (callers weld first if their mesh does not share vertices).
+    given (callers weld first if their mesh does not share vertices). Self-loop edges of
+    degenerate triangles (`[a, a, b]`) are skipped, so they never count as boundary edges.
+    `MeshMetrics` rejects unknown fields when deserialised.
   - `signed_volume` sums about the bbox centre to avoid cancellation far from the origin.
-  - `hausdorff` samples point `i` from a SplitMix64 stream seeded with `SEED + i`, so the
-    result is bit-identical regardless of thread count. Both soups empty (or `samples == 0`)
-    gives 0, exactly one empty gives `+inf`.
-  - `testdata(rel)` panics if the file does not exist (a typo is a bug, not a skip).
-  - Golden files: bless keeps the existing `[tolerances]` table (hand-tuned once). When
-    `hausdorff_abs` is set, bless also writes `<case>.stl` (binary STL, f32, LFS-tracked) next
-    to the TOML and the check computes the Hausdorff distance to it with 20 k samples; an
-    un-fetched reference skips that check locally and fails with `AMG_REQUIRE_TESTDATA=1`.
-    Counts are compared exactly; relative tolerances become absolute when the expected
-    value is 0. Golden tests should be named `golden_*` for CI's `golden` job filter.
+  - `hausdorff` queries every referenced vertex plus `samples` area-weighted points per
+    direction (vertices catch corners and spikes; `samples == 0` means vertices only).
+    Sample `i` comes from a SplitMix64 stream seeded with `SEED + i`; BVH queries stop early
+    once a point cannot raise the running max, which keeps the max exact, so the result is
+    bit-identical regardless of thread count. A direction *from* a soup without triangles
+    contributes 0, a direction *to* one is `+inf`: both empty gives 0, exactly one empty
+    `+inf`. A zero-area soup is measured by its vertices only.
+  - `testdata(rel)` / `external_testdata(rel)` panic if `rel` is absolute or has `.`/`..`
+    components; `testdata` also panics if the file does not exist (a typo is a bug, not a
+    skip).
+  - Golden files: unknown keys (in the file, `[tolerances]` or `[metrics]`) are errors, so a
+    typo such as `hausdorff_ab` or `[tolerance]` fails instead of disabling a check. Bless
+    keeps the existing `[tolerances]` table (hand-tuned once); it is read on its own, so a
+    `[metrics]` schema change cannot drop it. Bless refuses (panics) if the file is not TOML,
+    has unknown top-level keys or an invalid `[tolerances]`, and whenever the `CI` variable
+    is set. When `hausdorff_abs` is set, bless also writes `<case>.stl` (binary STL, f32,
+    LFS-tracked) next to the TOML, and deletes a stale one when it is not; the check computes
+    the Hausdorff distance to it with 20 k samples, and an un-fetched reference skips that
+    check locally and fails with `AMG_REQUIRE_TESTDATA=1`. Counts are compared exactly.
+    Volume and area pass when `|a - e| <= rel * max(|e|, scale)` with `scale = d³` (volume)
+    or `d²` (area), `d` the expected bbox diagonal, so near-zero values (open or flat soups)
+    do not turn round-off into a huge relative error. Golden tests should be named
+    `golden_*` for CI's `golden` job filter.
   - LFS patterns in `.gitattributes` are repo-wide (`*.stl *.3mf *.step *.stp *.obj *.ply
     *.amg`, plus upper-case `STL/STEP/STP`), so golden reference meshes are covered too.
 - Measured: `hausdorff` on two 1 310 720-triangle icospheres, 100 k samples each, BVH builds
-  included: **~0.99 s** median (criterion, bench profile, `benches/hausdorff.rs`), target < 2 s.
+  included (vertex queries too): **~0.87 s** median (criterion, bench profile,
+  `benches/hausdorff.rs`), target < 2 s.
+- Leftovers for MESH-01 integration: `TriMesh::from_flat` (flat `[f64]` / `[u32]` buffers),
+  `TriMesh::from_f32` (GPU/STL-style f32 positions) and a `welded(tol)` helper so unwelded
+  soups give meaningful topology metrics. Not done in FND-06.

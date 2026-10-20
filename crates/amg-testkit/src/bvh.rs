@@ -59,12 +59,24 @@ impl<'a> Bvh<'a> {
     }
 
     /// Squared distance from `p` to the nearest triangle; `+inf` for an empty soup.
+    #[cfg(test)]
     pub(crate) fn closest_dist2(&self, p: Point3) -> f64 {
+        self.closest_dist2_until(p, f64::NEG_INFINITY)
+    }
+
+    /// Like `closest_dist2`, but may stop as soon as it has found a triangle within
+    /// `sqrt(floor)`, returning that (larger than exact, but `<= floor`) value. The directed
+    /// Hausdorff max uses its running maximum as `floor`: a point that cannot raise the max
+    /// need not be resolved exactly, and the final max is still exact.
+    pub(crate) fn closest_dist2_until(&self, p: Point3, floor: f64) -> f64 {
         let mut best = f64::INFINITY;
         if self.nodes.is_empty() {
             return best;
         }
-        let mut stack: Vec<usize> = Vec::with_capacity(64);
+        // Median splits halve the triangle count per level, so the depth is < 33 and the
+        // stack (at most one entry per level) never overflows.
+        let mut stack = [0u32; 64];
+        let mut len = 0usize;
         let mut node = 0usize;
         loop {
             let n = &self.nodes[node];
@@ -73,6 +85,9 @@ impl<'a> Bvh<'a> {
                 for tri in &self.tris[start..start + n.count as usize] {
                     let [a, b, c] = tri.map(|i| self.positions[i as usize]);
                     best = best.min(point_triangle_dist2(p, a, b, c));
+                }
+                if best <= floor {
+                    return best;
                 }
             } else {
                 let (l, r) = (node + 1, node + n.a as usize);
@@ -83,7 +98,8 @@ impl<'a> Bvh<'a> {
                     (r, dr, l, dl)
                 };
                 if df < best {
-                    stack.push(far);
+                    stack[len] = to_u32(far);
+                    len += 1;
                 }
                 if dn < best {
                     node = near;
@@ -92,13 +108,14 @@ impl<'a> Bvh<'a> {
             }
             // Pop until a node that can still beat `best`.
             loop {
-                match stack.pop() {
-                    None => return best,
-                    Some(s) if self.box_dist2(s, p) < best => {
-                        node = s;
-                        break;
-                    }
-                    Some(_) => {}
+                if len == 0 {
+                    return best;
+                }
+                len -= 1;
+                let s = stack[len] as usize;
+                if self.box_dist2(s, p) < best {
+                    node = s;
+                    break;
                 }
             }
         }
