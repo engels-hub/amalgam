@@ -173,11 +173,15 @@ name = "amg-jobs"
 version = "0.1.0"
 dependencies = [
  "amg-core",
+ "amg-testkit",
+ "bytemuck",
  "criterion",
  "crossbeam-channel",
  "parking_lot",
+ "pollster",
  "rayon",
  "thiserror",
+ "wgpu",
 ]
 
 [[package]]

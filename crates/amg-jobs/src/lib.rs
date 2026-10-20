@@ -37,6 +37,8 @@
 mod cancel;
 mod core;
 mod ctx;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 mod handle;
 mod os;
 mod system;
