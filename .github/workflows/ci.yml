@@ -1,0 +1,182 @@
+# CI for Amalgam (S00 §7, FND-05).
+#
+# Third-party actions are pinned by commit SHA; the comment names the release. Bump them
+# together with the comment.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bench:
+        description: Also run the criterion benches and upload the report
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  # vcpkg registry tag. Its commit must equal `builtin-baseline` in vcpkg.json (the vcpkg
+  # action checks this). Bump both in one PR (docs/dev-setup.md §9).
+  VCPKG_TAG: "2026.07.29"
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install --no-self-update
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: ./.github/actions/vcpkg
+        with:
+          vcpkg-tag: ${{ env.VCPKG_TAG }}
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      # GitHub runners have no GPU: run GPU tests on the WARP software adapter, and fail
+      # (not skip) when no adapter is found.
+      AMG_WGPU_BACKEND: warp
+      AMG_REQUIRE_GPU: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest@0.9
+      - uses: ./.github/actions/vcpkg
+        with:
+          vcpkg-tag: ${{ env.VCPKG_TAG }}
+      - run: cargo nextest run --workspace --profile ci
+      - name: Upload JUnit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-test
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: warn
+
+  deny:
+    name: deny
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install --no-self-update
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20
+      # Default features must be copyleft-free (ADR-012 permissive build).
+      - name: cargo deny check (default features)
+        run: cargo deny check
+      - name: cargo deny check (all features)
+        run: cargo deny --all-features check
+
+  golden:
+    name: golden
+    needs: test
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      AMG_WGPU_BACKEND: warp
+      AMG_REQUIRE_GPU: "1"
+      # LFS objects are fetched here, so an un-fetched pointer is a failure, not a skip.
+      AMG_REQUIRE_TESTDATA: "1"
+    steps:
+      # Checkout without LFS, then restore .git/lfs from the cache before pulling, so warm
+      # runs don't spend the GitHub LFS bandwidth quota.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: false
+      - name: List LFS objects
+        run: git lfs ls-files --long | ForEach-Object { ($_ -split ' ')[0] } | Sort-Object | Out-File -Encoding utf8 .lfs-assets-id
+      - name: Restore LFS cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .git/lfs
+          key: lfs-${{ hashFiles('.lfs-assets-id') }}
+          restore-keys: lfs-
+      - name: Fetch LFS objects
+        run: git lfs pull
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install --no-self-update
+      # Reuse the `test` job's build cache; only `test` saves it.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: false
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest@0.9
+      - uses: ./.github/actions/vcpkg
+        with:
+          vcpkg-tag: ${{ env.VCPKG_TAG }}
+      # --no-tests=pass: there are no golden tests until FND-06 and the first geometry WPs.
+      - run: cargo nextest run --workspace --profile ci -E 'test(golden_)' --no-tests=pass
+      - name: Upload JUnit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-golden
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: warn
+
+  # Benches are noisy on shared runners, so they only run on a manual dispatch with
+  # `bench: true`. FND-08 adds the placeholder benches.
+  bench:
+    name: bench
+    if: github.event_name == 'workflow_dispatch' && inputs.bench
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: bench
+      - uses: ./.github/actions/vcpkg
+        with:
+          vcpkg-tag: ${{ env.VCPKG_TAG }}
+      - run: cargo bench --workspace
+      - name: Upload criterion report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: criterion
+          path: target/criterion
+          if-no-files-found: warn

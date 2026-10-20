@@ -1,2 +1,6 @@
 .claude/
 /target/
+# vcpkg manifest-mode install tree (FND-05)
+/vcpkg_installed/
+# CI-only LFS object list (golden job)
+/.lfs-assets-id

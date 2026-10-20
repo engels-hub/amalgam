@@ -1,0 +1,85 @@
+# Sets up vcpkg in manifest mode for the C++ dependencies (S00 §7, FND-05).
+#
+# - Every step is skipped while `vcpkg.json` has no dependencies (no-op until BREP-01).
+# - vcpkg is a shallow clone of the pinned tag. The tag commit must equal `builtin-baseline`.
+# - Binary caching uses the `files` provider (x-gha was removed from vcpkg in 2025.06.13),
+#   persisted with actions/cache.
+name: vcpkg
+description: Clone and bootstrap vcpkg at the pinned tag, restore the binary cache and install the manifest.
+
+inputs:
+  vcpkg-tag:
+    description: vcpkg registry tag whose commit is the `builtin-baseline` in vcpkg.json.
+    required: true
+  triplet:
+    description: Target triplet (overlay triplets come from vcpkg-configuration.json).
+    required: false
+    default: x64-windows-amg
+
+outputs:
+  enabled:
+    description: "'true' when vcpkg.json has dependencies and vcpkg was set up."
+    value: ${{ steps.detect.outputs.enabled }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check vcpkg.json for dependencies
+      id: detect
+      shell: pwsh
+      run: |
+        $manifest = Get-Content -Raw vcpkg.json | ConvertFrom-Json
+        $count = if ($null -eq $manifest.dependencies) { 0 } else { @($manifest.dependencies).Count }
+        if ($count -gt 0) {
+          "enabled=true" >> $env:GITHUB_OUTPUT
+          Write-Host "vcpkg.json lists $count dependencies; setting up vcpkg."
+        } else {
+          "enabled=false" >> $env:GITHUB_OUTPUT
+          Write-Host "vcpkg.json has no dependencies; skipping vcpkg."
+        }
+
+    - name: Clone and bootstrap vcpkg ${{ inputs.vcpkg-tag }}
+      if: steps.detect.outputs.enabled == 'true'
+      shell: pwsh
+      env:
+        VCPKG_TAG: ${{ inputs.vcpkg-tag }}
+      run: |
+        $root = Join-Path $env:RUNNER_TEMP 'vcpkg'
+        git clone --depth 1 --branch $env:VCPKG_TAG https://github.com/microsoft/vcpkg.git $root
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $head = git -C $root rev-parse HEAD
+        $baseline = (Get-Content -Raw vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+        if ($head -ne $baseline) {
+          Write-Error "vcpkg tag $env:VCPKG_TAG is $head but vcpkg.json builtin-baseline is $baseline. Bump both together (docs/dev-setup.md §9)."
+          exit 1
+        }
+        & (Join-Path $root 'bootstrap-vcpkg.bat') -disableMetrics
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $bin = Join-Path $env:RUNNER_TEMP 'vcpkg-bin'
+        New-Item -ItemType Directory -Force $bin | Out-Null
+        "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
+        "VCPKG_BINARY_SOURCES=clear;files,$bin,readwrite" >> $env:GITHUB_ENV
+        "VCPKG_DEFAULT_TRIPLET=${{ inputs.triplet }}" >> $env:GITHUB_ENV
+        "VCPKG_DISABLE_METRICS=1" >> $env:GITHUB_ENV
+        $root >> $env:GITHUB_PATH
+
+    # ImageVersion is in the key because vcpkg ABI hashes include the compiler version: a new
+    # runner image saves a fresh entry instead of hitting a key full of unusable binaries. The
+    # restore keys still bring back older entries, so only the ports whose ABI changed rebuild.
+    - name: Restore vcpkg binary cache
+      if: steps.detect.outputs.enabled == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}\vcpkg-bin
+        key: vcpkg-${{ inputs.triplet }}-${{ env.ImageVersion }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/**') }}
+        restore-keys: |
+          vcpkg-${{ inputs.triplet }}-${{ env.ImageVersion }}-
+          vcpkg-${{ inputs.triplet }}-
+          vcpkg-
+
+    - name: vcpkg install (manifest mode)
+      if: steps.detect.outputs.enabled == 'true'
+      shell: pwsh
+      run: |
+        vcpkg install --triplet ${{ inputs.triplet }}
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
