@@ -1,0 +1,96 @@
+{
+  "format": 1,
+  "id": "own/horizontal_vertical_distance",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "Horizontal and vertical distance dimensions with a negative vertical side.",
+  "tags": [
+    "dimension"
+  ],
+  "entities": [
+    {
+      "name": "p",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "q",
+      "geom": {
+        "point": {
+          "at": [
+            6.0,
+            -2.0
+          ]
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "HorizontalDistance": {
+            "a": 0,
+            "b": 1,
+            "side": "Positive"
+          }
+        },
+        "value": 7.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "VerticalDistance": {
+            "a": 0,
+            "b": 1,
+            "side": "Negative"
+          }
+        },
+        "value": 3.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            7.0,
+            -3.0
+          ]
+        }
+      }
+    }
+  }
+}

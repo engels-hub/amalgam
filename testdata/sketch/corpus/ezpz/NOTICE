@@ -1,0 +1,20 @@
+ezpz test cases (test data only)
+================================
+
+Files:      every problem.md below this directory
+Upstream:   https://github.com/KittyCAD/ezpz  (path: test_cases/)
+Commit:     915882cc (main at the time of import, 2026-10-20)
+Copyright:  KittyCAD, Inc. and the ezpz authors. Upstream's LICENSE file still contains the
+            unfilled template line "Copyright (c) [year] [fullname]"; it is reproduced
+            unchanged in LICENSE next to this file.
+Licence:    MIT.
+
+What was copied: the problem.md of each test case, unmodified, except that
+`massive_parallel_system` (1201 entities) is not included: it is too large for the dense
+reference oracle used to derive expectations. Expectations (status, DOF, and for fully
+constrained cases the solution reached from the stated guesses) are in expected.json and were
+derived with Amalgam's own reference oracle; ezpz's own expected assignments were not used
+(Amalgam's arc and tangent models differ, see crates/amg-sketch/src/corpus/ezpz.rs).
+
+Use: read at test time by crates/amg-sketch/src/corpus/ezpz.rs (written for Amalgam). Test
+data only; not compiled into or linked with any crate.

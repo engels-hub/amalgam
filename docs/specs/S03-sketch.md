@@ -694,7 +694,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 |---|---|---|---|---|---|
 | SK-01 | Entity model, `ParamStore` layout, sketch plane (`amg_core::Plane`), constraint/dimension data types, ids, validation, serde | FND-03 | P0 | Done | 1. All P0 entity kinds (point, line, circle, arc) and every `ConstraintKind`/`DimensionKind` variant can be created through the API. 2. Kind validation returns `WrongEntityKind` (≥ 1 negative test per variant). 3. Three fixture sketches round-trip through serde bit-identically. 4. `remove_entities` cascades to constraints (unit test). |
 | SK-02 | Residuals + analytic Jacobians for all P0 constraints and dimensions; `system::Residual`; chirality capture | SK-01 | P0 | Todo | 1. Every P0 constraint and dimension passes a central-difference Jacobian check (relative error < 1e-6) on 1000 random configurations each (proptest). 2. Captured `Side`/`TangentKind`/`AngleBranch` make the residual zero at creation (unit test). |
-| SK-14 | Solver test corpus + runner: corpus file format (JSON), `.slvs` 2D importer, ezpz text importer, hand-ported PlaneGCS cases, expected-result schema | SK-01 | P0 | Todo | 1. `testdata/sketch/corpus/` holds ≥ 120 cases: ≥ 60 from SolveSpace 2D (`test/constraint/*`), ≥ 20 PlaneGCS, ≥ 20 ezpz, ≥ 20 own. 2. Each case has expected DOF and status. 3. The runner reports pass/fail per case. 4. Licence notices are in each source subfolder. |
+| SK-14 | Solver test corpus + runner: corpus file format (JSON), `.slvs` 2D importer, ezpz text importer, hand-ported PlaneGCS cases, expected-result schema | SK-01 | P0 | Review | 1. `testdata/sketch/corpus/` holds ≥ 120 cases: ≥ 60 from SolveSpace 2D (`test/constraint/*`), ≥ 20 PlaneGCS, ≥ 20 ezpz, ≥ 20 own. 2. Each case has expected DOF and status. 3. The runner reports pass/fail per case. 4. Licence notices are in each source subfolder. |
 | SK-13 | Solver prototype + ADR-007 benchmark: native prototype vs `libslvs` (feature `slvs`) vs ezpz on decision cases D1–D10 (note §5) | SK-02, SK-14 | P0 | Todo | 1. `docs/notes/sketch-solver-benchmark.md` reports every §5.3 metric for every option on D1–D10. 2. Proposed ADR-007 wording is in the PR. 3. The owner's decision is recorded. *This WP produces the decision, so it is not behind the ADR-007 gate.* |
 | SK-03 | Production solver core: substitution, connected components + Dulmage–Mendelsohn blocks, dense/sparse damped min-norm GN/LM, structure cache, `SolveStatus` / unsatisfied reporting, cancellation, driven-dimension measurement | SK-13 (gate: ADR-007 decided) | P0 | Todo | 1. ≥ 95 % of the SK-14 corpus passes, and 100 % of its non-degenerate well-constrained cases. 2. D9 warm solve < 5 ms median on the reference machine (criterion). 3. The same input solved 100× gives bit-identical params. 4. Cancellation returns `Cancelled` within 1 ms. |
 | SK-04 | DOF analysis (rank-revealing QR/SVD, per-entity status), diagnosis (redundant / conflicting / degenerate groups, leave-one-out refinement), `check_constraint` | SK-03 | P0 | Todo | 1. All 50 hand-made DOF cases (§Testing) match exactly: total DOF, every entity's `ConstraintState`, and dependency groups as sets. 2. `check_constraint` agrees with full re-analysis on every case. 3. Analysis of a 500-entity sketch < 10 ms. |
@@ -1047,3 +1047,40 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **For S01 / DOC (`.amg` writer, ADR-010):** a bit-identical JSON round trip needs
   `serde_json`'s `float_roundtrip` feature when parsing. `amg-sketch` enables it for its own
   tests; the document loader should enable it too.
+
+### 2026-10-20 � SK-14 (solver corpus and runner, lane B)
+- **New public API in `amg_sketch::corpus`** (additive; all test infrastructure):
+  `Case` (JSON format 1), `CaseEntity`/`CaseGeom`, `Expected { status, also_accept, dof, solution, tolerance, groups }`,
+  `Solution::{Start, Target, Witness}`, `Case::{validate, build}` -> `BuiltCase`, `Sidecar` (the `expected.json`
+  of imported sets), `load_corpus`, importers `corpus::slvs::import` (SolveSpace 2D text files) and
+  `corpus::ezpz::import`, the oracle `corpus::{ReferenceCheck, ReferenceSolver}`, and the runner
+  `corpus::runner::{CorpusBackend, run_case, run_corpus, CorpusReport}`.
+- **SK-03 / SK-13 adapter plan.** A production solver or libslvs plugs in by implementing
+  `CorpusBackend { name, solve(&Case, &mut BuiltCase) -> Result<BackendOutcome, BackendSkip> }`:
+  `solve` runs the solver on `built.sketch` from the start configuration; `analyze` fills `dof` and
+  `groups` (constraint indices into `Case::constraints`, mapped with `BuiltCase::constraint_index`).
+  A backend that reports no DOF/groups gets those checks reported as `unchecked`, not failed.
+- **Corpus composition** (`testdata/sketch/corpus/`, 135 cases): SolveSpace 61, PlaneGCS 23, ezpz 27, own 24.
+  SolveSpace: 33 distinct 2D cases from `test/constraint/*` plus their `_v22` re-saves (tag `format-v22`,
+  28 files) as file-format coverage; the `_v20` duplicates and the empty `comment` case are not kept.
+  The 3D-only cases and ezpz `massive_parallel_system` (1201 entities, too large for the dense oracle)
+  are not included.
+- **Deviations from the SK-14 text.**
+  - PlaneGCS cases are scenario ports: the geometry and numbers are authored for Amalgam after the
+    FreeCAD Sketcher test scenarios (no FreeCAD data copied verbatim); they are still attributed and
+    labelled LGPL-2.1-or-later in `planegcs/NOTICE`.
+  - Expected DOF/status for the imported sets come from the Amalgam reference oracle (SolveSpace's
+    `test.cpp` asserts solve success only, ezpz stores no DOF) and were spot-checked by hand; own and
+    PlaneGCS cases state them by hand and `tests/corpus_gen.rs` fails if the oracle disagrees.
+  - `large_dimensions/perpendicular_4m.slvs` is saved unsolved, so it has no `Start` solution.
+  - ezpz fully constrained cases use `Target` = the root the oracle reaches from ezpz's guesses.
+  - D8 is the reduced form (24 holes on a bolt circle, 73 entities, not ~200); D9 is 341 entities.
+- **Conventions SK-02 must confirm** (the oracle in `corpus/reference.rs` uses them; a mismatch shows
+  up as corpus failures): signed distance positive on the left of the oriented line; point-circle
+  `Distance` `Positive` = outside, `Negative` = inside, line-circle `side * s - r = v`; `Angle` is the
+  signed CCW angle `atan2(cross, dot)` between the oriented directions; angular rows are scaled by the
+  characteristic length; `Fix` of a circle locks only its radius (the centre is a separate point);
+  a `Fix`ed arc whose three points are all fixed makes its internal equation a redundant row.
+- **Dependencies.** `serde_json` (feature `float_roundtrip`) moved from dev-dependency to a normal
+  dependency of `amg-sketch` for the corpus loader. The `.slvs` and ezpz importers are written for
+  Amalgam; no SolveSpace or ezpz code is used. Test data licences are in `THIRD_PARTY.md`.

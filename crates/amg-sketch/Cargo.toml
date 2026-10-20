@@ -11,6 +11,9 @@ publish.workspace = true
 amg-core.workspace = true
 amg-jobs.workspace = true
 serde.workspace = true
+# Corpus JSON (SK-14). `float_roundtrip`: exact f64 parsing, so sketches and corpus cases
+# round-trip bit-identically.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 # Not in [workspace.dependencies] yet (SK-01 may only touch this crate); hoist when a second
 # crate (amg-mesh, S07) starts using it.
 smallvec = { version = "1.16.3", features = ["serde"] }
@@ -18,8 +21,6 @@ thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-# `float_roundtrip`: exact f64 parsing, so sketches round-trip bit-identically.
-serde_json = { workspace = true, features = ["float_roundtrip"] }
 
 [lints]
 workspace = true

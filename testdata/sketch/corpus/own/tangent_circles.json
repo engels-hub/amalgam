@@ -1,0 +1,130 @@
+{
+  "format": 1,
+  "id": "own/tangent_circles",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "Two externally tangent circles with the second centre on the horizontal through the first.",
+  "tags": [
+    "tangent",
+    "circle"
+  ],
+  "entities": [
+    {
+      "name": "c1",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "c2",
+      "geom": {
+        "point": {
+          "at": [
+            7.6,
+            0.3
+          ]
+        }
+      }
+    },
+    {
+      "name": "k1",
+      "geom": {
+        "circle": {
+          "center": 0,
+          "radius": 5.0
+        }
+      }
+    },
+    {
+      "name": "k2",
+      "geom": {
+        "circle": {
+          "center": 1,
+          "radius": 3.0
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Horizontal": {
+        "Points": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Radius": {
+            "curve": 2
+          }
+        },
+        "value": 5.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Radius": {
+            "curve": 3
+          }
+        },
+        "value": 3.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Tangent": {
+        "a": 2,
+        "b": 3,
+        "kind": "External"
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            8.0,
+            0.0
+          ]
+        },
+        "radii": {
+          "2": 5.0,
+          "3": 3.0
+        }
+      }
+    }
+  }
+}

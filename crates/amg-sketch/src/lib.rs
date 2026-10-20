@@ -8,6 +8,8 @@
 //!   the [`Sketch`] container with kind validation and serde.
 //! - [`geom`]: evaluated 2D curves ([`Curve2`]).
 //! - [`error`]: the [`SketchError`] enum.
+//! - [`corpus`]: the solver test corpus format, `.slvs`/ezpz importers, a reference checker
+//!   and the solver-agnostic runner (SK-14; test infrastructure).
 //!
 //! Lengths are mm in sketch-plane coordinates, angles are radians, all `f64`. Collections are
 //! `BTreeMap`s, so iteration order (and serialised output) is deterministic.
@@ -16,6 +18,7 @@
 
 #![warn(missing_docs)]
 
+pub mod corpus;
 pub mod error;
 pub mod geom;
 pub mod ids;

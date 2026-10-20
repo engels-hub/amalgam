@@ -1,0 +1,120 @@
+{
+  "format": 1,
+  "id": "own/concentric_circles",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "Two concentric circles with their own radii.",
+  "tags": [
+    "circle"
+  ],
+  "entities": [
+    {
+      "name": "c1",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "c2",
+      "geom": {
+        "point": {
+          "at": [
+            0.4,
+            -0.3
+          ]
+        }
+      }
+    },
+    {
+      "name": "k1",
+      "geom": {
+        "circle": {
+          "center": 0,
+          "radius": 4.0
+        }
+      }
+    },
+    {
+      "name": "k2",
+      "geom": {
+        "circle": {
+          "center": 1,
+          "radius": 7.0
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Concentric": {
+        "a": 2,
+        "b": 3
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Radius": {
+            "curve": 2
+          }
+        },
+        "value": 5.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Radius": {
+            "curve": 3
+          }
+        },
+        "value": 8.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            0.0,
+            0.0
+          ]
+        },
+        "radii": {
+          "2": 5.0,
+          "3": 8.0
+        }
+      }
+    }
+  }
+}

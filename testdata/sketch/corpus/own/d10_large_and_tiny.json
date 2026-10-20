@@ -1,0 +1,132 @@
+{
+  "format": 1,
+  "id": "own/d10_large_and_tiny",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "D10: a 1e5 mm horizontal edge with a 1e-3 mm vertical feature at its end (conditioning, scaling, tolerance).",
+  "tags": [
+    "decision:D10",
+    "scale"
+  ],
+  "entities": [
+    {
+      "name": "o",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "a",
+      "geom": {
+        "point": {
+          "at": [
+            100000.4,
+            0.0004
+          ]
+        }
+      }
+    },
+    {
+      "name": "f",
+      "geom": {
+        "point": {
+          "at": [
+            100000.2,
+            0.0013
+          ]
+        }
+      }
+    },
+    {
+      "name": "oa",
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 1
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Horizontal": {
+        "Line": 3
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Length": {
+            "line": 3
+          }
+        },
+        "value": 100000.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Vertical": {
+        "Points": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 1,
+            "b": 2,
+            "side": "Positive"
+          }
+        },
+        "value": 0.001,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            100000.0,
+            0.0
+          ],
+          "2": [
+            100000.0,
+            0.001
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,259 @@
+{
+  "format": 1,
+  "id": "planegcs/slot_plate",
+  "source": {
+    "set": "planegcs",
+    "origin": "scenario after FreeCAD Sketcher tests (TestSketcherSolver: slot plate); numbers authored for Amalgam",
+    "licence": "LGPL-2.1-or-later"
+  },
+  "description": "Slot made of two lines and two tangent arcs, dimensioned by centre distance and diameter.",
+  "tags": [
+    "freecad",
+    "slot"
+  ],
+  "entities": [
+    {
+      "name": "c1",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "c2",
+      "geom": {
+        "point": {
+          "at": [
+            30.3,
+            0.2
+          ]
+        }
+      }
+    },
+    {
+      "name": "t1",
+      "geom": {
+        "point": {
+          "at": [
+            -0.731216060431,
+            5.955276909848
+          ]
+        }
+      }
+    },
+    {
+      "name": "t2",
+      "geom": {
+        "point": {
+          "at": [
+            30.927170779606,
+            6.16713137221
+          ]
+        }
+      }
+    },
+    {
+      "name": "b2",
+      "geom": {
+        "point": {
+          "at": [
+            30.718538842465,
+            -5.785384301559
+          ]
+        }
+      }
+    },
+    {
+      "name": "b1",
+      "geom": {
+        "point": {
+          "at": [
+            -0.522934456486,
+            -5.97716818855
+          ]
+        }
+      }
+    },
+    {
+      "name": "top",
+      "geom": {
+        "line": {
+          "start": 2,
+          "end": 3
+        }
+      }
+    },
+    {
+      "name": "bottom",
+      "geom": {
+        "line": {
+          "start": 4,
+          "end": 5
+        }
+      }
+    },
+    {
+      "name": "right",
+      "geom": {
+        "arc": {
+          "center": 1,
+          "start": 4,
+          "end": 3
+        }
+      }
+    },
+    {
+      "name": "left",
+      "geom": {
+        "arc": {
+          "center": 0,
+          "start": 2,
+          "end": 5
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Tangent": {
+        "a": 6,
+        "b": 8,
+        "kind": {
+          "AtEndpoint": {
+            "a_end": "End",
+            "b_end": "End",
+            "reversed": true
+          }
+        }
+      }
+    },
+    {
+      "Tangent": {
+        "a": 8,
+        "b": 7,
+        "kind": {
+          "AtEndpoint": {
+            "a_end": "Start",
+            "b_end": "Start",
+            "reversed": true
+          }
+        }
+      }
+    },
+    {
+      "Tangent": {
+        "a": 9,
+        "b": 7,
+        "kind": {
+          "AtEndpoint": {
+            "a_end": "End",
+            "b_end": "End",
+            "reversed": true
+          }
+        }
+      }
+    },
+    {
+      "Tangent": {
+        "a": 6,
+        "b": 9,
+        "kind": {
+          "AtEndpoint": {
+            "a_end": "Start",
+            "b_end": "Start",
+            "reversed": true
+          }
+        }
+      }
+    },
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Horizontal": {
+        "Points": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "HorizontalDistance": {
+            "a": 0,
+            "b": 1,
+            "side": "Positive"
+          }
+        },
+        "value": 30.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Diameter": {
+            "curve": 8
+          }
+        },
+        "value": 12.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Equal": {
+        "a": 9,
+        "b": 8
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            30.0,
+            0.0
+          ],
+          "2": [
+            0.0,
+            6.0
+          ],
+          "3": [
+            30.0,
+            6.0
+          ],
+          "4": [
+            30.000000000003,
+            -6.000000000005
+          ],
+          "5": [
+            4e-12,
+            -6.000000000015
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "format": 1,
+  "id": "own/arc_length",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "Quarter arc with fixed centre and start; the arc length dimension places the end point at (0, 10).",
+  "tags": [
+    "arc"
+  ],
+  "entities": [
+    {
+      "name": "c",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "s",
+      "geom": {
+        "point": {
+          "at": [
+            10.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "e",
+      "geom": {
+        "point": {
+          "at": [
+            1.0,
+            9.9498743710662
+          ]
+        }
+      }
+    },
+    {
+      "name": "a",
+      "geom": {
+        "arc": {
+          "center": 0,
+          "start": 1,
+          "end": 2
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Fix": {
+        "entity": 1
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "ArcLength": {
+            "arc": 3
+          }
+        },
+        "value": 15.707963267948966,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            10.0,
+            0.0
+          ],
+          "2": [
+            0.0,
+            10.0
+          ]
+        }
+      }
+    }
+  }
+}

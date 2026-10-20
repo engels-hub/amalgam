@@ -14,6 +14,9 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | TetGen | `amg-fem` fallback mesher (ADR-008) | AGPL-3.0 | **yes** | yes | Planned |
 | SolveSpace `libslvs` + `slvs` 0.6 crate | `amg-sketch` differential-test oracle behind feature `slvs` (S03, SK-13/SK-14); runtime fallback only if the owner decides (S03 OQ 4) | GPL-3.0 | **yes** | yes | Planned (test-only) |
 | bindgen | build dep of `slvs` (needs libclang) | BSD-3-Clause | no | yes (with `slvs`) | Planned (test-only) |
+| SolveSpace `test/constraint/*.slvs` files (commit 5bb74ad2) | **test data only**: `testdata/sketch/corpus/solvespace/`, read at test time by `amg-sketch` (S03, SK-14); never compiled, linked or shipped; licence text and `NOTICE` kept beside the files | GPL-3.0-or-later | **yes** (data) | no (not a dependency) | In use (test data) |
+| ezpz `test_cases/*/problem.md` (commit 915882cc) | **test data only**: `testdata/sketch/corpus/ezpz/` (S03, SK-14) | MIT | no | no | In use (test data) |
+| FreeCAD Sketcher test scenarios (commit 33adf618) | **test data only**: hand-ported scenarios, `testdata/sketch/corpus/planegcs/` (S03, SK-14); no FreeCAD file copied verbatim | LGPL-2.1-or-later | weak (data) | no | In use (test data) |
 | fidget | `amg-implicit` CPU evaluator (S08, under evaluation) | MPL-2.0 | weak | — | Planned (undecided) |
 | wgpu 30.0.1 | `amg-jobs`, `amg-render`, `amg-compute` (ADR-004) | MIT / Apache-2.0 | no | no | In use (30.0.1; `amg-testkit` GPU probe, behind feature `gpu`) |
 | egui, eframe, egui-wgpu 0.37.0 (or 0.36.2, QUESTIONS #23) | `amg-ui`, `amg-app`, `amg-render` (feature `egui`; eframe as dev-dep for the spin example) (ADR-005, S10, S11) | MIT / Apache-2.0 | no | no | Planned |

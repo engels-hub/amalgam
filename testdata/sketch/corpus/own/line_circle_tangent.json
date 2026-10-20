@@ -1,0 +1,141 @@
+{
+  "format": 1,
+  "id": "own/line_circle_tangent",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "Line from a fixed point, tangent to a circle on its left, of length 16: the horizontal tangent y = -5.",
+  "tags": [
+    "tangent",
+    "chirality"
+  ],
+  "entities": [
+    {
+      "name": "p",
+      "geom": {
+        "point": {
+          "at": [
+            -8.0,
+            -5.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "q",
+      "geom": {
+        "point": {
+          "at": [
+            7.5,
+            -4.6
+          ]
+        }
+      }
+    },
+    {
+      "name": "c",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "l",
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 1
+        }
+      }
+    },
+    {
+      "name": "k",
+      "geom": {
+        "circle": {
+          "center": 2,
+          "radius": 4.8
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Fix": {
+        "entity": 2
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Radius": {
+            "curve": 4
+          }
+        },
+        "value": 5.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Tangent": {
+        "a": 3,
+        "b": 4,
+        "kind": "External"
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Length": {
+            "line": 3
+          }
+        },
+        "value": 16.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            -8.0,
+            -5.0
+          ],
+          "1": [
+            8.0,
+            -5.0
+          ],
+          "2": [
+            0.0,
+            0.0
+          ]
+        },
+        "radii": {
+          "4": 5.0
+        }
+      }
+    }
+  }
+}

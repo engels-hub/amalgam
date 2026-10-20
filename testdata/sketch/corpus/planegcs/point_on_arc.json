@@ -1,0 +1,130 @@
+{
+  "format": 1,
+  "id": "planegcs/point_on_arc",
+  "source": {
+    "set": "planegcs",
+    "origin": "scenario after FreeCAD Sketcher tests (planegcs gtest: point on arc); numbers authored for Amalgam",
+    "licence": "LGPL-2.1-or-later"
+  },
+  "description": "A quarter arc (fixed centre and start, end vertically above the centre) and a point on it, also above the centre.",
+  "tags": [
+    "freecad",
+    "arc"
+  ],
+  "entities": [
+    {
+      "name": "c",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "s",
+      "geom": {
+        "point": {
+          "at": [
+            5.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "e",
+      "geom": {
+        "point": {
+          "at": [
+            0.261679781215,
+            4.993147673773
+          ]
+        }
+      }
+    },
+    {
+      "name": "x",
+      "geom": {
+        "point": {
+          "at": [
+            0.2,
+            4.9
+          ]
+        }
+      }
+    },
+    {
+      "name": "arc",
+      "geom": {
+        "arc": {
+          "center": 0,
+          "start": 1,
+          "end": 2
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Fix": {
+        "entity": 1
+      }
+    },
+    {
+      "Vertical": {
+        "Points": [
+          0,
+          2
+        ]
+      }
+    },
+    {
+      "PointOnCurve": {
+        "point": 3,
+        "curve": 4
+      }
+    },
+    {
+      "Vertical": {
+        "Points": [
+          0,
+          3
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            5.0,
+            0.0
+          ],
+          "2": [
+            0.0,
+            5.0
+          ],
+          "3": [
+            0.0,
+            5.0
+          ]
+        }
+      }
+    }
+  }
+}
