@@ -1219,16 +1219,25 @@ implementation differs from §7:
 - **Action versions.** §7 says `actions/cache@v4`. The current majors on 2026-10-20 are used
   instead, each pinned by commit SHA with a version comment: `actions/checkout` v7.0.1,
   `actions/cache` v6.1.0, `actions/upload-artifact` v7.0.2, `Swatinem/rust-cache` v2.9.3,
-  `taiki-e/install-action` v2.87.29. Tools: `cargo-nextest@0.9`, `cargo-deny@0.20`.
+  `taiki-e/install-action` v2.87.29, `actions/download-artifact` v8.0.2. Tools:
+  `cargo-nextest@0.9`, `cargo-deny@0.20`.
+- **Concurrency.** `cancel-in-progress` is `true` only for `pull_request` events. Pushes to
+  `main` are never cancelled, so every `main` commit gets a complete run and saves caches.
 - **Toolchain step.** Every job runs `rustup toolchain install --no-self-update` (reads
   `rust-toolchain.toml`) before rust-cache, instead of relying on the first `cargo` call. It
   makes the install explicit and ensures rust-cache keys on the pinned rustc.
-- **vcpkg steps** live in one composite action used by `clippy`, `test`, `golden` and `bench`.
-  `fmt` and `deny` don't need C++. It also fails fast if the cloned tag's commit differs from
-  `builtin-baseline`, and sets `VCPKG_DEFAULT_TRIPLET=x64-windows-amg`.
+- **vcpkg steps** live in one composite action (`.github/actions/vcpkg`) used by `clippy`,
+  `test` and `bench`. `fmt`, `deny` and `golden` don't need it (`golden` runs prebuilt,
+  statically linked binaries). The action fails fast if the cloned tag's commit differs from
+  `builtin-baseline`. It sets `VCPKG_DEFAULT_TRIPLET` and `VCPKG_DEFAULT_HOST_TRIPLET` to
+  `x64-windows-amg` (host tools are built once, release-only), and installs with
+  `--x-buildtrees-root=<runner.temp>b` to keep OCCT build paths under MAX_PATH.
+  BREP-01: if OCCT needs runtime resource files from `vcpkg_installed/`, add the action back to
+  `golden`.
 - **vcpkg cache key** is `vcpkg-<triplet>-<ImageVersion>-<hash(vcpkg.json, vcpkg-configuration.json,
   triplets/**)>`, with restore keys `vcpkg-<triplet>-<ImageVersion>-`, `vcpkg-<triplet>-` and
-  `vcpkg-`. With the §7 key a runner-image compiler update would hit the exact key, so the
+  `vcpkg-`. `ImageVersion` is a runner machine variable, not part of the `env` expression
+  context, so a step reads `$env:ImageVersion` and passes it to the key as a step output. With the §7 key a runner-image compiler update would hit the exact key, so the
   rebuilt binaries would never be saved. Known limitation: the `files` directory grows with
   stale ABI entries until the key prefix changes.
 - **golden LFS.** It checks out with `lfs: false`, writes `git lfs ls-files --long` object ids to
@@ -1236,6 +1245,21 @@ implementation differs from §7:
   runs `git lfs pull`. `lfs: true` on checkout would download everything before the cache is
   restored, so the cache would never save bandwidth. The job also sets
   `AMG_REQUIRE_TESTDATA=1` and runs nextest with `--no-tests=pass` (there are no `golden_`
-  tests yet). It reuses the `test` job's cargo cache (`shared-key: test`, `save-if: false`).
+  tests yet).
+- **golden doesn't rebuild.** `test` runs `cargo nextest archive --profile ci` and uploads the
+  archive (artifact `nextest-archive`, kept 1 day). `golden` downloads it and runs
+  `cargo nextest run --archive-file … --workspace-remap . --extract-to <runner.temp>
+extest
+  --extract-overwrite -E 'test(golden_)'` on the LFS checkout. `test` runs
+  `-E 'not test(golden_)'`, so golden tests run once, with their data. The archive round-trip
+  and the remap were checked locally on Windows with nextest 0.9.148.
+- **clippy** runs twice: default features and `--all-features`, so feature-gated code is linted.
+- **WARP.** The local action `.github/actions/install-warp` downloads the
+  `Microsoft.Direct3D.WARP` NuGet package, pinned to version 1.0.20 with its sha256 (the
+  version wgpu's CI uses; 1.0.21 also exists). It copies `d3d10warp.dll` into
+  `target/debug` and `target/debug/deps` (in `golden`, the extract tree). The loader searches
+  the exe's directory before System32, so this DLL is used instead of the image's inbox copy,
+  and `AMG_REQUIRE_GPU=1` doesn't depend on what the runner image ships. This is the same
+  approach as wgpu's xtask `install-warp`. The DLL is CI-only and never shipped.
 - **bench job** runs only on `workflow_dispatch` with the input `bench: true`, so a manual
   dispatch for an ordinary CI run doesn't also run benches. FND-08 adds the benches it runs.

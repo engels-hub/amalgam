@@ -58,3 +58,4 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | parry3d-f64 | geometry test oracle, dev-only (S07) | Apache-2.0 | no | — | Planned (dev-only) |
 | obvhs | BVH benchmark reference, dev-only (S07) | MIT / Apache-2.0 | no | — | Planned (dev-only) |
 | cargo-nextest, cargo-deny | dev tools, not linked (S00) | MIT / Apache-2.0 | no | — | Planned |
+| Microsoft.Direct3D.WARP 1.0.20 (NuGet) | CI only: software D3D12 adapter for GPU tests (FND-05), never shipped | Microsoft EULA (redistributable binary) | no | n/a (CI-only download) | In use (CI) |

@@ -39,6 +39,7 @@ runs:
         }
 
     - name: Clone and bootstrap vcpkg ${{ inputs.vcpkg-tag }}
+      id: setup
       if: steps.detect.outputs.enabled == 'true'
       shell: pwsh
       env:
@@ -60,26 +61,34 @@ runs:
         "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
         "VCPKG_BINARY_SOURCES=clear;files,$bin,readwrite" >> $env:GITHUB_ENV
         "VCPKG_DEFAULT_TRIPLET=${{ inputs.triplet }}" >> $env:GITHUB_ENV
+        # Host tools use the same release-only triplet: one build per port instead of two.
+        "VCPKG_DEFAULT_HOST_TRIPLET=${{ inputs.triplet }}" >> $env:GITHUB_ENV
         "VCPKG_DISABLE_METRICS=1" >> $env:GITHUB_ENV
         $root >> $env:GITHUB_PATH
+        # The runner image version is a machine environment variable, not part of the `env`
+        # expression context, so it is passed to the cache key through a step output.
+        $image = if ($env:ImageVersion) { $env:ImageVersion } else { 'unknown' }
+        "image-version=$image" >> $env:GITHUB_OUTPUT
 
-    # ImageVersion is in the key because vcpkg ABI hashes include the compiler version: a new
-    # runner image saves a fresh entry instead of hitting a key full of unusable binaries. The
-    # restore keys still bring back older entries, so only the ports whose ABI changed rebuild.
+    # The image version is in the key because vcpkg ABI hashes include the compiler version: a
+    # new runner image saves a fresh entry instead of hitting a key full of unusable binaries.
+    # The restore keys still bring back older entries, so only the ports whose ABI changed
+    # rebuild.
     - name: Restore vcpkg binary cache
       if: steps.detect.outputs.enabled == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}\vcpkg-bin
-        key: vcpkg-${{ inputs.triplet }}-${{ env.ImageVersion }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/**') }}
+        key: vcpkg-${{ inputs.triplet }}-${{ steps.setup.outputs.image-version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/**') }}
         restore-keys: |
-          vcpkg-${{ inputs.triplet }}-${{ env.ImageVersion }}-
+          vcpkg-${{ inputs.triplet }}-${{ steps.setup.outputs.image-version }}-
           vcpkg-${{ inputs.triplet }}-
           vcpkg-
 
+    # A short buildtrees root keeps deep OCCT paths under MAX_PATH.
     - name: vcpkg install (manifest mode)
       if: steps.detect.outputs.enabled == 'true'
       shell: pwsh
       run: |
-        vcpkg install --triplet ${{ inputs.triplet }}
+        vcpkg install --triplet ${{ inputs.triplet }} --x-buildtrees-root="$(Join-Path $env:RUNNER_TEMP 'vb')"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

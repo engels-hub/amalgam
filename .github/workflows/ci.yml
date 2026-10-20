@@ -17,7 +17,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded PR runs are cancelled; pushes to main always run to completion.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -56,7 +57,11 @@ jobs:
       - uses: ./.github/actions/vcpkg
         with:
           vcpkg-tag: ${{ env.VCPKG_TAG }}
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: clippy (default features)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      # Feature-gated code (tracy, copyleft-gated backends, …) is linted too.
+      - name: clippy (all features)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
     name: test
@@ -80,7 +85,16 @@ jobs:
       - uses: ./.github/actions/vcpkg
         with:
           vcpkg-tag: ${{ env.VCPKG_TAG }}
-      - run: cargo nextest run --workspace --profile ci
+      # Build once and archive the test binaries; `golden` runs from the archive instead of
+      # rebuilding the workspace.
+      - name: Build and archive test binaries
+        run: cargo nextest archive --workspace --profile ci --archive-file "${{ runner.temp }}\nextest-archive.tar.zst"
+      # After rust-cache (it restores the whole target dir) and after the build.
+      - uses: ./.github/actions/install-warp
+        with:
+          target-dir: target/debug
+      # Golden tests run in their own job, with LFS data.
+      - run: cargo nextest run --workspace --profile ci -E 'not test(golden_)'
       - name: Upload JUnit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -88,6 +102,13 @@ jobs:
           name: junit-test
           path: target/nextest/ci/junit.xml
           if-no-files-found: warn
+      - name: Upload nextest archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nextest-archive
+          path: ${{ runner.temp }}\nextest-archive.tar.zst
+          if-no-files-found: error
+          retention-days: 1
 
   deny:
     name: deny
@@ -132,21 +153,32 @@ jobs:
           restore-keys: lfs-
       - name: Fetch LFS objects
         run: git lfs pull
+      # No build here: the test binaries come from the `test` job's nextest archive. C++ deps
+      # are linked statically (x64-windows-amg), so vcpkg isn't needed at run time. The
+      # toolchain is still installed because nextest asks rustc for the sysroot.
       - name: Install toolchain from rust-toolchain.toml
         run: rustup toolchain install --no-self-update
-      # Reuse the `test` job's build cache; only `test` saves it.
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: test
-          save-if: false
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9
-      - uses: ./.github/actions/vcpkg
+      - name: Download nextest archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          vcpkg-tag: ${{ env.VCPKG_TAG }}
+          name: nextest-archive
+          path: ${{ runner.temp }}
+      # Creates <extract>/target/debug{,/deps}. `--extract-overwrite` below writes the archive's
+      # files into that tree and leaves the DLL in place (checked locally with nextest 0.9.148).
+      - uses: ./.github/actions/install-warp
+        with:
+          target-dir: ${{ runner.temp }}\nextest\target\debug
       # --no-tests=pass: there are no golden tests until FND-06 and the first geometry WPs.
-      - run: cargo nextest run --workspace --profile ci -E 'test(golden_)' --no-tests=pass
+      - name: Run golden tests from the archive
+        run: >-
+          cargo nextest run --profile ci
+          --archive-file "${{ runner.temp }}\nextest-archive.tar.zst"
+          --workspace-remap .
+          --extract-to "${{ runner.temp }}\nextest" --extract-overwrite
+          -E 'test(golden_)' --no-tests=pass
       - name: Upload JUnit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
