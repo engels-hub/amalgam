@@ -636,7 +636,10 @@ mod tests {
         // A huge declared count fails on EOF, not on allocation.
         let mut b = buf.clone();
         b[12..20].copy_from_slice(&(u64::from(u32::MAX) - 1).to_le_bytes());
-        assert!(MeshBody::read_binary(b.as_slice()).is_err());
+        assert!(matches!(
+            MeshBody::read_binary(b.as_slice()),
+            Err(MeshError::Decode(_))
+        ));
     }
 
     #[test]

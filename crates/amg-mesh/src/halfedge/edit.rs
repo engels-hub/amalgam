@@ -42,6 +42,18 @@ impl HalfEdgeMesh {
         }
     }
 
+    /// `TooLarge` unless `verts` more vertices and `faces` more faces (3 half-edges each) stay
+    /// below `INVALID`.
+    fn room(&self, verts: usize, faces: usize) -> Result<(), TopoError> {
+        let v_ok = self.positions.len() + verts < INVALID as usize;
+        let f_ok = 3 * (self.tris.len() + faces) < INVALID as usize;
+        if v_ok && f_ok {
+            Ok(())
+        } else {
+            Err(TopoError::TooLarge)
+        }
+    }
+
     fn push_face_raw(&mut self, t: [u32; 3], group: FaceGroupId) -> u32 {
         let f = idx(self.tris.len());
         idx(3 * self.tris.len() + 2);
@@ -88,6 +100,7 @@ impl HalfEdgeMesh {
             // opposite vertex would coincide.
             return Err(TopoError::NonManifold);
         }
+        self.room(1, if t == INVALID { 1 } else { 2 })?;
         let s = edge_param(self.positions[a as usize], self.positions[b as usize], p);
 
         let m = idx(self.positions.len());
@@ -375,6 +388,7 @@ impl HalfEdgeMesh {
                 return Err(TopoError::NonManifold);
             }
         }
+        self.room(0, 1)?;
         let f = self.push_face_raw(vs, group);
         self.attrs.push_face(None, [Point2::ZERO; 3], [INVALID; 3]);
         for (k, &o) in opp.iter().enumerate() {
@@ -393,6 +407,9 @@ impl HalfEdgeMesh {
     /// as isolated vertices. A boundary vertex in the middle of whose fan `f` sits would become
     /// a bow-tie; it is split instead (the faces counter-clockwise of `f` move to a copy of the
     /// vertex, appended at the end).
+    ///
+    /// # Panics
+    /// If that vertex split would exceed the `u32` vertex-id space (like [`Self::add_vertex`]).
     pub fn delete_face(&mut self, f: FaceId) {
         let fi = f.0;
         if !self.is_face_alive(f) {
@@ -466,6 +483,9 @@ impl HalfEdgeMesh {
     }
 
     /// Deletes a vertex and all its faces.
+    ///
+    /// # Panics
+    /// Like [`Self::delete_face`].
     pub fn delete_vertex(&mut self, v: VertexId) {
         if !self.is_vertex_alive(v) {
             return;

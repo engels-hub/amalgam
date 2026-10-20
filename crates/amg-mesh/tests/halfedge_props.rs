@@ -10,6 +10,7 @@ use amg_mesh::{
     FaceGroupId, FaceGroupInfo, FaceId, GroupOrigin, HalfEdgeId, HalfEdgeMesh, IndexedMesh,
     MeshBody, NonManifoldPolicy, Rgba8, TopoError, TriProperty, VertexId,
 };
+use amg_testkit::TriSoup;
 use common::{Rng, grid, torus};
 use proptest::prelude::*;
 
@@ -200,6 +201,7 @@ enum Op {
     Collapse(u32, f64),
     Flip(u32),
     DeleteFace(u32),
+    DeleteVertex(u32),
     AddFace([u32; 3]),
     Move(u32, [f64; 3]),
     Gc,
@@ -211,6 +213,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         4 => (any::<u32>(), 0.0..1.0).prop_map(|(h, t)| Op::Collapse(h, t)),
         4 => any::<u32>().prop_map(Op::Flip),
         1 => any::<u32>().prop_map(Op::DeleteFace),
+        1 => any::<u32>().prop_map(Op::DeleteVertex),
         2 => any::<[u32; 3]>().prop_map(Op::AddFace),
         1 => (any::<u32>(), any::<[f64; 3]>()).prop_map(|(v, d)| Op::Move(v, d)),
         1 => Just(Op::Gc),
@@ -222,7 +225,10 @@ fn apply(h: &mut HalfEdgeMesh, op: &Op) -> Result<(), TestCaseError> {
     let before = h.clone();
     let chi = euler(h);
     let faces = h.face_count();
-    let needs_faces = !matches!(op, Op::AddFace(_) | Op::Move(..) | Op::Gc);
+    let needs_faces = !matches!(
+        op,
+        Op::AddFace(_) | Op::Move(..) | Op::Gc | Op::DeleteVertex(_)
+    );
     if (needs_faces && n_he == 0) || h.vertex_slots() == 0 {
         return Ok(());
     }
@@ -280,6 +286,21 @@ fn apply(h: &mut HalfEdgeMesh, op: &Op) -> Result<(), TestCaseError> {
             let alive = h.is_face_alive(f);
             h.delete_face(f);
             prop_assert_eq!(h.face_count(), faces - usize::from(alive));
+        }
+        Op::DeleteVertex(v) => {
+            let v = VertexId(v % h.vertex_slots() as u32);
+            let alive = h.is_vertex_alive(v);
+            let incident = h
+                .faces()
+                .filter(|&f| h.face_vertices(f).contains(&v))
+                .count();
+            h.delete_vertex(v);
+            prop_assert!(!h.is_vertex_alive(v));
+            if alive {
+                prop_assert_eq!(h.face_count(), faces - incident);
+            } else {
+                prop_assert_eq!(&*h, &before);
+            }
         }
         Op::AddFace(v) => {
             let n = h.vertex_slots() as u32;
@@ -386,7 +407,11 @@ fn torus_conversion_is_closed_and_exact() {
     assert!(h.boundary_loops().is_empty());
     assert!(h.vertices().all(|v| h.valence(v) == 6));
     assert_eq!(h.to_indexed(), m);
-    let vol = m.signed_volume();
+    let vol = amg_testkit::signed_volume(TriSoup {
+        positions: &m.positions,
+        triangles: &m.tris,
+    });
+    assert!((vol - m.signed_volume()).abs() <= 1e-9 * vol.abs());
     let exact = 2.0 * std::f64::consts::PI.powi(2) * 10.0 * 9.0;
     assert!(
         vol > 0.0 && (vol - exact).abs() / exact < 0.05,

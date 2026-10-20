@@ -6,9 +6,10 @@
 //!    determined). Runs of equal hash are scanned in parallel; inside a run every point joins
 //!    the first bit-equal point. Equality is transitive, so that point is the cluster root.
 //! 2. **Tolerance pass** (only for `tolerance > 0`, over the exact-pass representatives).
-//!    Every point gets a *home* entry keyed by its grid cell (cell size 32 × tolerance) and a
-//!    *ghost* entry in each neighbouring cell its tolerance ball may reach (only points within
-//!    1/16 of a cell of a cell face, so about 18 % of points have any ghost). Inside each run
+//!    Every point gets a *home* entry keyed by its grid cell (cell size 8 × tolerance, so a cell of
+//!    clustered data holds a bounded number of points) and a *ghost* entry in each neighbouring
+//!    cell its tolerance ball may reach (only points within `GHOST_MARGIN` = 1/8 + 1/64 of a
+//!    cell of a cell face; the 1/64 absorbs rounding of the cell coordinate). Inside each run
 //!    of equal cell hash, pairs with at least one home entry are compared exactly
 //!    (`|p − q|² ≤ tol²`) and joined in a union-find whose root is the smallest index. Any two
 //!    points within tolerance share at least one cell where one of them is at home, so no pair
@@ -29,8 +30,13 @@ use rayon::prelude::*;
 
 use crate::error::{MeshError, MeshResult};
 
-const CELL_FACTOR: f64 = 32.0;
-const GHOST_MARGIN: f64 = 1.0 / 16.0;
+/// Grid cell edge in units of the tolerance. Smaller cells bound the pairs compared inside a
+/// cell for clustered input, larger ones cut the ghost entries (`(1 + 2·GHOST_MARGIN)³`
+/// entries per point on average): 2 would ghost every point, 8 gives about 2.2 entries.
+const CELL_FACTOR: f64 = 8.0;
+/// A point closer than this (in cell units) to a cell face gets a ghost in the neighbour. Must
+/// be at least `1 / CELL_FACTOR` (the tolerance ball's reach) plus rounding slack.
+const GHOST_MARGIN: f64 = 1.0 / CELL_FACTOR + 1.0 / 64.0;
 
 #[inline]
 fn fmix64(mut k: u64) -> u64 {
@@ -419,5 +425,30 @@ mod tests {
         let (id, kept) = compact_roots(&[0, 1, 0, 3, 1]);
         assert_eq!(id, vec![0, 1, 0, 2, 1]);
         assert_eq!(kept, vec![0, 1, 3]);
+    }
+
+    #[test]
+    fn dense_lattice_is_linear_and_exact() {
+        let tol = 1e-3;
+        let lattice = |step: f64| -> Vec<Point3> {
+            let mut p = Vec::new();
+            for x in 0..20 {
+                for y in 0..20 {
+                    for z in 0..20 {
+                        p.push(Point3::new(x as f64, y as f64, z as f64) * (step * tol));
+                    }
+                }
+            }
+            p
+        };
+        // Spacing above the tolerance: nothing merges. Below: one chain-connected cluster.
+        let apart = lattice(1.5);
+        assert_eq!(
+            weld_roots(&apart, tol).unwrap(),
+            (0..apart.len() as u32).collect::<Vec<_>>()
+        );
+        let close = lattice(0.9);
+        assert!(weld_roots(&close, tol).unwrap().iter().all(|&r| r == 0));
+        assert_eq!(weld_roots(&apart, tol).unwrap(), brute(&apart, tol));
     }
 }

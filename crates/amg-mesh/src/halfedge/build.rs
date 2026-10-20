@@ -2,7 +2,9 @@
 //!
 //! 1. Faces with a repeated vertex index are dropped (they have no directed-edge form).
 //! 2. Outgoing half-edges are bucketed per origin vertex (CSR, O(n)).
-//! 3. Each half-edge `u→w` is paired with `w→u` iff each direction occurs exactly once. Edges
+//! 3. Half-edges are sorted by undirected edge key `(min, max, h)`; inside each run `u→w` is
+//!    paired with `w→u` iff each direction occurs exactly once (O(n log n), independent of
+//!    vertex valence). Edges
 //!    with more than two faces, or two faces of the same direction (orientation conflict), are
 //!    cut: all their half-edges become boundary.
 //! 4. Each vertex's half-edges are split into fans (maximal twin-connected umbrellas). A vertex
@@ -90,6 +92,46 @@ fn fan_of(twin: &[u32], s0: u32) -> (u32, usize) {
         h = t;
     }
     (start, n)
+}
+
+/// Pairs half-edges by sorting on the undirected edge key. Inside each run of equal keys:
+/// one `u→w` and one `w→u` become twins; a lone half-edge is boundary; anything else is cut
+/// (all its half-edges stay unpaired; counted once per run). Returns (twin, cut edge count).
+/// Deterministic: the sort key `(edge, h)` is a total order.
+fn pair_twins(corners: &[u32], n_he: usize) -> (Vec<u32>, usize) {
+    let mut keys: Vec<(u64, u32)> = (0..n_he as u32)
+        .into_par_iter()
+        .map(|h| {
+            let u = corners[h as usize];
+            let w = corners[next_raw(h) as usize];
+            let (lo, hi) = if u < w { (u, w) } else { (w, u) };
+            (((lo as u64) << 32) | hi as u64, h)
+        })
+        .collect();
+    keys.par_sort_unstable();
+    let mut twin = vec![INVALID; n_he];
+    let mut cut = 0usize;
+    let mut i = 0;
+    while i < keys.len() {
+        let mut j = i + 1;
+        while j < keys.len() && keys[j].0 == keys[i].0 {
+            j += 1;
+        }
+        if j - i == 2 {
+            let (a, b) = (keys[i].1, keys[i + 1].1);
+            // Opposite directions iff the origins differ.
+            if corners[a as usize] != corners[b as usize] {
+                twin[a as usize] = b;
+                twin[b as usize] = a;
+            } else {
+                cut += 1;
+            }
+        } else if j - i > 2 {
+            cut += 1;
+        }
+        i = j;
+    }
+    (twin, cut)
 }
 
 struct Parts {
@@ -214,7 +256,9 @@ impl Parts {
 
 impl HalfEdgeMesh {
     /// Builds the half-edge structure. Vertex ids are kept (split copies are appended); faces
-    /// keep their order after degenerate ones are dropped. Fails with
+    /// keep their order after degenerate ones are dropped: face `k` of the result is the `k`-th
+    /// face of `m` with three distinct indices, and its groups and attributes follow it.
+    /// Fails with
     /// [`MeshError::NonManifold`] under [`NonManifoldPolicy::Fail`] if any edge must be cut or
     /// any vertex split.
     pub fn from_indexed(
@@ -254,49 +298,7 @@ impl HalfEdgeMesh {
 
         // 2.–3. CSR and twins.
         let (offs, out) = csr(tris.as_flattened(), nv);
-        let (twin, cut_edges) = {
-            let corners: &[u32] = tris.as_flattened();
-            let (offs, out) = (&offs, &out);
-            let org = |h: u32| corners[h as usize];
-            let outgoing = |v: u32| &out[offs[v as usize] as usize..offs[v as usize + 1] as usize];
-            // For each half-edge: (twin, smallest half-edge of its undirected edge if the
-            // edge must be cut).
-            let pairs: Vec<(u32, u32)> = (0..n_he as u32)
-                .into_par_iter()
-                .map(|h| {
-                    let u = org(h);
-                    let w = org(next_raw(h));
-                    let mut same = 0;
-                    let mut min = h;
-                    for &x in outgoing(u) {
-                        if org(next_raw(x)) == w {
-                            same += 1;
-                            min = min.min(x);
-                        }
-                    }
-                    let mut opp = INVALID;
-                    let mut n_opp = 0;
-                    for &x in outgoing(w) {
-                        if org(next_raw(x)) == u {
-                            opp = x;
-                            n_opp += 1;
-                            min = min.min(x);
-                        }
-                    }
-                    match (same, n_opp) {
-                        (1, 1) => (opp, INVALID),
-                        (1, 0) => (INVALID, INVALID),
-                        _ => (INVALID, min),
-                    }
-                })
-                .collect();
-            let cut = pairs
-                .par_iter()
-                .enumerate()
-                .filter(|(h, p)| p.1 == *h as u32)
-                .count();
-            (pairs.into_iter().map(|p| p.0).collect::<Vec<u32>>(), cut)
-        };
+        let (twin, cut_edges) = pair_twins(tris.as_flattened(), n_he);
         report.cut_edges = cut_edges;
 
         // 4. Fans.

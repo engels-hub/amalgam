@@ -152,11 +152,36 @@ pub struct GroupFingerprint {
 }
 
 /// Per-face group ids plus the group table.
+///
+/// Deserialisation validates the table against `per_face.len()` ([`FaceGroups::validate`]).
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "FaceGroupsRaw")]
 pub struct FaceGroups {
     per_face: Vec<FaceGroupId>,
     info: BTreeMap<FaceGroupId, FaceGroupInfo>,
     next_id: u32,
+}
+
+/// Unvalidated wire form of [`FaceGroups`].
+#[derive(serde::Deserialize)]
+struct FaceGroupsRaw {
+    per_face: Vec<FaceGroupId>,
+    info: BTreeMap<FaceGroupId, FaceGroupInfo>,
+    next_id: u32,
+}
+
+impl TryFrom<FaceGroupsRaw> for FaceGroups {
+    type Error = MeshError;
+
+    fn try_from(r: FaceGroupsRaw) -> Result<Self, MeshError> {
+        let g = FaceGroups {
+            per_face: r.per_face,
+            info: r.info,
+            next_id: r.next_id,
+        };
+        g.validate(g.per_face.len())?;
+        Ok(g)
+    }
 }
 
 /// The group every face of a freshly constructed mesh belongs to.
@@ -183,11 +208,35 @@ impl FaceGroups {
     }
 
     /// Allocates a fresh, never-used group id.
+    ///
+    /// # Panics
+    /// When all `u32::MAX - 1` ids are used; see [`FaceGroups::try_alloc`].
     pub fn alloc(&mut self, info: FaceGroupInfo) -> FaceGroupId {
+        match self.try_alloc(info) {
+            Ok(id) => id,
+            Err(e) => panic!("{e}"),
+        }
+    }
+
+    /// Allocates a fresh group id; `TooLarge` when the id counter is exhausted (`u32::MAX`
+    /// is never handed out).
+    pub fn try_alloc(&mut self, info: FaceGroupInfo) -> MeshResult<FaceGroupId> {
+        // Invariant (checked by `validate`): `next_id < u32::MAX`, so the counter never wraps
+        // and `u32::MAX` (`INVALID`) is never an id.
+        if self.next_id >= u32::MAX - 1 {
+            return Err(MeshError::TooLarge {
+                count: self.next_id as usize,
+            });
+        }
         let id = FaceGroupId(self.next_id);
         self.next_id += 1;
         self.info.insert(id, info);
-        id
+        Ok(id)
+    }
+
+    /// Ids still available to [`FaceGroups::try_alloc`].
+    pub fn remaining_ids(&self) -> u32 {
+        (u32::MAX - 1).saturating_sub(self.next_id)
     }
 
     /// Table entry of `g`.
@@ -270,6 +319,9 @@ impl FaceGroups {
                 expected: faces,
             });
         }
+        if self.next_id == u32::MAX {
+            return Err(MeshError::Decode("face group id counter overflowed".into()));
+        }
         if let Some((&last, _)) = self.info.last_key_value()
             && last.0 >= self.next_id
         {
@@ -320,7 +372,16 @@ impl FaceGroups {
 
     /// Appends `other`'s faces, re-allocating each of its groups to a fresh id here (in id
     /// order). Returns the old → new id pairs.
-    pub(crate) fn append(&mut self, other: &FaceGroups) -> Vec<(FaceGroupId, FaceGroupId)> {
+    /// Fails with `TooLarge` (leaving `self` unchanged) if the ids would run out.
+    pub(crate) fn append(
+        &mut self,
+        other: &FaceGroups,
+    ) -> MeshResult<Vec<(FaceGroupId, FaceGroupId)>> {
+        if (self.remaining_ids() as usize) < other.info.len() {
+            return Err(MeshError::TooLarge {
+                count: self.next_id as usize + other.info.len(),
+            });
+        }
         let map: Vec<(FaceGroupId, FaceGroupId)> = other
             .info
             .iter()
@@ -332,7 +393,7 @@ impl FaceGroups {
             map.binary_search_by_key(g, |(o, _)| *o)
                 .map_or(*g, |i| map[i].1)
         }));
-        map
+        Ok(map)
     }
 
     /// Raw parts, for the binary codec.
@@ -366,12 +427,59 @@ mod tests {
         a.set(FaceId(1), g1);
         assert_eq!(a.faces_of(g1).collect::<Vec<_>>(), vec![FaceId(1)]);
         let b = FaceGroups::new(3);
-        let map = a.append(&b);
+        let map = a.append(&b).unwrap();
         assert_eq!(map, vec![(FaceGroupId(0), FaceGroupId(2))]);
         assert_eq!(a.per_face().len(), 5);
         assert_eq!(a.group_of(FaceId(4)), FaceGroupId(2));
         assert_eq!(a.next_id(), 3);
         assert!(a.validate(5).is_ok());
         assert!(a.validate(4).is_err());
+    }
+
+    #[test]
+    fn id_counter_exhaustion_is_an_error() {
+        let mut a = FaceGroups::new(1);
+        a.next_id = u32::MAX - 2;
+        assert_eq!(a.remaining_ids(), 1);
+        let id = a.try_alloc(FaceGroupInfo::new(GroupOrigin::Cap)).unwrap();
+        assert_eq!(id, FaceGroupId(u32::MAX - 2));
+        assert_eq!(a.remaining_ids(), 0);
+        let before = a.clone();
+        assert!(matches!(
+            a.try_alloc(FaceGroupInfo::new(GroupOrigin::Cap)),
+            Err(MeshError::TooLarge { .. })
+        ));
+        assert_eq!(a, before);
+        // `append` checks for room up front and leaves `a` untouched.
+        let b = FaceGroups::new(2);
+        assert!(matches!(a.append(&b), Err(MeshError::TooLarge { .. })));
+        assert_eq!(a, before);
+        // A counter at `u32::MAX` is not a valid state.
+        a.next_id = u32::MAX;
+        assert!(a.validate(1).is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "too large")]
+    fn alloc_panics_when_exhausted() {
+        let mut a = FaceGroups::new(0);
+        a.next_id = u32::MAX - 1;
+        a.alloc(FaceGroupInfo::new(GroupOrigin::Cap));
+    }
+
+    #[test]
+    fn deserialisation_validates() {
+        let a = FaceGroups::new(3);
+        let json = serde_json::to_value(&a).unwrap();
+        assert_eq!(
+            serde_json::from_value::<FaceGroups>(json.clone()).unwrap(),
+            a
+        );
+        let mut bad = json.clone();
+        bad["per_face"][1] = 7.into(); // group not in the table
+        assert!(serde_json::from_value::<FaceGroups>(bad).is_err());
+        let mut bad = json;
+        bad["next_id"] = 0.into(); // counter not above the table's ids
+        assert!(serde_json::from_value::<FaceGroups>(bad).is_err());
     }
 }

@@ -1015,9 +1015,9 @@ Already listed: Manifold (Apache-2.0), `faer`, `nalgebra`, `rayon`, `glam`, `thi
 ### 2026-10-20 — MESH-01 (`IndexedMesh`, `HalfEdgeMesh`, weld, `MeshBody`; lane C)
 Deviations from §Interfaces:
 - **`MeshBody` has no `spatial()` / `analysis()` yet.** `MeshSpatial` (MESH-03) and
-  `AnalysisReport` (MESH-02) do not exist, and `JobCtx` (FND-04) is not on this branch. The
-  `OnceLock` fields and both methods are added additively by MESH-03 / MESH-02. `MeshBody`
-  derives `Clone, Debug, PartialEq`.
+  `AnalysisReport` (MESH-02) do not exist, so the `OnceLock` fields and both methods are added
+  additively by MESH-03 / MESH-02 (they take `JobCtx` from `amg-jobs`, FND-04, which is a
+  dependency of `amg-mesh` already). `MeshBody` derives `Clone, Debug, PartialEq`.
 - **No `From<MeshError> for amg_core::Error`.** `amg_core::Error` has no variant that can carry
   a mesh error faithfully. Following the S00 convention instead, `MeshError` implements
   `amg_core::Diagnostic` (hints for `NonManifold` / `NotClosed` / `BackendUnavailable` /
@@ -1074,11 +1074,42 @@ Behaviour the interface left open:
 - `MeshBody` binary: `AMGM` v1 layout is documented in `amg-mesh/src/body.rs` (raw f64 bits,
   trailing 64-bit checksum; truncation, bad magic/version/flags and checksum mismatch are
   `MeshError::Decode`).
-- `render_buffers(_, false)` unshares vertices (three per face, flat normals).
+- `render_buffers(origin, smooth_normals)`: with `smooth_normals == false` the vertices stay
+  shared (`positions` has one entry per vertex, `indices` is the face list in face order) and
+  `normals` is **empty**; the renderer derives flat normals per primitive (S10 request, see
+  below). With `true`, `normals` holds one unit vertex normal per position.
+
+Review-round changes (2026-10-20), all inside `amg-mesh`:
+- **Fallible size limits instead of panics.** `IndexedMesh::append` returns `MeshResult<()>` and
+  `IndexedMesh::weld` returns `MeshResult<Remap>`; both fail with the new
+  `MeshError::TooLarge` when counts reach the `u32` index range (weld: 2³¹ points, the limit of
+  its packed sort keys) or face-group ids run out, leaving the mesh unchanged.
+  `FaceGroups::try_alloc` / `remaining_ids` are new; `alloc` panics when the id counter is
+  exhausted, and `validate` rejects `next_id == u32::MAX`. New `TopoError::TooLarge`:
+  `split_edge` and `add_face` return it at the vertex/face limit. `add_vertex` and the vertex
+  split inside `delete_face` / `delete_vertex` still panic there (documented).
+- **Deserialisation validates.** `IndexedMesh` and `FaceGroups` deserialise through
+  `try_from` and run `validate`, so malformed serde input is an error, not a mesh that panics
+  later. `MeshAttrs` has no counts of its own to check against; it is validated as part of
+  `IndexedMesh`.
+- **Edge pairing is sort based** (`(min, max)` key, O(n log n)); a vertex of valence 100 000
+  no longer costs O(k²). Results are unchanged and independent of the thread count.
+- **Weld grid**: cell edge 8 × tolerance (was 32×) so clustered input compares a bounded number
+  of pairs per cell; ghost margin is `1/8 + 1/64` cells (tolerance reach plus rounding slack).
+  Exact-equivalence with brute force is covered by tests.
+- `HalfEdgeMesh::from_indexed` face map when degenerate faces are dropped: face `k` of the
+  result is the `k`-th face of the input with three distinct indices (attributes and groups
+  follow).
+- **For DOC / MESH-02.** `amg-doc`'s stub mesh type derives `Eq`, which `IndexedMesh` cannot
+  (it holds `f64`); the real mesh reference in the document must compare by `content_hash` or
+  derive `PartialEq` only.
+- **Proposal for `amg-testkit` (not done here).** The torus and quad-grid generators in
+  `amg-mesh/tests/common` belong in `amg_testkit::shapes` so other crates can reuse them.
 
 Measured (release, 16-thread desktop, 1 M-tri closed torus, criterion means): half-edge build
-35 ms (budget 100 ms); weld of the 1 M-tri soup 39 ms exact, 58 ms at 1e-5 mm (budget 80 ms);
-`to_indexed` 6 ms; `MeshBody` write 13 ms / read 18 ms. The machine was shared with other
+50 ms (budget 100 ms; 35 ms before the sort-based edge pairing, which trades a little speed for
+O(n log n) on high-valence vertices); weld of the 1 M-tri soup 36 ms exact, 57 ms at 1e-5 mm
+(budget 80 ms, cell 8 × tol); `to_indexed` 6 ms; `MeshBody` write 12 ms / read 16 ms. The machine was shared with other
 builds, so individual runs varied up to 3×.
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)

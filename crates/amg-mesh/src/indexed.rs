@@ -67,14 +67,17 @@ pub struct RenderBuffers {
     pub origin: Point3,
     /// Rebased positions.
     pub positions: Vec<[f32; 3]>,
-    /// Unit normals, one per position.
+    /// Unit normals, one per position; empty for flat shading (`smooth_normals == false`).
     pub normals: Vec<[f32; 3]>,
     /// Three indices per face.
     pub indices: Vec<u32>,
 }
 
 /// Triangle mesh as flat arrays plus attributes and face groups.
+///
+/// Deserialisation validates ([`IndexedMesh::validate`]); malformed data is a serde error.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "IndexedMeshRaw")]
 pub struct IndexedMesh {
     /// Vertex positions, mm.
     pub positions: Vec<Point3>,
@@ -84,6 +87,30 @@ pub struct IndexedMesh {
     pub attrs: MeshAttrs,
     /// Face groups (`per_face.len() == tris.len()`).
     pub groups: FaceGroups,
+}
+
+/// Unvalidated wire form of [`IndexedMesh`].
+#[derive(serde::Deserialize)]
+struct IndexedMeshRaw {
+    positions: Vec<Point3>,
+    tris: Vec<[u32; 3]>,
+    attrs: MeshAttrs,
+    groups: FaceGroups,
+}
+
+impl TryFrom<IndexedMeshRaw> for IndexedMesh {
+    type Error = MeshError;
+
+    fn try_from(r: IndexedMeshRaw) -> Result<Self, MeshError> {
+        let m = IndexedMesh {
+            positions: r.positions,
+            tris: r.tris,
+            attrs: r.attrs,
+            groups: r.groups,
+        };
+        m.validate()?;
+        Ok(m)
+    }
 }
 
 #[inline]
@@ -278,36 +305,38 @@ impl IndexedMesh {
 
     /// Appends `other`. Its face groups get fresh ids here; an attribute present on only one
     /// side is kept and filled with defaults on the other.
-    pub fn append(&mut self, other: &IndexedMesh) {
-        let off = self.positions.len() as u32;
+    ///
+    /// Fails with [`MeshError::TooLarge`] (leaving `self` unchanged) if the combined vertex or
+    /// face count, or the face-group ids, exceed the `u32` range.
+    pub fn append(&mut self, other: &IndexedMesh) -> MeshResult<()> {
         let (sv, sf) = (self.positions.len(), self.tris.len());
+        let off = to_u32(sv)?;
+        to_u32(sv + other.positions.len())?;
+        to_u32(sf + other.tris.len())?;
+        self.groups.ensure_len(sf);
+        self.groups.append(&other.groups)?;
         self.attrs.append(
             &other.attrs,
             (sv, sf),
             (other.positions.len(), other.tris.len()),
         );
-        self.groups.ensure_len(sf);
-        self.groups.append(&other.groups);
         // `other` may come without groups (for example built field by field).
         self.groups.ensure_len(sf + other.tris.len());
         self.positions.extend_from_slice(&other.positions);
         self.tris
             .extend(other.tris.iter().map(|t| t.map(|i| i + off)));
+        Ok(())
     }
 
     /// Merges vertices within `opts.tolerance` (transitively). The smallest old index of each
     /// cluster survives with its exact position and vertex attributes. Faces are kept (some may
     /// become degenerate; repair removes them).
-    pub fn weld(&mut self, opts: WeldOpts) -> Remap {
+    ///
+    /// Fails with [`MeshError::TooLarge`] (mesh unchanged) at 2³¹ or more vertices, the limit
+    /// of the weld's packed sort keys.
+    pub fn weld(&mut self, opts: WeldOpts) -> MeshResult<Remap> {
         let n_faces = self.tris.len();
-        let Ok(roots) = weld_roots(&self.positions, opts.tolerance) else {
-            // Unreachable for a validated mesh (vertex count < 2^31 is checked by validate
-            // only up to u32; fall back to no welding beyond 2^31 vertices).
-            return Remap {
-                vertices: (0..self.positions.len() as u32).collect(),
-                faces: (0..n_faces as u32).collect(),
-            };
-        };
+        let roots = weld_roots(&self.positions, opts.tolerance)?;
         let (new_id, kept) = compact_roots(&roots);
         let keep: Vec<bool> = roots
             .iter()
@@ -319,10 +348,10 @@ impl IndexedMesh {
         self.tris
             .par_iter_mut()
             .for_each(|t| *t = t.map(|i| new_id[i as usize]));
-        Remap {
+        Ok(Remap {
             vertices: new_id,
             faces: (0..n_faces as u32).collect(),
-        }
+        })
     }
 
     /// Drops vertices no face references (order preserved).
@@ -408,12 +437,12 @@ impl IndexedMesh {
         h.finish()
     }
 
-    /// f32 render buffers rebased to `origin`. `smooth_normals` shares vertices and uses the
-    /// mesh's vertex normals (angle-weighted ones if absent); otherwise every face gets three
-    /// own vertices with the flat face normal.
+    /// f32 render buffers rebased to `origin`. Vertices are always shared (`indices` are the
+    /// mesh's triangles). With `smooth_normals`, `normals` holds the mesh's vertex normals
+    /// (angle-weighted ones if absent); otherwise `normals` is empty and the renderer shades
+    /// flat from screen-space derivatives (S10).
     pub fn render_buffers(&self, origin: Point3, smooth_normals: bool) -> RenderBuffers {
-        let cast = |p: Point3| (p - origin).as_vec3().to_array();
-        if smooth_normals {
+        let normals = if smooth_normals {
             let computed;
             let normals = match &self.attrs.vertex_normals {
                 Some(n) => n,
@@ -422,37 +451,19 @@ impl IndexedMesh {
                     &computed
                 }
             };
-            RenderBuffers {
-                origin,
-                positions: self.positions.par_iter().map(|&p| cast(p)).collect(),
-                normals: normals.par_iter().map(|n| n.as_vec3().to_array()).collect(),
-                indices: self.tris.as_flattened().to_vec(),
-            }
+            normals.par_iter().map(|n| n.as_vec3().to_array()).collect()
         } else {
-            let n = self.tris.len();
-            let mut positions = vec![[0f32; 3]; 3 * n];
-            let mut normals = vec![[0f32; 3]; 3 * n];
-            positions
-                .par_chunks_mut(3)
-                .zip(normals.par_chunks_mut(3))
-                .enumerate()
-                .for_each(|(f, (pc, nc))| {
-                    let tri = self.triangle(FaceId(f as u32));
-                    let nn = tri_normal_raw(tri[0], tri[1], tri[2])
-                        .normalize_or_zero()
-                        .as_vec3()
-                        .to_array();
-                    for k in 0..3 {
-                        pc[k] = cast(tri[k]);
-                        nc[k] = nn;
-                    }
-                });
-            RenderBuffers {
-                origin,
-                positions,
-                normals,
-                indices: (0..3 * n as u32).collect(),
-            }
+            Vec::new()
+        };
+        RenderBuffers {
+            origin,
+            positions: self
+                .positions
+                .par_iter()
+                .map(|&p| (p - origin).as_vec3().to_array())
+                .collect(),
+            normals,
+            indices: self.tris.as_flattened().to_vec(),
         }
     }
 }
@@ -492,6 +503,12 @@ mod tests {
         let m = cube();
         assert!((m.area() - 6.0).abs() < 1e-12);
         assert!((m.signed_volume() - 1.0).abs() < 1e-12);
+        let soup = amg_testkit::TriSoup {
+            positions: &m.positions,
+            triangles: &m.tris,
+        };
+        assert!((amg_testkit::area(soup) - m.area()).abs() < 1e-12);
+        assert!((amg_testkit::signed_volume(soup) - m.signed_volume()).abs() < 1e-12);
         assert_eq!(m.aabb(), Aabb3::new(Point3::ZERO, Point3::ONE));
         assert_eq!(m.face_normal(FaceId(0)), Vec3::NEG_Z);
         assert!((m.face_area(FaceId(0)) - 0.5).abs() < 1e-15);
@@ -585,7 +602,7 @@ mod tests {
             vec![[0, 1, 2], [3, 4, 2]],
         )
         .unwrap();
-        let r = m.weld(WeldOpts::EXACT);
+        let r = m.weld(WeldOpts::EXACT).unwrap();
         assert_eq!(r.vertices, vec![0, 1, 2, 1, 3]);
         assert_eq!(m.tris, vec![[0, 1, 2], [1, 3, 2]]);
         assert_eq!(m.vertex_count(), 4);
@@ -604,7 +621,7 @@ mod tests {
             };
             12
         ]);
-        a.append(&b);
+        a.append(&b).unwrap();
         assert_eq!(a.face_count(), 24);
         assert!(a.validate().is_ok());
         assert_eq!(a.groups.group_of(FaceId(12)), FaceGroupId(1));
@@ -640,8 +657,36 @@ mod tests {
         assert_eq!(s.indices.len(), 36);
         assert_eq!(s.positions[0], [-0.5; 3]);
         let f = m.render_buffers(o, false);
-        assert_eq!(f.positions.len(), 36);
-        assert_eq!(f.normals[0], [0.0, 0.0, -1.0]);
-        assert_eq!(f.indices[35], 35);
+        assert_eq!(s.normals.len(), 8);
+        assert_eq!(f.positions, s.positions);
+        assert!(f.normals.is_empty());
+        assert_eq!(f.indices, s.indices);
+    }
+
+    #[test]
+    fn deserialisation_validates() {
+        let m = cube();
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(
+            serde_json::from_value::<IndexedMesh>(json.clone()).unwrap(),
+            m
+        );
+        let mut bad = json.clone();
+        bad["tris"][0][0] = 99.into(); // index out of range
+        assert!(serde_json::from_value::<IndexedMesh>(bad).is_err());
+        let mut bad = json;
+        bad["attrs"]["vertex_colors"] = serde_json::json!([[0, 0, 0, 255]]); // wrong length
+        assert!(serde_json::from_value::<IndexedMesh>(bad).is_err());
+    }
+
+    #[test]
+    fn append_then_weld_merges_duplicates() {
+        let mut a = cube();
+        let b = cube();
+        a.append(&b).unwrap();
+        assert_eq!(a.vertex_count(), 16);
+        let remap = a.weld(WeldOpts::EXACT).unwrap();
+        assert_eq!(a.vertex_count(), 8);
+        assert_eq!(remap.vertices.len(), 16);
     }
 }

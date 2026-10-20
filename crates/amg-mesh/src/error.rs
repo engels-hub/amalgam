@@ -132,6 +132,9 @@ pub enum TopoError {
     /// The edit would create a non-manifold vertex (a second fan) or a degenerate face.
     #[error("operation would create a non-manifold vertex or degenerate face")]
     NonManifold,
+    /// The edit would exceed the `u32` index range.
+    #[error("mesh would exceed the u32 index range")]
+    TooLarge,
 }
 
 #[cfg(test)]

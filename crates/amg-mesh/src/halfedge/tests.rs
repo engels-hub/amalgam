@@ -384,3 +384,55 @@ fn add_face_groups_and_gc_keep_attrs() {
     assert!(out.validate().is_ok());
     assert_eq!(out.groups.group_of(FaceId(7)), g);
 }
+
+/// A vertex of valence 100 000: edge pairing must not scan per-vertex lists quadratically.
+#[test]
+fn high_valence_fan_converts() {
+    const N: u32 = 100_000;
+    let mut p = vec![Point3::ZERO];
+    p.extend((0..=N).map(|i| {
+        let a = f64::from(i) * 1e-5;
+        Point3::new(a.cos(), a.sin(), 0.0)
+    }));
+    let t: Vec<[u32; 3]> = (1..=N).map(|i| [0, i, i + 1]).collect();
+    let m = IndexedMesh::new(p, t).unwrap();
+    let (h, rep) = HalfEdgeMesh::from_indexed(&m, NonManifoldPolicy::Fail).unwrap();
+    assert_eq!(rep, ConversionReport::default());
+    assert_eq!(h.face_count(), N as usize);
+    assert_eq!(h.valence(VertexId(0)), N as usize + 1);
+    assert_eq!(h.boundary_loops().len(), 1);
+    assert_eq!(h.to_indexed(), m);
+}
+
+/// 100 000 faces on one edge: one cut edge, every face ends up on its own vertex copies, and
+/// the result is independent of the thread count.
+#[test]
+fn high_valence_fin_cuts_once_and_is_deterministic() {
+    const N: u32 = 100_000;
+    let mut p = vec![Point3::ZERO, Point3::X];
+    p.extend((0..N).map(|i| Point3::new(0.5, f64::from(i) + 1.0, 1.0)));
+    let t: Vec<[u32; 3]> = (0..N).map(|i| [0, 1, i + 2]).collect();
+    let m = IndexedMesh::new(p, t).unwrap();
+    let run = |threads: usize| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap()
+            .install(|| {
+                let (h, rep) =
+                    HalfEdgeMesh::from_indexed(&m, NonManifoldPolicy::SplitVertices).unwrap();
+                h.check_invariants().unwrap();
+                (h.to_indexed(), rep)
+            })
+    };
+    let (a, rep) = run(1);
+    assert_eq!(rep.cut_edges, 1);
+    assert_eq!(a.face_count(), N as usize);
+    let (b, rep_b) = run(8);
+    assert_eq!(a, b);
+    assert_eq!(rep, rep_b);
+    assert!(matches!(
+        HalfEdgeMesh::from_indexed(&m, NonManifoldPolicy::Fail),
+        Err(MeshError::NonManifold { edges: 1, .. })
+    ));
+}
