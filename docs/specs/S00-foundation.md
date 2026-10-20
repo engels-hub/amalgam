@@ -1037,12 +1037,13 @@ Tied to the vision budgets. The foundation must spend only a small slice of them
 | CI warm run (fmt+clippy+test+deny) | < 15 min | developer loop |
 
 ## Open questions
-1. **(owner)** CI image `windows-2025` (and `windows-latest`) ships VS 2026 (MSVC 14.5x)
+1. **(owner, answered)** CI image `windows-2025` (and `windows-latest`) ships VS 2026 (MSVC 14.5x)
    since June 2026. The brief pins VS Build Tools **2022** locally. Should local stay on VS
    2022, or move to VS 2026 Build Tools so local and CI compilers match? *Default if
    unanswered:* keep VS 2022 locally and `windows-2025` in CI. The two toolsets are
    binary-compatible and each environment builds all C++ itself. Revisit if a compiler
    difference causes a bug.
+   **Answered 2026-10-20:** keep VS Build Tools 2022 locally and `windows-2025` in CI (recommended default).
 2. **(owner)** `testdata/` on GitHub LFS: the free tier is 10 GiB storage and 10 GiB/month
    bandwidth. Uploads don't count against bandwidth, and CI caches LFS objects. How big do
    you expect the STEP/STL/scan corpus to get? If it may exceed ~5 GiB, we should keep large
@@ -1051,15 +1052,17 @@ Tied to the vision budgets. The foundation must spend only a small slice of them
    deferred to FND-11 until S02 (BREP) and S03 (sketch) refinement shows whether they need
    shared analytic curves or keep their own. FND-03 already covers lines, segments and
    planes.
-4. **(owner)** Canonical units use the coherent **mm–t–s** system (forces in N, stresses in
+4. **(owner, answered)** Canonical units use the coherent **mm–t–s** system (forces in N, stresses in
    MPa, mass stored in tonnes, density in t/mm³), the standard FEA "mm system". The vision
    says "SI for everything else". Pure SI with mm length is not coherent, which breaks
    expression arithmetic and FEA assembly. OK to adopt? Rationale in
    [units note §2](../notes/units-and-quantities.md). *Default if unanswered:* adopt it. Only
    mass storage differs from plain SI, and typed accessors (`Mass::kg()`) hide it.
-5. **(owner)** Accept `,` as a decimal separator in input fields (locale-aware), or `.`
+   **Answered 2026-10-20:** adopt coherent mm–t–s canonical units (recommended default).
+5. **(owner, answered)** Accept `,` as a decimal separator in input fields (locale-aware), or `.`
    only? *Default:* `.` only, with a helpful error (`DecimalComma`). The `.amg` files and
    the Python API always use `.`.
+   **Answered 2026-10-20:** `.` only, with the `DecimalComma` error (recommended default).
 6. ~~GitHub remote for CI?~~ Resolved: remote `origin` = `github.com/engels-hub/amalgam`,
    default branch `main` (QUESTIONS #5). FND-05 targets GitHub Actions.
 7. ~~`glam` vs `nalgebra` everywhere~~ Resolved 2026-10-19 (see Refinement log):

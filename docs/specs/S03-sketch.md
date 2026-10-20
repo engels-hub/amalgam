@@ -820,18 +820,22 @@ Reference machine (vision doc), single thread.
 | `SketchFeature::compute` total (typical 50-entity sketch) | — | < 10 ms, so a 50-feature part stays within the 500 ms recompute budget |
 
 ## Open questions
-1. **(owner)** ADR-007: do you accept the SK-13 decision rule in
+1. **(owner, answered)** ADR-007: do you accept the SK-13 decision rule in
    `docs/notes/sketch-solver.md` §5.4? The recommended outcome is our own Rust solver as
    primary, with `libslvs` only as a GPL test oracle behind the `slvs` feature. You decide
    after the SK-13 report. SK-03 waits for this.
-2. **(owner)** Over-constraint UX: should adding an over-constraining dimension be refused
+   **Answered 2026-10-20:** the SK-13 decision rule (note §5.4) is accepted. ADR-007 is finalized once the SK-13 report meets it (recommended).
+2. **(owner, answered)** Over-constraint UX: should adding an over-constraining dimension be refused
    with an offer to make it driven (Fusion behaviour, recommended), or allowed and shown red
    (SolveSpace behaviour)? The solver supports both through `check_constraint`.
-3. **(owner)** Near-closed gaps (≤ 0.01 mm, common in DXF imports): only warn in "sketch
+   **Answered 2026-10-20:** refuse and offer to make the dimension driven (Fusion behaviour, recommended).
+3. **(owner, answered)** Near-closed gaps (≤ 0.01 mm, common in DXF imports): only warn in "sketch
    doctor" (Fusion, default), or offer an opt-in "heal gaps" that inserts coincident
    constraints? This affects SK-06/SK-11.
-4. **(owner)** Should `libslvs` ever ship as a *runtime* fallback solver in a GPL build, or
+   **Answered 2026-10-20:** warn only in "sketch doctor" (recommended default).
+4. **(owner, answered)** Should `libslvs` ever ship as a *runtime* fallback solver in a GPL build, or
    stay test-only? Recommended: test-only unless SK-13 shows a > 2 % corpus gap.
+   **Answered 2026-10-20:** test-only, unless SK-13 shows a > 2 % corpus gap (recommended).
 5. S01 coordination (lane E, not owner):
    - (a) Driven dimensions need read-only model parameters (`ParamKind` has no read-only
      variant in the S01 draft).

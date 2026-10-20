@@ -27,7 +27,7 @@ module needs a framework change, that change is lane D's (see AGENTS.md §Interf
 | Before starting | Needs |
 |---|---|
 | Every lane-A WP that calls OCCT: BREP-\*, SOL-\*, CON-\*, INS-03..07, KH-01..06, KH-08..11 | ADR-002 (OpenCASCADE) accepted |
-| MESH-05, MESH-27 | ADR-003 (Manifold) accepted |
+| MESH-05, MESH-27 | ADR-003 (Manifold) accepted — **cleared 2026-10-20** |
 | RND-01, UI-01 | ADR-004 (wgpu) and ADR-005 (egui) accepted |
 | FND-09 | ADR-004 (wgpu) accepted |
 | SK-03 | ADR-007 (own sketch solver) decided — SK-13 prototypes and benchmarks both options (ungated) |

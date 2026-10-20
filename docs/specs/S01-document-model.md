@@ -916,15 +916,18 @@ Phase 2 lane E (its SOL deps are Phase 2).
    2026-10-19:** use `imbl` (maintained `im` fork, MPL-2.0) behind crate-private aliases. `rpds`
    is the fallback and per-entity `Arc` COW is the bench baseline. DOC-01's bench confirms or
    switches (§1).
-2. (owner) Should `.amg` files embed geometry caches by default? They make files larger
+2. **(owner, answered)** Should `.amg` files embed geometry caches by default? They make files larger
    (cached B-rep and meshes, roughly 2–10× the authored size) but open instantly. The
    alternative is compact files plus recompute on open. **Proposed default:** embed caches, with
    a "Save compact" option.
-3. (owner) Should a bare number in an expression take the default unit, as Fusion does
+   **Answered 2026-10-20:** embed caches by default, plus a "Save compact" option (recommended default).
+3. **(owner, answered)** Should a bare number in an expression take the default unit, as Fusion does
    (`d1 + 5` → `d1 + 5 mm`), or should it be a unit error (strict)? **Proposed default:**
    lenient like Fusion, with a strict-mode preference.
-4. (owner) Should undo history be saved in the `.amg` file, so it survives closing? Fusion
+   **Answered 2026-10-20:** lenient like Fusion, with a strict-mode preference (recommended default).
+4. **(owner, answered)** Should undo history be saved in the `.amg` file, so it survives closing? Fusion
    doesn't. **Proposed default:** no, and only the crash journal persists commands.
+   **Answered 2026-10-20:** no; only the crash journal persists commands (recommended default).
 5. How much of TNP can be solved generically vs per feature? Answered by DOC-11 before DOC-06
    starts. The framework (element map + resolver) is generic; the naming rules are per feature.
 6. Should independent timeline branches recompute in parallel? Deferred until DOC-03 profiling

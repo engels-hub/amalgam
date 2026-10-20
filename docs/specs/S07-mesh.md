@@ -87,7 +87,7 @@ Mesh bodies are first-class bodies in the design, and every operation is a timel
    if the upstream port lacks `MANIFOLD_CBIND`), pinned next to OCCT, with no git/CMake inside
    `build.rs`. `manifold3d` / `manifold-csg-sys` (MIT / Apache-2.0) is the fallback if the
    vcpkg route fails on MSVC. The cargo feature `amg-mesh/manifold` is on by default; without
-   it, `boolean()` returns `MeshError::BackendUnavailable`. **MESH-05 is gated by ADR-003.**
+   it, `boolean()` returns `MeshError::BackendUnavailable`. **MESH-05 was gated by ADR-003 (accepted 2026-10-20).**
 6. **Determinism.** Every op is bit-identical for the same input, regardless of rayon thread
    count:
    - ordered reductions;
@@ -813,7 +813,7 @@ build, 8+ cores.
 | MESH-20 | Hole filling (Liepa: DP triangulation, refinement, harmonic/bi-harmonic fairing; CDT for planar loops) | MESH-02 | P0 | Todo | All synthetic holes with boundary 3–2000 edges are filled; result is watertight with no new non-manifold elements. Patch mean edge length within 20 % of the surrounding edges. Fair-filled hole in a sphere (r = 20 mm) deviates < 2 % r. A 500-edge hole fills in < 200 ms. |
 | MESH-21 | Self-intersection removal (local delete + k-ring + refill, iterative) | MESH-19, MESH-20 | P0 | Todo | ≥ 85 % of corpus models flagged `self_intersections` and `expect_repairable` become SI-free. Hausdorff distance to input ≤ 1 % of bbox diagonal. A watertight input never becomes non-watertight. Remaining pairs are reported. |
 | MESH-04 | Repair pipeline (weld, degenerate, duplicate, non-manifold, small shells, orient, holes, SI) + `RepairReport` | MESH-02, MESH-03, MESH-20, MESH-21 | P0 | Todo | ≥ 95 % of `expect_repairable` corpus models become watertight (closed + manifold + oriented, outward), and ≥ 85 % are also SI-free. Repair is idempotent (second run changes nothing). No step increases any defect count. 1 M-tri typical repair < 3 s. |
-| MESH-05 | Booleans via Manifold: `amg-manifold-sys` (vcpkg + overlay port, TBB), `boolean`/`boolean_n`, group mapping, input auto-repair, `manifold` feature flag. **Gate: ADR-003** | MESH-01, MESH-04 | P0 | Todo | Builds on Windows MSVC via vcpkg (Linux best-effort). Two 1 M-tri offset spheres union < 1 s end-to-end including conversion. Volume identity vol(A∪B)+vol(A∩B) = vol(A)+vol(B) within 1e-6 relative (property test, 200 random pairs). Output always watertight. Group ids survive (A kept, B re-allocated). 10 runs with TBB are bit-identical (or canonical sort documented). Without the feature: compiles, and `boolean` returns `BackendUnavailable`. |
+| MESH-05 | Booleans via Manifold: `amg-manifold-sys` (vcpkg + overlay port, TBB), `boolean`/`boolean_n`, group mapping, input auto-repair, `manifold` feature flag. **Gate: ADR-003 (cleared 2026-10-20)** | MESH-01, MESH-04 | P0 | Todo | Builds on Windows MSVC via vcpkg (Linux best-effort). Two 1 M-tri offset spheres union < 1 s end-to-end including conversion. Volume identity vol(A∪B)+vol(A∩B) = vol(A)+vol(B) within 1e-6 relative (property test, 200 random pairs). Output always watertight. Group ids survive (A kept, B re-allocated). 10 runs with TBB are bit-identical (or canonical sort documented). Without the feature: compiles, and `boolean` returns `BackendUnavailable`. |
 | MESH-06 | Isotropic remesh (Botsch–Kobbelt) with feature-edge, boundary and group-border preservation, projection to input | MESH-01, MESH-03 | P0 | Todo | On corpus watertight models and synthetic shapes: ≥ 95 % of triangles have min angle ≥ 30°; ≥ 90 % of edges within [0.8 L, 1.33 L]; Hausdorff to input ≤ 0.5 L. Cube feature edges stay within 1e-3 mm. Topology (genus, shells) unchanged. 1 M → ~1 M tris, 5 iterations, < 10 s. |
 | MESH-22 | Adaptive remesh (curvature sizing field, tolerance ε) | MESH-06 | P1 | Todo | Max deviation from input ≤ ε on synthetic surfaces (sphere, torus, displaced sphere). Triangle count ≤ 60 % of uniform remesh at the same max deviation. |
 | MESH-07 | QEM decimation (boundary/group/feature penalties, flip and quality checks, deterministic) | MESH-01 | P0 | Todo | 1 M → 100 k in < 2 s. Symmetric Hausdorff ≤ 0.2 % of bbox diagonal on the displaced-sphere benchmark. A closed manifold input stays closed and manifold. Group borders are kept when `preserve_group_borders`. Output is bit-identical across thread counts. |
@@ -892,21 +892,24 @@ a job (vision: the UI never blocks > 16 ms). Values are upper bounds. "—" mean
 - peak during repair ≤ 2 GB.
 
 ## Open questions
-1. **(owner)** Corpus licensing: is the GitHub repo public or private? Default plan: commit only
+1. **(owner, answered)** Corpus licensing: is the GitHub repo public or private? Default plan: commit only
    CC0 / PD / CC-BY / CC-BY-SA models to LFS, and keep NC/ND Thingi10K entries and the Stanford
    scans fetch-only (downloaded by `fetch.ps1`, never committed). OK, or may research-only and
    NC models be committed?
+   **Answered 2026-10-20:** default plan: commit only CC0 / PD / CC-BY / CC-BY-SA models; NC/ND and Stanford scans stay fetch-only.
 2. **(owner)** Can you supply your own failing STLs/3MFs (scans, Thingiverse downloads, slicer
    failures) for `testdata/mesh/real/owner/`? Real failures beat synthetic ones.
-3. **(owner)** ADR-003 acceptance, including the amendments proposed in this refinement:
+3. **(owner, answered)** ADR-003 acceptance, including the amendments proposed in this refinement:
    - own `amg-manifold-sys` over the C API;
    - Manifold + oneTBB (Apache-2.0) via vcpkg;
    - `MANIFOLD_CROSS_SECTION=OFF`.
 
    MESH-05 / MESH-27 wait on it. Everything else in S07, including the robust shell, does not.
-4. **(owner)** Phase 1 mesh dialogs: UI-05 (generic feature dialogs) depends on SOL-01 and
+   **Answered 2026-10-20:** ADR-003 accepted with the proposed amendments (recommended). MESH-05 / MESH-27 are no longer gated.
+4. **(owner, answered)** Phase 1 mesh dialogs: UI-05 (generic feature dialogs) depends on SOL-01 and
    lands in Phase 2. Accept hand-built Phase 1 mesh dialogs in MESH-23 (migrated later), or
    should lane D decouple UI-05 from SOL-01 so it can land in Phase 1?
+   **Answered 2026-10-20:** hand-built Phase 1 mesh dialogs in MESH-23, migrated to UI-05 later (the plan the spec is built on).
 5. Resolved: f64 vs f32 positions → f64 (see Design §Decisions 1 and the design note).
 6. Resolved: winding number stays in MESH-03, so IMP-03's dependency (MESH-03) is unchanged.
    Self-intersection detection moved to the new MESH-19.
