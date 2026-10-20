@@ -38,9 +38,9 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | cxx, cxx-build | `amg-occt-sys` bridge (ADR-002, S02) | MIT / Apache-2.0 | no | yes (with `occt`) | Planned |
 | static_assertions | `amg-brep` (`Shape: Send + Sync` check, S02) | MIT / Apache-2.0 | no | no | Planned |
 | rayon | `amg-jobs` and domain crates (S00) | MIT / Apache-2.0 | no | no | Planned |
-| slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | Planned |
-| uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | Planned |
-| thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | Planned |
+| slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
+| uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
+| thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
 | tracing, tracing-subscriber | logging (S00) | MIT | no | no | Planned |
 | serde, serde_json | `.amg` file format (ADR-010) | MIT / Apache-2.0 | no | no | Planned |
 | zip (zip-rs/zip2) 9.0.x, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | Planned |
