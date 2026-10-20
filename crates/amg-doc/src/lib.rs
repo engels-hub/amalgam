@@ -27,8 +27,8 @@ pub use id::{
     OccurrenceId, ParamId, Revision, SketchId,
 };
 pub use model::{
-    BlobRef, BodyProps, Component, Design, DesignMeta, DesignMode, DesignSnapshot, ExtRecord,
-    ModelError, Occurrence, UnitPrefs,
+    BakedBody, BlobRef, BodyProps, Component, Design, DesignMeta, DesignMode, DesignSnapshot,
+    ExtRecord, ID_LIMIT, ModelError, Occurrence, UnitPrefs,
 };
 pub use naming::{
     BodyNaming, EntityRef, GeomClass, GeomFingerprint, MatchQuality, NameSeg, NameSource,

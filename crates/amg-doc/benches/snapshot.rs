@@ -19,7 +19,8 @@ type V = Arc<BodyProps>;
 
 fn key(i: usize) -> BodyId {
     BodyId {
-        origin: FeatureId(i as u64 / 4 + 1),
+        // Id 1 is the root component of a new design; feature ids start at 2.
+        origin: FeatureId(i as u64 / 4 + 2),
         slot: (i % 4) as u32,
     }
 }
@@ -199,14 +200,22 @@ fn bench_diff(c: &mut Criterion) {
     g.finish();
 }
 
+/// A valid design with `n` body props. Feature ids can only be allocated by the timeline
+/// (DOC-02), so the design is built as a file and loaded, which also validates it.
+fn design_with_body_props(n: usize) -> Design {
+    let mut v =
+        serde_json::to_value(Design::with_uuid("Bench", amg_core::PersistentId::NIL)).unwrap();
+    v["meta"]["next_id"] = (n as u64 / 4 + 3).into();
+    v["body_props"] = (0..n)
+        .map(|i| serde_json::json!([key(i), &*props(i)]))
+        .collect();
+    serde_json::from_value(v).unwrap()
+}
+
 fn bench_design(c: &mut Criterion) {
     let mut g = c.benchmark_group("design");
     for n in SIZES {
-        let mut d = Design::with_uuid("Bench", amg_core::PersistentId::NIL);
-        for i in 0..n {
-            d.set_body_props(key(i), (*props(i)).clone());
-        }
-        let snap = Arc::new(d);
+        let snap = Arc::new(design_with_body_props(n));
         g.bench_with_input(BenchmarkId::new("snapshot_clone", n), &n, |bch, _| {
             bch.iter(|| Design::clone(black_box(&snap)));
         });
@@ -218,7 +227,7 @@ fn bench_design(c: &mut Criterion) {
                 bch.iter_batched(
                     || (*snap).clone(),
                     |mut d| {
-                        d.set_body_props(key(n / 2), p.clone());
+                        d.set_body_props(key(n / 2), p.clone()).unwrap();
                         d
                     },
                     BatchSize::SmallInput,

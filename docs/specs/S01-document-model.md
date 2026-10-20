@@ -1029,6 +1029,40 @@ Phase 2 lane E (its SOL deps are Phase 2).
   Duplicate keys, unknown fields and broken invariants (root missing, dangling occurrence
   references, a child list that disagrees with `Occurrence::parent`, component cycles, ids
   ≥ `next_id`) are load errors. Save → load → save is byte-identical (unit test).
+- **Review fixes (same day).** An independent review found that the public edit API could
+  produce designs that save but don't load. The rule is now: **every edit either succeeds and
+  leaves a design that saves and loads, or fails and changes nothing**, and `Design::validate()`
+  (run on load, public) checks the same invariants. The unit tests save and reload after every
+  edit. In detail:
+  - Body ids (`set_body_props`, `set_baked`) need an allocated origin (`1..next_id`) that isn't a
+    component, occurrence or extension id. Once DOC-02 lands, the origin must also be a timeline
+    feature (TODO in code).
+  - Non-finite values are rejected: transforms must be finite, and opacity must be finite and in
+    `0..=1`. `validate()` also checks finiteness and that the tolerance is positive.
+    `ExtRecord.data` can't hold non-finite numbers (`serde_json::Number` refuses them).
+  - Ids: allocation is checked and bounded by `ID_LIMIT = 2^53`, so ids stay exact in JSON tools
+    that read numbers as f64; an exhausted id space gives `ModelError::IdsExhausted`. On load,
+    `next_id` must be in `1..=2^53`, and every id has exactly one owner across components,
+    occurrences, extensions and body-origin features.
+  - Extensions: `ExtRecord.kind` must equal `ExtKey.kind`, an id can't be reused under another
+    kind, and `set_ext` rejects ids owned by other entity types.
+  - `Component::joints` must be empty until S06 adds a joint table, so any joint id is dangling.
+  - Every component must be reachable from the root.
+  - No-op edits (identical props or record, clearing an absent entry, same name) don't bump the
+    revision.
+  - `baked` holds `BakedBody { blob, geom }` (S12 request, see Interface changes).
+- **Wire-format evolution policy.** The wire structs use `deny_unknown_fields`, so a field we
+  don't know is an error, never silently dropped. Consequences:
+  - Every field added later (timeline, params, materials, …) gets `#[serde(default)]` on the
+    wire repr, so older files without it still load.
+  - A purely additive, defaulted field doesn't bump `FORMAT_VERSION`. The older build then
+    refuses the newer file with an unknown-field error rather than misreading it.
+  - DOC-07 decides whether to bump `FORMAT_VERSION` for each such field anyway, so old builds
+    report `TooNew` instead. Any rename, removal or change of meaning bumps the version and adds
+    a migration step with a fixture.
+  - `FORMAT_VERSION` stays 1 until DOC-07 freezes the first format.
+- Bench after the fixes: `Design::set_body_props` after a clone is 0.83 µs at 10⁴ entries
+  (including validation). `Design` clone is 99 ns.
 
 **Sources:**
 - RustSec RUSTSEC-2026-0250 (https://rustsec.org/advisories/RUSTSEC-2026-0250.html)
@@ -1052,16 +1086,19 @@ Additive unless marked; the shapes in Interfaces otherwise hold.
   `next_id` counter (§1); `Design::revision()` is runtime only and not serialized (loads as 0).
 - **`JointId`** added to the typed authored ids (Interfaces referenced `JointId /* S06 */`).
 - **`Design` read API** additions: `occurrences()`, `explicit_body_props()`, `baked(id)`,
-  `exts()`, `occurrence_paths(component)`. `timeline()` and `params()` arrive with DOC-02 and
+  `baked_bodies()`, `exts()`, `occurrence_paths(component)`, `validate()`. `timeline()` and `params()` arrive with DOC-02 and
   DOC-04 (the fields don't exist yet, so `design.json` grows then; `FORMAT_VERSION` is fixed by
   DOC-07).
 - **Low-level edit API on `Design`** (pub, documented as the layer DOC-05 commands build on;
   application code still mutates documents only via `Document::apply`): `Design::new(name)`,
   `Design::with_uuid(name, uuid)`, `add_component(parent, name, transform) ->
   (ComponentId, OccurrenceId)`, `add_occurrence(parent, component, transform)` (rejects cycles),
-  `set_body_props(id, props)` (default props clear the entry), `new_ext_key(kind)`,
-  `set_ext(key, Option<ExtRecord>)`, `set_name(name)`. Errors are the new
-  `ModelError { NotFound, WouldCycle, Inconsistent }`; DOC-05 maps it into `CommandError`.
+  `set_body_props(id, props) -> Result<()>` (default props clear the entry),
+  `set_baked(id, Option<BakedBody>) -> Result<()>`, `new_ext_key(kind) -> Result<ExtKey>`,
+  `set_ext(key, Option<ExtRecord>) -> Result<()>`, `set_name(name)`. Errors are the new
+  `ModelError { NotFound, IdInUse, WouldCycle, InvalidValue, IdsExhausted, Inconsistent }`
+  (`#[non_exhaustive]`); DOC-05 maps it into `CommandError`. A failed edit changes nothing, and a
+  no-op edit doesn't bump the revision. `pub const ID_LIMIT: u64 = 1 << 53`.
 - **`Evaluated`** is `Clone + Default`, with `Evaluated::new(revision)`, `nodes()` and
   builder methods for the engine (`set_body`, `remove_body`, `set_sketch`, `set_construction`,
   `set_node`). `BodyGeom::same_as(&other)` compares geometry by pointer (for DOC-09).
@@ -1075,6 +1112,13 @@ Additive unless marked; the shapes in Interfaces otherwise hold.
   FND-10 lands. No `amg-jobs` (FND-04) types are needed yet.
 - **`BlobRef(pub String)`**: path of a binary entry inside the `.amg` container. DOC-07 may
   refine it.
+- **Changed: `Design::baked` is `PMap<BodyId, Arc<BakedBody>>`** (was `PMap<BodyId, BlobRef>`), with
+  `pub struct BakedBody { pub blob: BlobRef, pub geom: Option<BodyGeom> }`. This answers S12's
+  request that baked geometry be in memory before the first save. `geom` is not in
+  `design.json`. DOC-07 writes it to `blob` in `bodies/` on save and fills it back in on load
+  (S12 item 3: Phase 1). `PartialEq` compares geometry by pointer. S12 items 1–2
+  (`RecomputeCtx::baked`, adding a feature together with its baked payloads) remain for
+  DOC-03/DOC-05.
 - **Provisional naming types are in `amg-doc::naming` now** (data only: `EntityRef`, `TopoRef`,
   `TopoKind`, `TopoName`, `NameSeg`, `Role`, `NameSource`, `GeomFingerprint`, `GeomClass`,
   `BodyNaming`, `MatchQuality`, `Resolved`, `ResolveError`), because `EvalBody::naming` and
