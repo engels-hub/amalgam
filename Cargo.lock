@@ -110,6 +110,7 @@ dependencies = [
  "amg-topopt",
  "criterion",
  "imbl",
+ "proptest",
  "rpds",
  "serde",
  "serde_json",

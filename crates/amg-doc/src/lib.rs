@@ -12,9 +12,11 @@
 #![warn(missing_docs)]
 
 pub mod eval;
+pub mod expr;
 pub mod id;
 pub mod model;
 pub mod naming;
+pub mod param;
 mod pcoll;
 pub mod stub;
 
@@ -22,6 +24,7 @@ pub use eval::{
     BodyGeom, CacheKey, ConstructionGeom, Diagnostic, ErrorCause, EvalBody, Evaluated, Health,
     NodeEval,
 };
+pub use expr::{Dim, ExprError};
 pub use id::{
     BodyId, BodyRef, ComponentId, ConfigId, ConstructionId, ExtKey, FeatureId, GroupId, JointId,
     OccurrenceId, ParamId, Revision, SketchId,
@@ -34,3 +37,4 @@ pub use naming::{
     BodyNaming, EntityRef, GeomClass, GeomFingerprint, MatchQuality, NameSeg, NameSource,
     ResolveError, Resolved, Role, TopoKind, TopoName, TopoRef,
 };
+pub use param::{Expr, ExprSrc, Param, ParamError, ParamKind, ParamTable, UnitSpec};

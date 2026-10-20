@@ -8,7 +8,8 @@
 //! or fails and leaves the design unchanged. Loading checks the same invariants
 //! ([`Design::validate`]), so a file can't hold a state the edit API couldn't produce.
 //!
-//! The timeline (DOC-02) and parameter table (DOC-04) join `Design` in their work packages.
+//! The timeline joins `Design` in DOC-02. The parameter table (DOC-04) and its edits live in
+//! [`crate::param`].
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::eval::BodyGeom;
 use crate::id::{BodyId, ComponentId, ExtKey, FeatureId, JointId, OccurrenceId, Revision};
+use crate::param::ParamTable;
 use crate::pcoll::{PMap, entries};
 use crate::stub::{AppearanceKey, LengthUnit, MaterialKey};
 
@@ -50,6 +52,8 @@ pub struct Design {
     baked: PMap<BodyId, Arc<BakedBody>>,
     #[serde(serialize_with = "entries::serialize")]
     extensions: PMap<ExtKey, Arc<ExtRecord>>,
+    /// Parameters (DOC-04); edits in [`crate::param`].
+    pub(crate) params: ParamTable,
     /// Runtime only: authored changes since the design was created or loaded.
     #[serde(skip)]
     revision: Revision,
@@ -299,6 +303,7 @@ impl Design {
             body_props: PMap::new(),
             baked: PMap::new(),
             extensions: PMap::new(),
+            params: ParamTable::default(),
             revision: Revision(0),
         }
     }
@@ -522,14 +527,14 @@ impl Design {
 
     // ---- internals -----------------------------------------------------------------------
 
-    fn alloc(&mut self) -> Result<u64, ModelError> {
+    pub(crate) fn alloc(&mut self) -> Result<u64, ModelError> {
         let id = self.meta.next_id;
         let next = id.checked_add(1).filter(|&n| n <= ID_LIMIT);
         self.meta.next_id = next.ok_or(ModelError::IdsExhausted)?;
         Ok(id)
     }
 
-    fn ensure_ids(&self, n: u64) -> Result<(), ModelError> {
+    pub(crate) fn ensure_ids(&self, n: u64) -> Result<(), ModelError> {
         match self.meta.next_id.checked_add(n) {
             Some(end) if end <= ID_LIMIT => Ok(()),
             _ => Err(ModelError::IdsExhausted),
@@ -562,7 +567,7 @@ impl Design {
         Ok(id)
     }
 
-    fn bump(&mut self) {
+    pub(crate) fn bump(&mut self) {
         self.revision = self.revision.next();
     }
 
@@ -582,7 +587,7 @@ impl Design {
     }
 
     /// The entity type an allocated id belongs to, if any. Body origins count as `"feature"`.
-    fn owner_of(&self, id: u64) -> Option<&'static str> {
+    pub(crate) fn owner_of(&self, id: u64) -> Option<&'static str> {
         let feature = BodyId {
             origin: FeatureId(id),
             slot: 0,
@@ -596,6 +601,8 @@ impl Design {
             Some("occurrence")
         } else if self.ext_with_id(id).is_some() {
             Some("extension")
+        } else if self.params.get(crate::id::ParamId(id)).is_some() {
+            Some("parameter")
         } else if self.body_props.range(feature.clone()).next().is_some()
             || self.baked.range(feature).next().is_some()
         {
@@ -685,6 +692,9 @@ impl Design {
         for k in self.extensions.keys() {
             claim(k.id, "extension")?;
         }
+        for p in self.params.ids() {
+            claim(p.0, "parameter")?;
+        }
         let origins: BTreeSet<u64> = self
             .body_props
             .keys()
@@ -693,6 +703,12 @@ impl Design {
             .collect();
         for o in origins {
             claim(o, "feature")?;
+        }
+        if let Err(m) = self
+            .params
+            .check(&self.meta.default_units, |id| owners.get(&id).copied())
+        {
+            return bad(m);
         }
 
         for (cid, comp) in self.components() {
@@ -796,11 +812,15 @@ struct DesignRepr {
     baked: PMap<BodyId, Arc<BakedBody>>,
     #[serde(deserialize_with = "entries::deserialize")]
     extensions: PMap<ExtKey, Arc<ExtRecord>>,
+    /// Added by DOC-04; defaulted so files without it still load.
+    #[serde(default)]
+    params: ParamTable,
 }
 
 impl TryFrom<DesignRepr> for Design {
     type Error = ModelError;
     fn try_from(r: DesignRepr) -> Result<Design, ModelError> {
+        let params = r.params.loaded(&r.meta.default_units)?;
         let d = Design {
             meta: r.meta,
             root: r.root,
@@ -809,6 +829,7 @@ impl TryFrom<DesignRepr> for Design {
             body_props: r.body_props,
             baked: r.baked,
             extensions: r.extensions,
+            params,
             revision: Revision(0),
         };
         d.validate()?;
@@ -1254,6 +1275,7 @@ mod tests {
                 "extensions",
                 "meta",
                 "occurrences",
+                "params",
                 "root"
             ]
         );

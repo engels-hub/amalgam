@@ -29,9 +29,14 @@ thiserror.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 rpds.workspace = true
+proptest.workspace = true
 
 [[bench]]
 name = "snapshot"
+harness = false
+
+[[bench]]
+name = "params"
 harness = false
 
 [lints]
