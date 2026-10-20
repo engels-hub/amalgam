@@ -17,24 +17,24 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | fidget | `amg-implicit` CPU evaluator (S08, under evaluation) | MPL-2.0 | weak | — | Planned (undecided) |
 | wgpu | `amg-jobs`, `amg-render`, `amg-compute` (ADR-004) | MIT / Apache-2.0 | no | no | Planned |
 | egui, egui_dock, egui-wgpu | `amg-ui` (ADR-005) | MIT / Apache-2.0 | no | no | Planned |
-| glam | geometry math (ADR-006) | MIT / Apache-2.0 | no | no | Planned |
+| glam | geometry math (ADR-006) | MIT / Apache-2.0 | no | no | In use (0.34.1) |
 | nalgebra | small dense linear algebra, sketch solver (ADR-006) | Apache-2.0 | no | no | Planned |
 | faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | Planned |
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
 | cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |
 | rayon | `amg-jobs` and domain crates (S00) | MIT / Apache-2.0 | no | no | Planned |
-| slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | Planned |
-| uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | Planned |
-| thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | Planned |
+| slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
+| uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
+| thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
 | tracing, tracing-subscriber | logging (S00) | MIT | no | no | Planned |
-| serde, serde_json, zip | `.amg` file format (ADR-010); serde_json also in the `amg-testkit` layering test | MIT / Apache-2.0 (zip: MIT) | no | no | serde_json in use (1.0.154, dev-only); others Planned |
+| serde, serde_json, zip | `.amg` file format (ADR-010); serde_json also in the `amg-testkit` layering test | MIT / Apache-2.0 (zip: MIT) | no | no | serde in use (1.0.229); serde_json in use (1.0.154, dev-only); zip Planned |
 | inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | imbl (fallback: rpds) | persistent collections, `amg-doc` (S01; DOC-01 bench confirms; `im` is unmaintained) | MPL-2.0 | weak | no | Planned |
 | ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |
 | dxf | DXF import (S03) | MIT | no | no | Planned |
 | usvg | SVG import (S03) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
-| criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | Planned |
+| criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion Planned |
 | blake3 | cache keys and manifest hashes, `amg-doc` (S01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | Planned |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | Planned |
@@ -44,7 +44,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | tracing-appender | rolling log files (S00) | MIT | no | no | Planned |
 | tracing-tracy | optional profiler integration (S00) | MIT / Apache-2.0 | no | yes (`tracy`) | Planned |
 | clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | In use (4.6.7) |
-| approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | Planned |
+| approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | In use (0.5.1) |
 | toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07) | MIT / Apache-2.0 | no | no | Planned |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |
 | smallvec | small inline vectors, `amg-sketch`, `amg-mesh` (S03, S07) | MIT / Apache-2.0 | no | no | Planned |
