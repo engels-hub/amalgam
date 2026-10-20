@@ -984,7 +984,7 @@ pub mod budget {
 | FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Review | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
 | FND-06 | Test data infrastructure: `testdata/` with git-LFS patterns, `amg-testkit` metrics (volume, area, bbox, Euler, edges, Hausdorff with BVH), golden files + bless workflow, `testdata()` / `gpu_available()` helpers | FND-03 | P0 | Done | Tests pass. A 10 mm cube soup gives volume 1000 ± 1e-9 mm³ and area 600 ± 1e-9 mm². Sphere tessellations converge to 4/3πr³ (error halves as the triangle count quadruples). Hausdorff of two concentric spheres r=10 and r=10.5 is 0.5 ± 0.01 mm, and 1M-triangle inputs finish in < 2 s. `AMG_BLESS=1` writes a golden file and the next run passes. An un-fetched LFS pointer is skipped locally and fails with `AMG_REQUIRE_TESTDATA=1`. |
 | FND-07 | Diagnostics: `diag::init` (tracing, env-filter `AMG_LOG`, rolling file logs, optional `tracy` feature), panic hook with `crash-<utc>.txt`, `RecoveryHook` registry; wired into `amg-cli` | FND-04 | P1 | Todo | An integration test runs a child process that panics. Afterwards the log file contains the panic message and a backtrace, `crash-*.txt` exists with version, git SHA and the last log lines, and the registered test recovery hook ran: stderr contains `Recovery file: <path>` and the file exists. A panic inside a job does not end the process. `amg-cli info` writes to the log. |
-| FND-08 | Benchmark harness: `amg_testkit::budget::BUDGETS` (one per vision budget row), criterion placeholder benches `budget/<id>`, optional `workflow_dispatch` bench job | FND-06 | P1 | Todo | `cargo bench -p amg-testkit -- --test` runs one placeholder per vision budget row (7 rows today). A unit test asserts `BUDGETS.len()` equals the number of rows parsed from `docs/00-vision.md`. The bench job can be triggered manually and uploads the criterion HTML report. |
+| FND-08 | Benchmark harness: `amg_testkit::budget::BUDGETS` (one per vision budget row), criterion placeholder benches `budget/<id>`, optional `workflow_dispatch` bench job | FND-06 | P1 | Review | `cargo bench -p amg-testkit -- --test` runs one placeholder per vision budget row (7 rows today). A unit test asserts `BUDGETS.len()` equals the number of rows parsed from `docs/00-vision.md`. The bench job can be triggered manually and uploads the criterion HTML report. |
 | FND-09 | `amg-jobs::gpu`: `GpuConfig` (+ `AMG_WGPU_BACKEND`), `Gpu` (instance/adapter/device/queue, optional features, device-lost flag), `upload`/`storage`/`Readback`, compute-pipeline cache; `amg-cli info` prints adapter. **Gate: ADR-004 (wgpu) accepted.** | FND-04 | P0 | Todo | The smoke test (add two 1M-element f32 buffers in WGSL) matches the CPU result bit-exactly on the owner's RTX 5060 Ti (DX12) and on WARP in CI. `Readback::try_get` returns `None` at least once before `Some` in a polled test, and never blocks for more than 1 ms per call. Pipeline-cache tests: the same desc gives `Arc::ptr_eq`, and an invalid WGSL gives `GpuError::Shader` with a message. Without an adapter the GPU tests skip (and fail if `AMG_REQUIRE_GPU=1`). `Gpu::new` takes < 300 ms on the owner's machine. A doc example shows building `egui_wgpu::WgpuSetup::Existing` from a `Gpu`, compiled as a doctest only if egui-wgpu is already a workspace dep, otherwise as a `text` block. |
 | FND-10 | `amg-core::units` (part 2 of core): `Dimension`, `Quantity`, typed quantities, `Unit` table, `LengthUnit`, `parse_quantity` (grammar in units note §7), `format_quantity` (Decimal/Fraction/FeetInch/Exact), `ParseQuantityError` with spans | FND-03 | P0 | Done | Tests pass. Every `Unit` symbol and alias parses (table-driven test generated from `Unit::all()`). Examples: `1/4 in` = 6.35 mm, `1 1/4"` = 31.75 mm, `5' 3 1/2"` = 1612.9 mm, `30 deg` = π/6, `20 degC` = 293.15 K, `7.85 g/cm^3` = 7.85e-9 t/mm³, `-.5e1 mm` = −5 mm. Errors carry correct spans for `12,5 mm`, `3 foo`, `1/0 in` and `1 m 20 cm`. Proptest round-trip: `Exact` style round-trips bit-for-bit, and `Decimal` stays within ½ ulp of the printed precision. `Fraction` prints `1 1/4 in` for 31.75 mm. Parsing a typical literal takes < 1 µs median (criterion). |
 | FND-12 | Native crash capture: out-of-process minidumps via `crash-handler` + `minidumper` (access violations inside C++ deps), wired into `amg-app` and `amg-cli` | FND-07, BREP-01 | P2 | Todo | A test binary that dereferences null through FFI produces a `.dmp` in the crash dir, and the recovery hooks ran. The dump opens in WinDbg/`minidump-stackwalk` with symbolised Rust frames. |
@@ -1456,3 +1456,31 @@ extest
 - Leftovers for MESH-01 integration: `TriMesh::from_flat` (flat `[f64]` / `[u32]` buffers),
   `TriMesh::from_f32` (GPU/STL-style f32 positions) and a `welded(tol)` helper so unwelded
   soups give meaningful topology metrics. Not done in FND-06.
+
+### 2026-10-20 — FND-08 (`amg_testkit::budget`, bench harness, lane E)
+- **Ids** (`BUDGETS`, vision table order): `cold_start` (2000 ms), `viewport_orbit_5m_tris`
+  (60 fps), `recompute_50_features` (500 ms), `mesh_boolean_2x1m_tris` (1000 ms),
+  `fea_linear_static_500k_dof` (30 000 ms), `topopt_1m_voxels_100_iter` (300 000 ms),
+  `ui_max_block` (16 ms). Owners name their real bench `budget/<id>`.
+- **`Budget::description` is the vision row's *Scenario* text verbatim.** The unit test
+  `budget::tests::budgets_match_vision_table` parses `docs/00-vision.md` §Performance budgets
+  and checks row count, order, descriptions and limits (`< 2 s`, `≥ 60 fps`, `< 5 min`,
+  `16 ms (…)` forms). Adding a vision row (e.g. QUESTIONS #33's "Import a 1 GB binary STL
+  (20 M triangles) < 5 s") therefore needs exactly one `BUDGETS` entry; the placeholder bench
+  follows automatically.
+- Additive API: `Budget`/`Limit` also derive `PartialEq, Eq`; `budget::BENCH_GROUP`
+  (`"budget"`), `budget::get(id)`, `Budget::bench_name()` (`budget/<id>`),
+  `Limit::max_duration()` (frame time `1 s / fps` for `MinFps`) and `Limit::is_met_by(d)`.
+- `benches/budgets.rs` registers one placeholder per `BUDGETS` entry (a trivial body; the
+  numbers mean nothing). Its `REAL` list holds the ids whose real bench exists in the owning
+  crate, so the placeholder stops running and the two do not share a criterion report dir.
+- `amg-testkit` enables criterion's `html_reports` feature (no new crates; `Cargo.lock`
+  unchanged). Cargo unifies it into every crate's criterion in a `cargo bench --workspace`
+  build, so the CI artifact `criterion` contains `report/index.html`.
+- CI `bench` job: new `workflow_dispatch` string input `bench-filter` (criterion regex, e.g.
+  `^budget/`; empty runs all benches), and the report upload now fails if nothing was written.
+- No existing bench measures a vision scenario itself, so none is renamed. Existing benches
+  protect sub-budgets only: `amg-core` `geom/ray_triangle`, `units/*`; `amg-jobs`
+  `JobHandle::*`, `spawn/*` (UI 16 ms / recompute 500 ms); `amg-doc` snapshot benches
+  (`clone`, `mutate_*`, `iterate_ordered`, `diff_after_1_mutation`, `design/*`; recompute);
+  `amg-testkit` `testkit/hausdorff_1m_100k` (test-suite time).

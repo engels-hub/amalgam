@@ -14,6 +14,10 @@ on:
         description: Also run the criterion benches and upload the report
         type: boolean
         default: false
+      bench-filter:
+        description: Criterion name filter for the bench run (regex, e.g. ^budget/); empty runs all
+        type: string
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -188,7 +192,9 @@ jobs:
           if-no-files-found: warn
 
   # Benches are noisy on shared runners, so they only run on a manual dispatch with
-  # `bench: true`. FND-08 adds the placeholder benches.
+  # `bench: true`. Vision budgets are the `budget/<id>` benches (amg_testkit::budget,
+  # FND-08); `bench-filter: ^budget/` runs only those. amg-testkit enables criterion's
+  # `html_reports` feature, so the artifact's report/index.html is the HTML report.
   bench:
     name: bench
     if: github.event_name == 'workflow_dispatch' && inputs.bench
@@ -204,11 +210,17 @@ jobs:
       - uses: ./.github/actions/vcpkg
         with:
           vcpkg-tag: ${{ env.VCPKG_TAG }}
-      - run: cargo bench --workspace
+      - name: cargo bench
+        env:
+          BENCH_FILTER: ${{ inputs.bench-filter }}
+        run: |
+          if ($env:BENCH_FILTER) { cargo bench --workspace -- $env:BENCH_FILTER }
+          else { cargo bench --workspace }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload criterion report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: criterion
           path: target/criterion
-          if-no-files-found: warn
+          if-no-files-found: error

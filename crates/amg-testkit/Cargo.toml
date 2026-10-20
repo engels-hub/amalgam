@@ -24,11 +24,17 @@ default = ["gpu"]
 gpu = ["dep:wgpu", "dep:pollster"]
 
 [dev-dependencies]
-criterion.workspace = true
+# html_reports: the CI bench job uploads target/criterion as HTML. Cargo unifies the feature
+# into every crate's criterion in a `cargo bench --workspace` build.
+criterion = { workspace = true, features = ["html_reports"] }
 serde_json.workspace = true
 
 [[bench]]
 name = "hausdorff"
+harness = false
+
+[[bench]]
+name = "budgets"
 harness = false
 
 [lints]
