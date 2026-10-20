@@ -8,6 +8,7 @@
 //!   the [`Sketch`] container with kind validation and serde.
 //! - [`geom`]: evaluated 2D curves ([`Curve2`]).
 //! - [`error`]: the [`SketchError`] enum.
+//! - [`solve`]: residual equations with analytic Jacobians (SK-02); the solver from SK-03.
 //!
 //! Lengths are mm in sketch-plane coordinates, angles are radians, all `f64`. Collections are
 //! `BTreeMap`s, so iteration order (and serialised output) is deterministic.
@@ -20,6 +21,7 @@ pub mod error;
 pub mod geom;
 pub mod ids;
 pub mod model;
+pub mod solve;
 
 pub use error::SketchError;
 pub use geom::{Arc2, Circle2, Curve2};
