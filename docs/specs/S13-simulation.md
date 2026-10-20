@@ -59,4 +59,9 @@ fringe plots, probes, deformation animation, and reports.
 
 ## Open questions
 1. Owner: which load types are used most? Prioritize UI for them.
+   **Answered 2026-10-20:** first-class UI for fixed/pinned, force, pressure, bearing/pin load,
+   gravity and symmetry; remote force, moment and thermal loads follow.
 2. Orthotropic / printed-material models (layer-dependent stiffness) — valuable for AM, P2?
+   **Answered 2026-10-20:** yes, P2. Isotropic first (P1); then a transversely isotropic material
+   with build direction taken from the S16 print setup, plus a directional failure criterion
+   (Tsai-Wu or reduced Z allowables). Matters mainly for FFF; resin treated as isotropic.

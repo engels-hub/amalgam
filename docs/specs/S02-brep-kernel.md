@@ -69,4 +69,6 @@ with random primitives (expect `Ok(valid)` or clean `Err`, never crash).
 
 ## Open questions
 1. OCCT version pin (7.8.x vs 7.9) and vcpkg triplet (`x64-windows` dynamic vs static).
+   **Partly answered (2026-10-20, ADR-002 accepted with amendment):** the version is 7.9.x or
+   8.0.x via vcpkg, and BREP-01 picks and pins one. The triplet is still open.
 2. Do we expose OCCT's `BOPAlgo` parallel mode by default? Benchmark.

@@ -9,10 +9,10 @@ sign-off) or `Superseded by ADR-xxx`. Agents add new ADRs as `Proposed`; the own
 Rust for all first-party code. C++ only inside `-sys` FFI crates.
 **Consequences:** need FFI for OCCT, Manifold, fTetWild. Python API via pyo3.
 
-## ADR-002 — B-rep kernel: OpenCASCADE behind a trait (Proposed)
+## ADR-002 — B-rep kernel: OpenCASCADE behind a trait (Accepted 2026-10-20)
 **Context:** writing a NURBS B-rep kernel is a multi-year effort. Rust-native kernels
 (truck, Fornjot) are not mature enough for fillets, shells, drafts, STEP.
-**Decision:** use OCCT 7.8+ through a hand-written `cxx` bridge (`amg-occt-sys`), wrapped by a
+**Decision:** use OCCT (7.9.x or 8.0.x, see amendment) through a hand-written `cxx` bridge (`amg-occt-sys`), wrapped by a
 Rust `BrepKernel` trait in `amg-brep`. No OCCT type leaks past `amg-brep`.
 `opencascade-rs` is a reference for the build setup but we own our bindings (it covers too little).
 **Consequences:** C++ build dependency (OCCT via vcpkg on Windows); the trait keeps the door open to
@@ -20,6 +20,8 @@ swap or mix in `truck` later. OCCT's weak spots (fillet robustness, boolean spee
 the mesh path for AM workflows.
 **Note (2026-10-19, S00 refinement):** the vcpkg `opencascade` port is now 8.0.0. BREP-01 decides
 whether to take 8.0.0 or pin 7.9.x.
+**Amendment (2026-10-20, owner):** supported versions are OCCT 7.9.x or 8.0.x via vcpkg, replacing
+"7.8+". BREP-01 picks and pins one. The vcpkg triplet stays open in S02.
 
 ## ADR-003 — Mesh booleans: Manifold (Accepted 2026-10-20)
 Use the Manifold library (C++, Apache-2.0) for mesh booleans, which guarantees manifold output.
@@ -37,17 +39,23 @@ Details: `docs/notes/mesh-processing.md` §4.
 **Consequences:** new lane-C crate `amg-manifold-sys`, which architecture §Crates and the S00
 layering allow-list must include.
 
-## ADR-004 — GPU: wgpu for rendering and compute (Proposed)
+## ADR-004 — GPU: wgpu for rendering and compute (Accepted 2026-10-20)
 One `wgpu` device for both. WGSL compute for topology optimization, SDF evaluation, CG solvers.
 Optional `cudarc` backend behind a feature flag for solvers only if benchmarks show wgpu is a
 bottleneck. Owner's GPU is an RTX 5060 Ti (NVIDIA), so CUDA is available if needed.
+**Amendment (2026-10-20, owner):** the CUDA backend is a priority for performance optimisation
+later. wgpu stays the baseline that every solver must have. Once the wgpu solvers exist and are
+benchmarked, CUDA (`cudarc`, behind a feature) is the first optimisation to pursue for hot
+compute kernels (FEA, topology optimisation, SDF), and is not an afterthought. Solver kernels
+should keep the backend behind a small internal trait so a CUDA path can be added without
+reworking callers.
 
-## ADR-005 — UI toolkit: egui + egui_dock (Proposed)
+## ADR-005 — UI toolkit: egui + egui_dock (Accepted 2026-10-20)
 Immediate-mode UI is fast to iterate on and fits tool-heavy apps; `egui_dock` for dockable panels,
 `egui-wgpu` to share the device with the viewport. Alternative considered: Slint (prettier, slower
 to iterate), iced (less mature docking). Revisit if egui's look becomes a blocker.
 
-## ADR-006 — Math: glam (f64) + nalgebra/faer where needed (Proposed)
+## ADR-006 — Math: glam (f64) + nalgebra/faer where needed (Accepted 2026-10-20)
 `glam::DVec3/DMat4/DQuat` for geometry (f64 everywhere in the model), `glam::Vec3` (f32) only on
 the GPU side. `nalgebra` for small dense linear algebra (sketch solver), `faer` for large sparse
 systems (FEA).
@@ -70,28 +78,32 @@ systems (FEA).
 **Status:** the decision rule in `docs/notes/sketch-solver.md` §5.4 was accepted on 2026-10-20.
 This ADR becomes Accepted when the SK-13 benchmark report meets that rule. SK-03 waits for it.
 
-## ADR-008 — Tet meshing: fTetWild via FFI (Proposed)
+## ADR-008 — Tet meshing: fTetWild via FFI (Accepted 2026-10-20)
 fTetWild (MPL-2.0) is robust to dirty input, which matters for meshes from scans/generative.
 TetGen (AGPL) as a fallback for quality-constrained meshing. Personal use, so licences are OK,
 but keep each behind a feature flag.
 
-## ADR-009 — Subdivision instead of T-splines for the Form workspace (Proposed)
+## ADR-009 — Subdivision instead of T-splines for the Form workspace (Accepted 2026-10-20)
 Fusion's Form workspace uses T-splines. We implement Catmull–Clark SubD with creases (OpenSubdiv
 semantics) and SubD→NURBS conversion for B-rep interop. Equivalent workflow, well-documented math.
+**Note for later improvement (2026-10-20, owner):** add a translation layer for T-spline data
+(for example a T-spline control cage from Fusion or other T-spline/SubD sources) into Amalgam
+SubD cages, so foreign Form-style bodies can be edited instead of only importing as NURBS. This
+is not in the initial S09 scope; it should be recorded as a future WP when S09 is refined.
 
-## ADR-010 — Document file format: zip + JSON + binary caches (Proposed)
+## ADR-010 — Document file format: zip + JSON + binary caches (Accepted 2026-10-20)
 See architecture §File format. JSON (serde) for the authored part keeps diffs and debugging easy;
 caches are optional and rebuildable.
 
-## ADR-011 — Scripting: Python via pyo3 (Proposed)
+## ADR-011 — Scripting: Python via pyo3 (Accepted 2026-10-20)
 Python because it matches Fusion's API language and the scientific ecosystem (numpy for results).
 Embedded interpreter for in-app scripts + a `amalgam` wheel for headless use.
 
-## ADR-012 — Licensing (Proposed)
+## ADR-012 — Licensing (Accepted 2026-10-20)
 Personal-use project; GPL/AGPL dependencies are acceptable but must be listed in
 `THIRD_PARTY.md` and isolated behind features so a permissive build remains possible.
 
-## ADR-013 — Own Rust NURBS module; Rust kernel rewrite is the last phase (Proposed)
+## ADR-013 — Own Rust NURBS module; Rust kernel rewrite is the last phase (Accepted 2026-10-20)
 **Context:** OCCT lofts (`ThruSections`) and fillets (`ChFi3d`) are the operations that fail
 most; the owner specifically hit unstable lofts in Fusion and wants this to be better.
 **Decision:** add `amg-nurbs` (pure Rust) for surface *construction* where OCCT is weak, starting

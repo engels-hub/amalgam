@@ -897,8 +897,11 @@ a job (vision: the UI never blocks > 16 ms). Values are upper bounds. "—" mean
    scans fetch-only (downloaded by `fetch.ps1`, never committed). OK, or may research-only and
    NC models be committed?
    **Answered 2026-10-20:** default plan: commit only CC0 / PD / CC-BY / CC-BY-SA models; NC/ND and Stanford scans stay fetch-only.
-2. **(owner)** Can you supply your own failing STLs/3MFs (scans, Thingiverse downloads, slicer
+2. **(owner, answered)** Can you supply your own failing STLs/3MFs (scans, Thingiverse downloads, slicer
    failures) for `testdata/mesh/real/owner/`? Real failures beat synthetic ones.
+   **Answered 2026-10-20:** no. MESH-28 uses only the public corpus and the synthetic defect
+   generators. The `owner/` set is not required. If owner files turn up later, they go under
+   `$AMG_TESTDATA_DIR/mesh/real/owner/` (S00 Open question 2).
 3. **(owner, answered)** ADR-003 acceptance, including the amendments proposed in this refinement:
    - own `amg-manifold-sys` over the C API;
    - Manifold + oneTBB (Apache-2.0) via vcpkg;

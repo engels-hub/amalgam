@@ -26,10 +26,10 @@ module needs a framework change, that change is lane D's (see AGENTS.md §Interf
 
 | Before starting | Needs |
 |---|---|
-| Every lane-A WP that calls OCCT: BREP-\*, SOL-\*, CON-\*, INS-03..07, KH-01..06, KH-08..11 | ADR-002 (OpenCASCADE) accepted |
+| Every lane-A WP that calls OCCT: BREP-\*, SOL-\*, CON-\*, INS-03..07, KH-01..06, KH-08..11 | ADR-002 (OpenCASCADE) accepted — **cleared 2026-10-20** |
 | MESH-05, MESH-27 | ADR-003 (Manifold) accepted — **cleared 2026-10-20** |
-| RND-01, UI-01 | ADR-004 (wgpu) and ADR-005 (egui) accepted |
-| FND-09 | ADR-004 (wgpu) accepted |
+| RND-01, UI-01 | ADR-004 (wgpu) and ADR-005 (egui) accepted — **cleared 2026-10-20** |
+| FND-09 | ADR-004 (wgpu) accepted — **cleared 2026-10-20** |
 | SK-03 | ADR-007 (own sketch solver) decided — SK-13 prototypes and benchmarks both options (ungated) |
 
 FND-01..08 and FND-10 have no gate, so Phase 0 can start before these are settled. INS-01, INS-02 and

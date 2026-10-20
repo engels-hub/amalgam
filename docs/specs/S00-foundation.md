@@ -1044,10 +1044,15 @@ Tied to the vision budgets. The foundation must spend only a small slice of them
    binary-compatible and each environment builds all C++ itself. Revisit if a compiler
    difference causes a bug.
    **Answered 2026-10-20:** keep VS Build Tools 2022 locally and `windows-2025` in CI (recommended default).
-2. **(owner)** `testdata/` on GitHub LFS: the free tier is 10 GiB storage and 10 GiB/month
+2. **(owner, answered)** `testdata/` on GitHub LFS: the free tier is 10 GiB storage and 10 GiB/month
    bandwidth. Uploads don't count against bandwidth, and CI caches LFS objects. How big do
    you expect the STEP/STL/scan corpus to get? If it may exceed ~5 GiB, we should keep large
    corpora outside the repo (a local folder referenced by `AMG_TESTDATA_DIR`) from the start.
+   **Answered 2026-10-20:** hybrid. A curated, redistributable LFS set under `testdata/` with a
+   soft cap of 2 GiB total (S07 corpus ≤ 300 MB, S20 kernel corpus, golden files). Large,
+   non-redistributable or private data (scans, big STEP assemblies, owner files) lives outside
+   the repo under `AMG_TESTDATA_DIR`, listed in a manifest with sha256, and tests skip it when
+   absent. FND-06 supports `AMG_TESTDATA_DIR` from the start.
 3. Architecture lists "2D/3D primitive curves" in `amg-core`. Circles, arcs and conics are
    deferred to FND-11 until S02 (BREP) and S03 (sketch) refinement shows whether they need
    shared analytic curves or keep their own. FND-03 already covers lines, segments and

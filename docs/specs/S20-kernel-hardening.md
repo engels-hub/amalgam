@@ -97,4 +97,7 @@ Loft failures mostly come from *section preparation*, not the surface math, so w
 
 ## Open questions
 1. Owner: any old Fusion files whose lofts failed? Export their section sketches (DXF/STEP) for KH-05.
+   **Answered 2026-10-20:** yes, private, supplied later (before KH-05). Section sketches and rails
+   (DXF/STEP) plus a note on how Fusion failed go under `$AMG_TESTDATA_DIR/kernel/loft/owner/`
+   (S00 Open question 2); not committed.
 2. Own N-sided corner patch vs OCCT `GeomPlate` for KH-04 — decide on corpus results.

@@ -49,3 +49,9 @@ preview for SLA/MPBF, and a clean hand-off to OrcaSlicer/PrusaSlicer.
 
 ## Open questions
 1. Owner: which printers/technologies do you use (FFF only? resin?) and which slicer — affects AM-06/AM-08 priority.
+   **Answered 2026-10-20:** FFF on a Creality Ender 3 V3 KE with an MMU mod (multi-material)
+   and an MSLA resin printer. Slicers: OrcaSlicer (FFF) and Chitubox (resin). AM-06 targets
+   OrcaSlicer (multi-material 3MF plates) and Chitubox (STL/3MF + launch). Consequences for the
+   next refinement: multi-material 3MF export (per-body/per-face filament) is a must-have for
+   IO-03; resin checks in AM-07 (cups, trapped volumes, drain holes) and the resin support
+   preview in AM-08 gain priority (AM-08 P2 → P1 proposed).

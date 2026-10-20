@@ -54,3 +54,6 @@ compared by volume/area/bbox against STEP exports from Fusion supplied by the ow
 
 ## Open questions
 1. Owner to supply 5–10 representative Fusion designs (STEP + screenshots of timeline) as parity references.
+   **Answered 2026-10-20:** yes, private, supplied later (before Phase 2 S04 implementation). They go
+   under `$AMG_TESTDATA_DIR/fusion/` (S00 Open question 2) with a short note per design (purpose,
+   features used); not committed.
