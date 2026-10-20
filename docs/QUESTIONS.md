@@ -26,6 +26,26 @@ Agents append here; the owner answers inline and the refining agent moves the an
 | 20 | S07 | Can you supply your own failing STLs/3MFs (scans, downloads, slicer failures) for `testdata/mesh/real/owner/`? (S07 OQ 2) | No (2026-10-20): MESH-28 uses the public corpus + synthetic generators only. Moved into S07. |
 | 21 | S07 | ADR-003 acceptance with the proposed amendments (own `amg-manifold-sys` over the C API, Manifold + oneTBB via vcpkg, `MANIFOLD_CROSS_SECTION=OFF`)? MESH-05/MESH-27 wait on it (S07 OQ 3; text below). | Accepted with amendments (recommended, 2026-10-20). ADR-003 updated; MESH-05/MESH-27 ungated. |
 | 22 | S07 | Phase 1 mesh dialogs: UI-05 (generic feature dialogs) depends on SOL-01 (Phase 2). Accept hand-built Phase 1 dialogs in MESH-23, migrated later, or should lane D decouple UI-05 from SOL-01? (S07 OQ 4) | Hand-built Phase 1 dialogs in MESH-23 (2026-10-20). Moved into S07. |
+| 23 | S10, S11 | egui_dock 0.21.1 (latest) needs egui ^0.36; egui_tiles 0.18 already targets 0.37. If egui_dock has no 0.37 release when UI-01 starts: (a) pin egui/eframe/egui-wgpu to 0.36.2 until egui_dock 0.22 ships (egui-wgpu 0.36.2 also uses wgpu 30, so FND-09 and S10 are unaffected); (b) use `egui_tiles` 0.18 behind the same `amg_ui::dock::DockHost` facade; (c) use egui_dock from git. `amg-render` works with either egui version (S11 OQ 1, S10 OQ 2). *Recommended:* (a). See the ADR-005 amendment below. | |
+| 24 | S11 | Several documents as tabs in one window (Fusion), or one document per window? *Recommended:* tabs (S11 OQ 2). | |
+| 25 | S11, S07 | Workspace grouping: follow current Fusion (Mesh and Form are tabs inside Design; Simulation, Generative and Manufacture-AM are workspaces), or keep Mesh and Form as separate workspaces as the Draft summary listed? Only lane C's registration data changes either way. *Recommended:* current Fusion (S11 OQ 3). | |
+| 26 | S10 | Main monitor resolution and refresh rate? The 5 M-triangle ≥ 60 fps budget is specified at 2560×1440 with 4× MSAA. *Recommended:* measure at your native resolution with 4× MSAA; at 4K accept 2× MSAA if needed (S10 OQ 1). | |
+| 27 | S02, S20, S00 | OCCT 8.0.1 needs a vcpkg baseline bump. At the pinned vcpkg tag `2026.07.29` the `opencascade` port is 8.0.0 port-version 1 (verified locally); 8.0.1 needs a newer vcpkg tag. 8.0.1 fixes a `Standard_Strtod` thread race (parallel text `.brep`/STEP parsing can mis-parse numbers) and some ThruSections/boolean crashes, makes fillet state thread-local, and ships the reworked `GeomFill_Gordon` that S20 wants as engine and oracle (S20 R15). Options: (a) BREP-01 on 8.0.0; S02 keeps STEP and text `.brep` reads behind the global lock and S20 skips the OCCT Gordon path until a lane-E pin update moves the S00 vcpkg baseline to a tag with 8.0.1, before Phase 2 (BREP-13, KH-16); (b) bump the baseline now, before BREP-01. *Recommended:* (a). | |
+| 28 | S05, S17 | Default material for bodies without an assigned material (mass properties only), and the mass display unit. Density: PLA 1.24 g/cm³ (AM-focused) or steel (Fusion's default)? Mass shown in g or kg by default? Simulation (S13) treats an unassigned body as an error either way. *Recommended:* PLA, changeable in preferences; mass in g (S05 OQ 1, S17 OQ 1). | |
+| 29 | S05, S10 | Several visible section analyses: combine them (kept region = intersection of their kept sides, giving box sections), or only one visible at a time? Combining a full box needs S10 RND-06 to support 6 planes instead of 4 (requested under S10 Interface changes). *Recommended:* combine, up to 6 planes (S05 OQ 2). | |
+| 30 | S12 | Default 3MF flavour for File > Export: Generic (strictly valid, opens everywhere, but Orca doesn't map its colours to extruders) or Orca/Bambu (multi-material extruders in Orca, not strictly valid because of `paint_color`)? *Recommended:* Generic; AM-06 "Send to OrcaSlicer" picks Orca automatically, and the dialog remembers the last choice. | |
+| 31 | S12 | Non-watertight 3MF export: block by default with "Repair first" / "Export anyway", or warn only? *Recommended:* block (the vision's "fail loudly"). | |
+| 32 | S12, S16 | Chitubox: S16 found Chitubox v1.2.0 and Chitubox Basic 2.x installed. Which edition do you print with, and does it import 3MF with object positions? This decides whether the resin hand-off is STL (default) or 3MF; the AM-06 manual check on your machine records the result. *Recommended:* STL hand-off until that check passes. | |
+| 33 | S12, S00 | Add a vision performance budget "Import a 1 GB binary STL (20 M triangles) < 5 s"? FND-08's `BUDGETS` table and its row-count test then get one more entry (lane E). *Recommended:* yes. | |
+| 34 | S16 | Confirm the hardware found on your machine: resin printer **ELEGOO Mars 3 Pro** (143.43 × 89.60 × 175 mm, 4098 × 2560 px, from the Chitubox config) and MMU **CoPrint KCM** (4 filament slots, one nozzle; Orca preset "… - Connected KCM") on the Ender-3 V3 KE. These become built-in AM-01 machine profiles. *Recommended:* yes to both. | |
+| 35 | S16, S17 | Default critical overhang angle: 45° (DfAM rule, Fusion default; flags more than Orca supports) or 30° (OrcaSlicer `support_threshold_angle` default, so red ≈ "Orca adds supports")? Editable per setup either way; S17 may later default it per material (optional `AmProps`, P1). *Recommended:* 45°, offering the imported Orca process value once AM-10 lands. | |
+| 36 | S17 | Which resin brand/type do you print on the MSLA printer, and which filament brands do you use most? MAT-05 cites those datasheets first. *Recommended:* the generic set if no preference. | |
+| 37 | S17, S16 | Default currency for material cost (S16 estimates)? *Recommended:* EUR. | |
+| 38 | S17 | Licence of the built-in material library data file? *Recommended:* same as the code, with per-value citations kept. | |
+| 39 | S17, S01 | Materials in the document: typed `materials`/`appearances` tables in `Design` with their own commands (S17 MAT-06), or the extension-record fallback? An additive S01 (lane E) change either way, see S01 Interface changes. *Recommended:* typed tables. | |
+| 40 | S20 | Fuzzy auto-escalation cap: may timeline recompute escalate the boolean fuzzy tolerance up to 1e-3 mm on its own, with a health warning (far below FFF/MSLA resolution), or stop at 1e-5 mm and require an explicit "try harder" above that? *Recommended:* auto up to 1e-3 mm with a warning (S20 OQ 3). | |
+| 41 | S20, S09, S00 | Layering: allow `amg-subd → amg-nurbs` so FRM-06 (SubD → NURBS) builds on `amg-nurbs` (ADR-013 "NURBS math shared later by Form")? Optionally also `amg-sketch → amg-nurbs` (not recommended now: S03 is Ready with its own `BSpline2`). Needs the architecture and allow-list change below. *Recommended:* allow `amg-subd → amg-nurbs` only (S20 OQ 4). | |
+| 42 | ADRs | Accept the wave-2 proposed ADR and architecture changes listed below (ADR-002 note, ADR-005 amendment, ADR-013 note, ADR-014 note, architecture threading paragraph, crate table and rendering-pipeline wording, and the `amg-subd → amg-nurbs` edge if #41 is accepted)? *Recommended:* accept all. | |
 
 ## Proposed ADR changes (wave-1 refinement, 2026-10-19)
 
@@ -76,3 +96,43 @@ Original proposals:
     rebased render upload buffers."
 - **ADR-002 note** (from S00). The vcpkg `opencascade` port is now 8.0.0, while ADR-002 says
   "7.8+". BREP-01 decides whether to take 8.0.0 or pin 7.9.x.
+
+## Proposed ADR changes (wave-2 refinement, 2026-10-20)
+
+Not applied; they need owner approval (QUESTIONS #42). `docs/02-decisions.md` and
+`docs/01-architecture.md` are unchanged.
+
+- **ADR-002 note** (from S02, S20; see `docs/notes/occt-integration.md` §1).
+  - "BREP-01 pins OCCT 8.0.0 (vcpkg `opencascade` 8.0.0#1 at baseline `2026.07.29`); fallback
+    7.9.3#1. The port is built with `default-features: false` and without TBB, so it can't clash
+    with Manifold's oneTBB."
+  - The move to 8.0.1 follows QUESTIONS #27. S20 supports 8.0.1 (reworked `GeomFill_Gordon`,
+    thread-local fillet state).
+- **ADR-014 note** (from S02; see `docs/notes/occt-integration.md` §4), under Consequences:
+  "Resolved by S02 refinement 2026-10-20: `amg_brep::Shape` is an immutable `Arc` handle and is
+  `Send + Sync`." No change to the decision.
+- **ADR-005 amendment** (from S11; see `docs/notes/ui-framework.md`).
+  - The docking crate sits behind `amg_ui::dock::DockHost`; egui_dock is preferred.
+  - If egui_dock lags the pinned egui, either pin egui to the previous minor or use `egui_tiles`
+    (MIT OR Apache-2.0) as the fallback; the owner chooses (QUESTIONS #23).
+  - New egui widget crates are allowed only if they release in lockstep with egui or sit behind a
+    facade.
+- **ADR-013 note** (from S20; see `docs/notes/nurbs-library.md` §2): "Build decision confirmed
+  2026-10-20: no crates.io NURBS crate covers approximate compatibility, end-conditioned skinning
+  or correct Gordon surfaces. `curvo` (MIT) is used only as a dev-dependency test oracle."
+- **Architecture §Threading & compute model** (from S02). Replace "OCCT is not thread-safe for all
+  ops: the brep backend serializes calls per shape graph and only parallelizes independent
+  operations" with: "`amg_brep::Shape` is immutable and `Send + Sync`. Kernel ops never mutate
+  their inputs: non-destructive booleans, and private topology copies for meshing and healing.
+  Only IGES I/O (and, on OCCT 8.0.0, text `.brep` and STEP reads) take a process-wide lock.
+  Independent operations, including different ops on the same shape, may run in parallel."
+- **Architecture §Crates** (from S02): the `amg-occt-sys` row "cxx → OpenCASCADE 7.8+" becomes
+  "8.0.x (7.9.x fallback)".
+- **Architecture §Crates + S00 layering allow-list** (from S20, only if QUESTIONS #41 is
+  accepted): add `amg-nurbs` to `amg-subd`'s allowed deps.
+- **Architecture §Rendering pipeline** (from S10, descriptive; see
+  `docs/notes/viewport-rendering.md`): "Forward+ shading" → "forward shading (2–3 fixed studio
+  lights)"; sections → "fragment discard (DX12 has no clip distances), one-pass back-face caps";
+  add "on-canvas text painted by egui".
+- No ADR change is needed for S05, S12, S16 or S17 (their reports checked ADR-006, ADR-010,
+  ADR-012 and ADR-014).

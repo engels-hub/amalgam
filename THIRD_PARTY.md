@@ -8,53 +8,79 @@ Agents update the row to **In use** (with version) when they add the dependency.
 
 | Dependency | Used by | Licence | Copyleft? | Feature-gated? | Status |
 |---|---|---|---|---|---|
-| OpenCASCADE (OCCT) 7.8+ | `amg-occt-sys` (ADR-002) | LGPL-2.1 with exception | weak | no (core) | Planned |
+| OpenCASCADE (OCCT) 8.0.0 (vcpkg `opencascade` 8.0.0#1 at baseline `2026.07.29`, `default-features: false`, no TBB; fallback 7.9.3#1; 8.0.1 bump pending QUESTIONS #27) | `amg-occt-sys` (ADR-002, S02); also S20 strategies (`GeomFill_Gordon`, `GeomPlate`) | LGPL-2.1-only with the OCCT exception (port installs LICENSE_LGPL_21 and OCCT_LGPL_EXCEPTION). Linked statically; relinking possible from the object files | weak | yes (`occt`, default on) | Planned |
 | Manifold | `amg-mesh` booleans (ADR-003) | Apache-2.0 | no | no | Planned |
 | fTetWild | `amg-fem` tet meshing (ADR-008) | MPL-2.0 | weak | yes | Planned |
 | TetGen | `amg-fem` fallback mesher (ADR-008) | AGPL-3.0 | **yes** | yes | Planned |
 | SolveSpace `libslvs` + `slvs` 0.6 crate | `amg-sketch` differential-test oracle behind feature `slvs` (S03, SK-13/SK-14); runtime fallback only if the owner decides (S03 OQ 4) | GPL-3.0 | **yes** | yes | Planned (test-only) |
 | bindgen | build dep of `slvs` (needs libclang) | BSD-3-Clause | no | yes (with `slvs`) | Planned (test-only) |
 | fidget | `amg-implicit` CPU evaluator (S08, under evaluation) | MPL-2.0 | weak | — | Planned (undecided) |
-| wgpu | `amg-jobs`, `amg-render`, `amg-compute` (ADR-004) | MIT / Apache-2.0 | no | no | Planned |
-| egui, egui_dock, egui-wgpu | `amg-ui` (ADR-005) | MIT / Apache-2.0 | no | no | Planned |
+| wgpu 30.0.1 | `amg-jobs`, `amg-render`, `amg-compute` (ADR-004) | MIT / Apache-2.0 | no | no | Planned |
+| egui, eframe, egui-wgpu 0.37.0 (or 0.36.2, QUESTIONS #23) | `amg-ui`, `amg-app`, `amg-render` (feature `egui`; eframe as dev-dep for the spin example) (ADR-005, S10, S11) | MIT / Apache-2.0 | no | no | Planned |
+| egui_extras 0.37.0 (features `svg`, `serde`) | `amg-ui` tables and SVG icons (S11) | MIT / Apache-2.0 | no | no | Planned |
+| resvg 0.45.x (via egui_extras `svg`) | SVG icon rasterisation (S11) | Apache-2.0 / MIT | no | no | Planned |
+| egui_kittest 0.37.0 (+ transitive kittest 0.5.0) | `amg-ui` UI tests, dev-only (S11) | MIT / Apache-2.0 | no | no | Planned (dev-only) |
+| egui_dock 0.21.1 (needs egui ^0.36; 0.22.x expected for 0.37) | `amg-ui::dock` behind `DockHost` (ADR-005, S11) | MIT | no | no | Planned |
+| egui_tiles 0.18.0 | `amg-ui::dock` fallback if egui_dock lags egui (S11, QUESTIONS #23) | MIT / Apache-2.0 | no | no | Planned (fallback only) |
+| rfd 0.17.2 | `amg-ui` native file dialogs (S11) | MIT | no | no | Planned |
+| directories 6.0.0 | `amg-ui` prefs and layout paths (S11) | MIT / Apache-2.0 | no | no | Planned |
+| bitflags 2 | `amg-render` `PickFilter`, `amg-features::dialog` `EntityFilter` (S10, S11; already transitive via wgpu) | MIT / Apache-2.0 | no | no | Planned |
+| png 0.18.1 | `amg-render` headless capture, goldens, thumbnails; `amg-io` 3MF thumbnails (S10, S12) | MIT / Apache-2.0 | no | no | Planned |
+| meshopt 0.7.0 (meshoptimizer) | `amg-render` clusters/LOD (S10 RND-14) | MIT / Apache-2.0 (meshoptimizer: MIT) | no | no | Planned (P2) |
+| Viridis colormap table (data) | `amg-render` (S10 RND-08) | CC0-1.0 (matplotlib colormaps) | no | no | Planned |
+| Turbo colormap table (data) | `amg-render` (S10 RND-08) | Apache-2.0 (Google) | no | no | Planned |
+| mach-dxcompiler-rs (via wgpu `static-dxc`) | DX12 shader compiler, only if RND-01 adopts StaticDxc (S10) | MIT wrapper; bundled DXC under University of Illinois/NCSA (verify in RND-01) | no | yes (`static-dxc`) | Planned (conditional) |
 | glam | geometry math (ADR-006) | MIT / Apache-2.0 | no | no | Planned |
-| nalgebra | small dense linear algebra, sketch solver (ADR-006) | Apache-2.0 | no | no | Planned |
+| nalgebra | small dense linear algebra, sketch solver (ADR-006); `amg-nurbs` internal dense solves (S20) | Apache-2.0 | no | no | Planned |
 | faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | Planned |
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
-| cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |
+| cxx, cxx-build | `amg-occt-sys` bridge (ADR-002, S02) | MIT / Apache-2.0 | no | yes (with `occt`) | Planned |
+| static_assertions | `amg-brep` (`Shape: Send + Sync` check, S02) | MIT / Apache-2.0 | no | no | Planned |
 | rayon | `amg-jobs` and domain crates (S00) | MIT / Apache-2.0 | no | no | Planned |
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | Planned |
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | Planned |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | Planned |
 | tracing, tracing-subscriber | logging (S00) | MIT | no | no | Planned |
-| serde, serde_json, zip | `.amg` file format (ADR-010) | MIT / Apache-2.0 (zip: MIT) | no | no | Planned |
+| serde, serde_json | `.amg` file format (ADR-010) | MIT / Apache-2.0 | no | no | Planned |
+| zip (zip-rs/zip2) 9.0.x, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | Planned |
+| quick-xml 0.42.0 | `amg-io` 3MF XML (S12) | MIT | no | no | Planned |
+| memchr 2.8.3 | `amg-io` parsers (S12; already transitive) | Unlicense / MIT | no | no | Planned |
+| image 0.25.10 (png + jpeg features) | `amg-io` canvas images (S12 IO-10) | MIT / Apache-2.0 | no | no | Planned |
+| stl_io 0.11.0, tobj 4.0.5, ply-rs-bw 4.0.1 | `amg-io` parser test oracles, dev-only (S12) | MIT | no | no | Planned (dev-only) |
+| dhat 0.3.3 | `amg-io` peak-heap tests, dev-only (S12) | MIT / Apache-2.0 | no | no | Planned (dev-only) |
+| arbitrary 1.5.0, libfuzzer-sys 0.4.13, cargo-fuzz 0.13.2 | `fuzz/` crate outside the workspace (S12 IO-16) | arbitrary, cargo-fuzz: MIT / Apache-2.0; libfuzzer-sys: (MIT OR Apache-2.0) AND NCSA | no | n/a (outside workspace) | Planned (fuzz only) |
+| lib3mf 2.5.0 (PyPI, 3MF Consortium), xmlschema 4.3.2 (PyPI) | CI validation of written 3MF, not linked (S12) | lib3mf: BSD-2-Clause; xmlschema: MIT | no | n/a (tool) | Planned (CI tool) |
+| 3MF Consortium test_suites (pinned commit) | `amg-io` test data, fetch-only (optional ≤ 50 MB LFS subset) (S12) | BSD-2-Clause | no | n/a (data) | Planned (test data) |
+| winreg 0.56 | `amg-am` slicer detection, Windows-only (S16) | MIT | no | no | Planned |
 | inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | imbl (fallback: rpds) | persistent collections, `amg-doc` (S01; DOC-01 bench confirms; `im` is unmaintained) | MPL-2.0 | weak | no | Planned |
 | ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |
-| dxf | DXF import (S03) | MIT | no | no | Planned |
-| usvg | SVG import (S03) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
+| dxf 0.6.2 (ixmilia) | DXF import (S03 SK-11), DXF export (S12 IO-08) | MIT | no | no | Planned |
+| usvg 0.48.1 | SVG import (S03 SK-11) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
 | criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | Planned |
-| blake3 | cache keys and manifest hashes, `amg-doc` (S01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | Planned |
+| blake3 | cache keys and manifest hashes, `amg-doc` (S01); import source hash, `amg-io` (S12) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | Planned |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | Planned |
 | parking_lot | locks, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | Planned |
-| bytemuck | GPU buffer casts, `amg-jobs::gpu` (S00) | Zlib / MIT / Apache-2.0 | no | no | Planned |
+| bytemuck | GPU buffer casts, `amg-jobs::gpu` (S00); bulk FFI buffer casts, `amg-brep` (S02) | Zlib / MIT / Apache-2.0 | no | no | Planned |
 | pollster | `Gpu::new_blocking`, `amg-jobs::gpu` (S00) | MIT / Apache-2.0 | no | no | Planned |
 | tracing-appender | rolling log files (S00) | MIT | no | no | Planned |
 | tracing-tracy | optional profiler integration (S00) | MIT / Apache-2.0 | no | yes (`tracy`) | Planned |
 | clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | Planned |
 | approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | Planned |
-| toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07) | MIT / Apache-2.0 | no | no | Planned |
+| toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07); machine library files, `amg-am` runtime (S16); material libraries, `amg-materials` (S17) | MIT / Apache-2.0 | no | no | Planned |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |
-| smallvec | small inline vectors, `amg-sketch`, `amg-mesh` (S03, S07) | MIT / Apache-2.0 | no | no | Planned |
+| smallvec | small inline vectors, `amg-sketch`, `amg-mesh`, `amg-brep` history, `amg-nurbs` (S03, S07, S02, S20) | MIT / Apache-2.0 | no | no | Planned |
 | fontdb | system font discovery for sketch text (S03, SK-10) | MIT | no | no | Planned |
 | kcl-ezpz | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | Planned (dev-only) |
 | robust | exact orientation predicates, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | Planned |
-| spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | Planned |
+| spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07); section caps, `amg-features::inspect` (S05) | MIT / Apache-2.0 | no | no | Planned |
 | rand, rand_chacha | seeded RANSAC and corpus generators, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | Planned |
 | oneTBB (vcpkg `tbb`) | Manifold parallel backend, `amg-manifold-sys` (S07, ADR-003) | Apache-2.0 | no | yes (`manifold`) | Planned |
 | manifold-csg-sys | fallback bindings if own `amg-manifold-sys` fails (S07) | MIT / Apache-2.0 | no | yes (`manifold`) | Planned (fallback only) |
 | parry3d-f64 | geometry test oracle, dev-only (S07) | Apache-2.0 | no | — | Planned (dev-only) |
 | obvhs | BVH benchmark reference, dev-only (S07) | MIT / Apache-2.0 | no | — | Planned (dev-only) |
 | cargo-nextest, cargo-deny | dev tools, not linked (S00) | MIT / Apache-2.0 | no | — | Planned |
+| curvo =0.3.3 | `amg-nurbs` differential test oracle, dev-only (S20 KH-07/12/13) | MIT | no | n/a (dev-only) | Planned (dev-only) |
+| TiGL `tests/TestData/CurveNetworks` (data only, no code) | Gordon corpus under `testdata/kernel/loft/tigl/` with attribution (S20 KH-15/16) | Apache-2.0 | no | n/a (data) | Planned (test data) |

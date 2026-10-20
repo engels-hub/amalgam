@@ -771,4 +771,40 @@ Reference machine (vision doc: RTX 5060 Ti, DX12), release build. Primary resolu
 - Requests to S00, S02, S07 and S11: §Interfaces "Needed from other specs".
 
 ## Interface changes
-None yet (spec not `Ready`).
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S05 (inspection).**
+  - RND-06: S05 asks for up to **6** planes (box sections from combined section analyses;
+    QUESTIONS #29) instead of 4; per-body scope (a section affects only selected bodies); hatch
+    styles none / 45° lines / cross with spacing in px and angle; cap colour = body colour or
+    uniform; outline polylines. S05 INS-02 computes geometric caps on the CPU for section stats;
+    whether RND-06 also displays those CPU cap meshes (plane-local uv in mm) or only its own GPU
+    caps is lane D's call.
+  - RND-04: a pick returns the mesh face index (primitive id), the world-space f64 pick ray and
+    world units per pixel at the hit depth (snap radii).
+  - RND-07: measurement dimension overlay (witness lines, markers, leader + label, always on top),
+    angle arc and circle display, centre-of-mass glyph, construction-geometry display (plane
+    squares, axis segments, point markers) with pick ids, curvature-comb polylines.
+  - RND-08: accept 0/1 fields and NaN (drawn grey), zebra stripe controls, per-body overlay enable.
+- **From S16 (AM).**
+  - RND-08 overhang mode per body instance with uniforms (f32, body-local) `build_dir`,
+    `cos_critical`, `contact_plane: vec4`, `contact_tolerance`, and colours for supported /
+    overhang ramp (severity = clamp((c − cos α)/(1 − cos α), 0, 1)) / contact; flat face normal.
+    The rule in `docs/notes/viewport-rendering.md` §11 must match `docs/notes/am-build-prep.md`
+    §1.2–1.3 (`−n·d > cos α`, strict); the AM-02 golden file
+    `tests/golden/am/overhang_classes.toml` (5 000 cases) is the arbiter.
+  - Per-face scalar or class buffer indexed by `primitive_index`, so the exact CPU classes can be
+    shown after the fine job (per-vertex scalars stay as fallback).
+  - RND-03/RND-07 helper items: non-pickable meshes (flat colour + alpha), polyline sets (colour,
+    width) and a per-instance tint colour, for plate, grid, volume box and exclude areas.
+  - Benchmark: overhang overlay on, 5 M triangles, ≥ 60 fps (AM-12 Done-when).
+  - S10's request that AM-03 depend on RND-07 is not applied: AM-03 is placement maths in
+    `amg-am`; AM-11 (the UI that draws the plate) already depends on RND-07.
+- **From S12 (import/export).** IO-10 now depends on RND-07 (`image_plane`); applied in S12's WP
+  table. IO-15 writes 3MF thumbnails through `Renderer::capture` once RND-09 lands (Phase 3);
+  until then no thumbnail is written.
+- **From S17 (materials).** RND-10 depends on MAT-02 (unchanged). `amg-render` receives plain
+  linear floats via the `amg-ui::materials` adapter, with no crate dependency.

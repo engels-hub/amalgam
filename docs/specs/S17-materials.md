@@ -692,4 +692,16 @@ here.
   - **Status.** Draft → Refined.
 
 ## Interface changes
-(none yet; the spec has not reached `Ready`)
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S16 (AM), optional P1.** Per-material AM defaults: `technology`,
+  `critical_overhang_angle: Option<Angle>`, `min_wall: Option<f64>` (S16 proposed
+  `PhysicalMaterial::am: Option<AmProps>`; adding them to the existing `AmInfo` is equivalent), so
+  α can default per material (PLA / PETG / resin). Not blocking.
+- **From S05 (inspection).** INS-03 depends on MAT-06 for density lookup per `MaterialKey` and the
+  design default material (QUESTIONS #28).
+- **From S12 (import/export).** IO-14 depends on MAT-06 (S17's IO-03 request retargeted to the
+  document adapter); S12 converts `Srgba8` ↔ `amg_mesh::Rgba8`.

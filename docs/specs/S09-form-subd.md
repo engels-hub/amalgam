@@ -26,3 +26,7 @@ symmetry, pull to target, then convert to B-rep for downstream solid features.
 | FRM-06 | SubD → NURBS B-rep (regular patches as bicubic; extraordinary vertices via approximation) | FRM-01, BREP-10 | P2 | Todo | result passes BRepCheck, G1 within tol |
 | FRM-07 | Pull to target body, flatten, match, thicken | FRM-04 | P3 | Todo | |
 | FRM-08 | Quad remesh (mesh → SubD cage) for organic mesh→B-rep | FRM-06, MESH-06 | P3 | Todo | |
+
+## Open questions
+1. (from S02, 2026-10-20) FRM-06 should depend on BREP-03 (B-spline `make_face`) + BREP-10 (sew).
+2. (from S20, 2026-10-20) FRM-06 should build on `amg-nurbs`; this needs the layering edge `amg-subd → amg-nurbs` (QUESTIONS #41).

@@ -867,7 +867,7 @@ inventory::collect!(ExtRegistration);
 | DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Todo | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
 | DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Todo | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
 | DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Todo | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
-| DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous. 2. 10 golden cases from the DOC-11 corpus run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut) and resolve to the intended entity (asserted by fingerprint). 3. Zero cases resolve to a wrong entity without a warning. 4. Naming survives save/load. |
+| DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous. 2. 10 golden cases from the DOC-11 corpus run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut) and resolve to the intended entity (asserted by fingerprint). 3. Zero cases resolve to a wrong entity without a warning. 4. Naming survives save/load. |
 | DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of corpus cases resolve to the intended entity after the edit script; the remainder fail with a feature error or warning; **0 silent wrong resolutions**. Runs in CI under 60 s. |
 | DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Todo | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
 | DOC-10 | Configurations: `ConfigTable`, param/suppression overrides, `SetActiveConfig`, per-config cache keys, persistence | DOC-05, DOC-12 | P2 | Todo | Design with 3 configurations: switching recomputes to the expected per-config volumes; switching back is a full cache hit (0 computes); configurations survive save/load. |
@@ -1017,4 +1017,65 @@ Phase 2 lane E (its SOL deps are Phase 2).
 - Kripac 1997; Marcheix & Pierra 2002; Farjana & Han 2018
 
 ## Interface changes
-None yet (spec not `Ready`).
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S02 (B-rep kernel).**
+  - DOC-06 now also depends on BREP-06 (its Done-when test features include a fillet); applied in
+    the WP table.
+  - `NamingBuilder::from_history` should take `&[(u16 /*operand*/, &BodyNaming)]`: booleans and
+    patterns have several operands, and `amg_brep::InputSub` carries an `operand` field for this.
+  - `GeomFingerprint` comes from `BrepKernel::sub_geom_all` (`SubShapeGeom`).
+    `amg_brep::geom::GeomClass` mirrors S01's `GeomClass`; DOC-06 adds the `From` impl in `amg-doc`.
+  - The `BodyGeom::Solid` interim mutex can go once BREP-02 lands (`Shape: Send + Sync`). Open
+    question 6 no longer waits on S02 locking.
+  - `GeomCache` byte accounting can use `Shape::estimated_bytes()` / `TessMesh::estimated_bytes()`.
+- **From S05 (inspection).**
+  - `BodyGeom::Mesh` should hold `amg_mesh::MeshBody` instead of `Arc<IndexedMesh>` (S07 already
+    says `MeshBody` is what is stored), so the BVH and analysis are shared per evaluated body
+    across measure, section and picking.
+  - `UnitPrefs` exposes the display length unit, angle unit and precision.
+  - Phase 2: `Evaluated::body_to_world(BodyId, occurrence path)`; optionally
+    `EntityRef::Origin { component, which: OriginEntity }` to unify origin references (S03 uses
+    `PlaneInput::OriginXY..`, S05 uses `RefInput::Origin` meanwhile).
+- **Extension-record ids (S05 and S16, merged).** Add
+  `Command::AddExt { kind, record } -> CreatedId::Ext(ExtKey)` so `amg-doc` allocates
+  `ExtKey.id` (S16 assumes "lowest unused id of that kind"; document the rule either way), plus
+  `Design::exts_of_kind(&self, kind: &str) -> impl Iterator<Item = (&ExtKey, &ExtRecord)>` so
+  `amg-features::{am,inspect}` can list print setups and section analyses.
+- **From S11 (UI shell).**
+  - R1: `naming::topo_ref_at(eval, body, kind, index) -> Option<TopoRef>`.
+  - R2: `Evaluated::resolve_for_display(&Design, &EntityRef) -> Result<Resolved, ResolveError>`.
+  - R3: `Command::RenameComponent`. R4: `Command::SetDesignMeta { name, default_units }`.
+  - R6: a cache-key rule for UI-only data. Moving a sketch dimension label (`label_pos`) changes
+    the sketch feature JSON and so every downstream cache key. Proposal: `Feature::key_data()`,
+    defaulting to `to_json()`, which S03's sketch feature overrides to drop UI-only fields.
+  - R7: `Timeline::valid_move_range(id)`.
+  - Minor: `Document::preview` lacks the error type parameter (should return
+    `JobHandle<_, FeatureError>`); the `amg_doc::Diagnostic` struct shares its name with the
+    `amg_core::Diagnostic` trait (consider renaming the struct).
+- **From S12 (import/export); IO-14 is blocked without these, and MESH-16 already assumes baked
+  mesh bodies in Phase 1.**
+  1. `RecomputeCtx::baked(slot) -> Result<&BodyGeom, FeatureError>`, returning the baked payload
+     for `BodyId { origin: self, slot }`.
+  2. Add a feature together with its baked payloads in one undo entry: either
+     `Command::AddFeature { …, baked: Vec<(u32, BodyGeom)> }` or `Command::SetBaked` inside a
+     `Transaction`.
+  3. The baked map is persisted in `bodies/` by DOC-07 in Phase 1, not first in DOC-08 (Phase 3).
+- **From S17 (materials; MAT-06 implements and flags the PR; typed tables vs extension records is
+  QUESTIONS #39).**
+  - `Design` tables `materials: PMap<MaterialId, Arc<Material>>` and
+    `appearances: PMap<AppearanceId, Arc<Appearance>>`.
+  - Commands `SetMaterial`, `RemoveMaterial` (refused while in use, `CommandError::InUse`),
+    `SetAppearance`, `RemoveAppearance`; events `MaterialChanged`, `AppearanceChanged`.
+  - Accessors `body_material`, `body_appearance`, `material_users`; helpers `assign_material`,
+    `assign_appearance`, `remove_unused_materials` in `amg-doc`.
+  - MAT-02 (Phase 3): `BodyProps.face_appearances: Vec<(FaceSelector, AppearanceKey)>` with
+    `#[serde(default)]`.
+  - `MaterialKey` and `AppearanceKey` are type aliases exported by `amg-materials`, matching the
+    names already in `BodyProps`.
+- **From S20 (kernel hardening).** Feature health shows a `Warning` when `OpResult::warnings`
+  contains `KernelWarning::Strategy` or `FuzzyUsed`. `ENGINE_SALT` already includes
+  `kernel_version()`, which now carries `robust::POLICY_VERSION`.

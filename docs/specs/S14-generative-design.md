@@ -59,3 +59,6 @@ explore/compare; convert an outcome into a smooth, watertight, editable body.
 ## Testing
 Classic benchmarks (MBB, cantilever, L-bracket, bridge) vs published results; overhang
 compliance check by computing max overhang angle on output mesh; performance benchmarks.
+
+## Open questions
+1. (from S16, 2026-10-20) GEN-06 should use the S16 overhang convention (`docs/notes/am-build-prep.md` §1.1: slope from horizontal, strict `−n·d > cos α`), so "prints without supports at α" is checkable with AM-02.

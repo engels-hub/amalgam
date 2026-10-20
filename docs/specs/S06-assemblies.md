@@ -35,3 +35,6 @@ contact sets. External references (linked designs) later.
 | ASM-06 | Motion links, drive joints, motion study | ASM-04 | P2 | Todo | |
 | ASM-07 | Contact sets | ASM-04, MESH-03 | P2 | Todo | |
 | ASM-08 | Linked external designs | DOC-07 | P3 | Todo | |
+
+## Open questions
+1. (from S05, S12, 2026-10-20) INS-04, INS-10 and IO-06 need occurrence transforms (`Evaluated::body_to_world(BodyId, occurrence path)`, requested from S01) and component creation from STEP `ForeignModel` assemblies (S12 maps `ForeignNode`s to components).

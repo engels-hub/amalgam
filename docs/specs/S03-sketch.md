@@ -710,7 +710,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Todo | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
 | SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Todo | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
 | SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Todo | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
-| SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-09, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
+| SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
 | SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Todo | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
 | SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Todo | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
 | SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Todo | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
@@ -948,4 +948,24 @@ Reference machine (vision doc), single thread.
 - The papers listed above (full citations in the note §2.5)
 
 ## Interface changes
-None yet (spec not `Ready`).
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S02 (B-rep kernel).**
+  - SK-09 now depends on BREP-17 (`plane_section`, `project_edges`) instead of BREP-09; applied in
+    the WP table. SK-08's section sketch on B-rep can use `plane_section` too.
+  - SOL-02/03 pass profiles through `make_planar_faces` with a `geom::Tag` per edge; the tag is
+    the sketch entity key, so the profile API must expose the entity key of each profile edge.
+- **From S05 (construction).** Optional: CON-03 offers `amg_features::construct::resolve` for
+  sketch-plane resolution (planar faces and construction planes), which avoids duplicated
+  plane-from-face code in SK-19/UI-09.
+- **From S11 (UI shell).**
+  - R5: `SketchEdit::SetDimensionLabel { id, pos }`.
+  - Clarify that `query::*` may run on the UI thread; the "not on the UI thread" rule covers the
+    solver entry points only.
+  - R6: label positions are UI-only and must not change the sketch feature's cache key (see S01
+    Interface changes, `Feature::key_data()`).
+- **From S12 (import/export).** SK-11 uses `dxf` 0.6.2 (MIT) and `usvg` 0.48.1 (Apache-2.0 OR
+  MIT) and maps `$INSUNITS` with the same table as IO-08 (`docs/notes/import-export-formats.md`).

@@ -829,7 +829,7 @@ build, 8+ cores.
 | MESH-11 | Wall thickness analysis (GPU WGSL BVH traversal + CPU fallback), per-vertex field for RND-08 overlay | MESH-03, FND-09, RND-08 | P1 | Todo | A 2 mm synthetic plate reads 2 ± 0.02 mm in its interior. GPU and CPU agree within 1e-3 × bbox diagonal. 1 M-tri model < 1 s on GPU. Overlay with legend shown via `amg-ui::mesh` → RND-08. |
 | MESH-12 | Face-group segmentation (region growing by normal/curvature, small-region merge) + `MeshFaceGroupsFeature` | MESH-03, MESH-16 | P1 | Todo | On 20 synthetic tessellated CAD parts (known face ids, with and without 0.02 mm noise), ≥ 95 % of faces get the ground-truth label after optimal matching. Deterministic. 1 M tris < 2 s. |
 | MESH-24 | Primitive fitting: Efficient RANSAC + Gauss–Newton refine (plane, sphere, cylinder, cone, torus), stored on groups | MESH-12 | P1 | Todo | Noise-free samples recover parameters within 1e-6 relative. At σ = 0.05 mm noise, radius/axis errors are < 0.1 mm / 0.5°. Same seed gives same result. |
-| MESH-13 | Mesh→B-rep faceted (coplanar groups → planar faces → sew → solid) + `MeshConvertFeature` | MESH-12, BREP-02, BREP-10 | P1 | Todo | A closed 10 k-tri mechanical mesh gives a valid closed solid (BRepCheck), with face count = number of planar regions, volume equal to the mesh volume within 1e-9 relative, in < 5 s. |
+| MESH-13 | Mesh→B-rep faceted (coplanar groups → planar faces → sew → solid) + `MeshConvertFeature` | MESH-12, BREP-03, BREP-10 | P1 | Todo | A closed 10 k-tri mechanical mesh gives a valid closed solid (BRepCheck), with face count = number of planar regions, volume equal to the mesh volume within 1e-9 relative, in < 5 s. |
 | MESH-25 | Mesh→B-rep prismatic (fitted analytic surfaces, trimmed, sewn) | MESH-13, MESH-24, BREP-03 | P1 | Todo | On 20 synthetic tessellated CAD parts (boxes, holes, bosses, fillets as cylinders/tori), output is a valid solid with analytic faces, volume within 0.5 %. A fillet and an extrude-cut on the result succeed. |
 | MESH-14 | Mesh section sketch (section polylines → line/arc/spline fit → sketch) | MESH-09, SK-08 | P1 | Todo | Section of a tessellated cylinder gives a circle with radius error < 0.5 %. All fitted curves are within the 0.01 mm tolerance of the polyline. The sketch is usable by extrude. |
 | MESH-15 | Direct edit: soft transform of face groups (radial/geodesic falloff) + `MeshSoftMoveFeature` + manipulator tool | MESH-12, MESH-23, UI-06 | P1 | Todo | Moving a group with smooth falloff keeps the mesh manifold and SI-free for displacements ≤ falloff radius / 2. The edit is undoable and parametric. Manipulator drag previews at ≥ 30 fps on a 1 M-tri mesh (proxy). |
@@ -1012,4 +1012,38 @@ Already listed: Manifold (Apache-2.0), `faer`, `nalgebra`, `rayon`, `glam`, `thi
 *Design note created:* `docs/notes/mesh-processing.md`.
 
 ## Interface changes
-None yet (spec not `Ready`).
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S02 (B-rep kernel).**
+  - MESH-13 now depends on BREP-03 (polygon faces) + BREP-10 (sew) instead of BREP-02; applied in
+    the WP table. MESH-25 stays on BREP-03.
+  - The requested `make_planar_face(outer, holes)` is `make_planar_polygon` (BREP-03);
+    `make_face_on_surface(&AnalyticSurface, loops, tol)` is
+    `make_face(&geom::Surface, &FaceBounds::Polylines(..), tol)`; `amg-features::mesh` converts
+    `amg_mesh::Primitive` → `geom::Surface`; `sew` is in BREP-10.
+  - Additive: a `GroupOrigin::BrepFace { face: u32 }` variant for tessellated solids converted to
+    meshes.
+- **From S05 (inspection).**
+  - MESH-03: read-only `Bvh` node access `root()`, `node(i) -> BvhNode { bounds: Aabb3, kind:
+    Inner { left, right } | Leaf { first, count } }`, `prim(slot)` (INS-01 pair distance, INS-04).
+    Fallback: a private BVH in `inspect`.
+  - MESH-01/03: non-blocking `MeshBody::try_spatial()` / `try_analysis()` returning `Option`, for
+    use on the UI thread.
+  - MESH-09: document that closed `section()` polylines are oriented with material on the left
+    seen from the plane's +normal side, for oriented closed input.
+  - Naming: S07 uses `amg_core::Ray`; S00 defines `Ray3` (lane C/E to reconcile).
+- **From S10 (rendering), consumed by S11 UI-20.**
+  - `RenderBuffers.normals` is empty and vertices stay shared when `smooth_normals == false`.
+  - New `analysis::feature_edges(&IndexedMesh, crease_angle) -> Vec<[u32; 2]>` (≤ 50 ms at
+    1 M triangles).
+  - New `vertex_curvature(&IndexedMesh, CurvatureKind) -> Vec<f64>` (INS-05).
+- **From S11 (UI shell).** Mesh features register `EditAction::StartTool`. MESH-23 may use the
+  Phase 1 UI-15 dialog widgets; no dependency added, since MESH-23 builds its own Phase 1 dialogs
+  (QUESTIONS #22).
+- **From S12 (import/export).** `MeshAttrs::property_groups: Option<Arc<PropertyGroups>>` with
+  `PropertyGroup::{Materials(Vec<(String, Rgba8)>), Colors(Vec<Rgba8>)}`, giving the existing
+  `tri_properties` its table; `IndexedMesh::append` remaps group ids. Until it lands, per-face
+  slots survive only on unmodified imported bodies.

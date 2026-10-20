@@ -65,3 +65,5 @@ fringe plots, probes, deformation animation, and reports.
    **Answered 2026-10-20:** yes, P2. Isotropic first (P1); then a transversely isotropic material
    with build direction taken from the S16 print setup, plus a directional failure criterion
    (Tsai-Wu or reduced Z allowables). Matters mainly for FFF; resin treated as isotropic.
+3. (from S10, 2026-10-20) FEM-06 supplies a surface mesh plus per-vertex scalar/displacement fields to RND-08 `Shading::Field`.
+4. (from S17, 2026-10-20) The orthotropic/printed FEM WP should depend on MAT-04. P1 solvers use `Elastic::as_isotropic()` or an explicit `isotropic_equivalent(IsoPolicy)` with a UI warning. Unassigned bodies are an error (no default material). Voigt order is `(11,22,33,23,13,12)` (`VOIGT_ORDER`), not the CalculiX order. Material axis 3 = build direction from the S16 print setup (plate +Z, `d_local = R⁻¹·Z`, `docs/notes/am-build-prep.md`).

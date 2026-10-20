@@ -994,4 +994,38 @@ These budgets back the vision's "< 500 ms recompute of a 50-feature part" (an av
 - **Design note:** [docs/notes/occt-integration.md](../notes/occt-integration.md) (new).
 
 ## Interface changes
-None yet (spec not `Ready`).
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S05 (inspection).** Mostly covered by BREP-09 (`mass_props`, `distance`,
+  `closest_point`, `eval_surface`, `interference`). Still to confirm in the Interfaces:
+  - a public face↔edge adjacency query (`faces_of_edge`) on top of the `SubShapeIndex`;
+  - `eval_surface` returns principal curvatures **and** directions `(k1, k2, d1, d2)` (INS-06);
+  - `iso_curves(face, nu, nv, deflection)` for INS-12 (BREP-08).
+  - INS-04 now also depends on BREP-09 (`interference`); applied in S05's WP table.
+- **From S10 (rendering), consumed by S11 UI-22.** `TessMesh` guarantees: no vertex shared between
+  faces; `face_ranges` in in-shape face order; edge polylines in in-shape edge order; optional
+  per-vertex principal curvatures.
+- **From S12 (import/export).**
+  1. Keep `ForeignModel` / `ForeignNode` as drafted (`instance_of`, per-face colours by `FaceId`,
+     `source_unit_mm`, `JobCtx` progress/cancel).
+  2. Keep `TessMesh::to_indexed_parts` watertight for closed solids. P1: optional
+     `max_edge_length` / `max_aspect_ratio` on `TessQuality`.
+  3. Confirm that BREP-17 `project_edges` returns ordered, closed loops for a planar face's edges
+     (outer loop first). If not, add
+     `planar_face_loops(&Shape, FaceId) -> KResult<(Plane, Vec<Vec<CurveSeg>>)>` (IO-08 needs it).
+- **From S20 (kernel hardening).**
+  - R14: `amg-occt-sys` accepts additive S20 shim files `plate.cpp` (GeomPlate, KH-19) and
+    `gordon.cpp` (`GeomFill_Gordon`, KH-16/KH-18).
+  - R15: OCCT 8.0.1 bump, see QUESTIONS #27 (with 8.0.0, S20 skips the OCCT Gordon path).
+  - R16: ordered wire traversal `Shape::wire_edges() -> Vec<(EdgeId, bool)>`
+    (`BRepTools_WireExplorer`), if not already covered by the topology iteration in BREP-02.
+  - R17: additive `KernelWarning::Strategy { name, detail }` so `HardenedKernel` can report
+    non-direct acceptances.
+  - S20 relies on: `fillet_max_radius` (BREP-06), `CheckOpts { self_interference }`,
+    `ShapeHistory::compose`, curvatures from `eval_surface` (BREP-09), and sub-shape indices
+    surviving a text-`.brep` round trip (KH-01 adds that test).
+- **From S16 (AM).** Solid bodies on build plates need BREP-08 tessellation at export quality
+  (IO-09 presets); until then Phase 1 plate items are mesh bodies.

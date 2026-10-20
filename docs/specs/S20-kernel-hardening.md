@@ -982,4 +982,14 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
 - Status Draft → Refined.
 
 ## Interface changes
-(none yet — spec not `Ready`)
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S02 (B-rep kernel).** KH-01 → BREP-12 and KH-05 → BREP-15 are in the WP table. S02
+  covers R3, R5, R7, R8 and `max_tolerance`; S20 records R1–R13 as covered. Failure capture stays
+  in S20 (S02 removed its own hook). KH-07/KH-08 add `impl From<&amg_nurbs::…> for
+  amg_brep::geom::BSplineSurfaceData` inside `amg-brep`. On OCCT 8.0.0, text `.brep` reads take
+  the global lock (fine for replay; QUESTIONS #27). Open S20 requests R14–R17 are recorded under
+  S02 Interface changes.
