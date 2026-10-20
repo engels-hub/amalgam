@@ -23,7 +23,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
 | cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |
-| rayon | `amg-jobs` and domain crates (S00) | MIT / Apache-2.0 | no | no | Planned |
+| rayon | `amg-jobs` and domain crates (S00); `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
@@ -34,7 +34,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |
 | dxf | DXF import (S03) | MIT | no | no | Planned |
 | usvg | SVG import (S03) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
-| criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion Planned |
+| criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only) |
 | blake3 | cache keys and manifest hashes, `amg-doc` (S01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | Planned |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | Planned |

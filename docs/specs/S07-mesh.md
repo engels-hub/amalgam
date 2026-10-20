@@ -805,7 +805,7 @@ build, 8+ cores.
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| MESH-01 | `IndexedMesh`, `MeshAttrs`, `FaceGroups`, `HalfEdgeMesh` (directed edges, split/collapse/flip, GC), conversions, weld, `MeshBody` binary encoding | FND-03 | P0 | Todo | Round-trip Indexed→HalfEdge→Indexed preserves positions, faces (up to compaction), attributes and group ids (property test, 1 000 random meshes). Fins / bow-ties convert with `SplitVertices`, and the counts are reported. Topology-edit property test keeps all half-edge invariants. 1 M-tri half-edge build < 100 ms. Weld of 1 M-tri soup < 80 ms. `MeshBody` binary round-trip is bit-exact. |
+| MESH-01 | `IndexedMesh`, `MeshAttrs`, `FaceGroups`, `HalfEdgeMesh` (directed edges, split/collapse/flip, GC), conversions, weld, `MeshBody` binary encoding | FND-03 | P0 | Review | Round-trip Indexed→HalfEdge→Indexed preserves positions, faces (up to compaction), attributes and group ids (property test, 1 000 random meshes). Fins / bow-ties convert with `SplitVertices`, and the counts are reported. Topology-edit property test keeps all half-edge invariants. 1 M-tri half-edge build < 100 ms. Weld of 1 M-tri soup < 80 ms. `MeshBody` binary round-trip is bit-exact. |
 | MESH-28 | Broken-mesh corpus: `testdata/mesh/corpus.toml` manifest, LFS-committed redistributable set, `fetch.ps1/.sh` for fetch-only sets, seeded synthetic defect + benchmark generators, corpus test harness | FND-06, MESH-01 | P0 | Todo | Manifest has ≥ 150 real models covering all 11 defect categories, each with SPDX licence, source URL and sha256. LFS total ≤ 300 MB. Generator reproduces each defect category from `(shape, defects, seed)`, plus 100 k / 1 M / 10 M benchmark meshes, bit-identically. The harness iterates the manifest under `cargo nextest` and skips fetch-only entries when they are absent. |
 | MESH-02 | Analysis: shells, boundary loops, non-manifold edges/vertices, orientation, degenerate/duplicate, area/volume, `AnalysisReport` | MESH-01, MESH-28 | P0 | Todo | Report matches the manifest's defect flags on 100 % of corpus entries and the synthetic generator's ground truth. 1 M-tri analysis < 100 ms; 10 M < 1.2 s. |
 | MESH-03 | `Bvh` (binned SAH, parallel), `MeshSpatial`: ray cast, closest point, box query, fast winding number (Barill 2018), exact winding number, signed distance | MESH-01 | P0 | Todo | 1 M-tri BVH build < 150 ms (and within 2× of `obvhs` PLOC in a dev-bench). Ray cast and closest point equal brute force on 10 k random queries (and agree with `parry3d-f64` in a dev-test). Fast winding number within 0.01 of exact at β = 2 for points ≥ 1 mean edge length off the surface. 1 M FWN queries on a 1 M mesh < 1.5 s. Results are identical across 1/4/16 rayon threads. |
@@ -1012,4 +1012,71 @@ Already listed: Manifold (Apache-2.0), `faer`, `nalgebra`, `rayon`, `glam`, `thi
 *Design note created:* `docs/notes/mesh-processing.md`.
 
 ## Interface changes
-None yet (spec not `Ready`).
+### 2026-10-20 — MESH-01 (`IndexedMesh`, `HalfEdgeMesh`, weld, `MeshBody`; lane C)
+Deviations from §Interfaces:
+- **`MeshBody` has no `spatial()` / `analysis()` yet.** `MeshSpatial` (MESH-03) and
+  `AnalysisReport` (MESH-02) do not exist, and `JobCtx` (FND-04) is not on this branch. The
+  `OnceLock` fields and both methods are added additively by MESH-03 / MESH-02. `MeshBody`
+  derives `Clone, Debug, PartialEq`.
+- **No `From<MeshError> for amg_core::Error`.** `amg_core::Error` has no variant that can carry
+  a mesh error faithfully. Following the S00 convention instead, `MeshError` implements
+  `amg_core::Diagnostic` (hints for `NonManifold` / `NotClosed` / `BackendUnavailable` /
+  `Decode`; `Cancelled` is `Severity::Info`) and `From<amg_core::Cancelled>`. If a caller
+  needs the conversion, S00 should add a boxed variant (e.g. `Error::Domain(Box<dyn
+  Diagnostic>)`); not requested yet.
+- `MeshError` and `TopoError` are `#[non_exhaustive]`. **New `TopoError::NonManifold`**:
+  `add_face` that repeats a vertex or would give a vertex a second fan, and `split_edge` of
+  the shared edge of a two-face shell (both new edges to the opposite vertex would coincide).
+- `ShellSide` is defined next to `GroupOrigin` (which needs it) and re-exported at the crate
+  root; MESH-10 uses the same type.
+
+Additive API:
+- `DEFAULT_GROUP` (`FaceGroupId(0)`); `FaceGroups::{new(face_count), info_mut, per_face,
+  next_id, validate}`; `FaceGroupInfo::new(origin)`; `Primitive::kind`.
+- `MeshAttrs::{validate, is_empty}`; `Rgba8::{WHITE, lerp}`; `TriProperty::NONE` ("no
+  property": group and indices `INVALID`).
+- `WeldOpts::EXACT`; `Default for WeldOpts` = `Tolerance::mesh().linear` (1e-5 mm).
+  `Remap: PartialEq, Eq`; `RenderBuffers: Clone, Debug, Default, PartialEq`;
+  `ConversionReport: PartialEq, Eq`.
+- `HalfEdgeMesh` (derives `Clone, Debug, Default, PartialEq`): `vertex_count`, `face_count`
+  (live), `vertex_slots`, `face_slots`, `halfedge_slots` (with tombstones),
+  `is_vertex_alive`, `is_face_alive`, `vertices()`, `faces()`, `face_vertices`,
+  `halfedge(f, k)`, `vertex_halfedge`, `attrs`, `groups`, `groups_mut`, `neighbors`,
+  `find_halfedge`, `delete_vertex`, `check_invariants() -> Result<(), String>`.
+
+Behaviour the interface left open:
+- `IndexedMesh::new` puts every face in `DEFAULT_GROUP` (origin `GroupOrigin::User`).
+- `HalfEdgeMesh::from_indexed`: vertex ids are kept and split copies are appended; faces with a
+  repeated index are dropped (`dropped_degenerate`). Edges with more than two faces **or two
+  faces of the same direction** (orientation conflict) are cut and counted in `cut_edges`; under
+  `Fail` they are the `edges` of `MeshError::NonManifold`, and multi-fan vertices its
+  `vertices`. A fin (3 faces on one edge) reports `cut_edges = 1`, `split_vertices = 4`; a
+  bow-tie `split_vertices = 1`. A fix-up pass (only after cuts) re-pairs the two ends of a slit
+  fan and unlinks duplicate directed edges inside one fan, so the result always passes
+  `check_invariants` and re-converts under `Fail` without changes.
+- `to_indexed` drops tombstones only (isolated live vertices are kept).
+- `collapse_edge(h, p)` removes `origin(h)` and keeps `target(h)` (PMP convention); the
+  link condition plus PMP's boundary rules are in `can_collapse`.
+- `outgoing(v)` yields face half-edges counter-clockwise from the stored (boundary) one; on a
+  boundary vertex the last neighbour is `origin(prev(last))`. `valence` counts neighbours.
+  `is_boundary_vertex` is true for isolated vertices (PMP / OpenMesh).
+- `delete_face` splits a boundary vertex that would otherwise become a bow-tie (the faces
+  counter-clockwise of the deleted face move to an appended copy).
+- New vertices without a parent get a zero normal and white; faces from `add_face` get zero
+  UVs and `TriProperty::NONE`. Split vertices interpolate normals (renormalised) and colours;
+  new corners interpolate UVs; per-corner 3MF property indices take the nearer endpoint's.
+- `IndexedMesh::transform` with a negative determinant also reverses the winding (and corner
+  attributes), so signed volume keeps its sign. `append` fills an attribute present on only
+  one side with defaults on the other.
+- `weld` / `from_soup`: transitive clustering; the smallest index of each cluster survives
+  bit-for-bit; faces are kept (degenerates included); `Remap::faces` is the identity.
+- `content_hash` is an own fixed-seed 64-bit hash, stable across runs and builds.
+- `MeshBody` binary: `AMGM` v1 layout is documented in `amg-mesh/src/body.rs` (raw f64 bits,
+  trailing 64-bit checksum; truncation, bad magic/version/flags and checksum mismatch are
+  `MeshError::Decode`).
+- `render_buffers(_, false)` unshares vertices (three per face, flat normals).
+
+Measured (release, 16-thread desktop, 1 M-tri closed torus, criterion means): half-edge build
+35 ms (budget 100 ms); weld of the 1 M-tri soup 39 ms exact, 58 ms at 1e-5 mm (budget 80 ms);
+`to_indexed` 6 ms; `MeshBody` write 13 ms / read 18 ms. The machine was shared with other
+builds, so individual runs varied up to 3×.

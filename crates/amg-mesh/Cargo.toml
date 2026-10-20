@@ -10,6 +10,17 @@ publish.workspace = true
 [dependencies]
 amg-core.workspace = true
 amg-jobs.workspace = true
+rayon.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "mesh_build"
+harness = false
 
 [lints]
 workspace = true
