@@ -219,6 +219,8 @@
           "b": 8,
           "kind": {
             "AtEndpoint": {
+              "a_end": "Start",
+              "b_end": "End",
               "reversed": false
             }
           }
@@ -233,6 +235,8 @@
           "b": 9,
           "kind": {
             "AtEndpoint": {
+              "a_end": "End",
+              "b_end": "Start",
               "reversed": false
             }
           }
@@ -247,6 +251,8 @@
           "b": 8,
           "kind": {
             "AtEndpoint": {
+              "a_end": "End",
+              "b_end": "Start",
               "reversed": false
             }
           }
@@ -261,6 +267,8 @@
           "b": 9,
           "kind": {
             "AtEndpoint": {
+              "a_end": "Start",
+              "b_end": "End",
               "reversed": false
             }
           }

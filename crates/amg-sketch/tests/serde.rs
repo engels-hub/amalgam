@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use amg_core::{Dir3, Plane, Point2, Point3, Tolerance, Vec3};
 use amg_sketch::{
-    AngleBranch, ConstraintKind, Dimension, DimensionKind, EntityKind, EntityOrigin,
+    AngleBranch, ConstraintKind, Dimension, DimensionKind, End, EntityKind, EntityOrigin,
     ExternalLinkId, HvTarget, ParamFlags, Side, Sketch, TangentKind,
 };
 use proptest::prelude::*;
@@ -36,10 +36,10 @@ fn children(s: &Sketch, id: amg_sketch::EntityId) -> Vec<amg_sketch::EntityId> {
 fn rectangle() -> Sketch {
     let mut s = Sketch::new(Plane::XY);
     let c = [
-        s.add_point(Point2::new(0.0, 0.0)),
-        s.add_point(Point2::new(40.0, 0.0)),
-        s.add_point(Point2::new(40.0, 25.0)),
-        s.add_point(Point2::new(0.0, 25.0)),
+        s.add_point(Point2::new(0.0, 0.0)).unwrap(),
+        s.add_point(Point2::new(40.0, 0.0)).unwrap(),
+        s.add_point(Point2::new(40.0, 25.0)).unwrap(),
+        s.add_point(Point2::new(0.0, 25.0)).unwrap(),
     ];
     let l: Vec<_> = (0..4)
         .map(|i| s.add_line_between(c[i], c[(i + 1) % 4]).unwrap())
@@ -95,15 +95,24 @@ fn slot() -> Sketch {
     let bottom = s.add_line_between(c1[2], c2[1]).unwrap();
     let hole = s.add_circle(Point2::new(17.0, 0.0), 1.0 / 7.0).unwrap();
     use ConstraintKind as C;
-    let tan = |a, b| C::Tangent {
+    let tan = |a, a_end, b, b_end| C::Tangent {
         a,
         b,
-        kind: TangentKind::AtEndpoint { reversed: false },
+        kind: TangentKind::AtEndpoint {
+            a_end,
+            b_end,
+            reversed: false,
+        },
     };
-    s.add_constraint(tan(a1, top)).unwrap();
-    s.add_constraint(tan(a1, bottom)).unwrap();
-    s.add_constraint(tan(a2, top)).unwrap();
-    s.add_constraint(tan(a2, bottom)).unwrap();
+    // `top` runs from a2's end to a1's start, `bottom` from a1's end to a2's start.
+    s.add_constraint(tan(a1, End::Start, top, End::End))
+        .unwrap();
+    s.add_constraint(tan(a1, End::End, bottom, End::Start))
+        .unwrap();
+    s.add_constraint(tan(a2, End::End, top, End::Start))
+        .unwrap();
+    s.add_constraint(tan(a2, End::Start, bottom, End::End))
+        .unwrap();
     s.add_constraint(C::Equal { a: a1, b: a2 }).unwrap();
     s.add_constraint(C::Concentric { a: hole, b: a2 }).unwrap();
     s.add_constraint(C::Horizontal(HvTarget::Points(c1[0], c2[0])))
@@ -136,11 +145,17 @@ fn slot() -> Sketch {
 ///    and special floats (−0.0, subnormal, huge).
 fn kitchen_sink() -> Sketch {
     let mut s = Sketch::new(Plane::XZ);
-    let p = s.add_point(Point2::new(-0.0, 5e-324));
-    let q = s.add_point(Point2::new(1e300, -2.5));
-    let l1 = s.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.1));
-    let l2 = s.add_line(Point2::new(0.0, 4.0), Point2::new(10.0, 6.0));
-    let gone = s.add_line(Point2::new(9.0, 9.0), Point2::new(8.0, 8.0));
+    let p = s.add_point(Point2::new(-0.0, 5e-324)).unwrap();
+    let q = s.add_point(Point2::new(1e300, -2.5)).unwrap();
+    let l1 = s
+        .add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.1))
+        .unwrap();
+    let l2 = s
+        .add_line(Point2::new(0.0, 4.0), Point2::new(10.0, 6.0))
+        .unwrap();
+    let gone = s
+        .add_line(Point2::new(9.0, 9.0), Point2::new(8.0, 8.0))
+        .unwrap();
     let c = s.add_circle(Point2::new(30.0, 0.0), 3.0).unwrap();
     let a = s
         .add_arc(
@@ -150,8 +165,8 @@ fn kitchen_sink() -> Sketch {
         )
         .unwrap();
     let link = ExternalLinkId(7);
-    let px = s.alloc_param(1.5, ParamFlags::default());
-    let py = s.alloc_param(-2.5, ParamFlags::default());
+    let px = s.alloc_param(1.5, ParamFlags::default()).unwrap();
+    let py = s.alloc_param(-2.5, ParamFlags::default()).unwrap();
     let proj = s
         .add_entity(
             EntityKind::Point { x: px, y: py },
@@ -159,8 +174,8 @@ fn kitchen_sink() -> Sketch {
             EntityOrigin::Projected(link),
         )
         .unwrap();
-    let ix = s.alloc_param(3.0, ParamFlags::default());
-    let iy = s.alloc_param(4.0, ParamFlags::default());
+    let ix = s.alloc_param(3.0, ParamFlags::default()).unwrap();
+    let iy = s.alloc_param(4.0, ParamFlags::default()).unwrap();
     let imp = s
         .add_entity(
             EntityKind::Point { x: ix, y: iy },
@@ -170,7 +185,9 @@ fn kitchen_sink() -> Sketch {
         .unwrap();
     let axis = s.add_line_between(proj, imp).unwrap();
     s.set_construction(axis, true).unwrap();
-    let _unowned = s.alloc_param(0.1 + 0.2, ParamFlags { locked: true });
+    let _unowned = s
+        .alloc_param(0.1 + 0.2, ParamFlags { locked: true })
+        .unwrap();
     s.remove_entities(&[gone]).unwrap();
 
     use ConstraintKind as C;
@@ -315,7 +332,7 @@ fn fixtures_round_trip_bit_identically() {
         assert_ne!(loaded.structure_rev(), sketch.structure_rev());
         let mut loaded = loaded;
         let max = sketch.entities().map(|(id, _)| id).max().unwrap();
-        assert!(loaded.add_point(Point2::ZERO) > max);
+        assert!(loaded.add_point(Point2::ZERO).unwrap() > max);
     }
 }
 
@@ -347,6 +364,40 @@ fn rejects(edit: impl Fn(&mut serde_json::Value)) -> String {
 }
 
 #[test]
+fn invalid_values_are_rejected_on_load() {
+    let mut s = Sketch::new(Plane::XY);
+    let c = s.add_circle(Point2::ZERO, 2.0).unwrap(); // params 0, 1 (centre), 2 (radius)
+    let a = s
+        .add_arc(Point2::ZERO, Point2::new(3.0, 0.0), Point2::new(0.0, 3.0))
+        .unwrap(); // params 3..=8
+    let gone = s.add_point(Point2::new(7.0, 7.0)).unwrap(); // params 9, 10
+    s.remove_entities(&[gone]).unwrap();
+    let load = |edit: &dyn Fn(&mut serde_json::Value)| {
+        let mut v = serde_json::to_value(&s).unwrap();
+        edit(&mut v);
+        serde_json::from_value::<Sketch>(v).map_err(|e| e.to_string())
+    };
+    assert!(load(&|_| {}).is_ok());
+    let e = load(&|v| v["params"]["values"][2] = (-3.0).into()).unwrap_err();
+    assert!(e.contains("circle radius"), "{e}");
+    let e = load(&|v| v["params"]["values"][2] = 0.0.into()).unwrap_err();
+    assert!(e.contains("circle radius"), "{e}");
+    // Arc end moved off the circle through its start.
+    let e = load(&|v| v["params"]["values"][8] = 3.5.into()).unwrap_err();
+    assert!(e.contains("different distances"), "{e}");
+    // A tiny inconsistency left by a solve is accepted.
+    assert!(load(&|v| v["params"]["values"][8] = (3.0 + 1e-9).into()).is_ok());
+    // Non-finite values cannot even be written as JSON numbers.
+    assert!(load(&|v| v["params"]["values"][0] = serde_json::Value::Null).is_err());
+    // A retired slot that an entity owns, and one out of range.
+    let e = load(&|v| v["retired"] = serde_json::json!([0])).unwrap_err();
+    assert!(e.contains("owned twice"), "{e}");
+    let e = load(&|v| v["retired"] = serde_json::json!([500])).unwrap_err();
+    assert!(e.contains("unknown parameter"), "{e}");
+    let _ = (c, a);
+}
+
+#[test]
 fn invalid_files_are_rejected() {
     // Dangling entity reference in a constraint.
     let e = rejects(|v| v["constraints"]["0"]["kind"]["Horizontal"]["Line"] = 999.into());
@@ -359,7 +410,7 @@ fn invalid_files_are_rejected() {
     assert!(e.contains("unknown parameter"), "{e}");
     // Two points sharing a parameter.
     let e = rejects(|v| v["entities"]["1"]["kind"]["Point"]["x"] = 0.into());
-    assert!(e.contains("owned by two"), "{e}");
+    assert!(e.contains("owned twice"), "{e}");
     // Id counter behind existing ids (would reuse ids).
     let e = rejects(|v| v["next_entity"] = 2.into());
     assert!(e.contains("id counter"), "{e}");
@@ -382,7 +433,7 @@ proptest! {
     ) {
         let mut s = Sketch::new(Plane::XY);
         for pair in xs.chunks_exact(2) {
-            s.add_point(Point2::new(pair[0], pair[1]));
+            s.add_point(Point2::new(pair[0], pair[1])).unwrap();
         }
         let loaded: Sketch = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         let bits = |s: &Sketch| s.params().as_slice().iter().map(|v| v.to_bits()).collect::<Vec<_>>();

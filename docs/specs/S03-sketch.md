@@ -948,7 +948,14 @@ Reference machine (vision doc), single thread.
 - The papers listed above (full citations in the note §2.5)
 
 ## Interface changes
-### 2026-10-20 — SK-01 (data model, lane B)
+### 2026-10-20 — SK-01 (data model, lane B; updated after review the same day)
+- **Changed signatures:**
+  - `TangentKind::AtEndpoint { a_end: End, b_end: End, reversed: bool }` (was
+    `{ reversed }`). It names which end of each curve is tangent, so two arcs sharing both
+    endpoints (a lens) are unambiguous. `End { Start, End }` now lives in `amg_sketch::model`
+    (re-exported at the root, with serde) and SK-06's `profile` reuses it.
+  - `Sketch::add_point`, `Sketch::add_line` and `Sketch::alloc_param` return
+    `Result<_, SketchError>` and reject non-finite input with `InvalidValue` in every build.
 - **Deferred to their WPs (additive later; new serde variants do not break old files):**
   `EntityKind::{Ellipse, EllipticArc}` and `DimensionKind::{EllipseMajor, EllipseMinor}`
   (SK-22); `EntityKind::{Spline, Conic}`, `SplineDef` and `ConstraintKind::Curvature`
@@ -961,30 +968,60 @@ Reference machine (vision doc), single thread.
     and `From<amg_core::Cancelled>` (S00 error convention).
   - Ids are `#[serde(transparent)]` and have `index() -> usize`.
   - `ParamStore::{set_flags, contains, is_empty}`.
-  - `EntityKind::{name, children, own_params}`, `ConstraintKind::{name, entities,
-    as_dimension}`, `DimensionKind::{name, entities}`, `Sketch::point(EntityId) ->
+  - `EntityKind::{name, children, own_params, endpoint(End)}`, `ConstraintKind::{name,
+    entities, as_dimension}`, `DimensionKind::{name, entities}`, `Sketch::point(EntityId) ->
     Option<Point2>`, `Arc2::from_center_start_end`.
+- **Tangent sign conventions (for SK-02):**
+  - Line–circle/arc, either argument order (an arc uses its circle): orient the line
+    `start → end`, `d = end − start`, `s = cross(d, center − start) / |d|` (positive = centre
+    left of the line). `External` means `s = +r` (circle left of the oriented line);
+    `Internal` means `s = −r` (circle right).
+  - Circle/arc–circle/arc: `External` means `|c1 − c2| = r1 + r2`; `Internal` means
+    `|c1 − c2| = |r1 − r2|`.
+  - `AtEndpoint`: `t_a`, `t_b` are the directions of travel at the named ends (line:
+    `end − start`; arc: CCW tangent). The residual is `cross(t_a, t_b)`, and
+    `reversed == false` means `dot(t_a, t_b) > 0`.
 - **Behaviour the interface left open:**
   - Revisions are unique process-wide (one global counter), are not serialised, and are fresh
     after a load. Compare them only for equality. `structure_rev` changes on entity/constraint
     add/remove, `set_driving`, `alloc_param` and `compact`. `values_rev` changes on those and on
     `params_mut`, `set_dimension_value`, `set_construction` and `set_plane`.
-  - Deserialising a `Sketch` validates the structure: dangling ids, wrong kinds, parameters
-    out of range or owned twice, id counters behind existing ids. Values are not checked on
-    load.
-  - `remove_entities` removes dependents (curves built on a removed point) and orphaned points
-    (points of a removed curve that no surviving entity uses), then every constraint touching
-    any of them. It is atomic: an unknown id removes nothing.
+  - **Non-finite values.** Construction rejects them. A non-finite value written later through
+    `params_mut()` (for example by a diverged solve) makes *serialising* fail ("sketch
+    parameter i is not finite"), so a saved sketch always loads.
+  - **Load validation.** Deserialising a `Sketch` checks dangling ids, wrong kinds, parameters
+    out of range or owned twice, retired slots, and id counters behind existing ids. It also
+    runs cheap value checks: finite values and label positions, circle radius > 0, arc radius
+    > 0, and arc end on the circle through its start within
+    `Tolerance::DEFAULT.linear · max(1, r)`. The same entity checks run in `add_entity`.
+    Dimension value domains are enforced on add and `set_dimension_value`; on load only
+    finiteness.
+  - **Removal.** `remove_entities` removes dependents (curves built on a removed point) and
+    orphaned points (points of a removed curve that no surviving entity uses), then every
+    constraint touching any of them. `Projected` points are never swept as orphans; removing
+    one explicitly still works. It is atomic: an unknown id removes nothing.
+  - **Retired slots.** Param slots of removed entities and constraints are *retired*: kept in
+    the sketch (serialised as `retired`, omitted when empty), never accepted by `add_entity`
+    again (`NotApplicable`), and dropped by `compact`. `compact` also drops `alloc_param` slots
+    no entity or constraint owns.
   - `add_arc` projects `end` radially onto the circle through `start`, so the arc's internal
-    equation holds at creation. `add_entity` with `EntityOrigin::Projected` locks the entity's
-    own params. `compact` also drops `alloc_param` slots no entity or constraint owns.
+    equation holds at creation. It returns `Degenerate` when the start or end coincides with
+    the centre, or when the start and end directions coincide within
+    `Tolerance::DEFAULT.angular` (the sweep would be ambiguous between ~0 and 2π). `add_entity`
+    still accepts an arc whose start and end coincide in position (distinct point entities):
+    the SK-04 degenerate case.
+  - `add_entity` with `EntityOrigin::Projected` locks the entity's own params and those of its
+    child points.
   - Kind validation (`WrongEntityKind`) follows the constraint table. `Tangent::AtEndpoint`
-    needs line/arc pairs with at least one arc. `Distance` accepts every pair except
+    needs line/arc pairs with at least one arc. When it is added, the named ends must be the
+    same point entity or be joined by a chain of `Coincident` constraints; otherwise it fails
+    with `NotApplicable`. If the joining `Coincident` is removed later, the tangent stays, since
+    its residual is defined by the stored ends. `Distance` accepts every pair except
     circle/arc–circle/arc. `Equal` accepts line–line, line–arc and circle/arc–circle/arc.
     `Symmetric` needs two entities of the same kind and a line axis. `NotApplicable` covers the
     same entity referenced twice, a point constrained onto its own curve, and a midpoint at the
     line's own endpoint. Dimension values: distances/length ≥ 0; radius, diameter and arc length
-    > 0; angles finite (`InvalidValue`).
+    > 0; angles finite; label position finite (`InvalidValue`).
 - **For S01 / DOC (`.amg` writer, ADR-010):** a bit-identical JSON round trip needs
   `serde_json`'s `float_roundtrip` feature when parsing. `amg-sketch` enables it for its own
   tests; the document loader should enable it too.

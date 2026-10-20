@@ -1,6 +1,8 @@
 //! Kind validation for entities and constraints, and whole-sketch validation on load.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+use amg_core::{Point2, Tolerance};
 
 use crate::error::SketchError;
 use crate::ids::{ConstraintId, EntityId, ParamId};
@@ -13,6 +15,17 @@ use crate::model::{
 pub(super) struct View<'a> {
     pub params: &'a ParamStore,
     pub entities: &'a BTreeMap<EntityId, Entity>,
+    pub constraints: &'a BTreeMap<ConstraintId, Constraint>,
+}
+
+/// When a constraint is validated.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(super) enum Mode {
+    /// Being added: full value domain and the `AtEndpoint` contact check.
+    Add,
+    /// Being loaded: structure plus cheap value checks (finite values). Geometry left by the
+    /// last solve is accepted as is.
+    Load,
 }
 
 const POINT: &str = "point";
@@ -39,6 +52,20 @@ fn distinct(ids: &[EntityId]) -> Result<(), SketchError> {
         }
     }
     Ok(())
+}
+
+fn finite(what: &'static str, value: f64) -> Result<(), SketchError> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(SketchError::InvalidValue { what, value })
+    }
+}
+
+/// `Err(InvalidValue)` unless both coordinates are finite.
+pub(super) fn finite_point(what: &'static str, p: Point2) -> Result<(), SketchError> {
+    finite(what, p.x)?;
+    finite(what, p.y)
 }
 
 impl View<'_> {
@@ -83,10 +110,21 @@ impl View<'_> {
         }
     }
 
-    /// Structural validation of an entity kind: params exist, children exist and are points,
-    /// children are distinct. With `check_values`, also that coordinates are finite and a
-    /// circle radius is positive.
-    pub fn entity(&self, kind: &EntityKind, check_values: bool) -> Result<(), SketchError> {
+    /// Position of a point entity that validation already checked.
+    fn pos(&self, id: EntityId) -> Point2 {
+        match self.entities.get(&id).map(|e| &e.kind) {
+            Some(&EntityKind::Point { x, y }) => {
+                Point2::new(self.params.get(x), self.params.get(y))
+            }
+            _ => Point2::NAN,
+        }
+    }
+
+    /// Validates an entity kind (same rules on add and on load): params exist, children exist,
+    /// are points and are distinct; point coordinates are finite; a circle radius is positive;
+    /// an arc has a non-zero radius and its end lies on the circle through its start (within
+    /// `Tolerance::DEFAULT.linear · max(1, r)`).
+    pub fn entity(&self, kind: &EntityKind) -> Result<(), SketchError> {
         let own = kind.own_params();
         for &p in &own {
             self.param(p)?;
@@ -101,30 +139,66 @@ impl View<'_> {
             self.point(c)?;
         }
         distinct(&children)?;
-        if check_values {
-            match *kind {
-                EntityKind::Point { x, y } => {
-                    for v in [self.params.get(x), self.params.get(y)] {
-                        if !v.is_finite() {
-                            return Err(SketchError::InvalidValue {
-                                what: "point coordinate",
-                                value: v,
-                            });
-                        }
-                    }
-                }
-                EntityKind::Circle { radius, .. } => {
-                    positive("circle radius", self.params.get(radius))?;
-                }
-                EntityKind::Line { .. } | EntityKind::Arc { .. } => {}
+        match *kind {
+            EntityKind::Point { x, y } => {
+                finite("point coordinate", self.params.get(x))?;
+                finite("point coordinate", self.params.get(y))?;
             }
+            EntityKind::Circle { radius, .. } => {
+                positive("circle radius", self.params.get(radius))?;
+            }
+            EntityKind::Arc { center, start, end } => {
+                let tol = Tolerance::DEFAULT;
+                let c = self.pos(center);
+                let r = self.pos(start).distance(c);
+                if tol.is_zero_len(r) {
+                    return Err(SketchError::Degenerate(
+                        "arc start coincides with its centre",
+                    ));
+                }
+                if (self.pos(end).distance(c) - r).abs() > tol.linear * r.max(1.0) {
+                    return Err(SketchError::Degenerate(
+                        "arc start and end are at different distances from the centre",
+                    ));
+                }
+            }
+            EntityKind::Line { .. } => {}
         }
         Ok(())
     }
 
-    /// Validates the entity kinds a constraint references. With `check_values`, also the
-    /// dimension value.
-    pub fn constraint(&self, kind: &ConstraintKind, check_values: bool) -> Result<(), SketchError> {
+    /// True if points `a` and `b` are the same entity or joined by a chain of `Coincident`
+    /// constraints.
+    fn joined(&self, a: EntityId, b: EntityId) -> bool {
+        if a == b {
+            return true;
+        }
+        let mut seen = BTreeSet::from([a]);
+        let mut stack = vec![a];
+        while let Some(p) = stack.pop() {
+            for c in self.constraints.values() {
+                if let ConstraintKind::Coincident { a: u, b: v } = c.kind {
+                    let other = if u == p {
+                        v
+                    } else if v == p {
+                        u
+                    } else {
+                        continue;
+                    };
+                    if other == b {
+                        return true;
+                    }
+                    if seen.insert(other) {
+                        stack.push(other);
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Validates the entity kinds a constraint references, and values per `mode`.
+    pub fn constraint(&self, kind: &ConstraintKind, mode: Mode) -> Result<(), SketchError> {
         for id in kind.entities() {
             self.kind(id)?;
         }
@@ -164,7 +238,7 @@ impl View<'_> {
                 self.line(a)?;
                 self.line(b)?;
             }
-            ConstraintKind::Tangent { a, b, kind } => self.tangent(a, b, kind)?,
+            ConstraintKind::Tangent { a, b, kind } => self.tangent(a, b, kind, mode)?,
             ConstraintKind::Concentric { a, b } => {
                 self.round(a)?;
                 self.round(b)?;
@@ -198,22 +272,38 @@ impl View<'_> {
                 self.line(axis)?;
             }
             ConstraintKind::Fix { .. } => {}
-            ConstraintKind::Dimension(ref d) => self.dimension(d, check_values)?,
+            ConstraintKind::Dimension(ref d) => self.dimension(d, mode)?,
         }
         distinct(&kind.entities())
     }
 
-    fn tangent(&self, a: EntityId, b: EntityId, kind: TangentKind) -> Result<(), SketchError> {
+    fn tangent(
+        &self,
+        a: EntityId,
+        b: EntityId,
+        kind: TangentKind,
+        mode: Mode,
+    ) -> Result<(), SketchError> {
         let ka = self.kind(a)?;
         let kb = self.kind(b)?;
         match kind {
-            TangentKind::AtEndpoint { .. } => {
+            TangentKind::AtEndpoint { a_end, b_end, .. } => {
                 let ka = self.expect(a, LINE_OR_ARC, |k| k.is_line() || k.is_arc())?;
                 if ka.is_line() {
                     // line–line tangency at an endpoint is collinearity; needs an arc.
                     self.expect(b, ARC, EntityKind::is_arc)?;
                 } else {
                     self.expect(b, LINE_OR_ARC, |k| k.is_line() || k.is_arc())?;
+                }
+                if mode == Mode::Add {
+                    let pa = ka.endpoint(a_end);
+                    let pb = kb.endpoint(b_end);
+                    let touch = matches!((pa, pb), (Some(pa), Some(pb)) if self.joined(pa, pb));
+                    if !touch {
+                        return Err(SketchError::NotApplicable(
+                            "the chosen endpoints are neither the same point nor coincident",
+                        ));
+                    }
                 }
             }
             TangentKind::External | TangentKind::Internal => {
@@ -231,7 +321,7 @@ impl View<'_> {
         Ok(())
     }
 
-    fn dimension(&self, d: &Dimension, check_values: bool) -> Result<(), SketchError> {
+    fn dimension(&self, d: &Dimension, mode: Mode) -> Result<(), SketchError> {
         match d.kind {
             DimensionKind::Distance { a, b, .. } => {
                 // point–point, point–line, line–line, and point/line to a circle or arc edge:
@@ -259,10 +349,11 @@ impl View<'_> {
                 self.expect(arc, ARC, EntityKind::is_arc)?;
             }
         }
-        if check_values {
-            check_dimension_value(&d.kind, d.value)?;
+        finite_point("dimension label position", d.label_pos)?;
+        match mode {
+            Mode::Add => check_dimension_value(&d.kind, d.value),
+            Mode::Load => finite(d.kind.name(), d.value),
         }
-        Ok(())
     }
 }
 
@@ -291,20 +382,15 @@ pub(super) fn check_dimension_value(kind: &DimensionKind, value: f64) -> Result<
         DimensionKind::Radius { .. }
         | DimensionKind::Diameter { .. }
         | DimensionKind::ArcLength { .. } => positive(what, value),
-        DimensionKind::Angle { .. } => {
-            if value.is_finite() {
-                Ok(())
-            } else {
-                Err(SketchError::InvalidValue { what, value })
-            }
-        }
+        DimensionKind::Angle { .. } => finite(what, value),
     }
 }
 
-/// Validates a deserialised sketch: structure only (values are whatever the last solve left).
+/// Validates a deserialised sketch: structure, parameter ownership, retired slots, and cheap
+/// value checks (finite values, positive circle radii, consistent arc radii).
 pub(super) fn whole(
     view: &View<'_>,
-    constraints: &BTreeMap<ConstraintId, Constraint>,
+    retired: &BTreeSet<ParamId>,
     next_entity: u32,
     next_constraint: u32,
     flags_len: usize,
@@ -314,12 +400,19 @@ pub(super) fn whole(
             "parameter values and flags differ in length",
         ));
     }
+    if let Some(&v) = view.params.as_slice().iter().find(|v| !v.is_finite()) {
+        return Err(SketchError::InvalidValue {
+            what: "sketch parameter",
+            value: v,
+        });
+    }
     if view
         .entities
         .keys()
         .next_back()
         .is_some_and(|id| id.0 >= next_entity)
-        || constraints
+        || view
+            .constraints
             .keys()
             .next_back()
             .is_some_and(|id| id.0 >= next_constraint)
@@ -335,23 +428,26 @@ pub(super) fn whole(
             .ok_or(SketchError::UnknownParam(p))?;
         if *slot {
             return Err(SketchError::NotApplicable(
-                "a parameter is owned by two entities or constraints",
+                "a parameter is owned twice (or owned and retired)",
             ));
         }
         *slot = true;
         Ok(())
     };
     for e in view.entities.values() {
-        view.entity(&e.kind, false)?;
+        view.entity(&e.kind)?;
         for p in e.kind.own_params() {
             claim(p)?;
         }
     }
-    for c in constraints.values() {
-        view.constraint(&c.kind, false)?;
+    for c in view.constraints.values() {
+        view.constraint(&c.kind, Mode::Load)?;
         for &p in &c.aux {
             claim(p)?;
         }
+    }
+    for &p in retired {
+        claim(p)?;
     }
     Ok(())
 }

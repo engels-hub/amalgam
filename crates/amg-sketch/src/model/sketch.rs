@@ -7,7 +7,7 @@ use amg_core::{Plane, Point2, Segment2, Tolerance};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-use super::validate::{self, View};
+use super::validate::{self, Mode, View, finite_point};
 use super::{Constraint, ConstraintKind, Entity, EntityKind, EntityOrigin, ParamFlags, ParamStore};
 use crate::error::SketchError;
 use crate::geom::{Arc2, Circle2, Curve2};
@@ -26,7 +26,9 @@ fn next_rev() -> u64 {
 /// - Ids are allocated monotonically and never reused, also across save/load.
 /// - Collections are `BTreeMap`s, so iteration and serialised output are deterministic.
 /// - Deserialisation validates the whole structure (dangling ids, wrong kinds, parameter
-///   ownership), so a loaded sketch upholds the same invariants as one built through the API.
+///   ownership, retired slots) and cheap values (finite, circle radius > 0, consistent arc
+///   radii), so a loaded sketch upholds the same invariants as one built through the API.
+///   Serialisation fails on non-finite parameter values, so a saved sketch always loads.
 /// - Revisions ([`structure_rev`](Sketch::structure_rev), [`values_rev`](Sketch::values_rev))
 ///   are runtime cache keys, not serialised. They are unique within the process: compare them
 ///   only for equality.
@@ -37,6 +39,10 @@ pub struct Sketch {
     params: ParamStore,
     entities: BTreeMap<EntityId, Entity>,
     constraints: BTreeMap<ConstraintId, Constraint>,
+    /// Param slots of removed entities/constraints; never handed out again, dropped by
+    /// `compact`.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    retired: BTreeSet<ParamId>,
     next_entity: u32,
     next_constraint: u32,
     #[serde(skip)]
@@ -52,6 +58,8 @@ struct SketchRepr {
     params: ParamStore,
     entities: BTreeMap<EntityId, Entity>,
     constraints: BTreeMap<ConstraintId, Constraint>,
+    #[serde(default)]
+    retired: BTreeSet<ParamId>,
     next_entity: u32,
     next_constraint: u32,
 }
@@ -62,10 +70,11 @@ impl TryFrom<SketchRepr> for Sketch {
         let view = View {
             params: &r.params,
             entities: &r.entities,
+            constraints: &r.constraints,
         };
         validate::whole(
             &view,
-            &r.constraints,
+            &r.retired,
             r.next_entity,
             r.next_constraint,
             r.params.flags.len(),
@@ -75,6 +84,7 @@ impl TryFrom<SketchRepr> for Sketch {
             params: r.params,
             entities: r.entities,
             constraints: r.constraints,
+            retired: r.retired,
             next_entity: r.next_entity,
             next_constraint: r.next_constraint,
             structure_rev: next_rev(),
@@ -92,18 +102,6 @@ pub struct RemoveReport {
     pub constraints: Vec<ConstraintId>,
 }
 
-fn finite_point(p: Point2) -> Result<(), SketchError> {
-    for v in [p.x, p.y] {
-        if !v.is_finite() {
-            return Err(SketchError::InvalidValue {
-                what: "point coordinate",
-                value: v,
-            });
-        }
-    }
-    Ok(())
-}
-
 impl Sketch {
     /// Empty sketch on `plane`.
     pub fn new(plane: Plane) -> Self {
@@ -112,6 +110,7 @@ impl Sketch {
             params: ParamStore::default(),
             entities: BTreeMap::new(),
             constraints: BTreeMap::new(),
+            retired: BTreeSet::new(),
             next_entity: 0,
             next_constraint: 0,
             structure_rev: next_rev(),
@@ -172,19 +171,20 @@ impl Sketch {
 
     // ---- Entities ---------------------------------------------------------------------
 
-    /// Adds a free user point. `p` should be finite (debug-asserted).
-    pub fn add_point(&mut self, p: Point2) -> EntityId {
-        debug_assert!(p.is_finite(), "Sketch::add_point: non-finite {p:?}");
-        let x = self.params.push(p.x, ParamFlags::default());
-        let y = self.params.push(p.y, ParamFlags::default());
-        self.insert_entity(EntityKind::Point { x, y }, false, EntityOrigin::User)
+    /// Adds a free user point. `Err(InvalidValue)` if a coordinate is not finite.
+    pub fn add_point(&mut self, p: Point2) -> Result<EntityId, SketchError> {
+        finite_point("point coordinate", p)?;
+        Ok(self.push_point(p))
     }
 
-    /// Adds a line from `a` to `b`, creating its two end points.
-    pub fn add_line(&mut self, a: Point2, b: Point2) -> EntityId {
-        let start = self.add_point(a);
-        let end = self.add_point(b);
-        self.insert_entity(EntityKind::Line { start, end }, false, EntityOrigin::User)
+    /// Adds a line from `a` to `b`, creating its two end points. `Err(InvalidValue)` if a
+    /// coordinate is not finite.
+    pub fn add_line(&mut self, a: Point2, b: Point2) -> Result<EntityId, SketchError> {
+        finite_point("point coordinate", a)?;
+        finite_point("point coordinate", b)?;
+        let start = self.push_point(a);
+        let end = self.push_point(b);
+        Ok(self.insert_entity(EntityKind::Line { start, end }, false, EntityOrigin::User))
     }
 
     /// Adds a line between two existing, distinct point entities.
@@ -198,14 +198,14 @@ impl Sketch {
 
     /// Adds a circle, creating its centre point. `Err(InvalidValue)` unless `r > 0`, finite.
     pub fn add_circle(&mut self, center: Point2, r: f64) -> Result<EntityId, SketchError> {
-        finite_point(center)?;
+        finite_point("point coordinate", center)?;
         if !(r.is_finite() && r > 0.0) {
             return Err(SketchError::InvalidValue {
                 what: "circle radius",
                 value: r,
             });
         }
-        let center = self.add_point(center);
+        let center = self.push_point(center);
         let radius = self.params.push(r, ParamFlags::default());
         Ok(self.insert_entity(
             EntityKind::Circle { center, radius },
@@ -218,7 +218,9 @@ impl Sketch {
     ///
     /// The radius is `|start − center|`; `end` is projected radially onto that circle, so the
     /// arc's internal equation holds exactly at creation. `Err(Degenerate)` if `start` or
-    /// `end` coincides with `center` (within `Tolerance::DEFAULT.linear`).
+    /// `end` coincides with `center` (within `Tolerance::DEFAULT.linear`), or if the start and
+    /// end directions coincide within `Tolerance::DEFAULT.angular` (the sweep would be
+    /// ambiguous between ~0 and 2π; use a circle). `Err(InvalidValue)` for non-finite input.
     pub fn add_arc(
         &mut self,
         center: Point2,
@@ -226,7 +228,7 @@ impl Sketch {
         end: Point2,
     ) -> Result<EntityId, SketchError> {
         for p in [center, start, end] {
-            finite_point(p)?;
+            finite_point("point coordinate", p)?;
         }
         let tol = Tolerance::DEFAULT;
         let r = start.distance(center);
@@ -240,10 +242,16 @@ impl Sketch {
         if tol.is_zero_len(de_len) {
             return Err(SketchError::Degenerate("arc end coincides with its centre"));
         }
+        let ds = start - center;
+        if ds.perp_dot(de).atan2(ds.dot(de)).abs() <= tol.angular {
+            return Err(SketchError::Degenerate(
+                "arc start and end directions coincide",
+            ));
+        }
         let end = center + de * (r / de_len);
-        let c = self.add_point(center);
-        let s = self.add_point(start);
-        let e = self.add_point(end);
+        let c = self.push_point(center);
+        let s = self.push_point(start);
+        let e = self.push_point(end);
         Ok(self.insert_entity(
             EntityKind::Arc {
                 center: c,
@@ -257,25 +265,39 @@ impl Sketch {
 
     /// Adds an entity of any kind referencing existing params and points.
     ///
-    /// Validates that the params exist and are not owned by another entity or constraint,
-    /// that children exist, are points and are distinct, that point coordinates are finite
-    /// and a circle radius is positive. `Projected` entities get their own params locked.
+    /// Validates that the params exist, were issued by [`alloc_param`](Sketch::alloc_param)
+    /// and are owned by no other entity or constraint (slots of removed entities are retired
+    /// and never reused), that children exist, are points and are distinct, that point
+    /// coordinates are finite, a circle radius is positive, and an arc's end lies on the circle
+    /// through its start (`Degenerate` otherwise; start and end may coincide).
+    ///
+    /// `Projected` entities get their own params *and their child points' params* locked.
     pub fn add_entity(
         &mut self,
         kind: EntityKind,
         construction: bool,
         origin: EntityOrigin,
     ) -> Result<EntityId, SketchError> {
-        self.view().entity(&kind, true)?;
+        self.view().entity(&kind)?;
         let own = kind.own_params();
+        if own.iter().any(|p| self.retired.contains(p)) {
+            return Err(SketchError::NotApplicable(
+                "a parameter belongs to a removed entity or constraint",
+            ));
+        }
         if own.iter().any(|&p| self.param_in_use(p)) {
             return Err(SketchError::NotApplicable(
                 "a parameter is already owned by another entity or constraint",
             ));
         }
         if matches!(origin, EntityOrigin::Projected(_)) {
-            for &p in &own {
-                self.params.set_flags(p, ParamFlags { locked: true });
+            let child_params: Vec<ParamId> = kind
+                .children()
+                .iter()
+                .flat_map(|c| self.entities[c].kind.own_params())
+                .collect();
+            for p in own.iter().chain(&child_params) {
+                self.params.set_flags(*p, ParamFlags { locked: true });
             }
         }
         Ok(self.insert_entity(kind, construction, origin))
@@ -283,9 +305,16 @@ impl Sketch {
 
     /// Allocates a new parameter slot (for [`add_entity`](Sketch::add_entity)). Slots no
     /// entity or constraint owns are dropped by [`compact`](Sketch::compact).
-    pub fn alloc_param(&mut self, value: f64, flags: ParamFlags) -> ParamId {
+    /// `Err(InvalidValue)` if `value` is not finite.
+    pub fn alloc_param(&mut self, value: f64, flags: ParamFlags) -> Result<ParamId, SketchError> {
+        if !value.is_finite() {
+            return Err(SketchError::InvalidValue {
+                what: "parameter",
+                value,
+            });
+        }
         self.touch_structure();
-        self.params.push(value, flags)
+        Ok(self.params.push(value, flags))
     }
 
     /// Marks an entity as construction geometry (or not). Bumps `values_rev` (profiles change,
@@ -306,10 +335,11 @@ impl Sketch {
     /// - Dependents: an entity built on a removed entity is removed (removing a point removes
     ///   the lines, circles and arcs using it).
     /// - Sub-entities: points of a removed entity that no surviving entity uses are removed
-    ///   (removing a line removes its end points unless another curve shares them).
+    ///   (removing a line removes its end points unless another curve shares them), except
+    ///   `Projected` points, which belong to their projection link and stay.
     ///
-    /// Nothing is removed if any id is unknown (`Err(UnknownEntity)`). Param slots stay until
-    /// [`compact`](Sketch::compact).
+    /// Nothing is removed if any id is unknown (`Err(UnknownEntity)`). Param slots are retired
+    /// (never reused) until [`compact`](Sketch::compact) drops them.
     pub fn remove_entities(&mut self, ids: &[EntityId]) -> Result<RemoveReport, SketchError> {
         if let Some(&id) = ids.iter().find(|id| !self.entities.contains_key(id)) {
             return Err(SketchError::UnknownEntity(id));
@@ -333,7 +363,10 @@ impl Sketch {
             let orphans: Vec<EntityId> = gone
                 .iter()
                 .flat_map(|id| self.entities[id].kind.children())
-                .filter(|c| !used_by_survivors.contains(c))
+                .filter(|c| {
+                    !used_by_survivors.contains(c)
+                        && !matches!(self.entities[c].origin, EntityOrigin::Projected(_))
+                })
                 .collect();
             gone.extend(orphans);
             if gone.len() == before {
@@ -347,10 +380,14 @@ impl Sketch {
             .map(|(&id, _)| id)
             .collect();
         for id in &gone {
-            self.entities.remove(id);
+            if let Some(e) = self.entities.remove(id) {
+                self.retired.extend(e.kind.own_params());
+            }
         }
         for id in &constraints {
-            self.constraints.remove(id);
+            if let Some(c) = self.constraints.remove(id) {
+                self.retired.extend(c.aux);
+            }
         }
         self.touch_structure();
         Ok(RemoveReport {
@@ -367,7 +404,7 @@ impl Sketch {
     /// twice, a point constrained onto its own curve), `InvalidValue` (dimension value out of
     /// its domain: distances ≥ 0, radius/diameter/arc length > 0, angles finite).
     pub fn add_constraint(&mut self, kind: ConstraintKind) -> Result<ConstraintId, SketchError> {
-        self.view().constraint(&kind, true)?;
+        self.view().constraint(&kind, Mode::Add)?;
         let id = ConstraintId(self.next_constraint);
         self.next_constraint += 1;
         self.constraints.insert(
@@ -381,11 +418,14 @@ impl Sketch {
         Ok(id)
     }
 
-    /// Removes one constraint. Its aux param slots stay until [`compact`](Sketch::compact).
+    /// Removes one constraint. Its aux param slots are retired until
+    /// [`compact`](Sketch::compact).
     pub fn remove_constraint(&mut self, id: ConstraintId) -> Result<(), SketchError> {
-        self.constraints
+        let c = self
+            .constraints
             .remove(&id)
             .ok_or(SketchError::UnknownConstraint(id))?;
+        self.retired.extend(c.aux);
         self.touch_structure();
         Ok(())
     }
@@ -472,6 +512,7 @@ impl Sketch {
             }
         }
         self.params = store;
+        self.retired.clear();
         self.touch_structure();
     }
 
@@ -481,7 +522,14 @@ impl Sketch {
         View {
             params: &self.params,
             entities: &self.entities,
+            constraints: &self.constraints,
         }
+    }
+
+    fn push_point(&mut self, p: Point2) -> EntityId {
+        let x = self.params.push(p.x, ParamFlags::default());
+        let y = self.params.push(p.y, ParamFlags::default());
+        self.insert_entity(EntityKind::Point { x, y }, false, EntityOrigin::User)
     }
 
     fn insert_entity(

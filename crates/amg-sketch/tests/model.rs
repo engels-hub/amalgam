@@ -7,7 +7,7 @@
 
 use amg_core::{Plane, Point2};
 use amg_sketch::{
-    AngleBranch, ConstraintKind, Curve2, Dimension, DimensionKind, EntityId, EntityKind,
+    AngleBranch, ConstraintKind, Curve2, Dimension, DimensionKind, End, EntityId, EntityKind,
     EntityOrigin, ExternalLinkId, HvTarget, ParamFlags, ParamId, Quantity, Side, Sketch,
     SketchError, TangentKind,
 };
@@ -30,11 +30,17 @@ struct Base {
 
 fn base() -> Base {
     let mut s = Sketch::new(Plane::XY);
-    let p = s.add_point(Point2::new(5.0, 5.0));
-    let q = s.add_point(Point2::new(-3.0, 2.0));
-    let l1 = s.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
-    let l2 = s.add_line(Point2::new(0.0, 4.0), Point2::new(10.0, 6.0));
-    let l3 = s.add_line(Point2::new(20.0, -5.0), Point2::new(20.0, 5.0));
+    let p = s.add_point(Point2::new(5.0, 5.0)).unwrap();
+    let q = s.add_point(Point2::new(-3.0, 2.0)).unwrap();
+    let l1 = s
+        .add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))
+        .unwrap();
+    let l2 = s
+        .add_line(Point2::new(0.0, 4.0), Point2::new(10.0, 6.0))
+        .unwrap();
+    let l3 = s
+        .add_line(Point2::new(20.0, -5.0), Point2::new(20.0, 5.0))
+        .unwrap();
     let c1 = s.add_circle(Point2::new(30.0, 0.0), 3.0).unwrap();
     let c2 = s.add_circle(Point2::new(30.0, 10.0), 1.5).unwrap();
     let a1 = s
@@ -89,7 +95,10 @@ fn valid_constraints(b: &Base) -> Vec<ConstraintKind> {
     use ConstraintKind as C;
     use DimensionKind as D;
     let l1s = children(&b.s, b.l1)[0];
+    let l1e = children(&b.s, b.l1)[1];
+    let a1s = children(&b.s, b.a1)[1];
     let a1e = children(&b.s, b.a1)[2];
+    let a2s = children(&b.s, b.a2)[1];
     vec![
         C::Coincident { a: b.p, b: b.q },
         C::PointOnCurve {
@@ -135,15 +144,26 @@ fn valid_constraints(b: &Base) -> Vec<ConstraintKind> {
             b: b.a2,
             kind: TangentKind::Internal,
         },
+        // Endpoint tangency needs the chosen ends joined (by `Coincident` here).
+        C::Coincident { a: l1e, b: a1s },
         C::Tangent {
             a: b.l1,
             b: b.a1,
-            kind: TangentKind::AtEndpoint { reversed: false },
+            kind: TangentKind::AtEndpoint {
+                a_end: End::End,
+                b_end: End::Start,
+                reversed: false,
+            },
         },
+        C::Coincident { a: a1e, b: a2s },
         C::Tangent {
             a: b.a1,
             b: b.a2,
-            kind: TangentKind::AtEndpoint { reversed: true },
+            kind: TangentKind::AtEndpoint {
+                a_end: End::End,
+                b_end: End::Start,
+                reversed: true,
+            },
         },
         C::Concentric { a: b.c1, b: b.a1 },
         C::Equal { a: b.l1, b: b.l2 },
@@ -307,7 +327,11 @@ fn wrong_kind_constraints(b: &Base) -> Vec<(ConstraintKind, EntityId)> {
             C::Tangent {
                 a: b.c1,
                 b: b.a1,
-                kind: TangentKind::AtEndpoint { reversed: false },
+                kind: TangentKind::AtEndpoint {
+                    a_end: End::Start,
+                    b_end: End::Start,
+                    reversed: false,
+                },
             },
             b.c1,
         ),
@@ -315,7 +339,11 @@ fn wrong_kind_constraints(b: &Base) -> Vec<(ConstraintKind, EntityId)> {
             C::Tangent {
                 a: b.l1,
                 b: b.l2,
-                kind: TangentKind::AtEndpoint { reversed: false },
+                kind: TangentKind::AtEndpoint {
+                    a_end: End::Start,
+                    b_end: End::Start,
+                    reversed: false,
+                },
             },
             b.l2,
         ),
@@ -626,8 +654,8 @@ fn dimension_value_and_driving() {
 #[test]
 fn entity_creation_errors() {
     let mut s = Sketch::new(Plane::XY);
-    let p = s.add_point(Point2::ZERO);
-    let l = s.add_line(Point2::ZERO, Point2::X);
+    let p = s.add_point(Point2::ZERO).unwrap();
+    let l = s.add_line(Point2::ZERO, Point2::X).unwrap();
     assert!(matches!(
         s.add_circle(Point2::ZERO, 0.0),
         Err(SketchError::InvalidValue { .. })
@@ -660,7 +688,7 @@ fn entity_creation_errors() {
         EntityKind::Point { x, .. } => x,
         _ => unreachable!(),
     };
-    let fresh = s.alloc_param(1.0, ParamFlags::default());
+    let fresh = s.alloc_param(1.0, ParamFlags::default()).unwrap();
     assert!(matches!(
         s.add_entity(
             EntityKind::Point { x: used, y: fresh },
@@ -688,7 +716,7 @@ fn entity_creation_errors() {
         ),
         Err(SketchError::UnknownParam(ParamId(999)))
     );
-    let r = s.alloc_param(-1.0, ParamFlags::default());
+    let r = s.alloc_param(-1.0, ParamFlags::default()).unwrap();
     assert!(matches!(
         s.add_entity(
             EntityKind::Circle {
@@ -722,8 +750,8 @@ fn generic_add_entity_and_projected_locking() {
     let mut s = Sketch::new(Plane::XZ);
     let link = ExternalLinkId(4);
     let mk = |s: &mut Sketch, x: f64, y: f64| {
-        let px = s.alloc_param(x, ParamFlags::default());
-        let py = s.alloc_param(y, ParamFlags::default());
+        let px = s.alloc_param(x, ParamFlags::default()).unwrap();
+        let py = s.alloc_param(y, ParamFlags::default()).unwrap();
         s.add_entity(
             EntityKind::Point { x: px, y: py },
             false,
@@ -757,7 +785,7 @@ fn generic_add_entity_and_projected_locking() {
     }
     s.set_construction(l, false).unwrap();
     assert!(!s.entity(l).unwrap().construction);
-    let r = s.alloc_param(2.0, ParamFlags::default());
+    let r = s.alloc_param(2.0, ParamFlags::default()).unwrap();
     let c = s.add_entity(
         EntityKind::Circle {
             center: a,
@@ -868,7 +896,7 @@ fn remove_entities_cascades_to_constraints() {
     );
     assert_eq!(b.s.entities().count(), before);
     // Ids are never reused.
-    let fresh = b.s.add_point(Point2::ZERO);
+    let fresh = b.s.add_point(Point2::ZERO).unwrap();
     assert!(b.s.entities().all(|(id, _)| id <= fresh));
     assert_eq!(fresh.0, b.a2.0 + 2, "after `shared`");
 }
@@ -877,7 +905,7 @@ fn remove_entities_cascades_to_constraints() {
 fn compact_renumbers_params() {
     let mut b = base();
     b.s.remove_entities(&[b.l1, b.c2]).unwrap();
-    let _unused = b.s.alloc_param(7.0, ParamFlags::default());
+    let _unused = b.s.alloc_param(7.0, ParamFlags::default()).unwrap();
     let before: Vec<(EntityId, Option<Curve2>, Option<Point2>)> =
         b.s.entities()
             .map(|(id, _)| (id, b.s.curve(id), b.s.point(id)))
@@ -907,7 +935,7 @@ fn revisions_are_unique_and_bumped() {
     let t = Sketch::new(Plane::XY);
     assert_ne!(s.structure_rev(), t.structure_rev());
     let (sr, vr) = (s.structure_rev(), s.values_rev());
-    let p = s.add_point(Point2::ZERO);
+    let p = s.add_point(Point2::ZERO).unwrap();
     assert_ne!(s.structure_rev(), sr);
     assert_ne!(s.values_rev(), vr);
     let (sr, vr) = (s.structure_rev(), s.values_rev());

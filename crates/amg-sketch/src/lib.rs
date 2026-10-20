@@ -25,7 +25,7 @@ pub use error::SketchError;
 pub use geom::{Arc2, Circle2, Curve2};
 pub use ids::{ConstraintId, EntityId, ExternalLinkId, ParamId};
 pub use model::{
-    AngleBranch, Constraint, ConstraintKind, Dimension, DimensionKind, Entity, EntityKind,
+    AngleBranch, Constraint, ConstraintKind, Dimension, DimensionKind, End, Entity, EntityKind,
     EntityOrigin, HvTarget, ParamFlags, ParamStore, Quantity, RemoveReport, Side, Sketch,
     TangentKind,
 };

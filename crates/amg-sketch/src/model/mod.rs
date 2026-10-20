@@ -29,7 +29,10 @@ pub struct ParamFlags {
 ///
 /// Slots are allocated by [`Sketch`] and never move; removed entities leave their slots
 /// behind until [`Sketch::compact`].
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+///
+/// Serialising fails if any value is not finite (for example after a diverged solve), so a
+/// saved sketch always loads.
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct ParamStore {
     values: Vec<f64>,
     flags: Vec<ParamFlags>,
@@ -93,6 +96,26 @@ impl ParamStore {
         self.values.push(value);
         self.flags.push(flags);
         id
+    }
+}
+
+impl Serialize for ParamStore {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Repr<'a> {
+            values: &'a [f64],
+            flags: &'a [ParamFlags],
+        }
+        if let Some((i, v)) = self.values.iter().enumerate().find(|(_, v)| !v.is_finite()) {
+            return Err(serde::ser::Error::custom(format_args!(
+                "sketch parameter {i} is not finite ({v})"
+            )));
+        }
+        Repr {
+            values: &self.values,
+            flags: &self.flags,
+        }
+        .serialize(s)
     }
 }
 
@@ -176,6 +199,17 @@ impl EntityKind {
         }
     }
 
+    /// The point entity at end `end` of a line or arc; `None` for points and circles.
+    pub fn endpoint(&self, end: End) -> Option<EntityId> {
+        match (self, end) {
+            (EntityKind::Line { start, .. } | EntityKind::Arc { start, .. }, End::Start) => {
+                Some(*start)
+            }
+            (EntityKind::Line { end, .. } | EntityKind::Arc { end, .. }, End::End) => Some(*end),
+            _ => None,
+        }
+    }
+
     fn for_each_param_mut(&mut self, mut f: impl FnMut(&mut ParamId)) {
         match self {
             EntityKind::Point { x, y } => {
@@ -228,16 +262,45 @@ pub enum HvTarget {
     Points(EntityId, EntityId),
 }
 
+/// One end of a curve with endpoints (line or arc).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum End {
+    /// The `start` point.
+    Start,
+    /// The `end` point.
+    End,
+}
+
 /// Which tangency a tangent constraint keeps.
+///
+/// **Line–circle/arc** (either argument order; an arc uses its circle). With the line oriented
+/// `start → end`, `d = end − start` and the signed centre distance
+/// `s = cross(d, center − start) / |d|` (positive = centre left of the line):
+/// - `External`: `s = +r` (circle on the left of the oriented line),
+/// - `Internal`: `s = −r` (circle on the right).
+///
+/// **Circle/arc–circle/arc:** `External` is `|c1 − c2| = r1 + r2`, `Internal` is
+/// `|c1 − c2| = |r1 − r2|`.
+///
+/// **`AtEndpoint`:** line/arc–line/arc (at least one arc), tangent at end `a_end` of `a` and
+/// end `b_end` of `b`. When the constraint is added, those two points must be the same point
+/// entity or be joined by a chain of `Coincident` constraints. With `t_a`, `t_b` the curves'
+/// directions of travel there (line: `end − start`; arc: CCW tangent), the residual is
+/// `cross(t_a, t_b)`, and `reversed == false` means `dot(t_a, t_b) > 0`. The stored ends keep
+/// the residual well defined even if a joining `Coincident` is removed later.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TangentKind {
-    /// Curves on opposite sides of the contact (circles: `|c1 − c2| = r1 + r2`).
+    /// Line: circle left of the oriented line. Circles: touching from outside.
     External,
-    /// One curve inside the other (circles: `|c1 − c2| = |r1 − r2|`).
+    /// Line: circle right of the oriented line. Circles: one inside the other.
     Internal,
-    /// Curve–curve tangency at a shared endpoint; `reversed` flips the stored direction sign.
+    /// Curve–curve tangency at a shared endpoint.
     AtEndpoint {
-        /// The tangents point in opposite directions at the shared endpoint.
+        /// Which end of `a` is shared.
+        a_end: End,
+        /// Which end of `b` is shared.
+        b_end: End,
+        /// The directions of travel are opposite at the shared point.
         reversed: bool,
     },
 }
