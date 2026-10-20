@@ -67,7 +67,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | pollster | `Gpu::new_blocking`, `amg-jobs::gpu` (S00) | MIT / Apache-2.0 | no | no | Planned |
 | tracing-appender | rolling log files (S00) | MIT | no | no | Planned |
 | tracing-tracy | optional profiler integration (S00) | MIT / Apache-2.0 | no | yes (`tracy`) | Planned |
-| clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | Planned |
+| clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | In use (4.6.7) |
 | approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | Planned |
 | toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07); machine library files, `amg-am` runtime (S16); material libraries, `amg-materials` (S17) | MIT / Apache-2.0 | no | no | Planned |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |

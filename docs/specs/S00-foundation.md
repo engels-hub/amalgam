@@ -125,7 +125,7 @@ crate boundaries are architecture.
 
 **`[workspace.dependencies]` (versions = current major lines at refinement; FND-02 pins
 exact minors):**
-`glam = { version = "0.33", features = ["serde", "approx", "bytemuck"] }`, `approx = "0.5"`,
+`glam = { version = "0.33", features = ["serde", "approx-05", "bytemuck"] }` (0.34; see 2026-10-20 log), `approx = "0.5"`,
 `slotmap = "1"`, `uuid = { version = "1", features = ["v5", "v7", "serde"] }`,
 `thiserror = "2"`, `anyhow = "1"`, `serde = { version = "1", features = ["derive"] }`,
 `serde_json = "1"`, `rayon = "1.11"`, `crossbeam-channel = "0.5"`, `parking_lot = "0.12"`,
@@ -977,8 +977,8 @@ pub mod budget {
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| FND-01 | Dev setup doc + toolchain install: rustup, VS Build Tools 2022 17.14 (4 components), CMake 4.3, Ninja 1.13.2, vcpkg at `2026.07.29`, git-lfs, nextest, deny. `scripts/check-env.ps1`. | — | P0 | Todo | `docs/dev-setup.md` contains the 9 sections of §1. On the owner's machine `scripts/check-env.ps1` exits 0 and prints every pinned tool version. A throwaway `cargo new` binary builds and runs with the MSVC linker. `vcpkg install zlib:x64-windows` (classic mode, outside the repo) succeeds, which proves the C++ toolchain works. The vcpkg baseline SHA is recorded in the doc. |
-| FND-02 | Cargo workspace: 23 crates from §2 as stubs with architecture-conformant intra-workspace deps, `[workspace.dependencies]`, `[workspace.lints]`, profiles, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.gitattributes`, `.editorconfig`, `.config/nextest.toml`, layering test, `amg-cli` skeleton (`--version`, `info`) | FND-01 | P0 | Todo | `cargo build --workspace`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `cargo deny check` all pass locally. `cargo metadata` lists exactly the 23 `amg-*` packages. The layering test passes, and fails when a forbidden edge such as `amg-render → amg-doc` is added (shown in the PR description). `amg-cli --version` prints version + git SHA. |
+| FND-01 | Dev setup doc + toolchain install: rustup, VS Build Tools 2022 17.14 (4 components), CMake 4.3, Ninja 1.13.2, vcpkg at `2026.07.29`, git-lfs, nextest, deny. `scripts/check-env.ps1`. | — | P0 | Done | `docs/dev-setup.md` contains the 9 sections of §1. On the owner's machine `scripts/check-env.ps1` exits 0 and prints every pinned tool version. A throwaway `cargo new` binary builds and runs with the MSVC linker. `vcpkg install zlib:x64-windows` (classic mode, outside the repo) succeeds, which proves the C++ toolchain works. The vcpkg baseline SHA is recorded in the doc. |
+| FND-02 | Cargo workspace: 23 crates from §2 as stubs with architecture-conformant intra-workspace deps, `[workspace.dependencies]`, `[workspace.lints]`, profiles, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.gitattributes`, `.editorconfig`, `.config/nextest.toml`, layering test, `amg-cli` skeleton (`--version`, `info`) | FND-01 | P0 | Done | `cargo build --workspace`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `cargo deny check` all pass locally. `cargo metadata` lists exactly the 23 `amg-*` packages. The layering test passes, and fails when a forbidden edge such as `amg-render → amg-doc` is added (shown in the PR description). `amg-cli --version` prints version + git SHA. |
 | FND-03 | `amg-core` (part 1): math aliases + `gpu` conversions, `Dir3`, `Tolerance`, ids (`define_id!`, `PersistentId` v7/v5), `Aabb3/Aabb2`, `Plane`, `Ray3`, `Line3/Line2`, `Segment3/Segment2`, `Triangle3`, `intersect` module, `Error`/`Result`/`Cancelled`/`Diagnostic`/`report` | FND-02 | P0 | Todo | Every Interfaces item for these modules exists with doc comments (`missing_docs` clean). Tests pass: ≥ 1 unit test per pub fn. Proptests: `ray_aabb` agrees with brute-force sampling; `ray_triangle` gives no misses for rays through shared edges/vertices of a 1000-triangle fan (watertightness); `Plane::to_world(to_local(p))` round-trips within 1e-9 mm; `Aabb3::transformed` contains all 8 transformed corners. `PersistentId::derive` is stable across runs (a fixed-vector test). `cargo clippy -D warnings` is clean. |
 | FND-04 | `amg-jobs` CPU job system: two pools, `Job`/`JobCtx`/`JobHandle`/`CancelToken`/`JobInfo`, progress sub-ranges, child jobs, panic capture, notifier, UI-thread guard (no GPU) | FND-02 | P0 | Todo | Tests pass. (a) 1000 jobs spawned, `cancel_all` mid-way: every handle resolves (`Cancelled` or `Succeeded`) within 100 ms and none hang. (b) A panicking job yields `JobError::Panicked` and the system keeps working. (c) Progress is monotone and nested `sub()` ranges map correctly. (d) Cancelling a parent cancels its children. (e) A nested `ctx.wait` in a 1-thread pool completes (no deadlock). (f) `try_take`/`state` never block: criterion shows < 1 µs median. (g) Spawn-to-start latency on an idle pool is < 50 µs median. (h) A Background job saturating its pool does not delay an Interactive job by more than 5 ms. |
 | FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Todo | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
@@ -1200,6 +1200,14 @@ Tied to the vision budgets. The foundation must spend only a small slice of them
 
 Already listed: glam, slotmap, uuid, rayon, thiserror, anyhow, tracing(-subscriber), serde,
 wgpu, criterion, proptest.
+
+### 2026-10-20 — FND-02 version pins (lane E)
+Pinned the newest release of each `[workspace.dependencies]` entry on 2026-10-20. Changes from
+the majors listed in §2: `glam` 0.34.1 (0.34 renamed the `approx` feature to `approx-05` and
+dropped `fast-math`; `bytemuck` is still an implicit feature), `wgpu` 30.0.1 (egui-wgpu 0.36 and
+0.37 both require wgpu 30, so FND-09's alignment rule holds), `pollster` 1.0.1, `toml` 1.1.8,
+`criterion` 0.8.2. All entries were compiled together in a scratch crate to prove the features
+resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR-003, MESH-05).
 
 ## Interface changes
 None yet (spec not `Ready`).

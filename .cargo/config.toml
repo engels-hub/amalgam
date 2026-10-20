@@ -1,0 +1,4 @@
+# Deliberately no `target-cpu=native`: results must be bit-identical across machines.
+
+[alias]
+xt = "nextest run --workspace"

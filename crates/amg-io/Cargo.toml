@@ -1,0 +1,19 @@
+[package]
+name = "amg-io"
+description = "File formats: STEP/IGES (via brep), STL, 3MF, OBJ, PLY, DXF, SVG."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+amg-brep.workspace = true
+amg-mesh.workspace = true
+amg-sketch.workspace = true
+amg-materials.workspace = true
+
+[lints]
+workspace = true

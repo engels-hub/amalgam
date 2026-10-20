@@ -1,0 +1,15 @@
+[package]
+name = "amg-mesh"
+description = "Triangle meshes: half-edge/indexed storage, repair, remesh, decimate, booleans and analysis."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+
+[lints]
+workspace = true

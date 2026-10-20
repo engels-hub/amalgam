@@ -1,0 +1,17 @@
+[package]
+name = "amg-script"
+description = "Python API and headless batch. Pure-Rust stub until SCR-01 adds pyo3."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+amg-core.workspace = true
+amg-jobs.workspace = true
+amg-doc.workspace = true
+amg-features.workspace = true
+
+[lints]
+workspace = true

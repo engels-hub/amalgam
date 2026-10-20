@@ -1,0 +1,16 @@
+[package]
+name = "amg-testkit"
+description = "Dev-only test helpers: golden-geometry metrics, test data access and budget benches."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
