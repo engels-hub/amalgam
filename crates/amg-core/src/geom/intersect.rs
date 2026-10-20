@@ -231,19 +231,20 @@ pub fn segment_segment(a: &Segment3, b: &Segment3) -> (f64, f64, Point3, Point3)
 
 /// Closest points `(on a, on b)` of two infinite lines; `None` if parallel within
 /// `tol.angular`.
+///
+/// Uses `n = da × db` directly (`s = ((w × db)·n) / |n|²`), which stays accurate for
+/// nearly parallel lines where `1 - (da·db)²` would cancel to zero.
 pub fn line_line(a: &Line3, b: &Line3, tol: &Tolerance) -> Option<(Point3, Point3)> {
     let da = a.dir.get();
     let db = b.dir.get();
-    if da.cross(db).length() <= tol.angular {
+    let n = da.cross(db);
+    let n2 = n.length_squared();
+    if n2.sqrt() <= tol.angular || n2 == 0.0 {
         return None;
     }
-    let r = a.point - b.point;
-    let bb = da.dot(db);
-    let c = da.dot(r);
-    let f = db.dot(r);
-    let denom = 1.0 - bb * bb;
-    let s = (bb * f - c) / denom;
-    let t = bb * s + f;
+    let w = b.point - a.point;
+    let s = w.cross(db).dot(n) / n2;
+    let t = w.cross(da).dot(n) / n2;
     Some((a.point + da * s, b.point + db * t))
 }
 
@@ -253,11 +254,24 @@ pub fn point_segment_distance(p: Point3, s: &Segment3) -> f64 {
 }
 
 /// Closest point of the (filled) triangle to `p` (Ericson, *Real-Time Collision Detection*
-/// §5.1.5). Degenerate triangles fall back to the closest point of their edges.
+/// §5.1.5).
+///
+/// Degenerate and sliver triangles (`|ab × ac| <= 1e-8 · max_edge²`, i.e. height below about
+/// 1e-8 of the longest edge) use the closest point of their edges instead: Ericson's region
+/// tests are ill-conditioned there, and the edges are within the sliver's height of the
+/// exact answer.
 pub fn point_triangle_closest(p: Point3, tri: &Triangle3) -> Point3 {
     let (a, b, c) = (tri.a, tri.b, tri.c);
     let ab = b - a;
     let ac = c - a;
+    let max_edge2 = ab
+        .length_squared()
+        .max(ac.length_squared())
+        .max((c - b).length_squared());
+    let n2 = ab.cross(ac).length_squared();
+    if n2.is_nan() || n2 <= SLIVER * SLIVER * max_edge2 * max_edge2 {
+        return closest_on_edges(p, a, b, c);
+    }
     let ap = p - a;
     let d1 = ab.dot(ap);
     let d2 = ac.dot(ap);
@@ -297,7 +311,14 @@ pub fn point_triangle_closest(p: Point3, tri: &Triangle3) -> Point3 {
         let w = vc / sum;
         return a + ab * v + ac * w;
     }
-    // Degenerate triangle: closest of the three edges.
+    closest_on_edges(p, a, b, c)
+}
+
+/// Relative height below which [`point_triangle_closest`] treats a triangle as a sliver.
+const SLIVER: f64 = 1e-8;
+
+/// Closest point of the three edges of `(a, b, c)` to `p`.
+fn closest_on_edges(p: Point3, a: Point3, b: Point3, c: Point3) -> Point3 {
     [
         Segment3 { a, b },
         Segment3 { a: b, b: c },
@@ -379,14 +400,37 @@ pub fn segment2_segment2(a: &Segment2, b: &Segment2, tol: &Tolerance) -> Seg2Int
     let u = qp.perp_dot(r) / denom;
     let et = lin / rl;
     let eu = lin / sl;
-    if t < -et || t > 1.0 + et || u < -eu || u > 1.0 + eu {
-        return Seg2Intersection::None;
+    if t >= -et && t <= 1.0 + et && u >= -eu && u <= 1.0 + eu {
+        let t = t.clamp(0.0, 1.0);
+        let u = u.clamp(0.0, 1.0);
+        return Seg2Intersection::Point {
+            t,
+            u,
+            p: a.a + r * t,
+        };
     }
-    let t = t.clamp(0.0, 1.0);
-    let u = u.clamp(0.0, 1.0);
-    Seg2Intersection::Point {
-        t,
-        u,
-        p: a.a + r * t,
-    }
+    // The lines cross outside the segments, but at a shallow angle an endpoint can still be
+    // within `lin` of the other segment: check all four, closest wins.
+    let rr = r.length_squared();
+    let ss = s.length_squared();
+    let on_a = |q: Point2| (q - a.a).dot(r) / rr;
+    let on_b = |q: Point2| (q - b.a).dot(s) / ss;
+    let candidates = [
+        (0.0, on_b(a.a).clamp(0.0, 1.0)),
+        (1.0, on_b(a.b).clamp(0.0, 1.0)),
+        (on_a(b.a).clamp(0.0, 1.0), 0.0),
+        (on_a(b.b).clamp(0.0, 1.0), 1.0),
+    ];
+    candidates
+        .into_iter()
+        .map(|(t, u)| (t, u, (a.a + r * t).distance(b.a + s * u)))
+        .filter(|&(_, _, d)| d <= lin)
+        .min_by(|x, y| x.2.total_cmp(&y.2))
+        .map_or(Seg2Intersection::None, |(t, u, _)| {
+            Seg2Intersection::Point {
+                t,
+                u,
+                p: a.a + r * t,
+            }
+        })
 }

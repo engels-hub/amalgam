@@ -979,14 +979,14 @@ pub mod budget {
 |---|---|---|---|---|---|
 | FND-01 | Dev setup doc + toolchain install: rustup, VS Build Tools 2022 17.14 (4 components), CMake 4.3, Ninja 1.13.2, vcpkg at `2026.07.29`, git-lfs, nextest, deny. `scripts/check-env.ps1`. | — | P0 | Done | `docs/dev-setup.md` contains the 9 sections of §1. On the owner's machine `scripts/check-env.ps1` exits 0 and prints every pinned tool version. A throwaway `cargo new` binary builds and runs with the MSVC linker. `vcpkg install zlib:x64-windows` (classic mode, outside the repo) succeeds, which proves the C++ toolchain works. The vcpkg baseline SHA is recorded in the doc. |
 | FND-02 | Cargo workspace: 23 crates from §2 as stubs with architecture-conformant intra-workspace deps, `[workspace.dependencies]`, `[workspace.lints]`, profiles, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.gitattributes`, `.editorconfig`, `.config/nextest.toml`, layering test, `amg-cli` skeleton (`--version`, `info`) | FND-01 | P0 | Done | `cargo build --workspace`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `cargo deny check` all pass locally. `cargo metadata` lists exactly the 23 `amg-*` packages. The layering test passes, and fails when a forbidden edge such as `amg-render → amg-doc` is added (shown in the PR description). `amg-cli --version` prints version + git SHA. |
-| FND-03 | `amg-core` (part 1): math aliases + `gpu` conversions, `Dir3`, `Tolerance`, ids (`define_id!`, `PersistentId` v7/v5), `Aabb3/Aabb2`, `Plane`, `Ray3`, `Line3/Line2`, `Segment3/Segment2`, `Triangle3`, `intersect` module, `Error`/`Result`/`Cancelled`/`Diagnostic`/`report` | FND-02 | P0 | Review | Every Interfaces item for these modules exists with doc comments (`missing_docs` clean). Tests pass: ≥ 1 unit test per pub fn. Proptests: `ray_aabb` agrees with brute-force sampling; `ray_triangle` gives no misses for rays through shared edges/vertices of a 1000-triangle fan (watertightness); `Plane::to_world(to_local(p))` round-trips within 1e-9 mm; `Aabb3::transformed` contains all 8 transformed corners. `PersistentId::derive` is stable across runs (a fixed-vector test). `cargo clippy -D warnings` is clean. |
-| FND-04 | `amg-jobs` CPU job system: two pools, `Job`/`JobCtx`/`JobHandle`/`CancelToken`/`JobInfo`, progress sub-ranges, child jobs, panic capture, notifier, UI-thread guard (no GPU) | FND-02 | P0 | Todo | Tests pass. (a) 1000 jobs spawned, `cancel_all` mid-way: every handle resolves (`Cancelled` or `Succeeded`) within 100 ms and none hang. (b) A panicking job yields `JobError::Panicked` and the system keeps working. (c) Progress is monotone and nested `sub()` ranges map correctly. (d) Cancelling a parent cancels its children. (e) A nested `ctx.wait` in a 1-thread pool completes (no deadlock). (f) `try_take`/`state` never block: criterion shows < 1 µs median. (g) Spawn-to-start latency on an idle pool is < 50 µs median. (h) A Background job saturating its pool does not delay an Interactive job by more than 5 ms. |
-| FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Todo | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
-| FND-06 | Test data infrastructure: `testdata/` with git-LFS patterns, `amg-testkit` metrics (volume, area, bbox, Euler, edges, Hausdorff with BVH), golden files + bless workflow, `testdata()` / `gpu_available()` helpers | FND-03 | P0 | Todo | Tests pass. A 10 mm cube soup gives volume 1000 ± 1e-9 mm³ and area 600 ± 1e-9 mm². Sphere tessellations converge to 4/3πr³ (error halves as the triangle count quadruples). Hausdorff of two concentric spheres r=10 and r=10.5 is 0.5 ± 0.01 mm, and 1M-triangle inputs finish in < 2 s. `AMG_BLESS=1` writes a golden file and the next run passes. An un-fetched LFS pointer is skipped locally and fails with `AMG_REQUIRE_TESTDATA=1`. |
+| FND-03 | `amg-core` (part 1): math aliases + `gpu` conversions, `Dir3`, `Tolerance`, ids (`define_id!`, `PersistentId` v7/v5), `Aabb3/Aabb2`, `Plane`, `Ray3`, `Line3/Line2`, `Segment3/Segment2`, `Triangle3`, `intersect` module, `Error`/`Result`/`Cancelled`/`Diagnostic`/`report` | FND-02 | P0 | Done | Every Interfaces item for these modules exists with doc comments (`missing_docs` clean). Tests pass: ≥ 1 unit test per pub fn. Proptests: `ray_aabb` agrees with brute-force sampling; `ray_triangle` gives no misses for rays through shared edges/vertices of a 1000-triangle fan (watertightness); `Plane::to_world(to_local(p))` round-trips within 1e-9 mm; `Aabb3::transformed` contains all 8 transformed corners. `PersistentId::derive` is stable across runs (a fixed-vector test). `cargo clippy -D warnings` is clean. |
+| FND-04 | `amg-jobs` CPU job system: two pools, `Job`/`JobCtx`/`JobHandle`/`CancelToken`/`JobInfo`, progress sub-ranges, child jobs, panic capture, notifier, UI-thread guard (no GPU) | FND-02 | P0 | Done | Tests pass. (a) 1000 jobs spawned, `cancel_all` mid-way: every handle resolves (`Cancelled` or `Succeeded`) within 100 ms and none hang. (b) A panicking job yields `JobError::Panicked` and the system keeps working. (c) Progress is monotone and nested `sub()` ranges map correctly. (d) Cancelling a parent cancels its children. (e) A nested `ctx.wait` in a 1-thread pool completes (no deadlock). (f) `try_take`/`state` never block: criterion shows < 1 µs median. (g) Spawn-to-start latency on an idle pool is < 50 µs median. (h) A Background job saturating its pool does not delay an Interactive job by more than 5 ms. |
+| FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Review | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
+| FND-06 | Test data infrastructure: `testdata/` with git-LFS patterns, `amg-testkit` metrics (volume, area, bbox, Euler, edges, Hausdorff with BVH), golden files + bless workflow, `testdata()` / `gpu_available()` helpers | FND-03 | P0 | Done | Tests pass. A 10 mm cube soup gives volume 1000 ± 1e-9 mm³ and area 600 ± 1e-9 mm². Sphere tessellations converge to 4/3πr³ (error halves as the triangle count quadruples). Hausdorff of two concentric spheres r=10 and r=10.5 is 0.5 ± 0.01 mm, and 1M-triangle inputs finish in < 2 s. `AMG_BLESS=1` writes a golden file and the next run passes. An un-fetched LFS pointer is skipped locally and fails with `AMG_REQUIRE_TESTDATA=1`. |
 | FND-07 | Diagnostics: `diag::init` (tracing, env-filter `AMG_LOG`, rolling file logs, optional `tracy` feature), panic hook with `crash-<utc>.txt`, `RecoveryHook` registry; wired into `amg-cli` | FND-04 | P1 | Todo | An integration test runs a child process that panics. Afterwards the log file contains the panic message and a backtrace, `crash-*.txt` exists with version, git SHA and the last log lines, and the registered test recovery hook ran: stderr contains `Recovery file: <path>` and the file exists. A panic inside a job does not end the process. `amg-cli info` writes to the log. |
 | FND-08 | Benchmark harness: `amg_testkit::budget::BUDGETS` (one per vision budget row), criterion placeholder benches `budget/<id>`, optional `workflow_dispatch` bench job | FND-06 | P1 | Todo | `cargo bench -p amg-testkit -- --test` runs one placeholder per vision budget row (7 rows today). A unit test asserts `BUDGETS.len()` equals the number of rows parsed from `docs/00-vision.md`. The bench job can be triggered manually and uploads the criterion HTML report. |
 | FND-09 | `amg-jobs::gpu`: `GpuConfig` (+ `AMG_WGPU_BACKEND`), `Gpu` (instance/adapter/device/queue, optional features, device-lost flag), `upload`/`storage`/`Readback`, compute-pipeline cache; `amg-cli info` prints adapter. **Gate: ADR-004 (wgpu) accepted.** | FND-04 | P0 | Todo | The smoke test (add two 1M-element f32 buffers in WGSL) matches the CPU result bit-exactly on the owner's RTX 5060 Ti (DX12) and on WARP in CI. `Readback::try_get` returns `None` at least once before `Some` in a polled test, and never blocks for more than 1 ms per call. Pipeline-cache tests: the same desc gives `Arc::ptr_eq`, and an invalid WGSL gives `GpuError::Shader` with a message. Without an adapter the GPU tests skip (and fail if `AMG_REQUIRE_GPU=1`). `Gpu::new` takes < 300 ms on the owner's machine. A doc example shows building `egui_wgpu::WgpuSetup::Existing` from a `Gpu`, compiled as a doctest only if egui-wgpu is already a workspace dep, otherwise as a `text` block. |
-| FND-10 | `amg-core::units` (part 2 of core): `Dimension`, `Quantity`, typed quantities, `Unit` table, `LengthUnit`, `parse_quantity` (grammar in units note §7), `format_quantity` (Decimal/Fraction/FeetInch/Exact), `ParseQuantityError` with spans | FND-03 | P0 | Todo | Tests pass. Every `Unit` symbol and alias parses (table-driven test generated from `Unit::all()`). Examples: `1/4 in` = 6.35 mm, `1 1/4"` = 31.75 mm, `5' 3 1/2"` = 1612.9 mm, `30 deg` = π/6, `20 degC` = 293.15 K, `7.85 g/cm^3` = 7.85e-9 t/mm³, `-.5e1 mm` = −5 mm. Errors carry correct spans for `12,5 mm`, `3 foo`, `1/0 in` and `1 m 20 cm`. Proptest round-trip: `Exact` style round-trips bit-for-bit, and `Decimal` stays within ½ ulp of the printed precision. `Fraction` prints `1 1/4 in` for 31.75 mm. Parsing a typical literal takes < 1 µs median (criterion). |
+| FND-10 | `amg-core::units` (part 2 of core): `Dimension`, `Quantity`, typed quantities, `Unit` table, `LengthUnit`, `parse_quantity` (grammar in units note §7), `format_quantity` (Decimal/Fraction/FeetInch/Exact), `ParseQuantityError` with spans | FND-03 | P0 | Done | Tests pass. Every `Unit` symbol and alias parses (table-driven test generated from `Unit::all()`). Examples: `1/4 in` = 6.35 mm, `1 1/4"` = 31.75 mm, `5' 3 1/2"` = 1612.9 mm, `30 deg` = π/6, `20 degC` = 293.15 K, `7.85 g/cm^3` = 7.85e-9 t/mm³, `-.5e1 mm` = −5 mm. Errors carry correct spans for `12,5 mm`, `3 foo`, `1/0 in` and `1 m 20 cm`. Proptest round-trip: `Exact` style round-trips bit-for-bit, and `Decimal` stays within ½ ulp of the printed precision. `Fraction` prints `1 1/4 in` for 31.75 mm. Parsing a typical literal takes < 1 µs median (criterion). |
 | FND-12 | Native crash capture: out-of-process minidumps via `crash-handler` + `minidumper` (access violations inside C++ deps), wired into `amg-app` and `amg-cli` | FND-07, BREP-01 | P2 | Todo | A test binary that dereferences null through FFI produces a `.dmp` in the crash dir, and the recovery hooks ran. The dump opens in WinDbg/`minidump-stackwalk` with symbolised Rust frames. |
 
 FND-11 is reserved for analytic curve primitives in `amg-core`. Create it when S02/S03
@@ -1227,3 +1227,232 @@ resolve. The layering allow-list also admits `amg-mesh -> amg-manifold-sys` (ADR
   - `PersistentId` deliberately has no `Default` (a random id must be asked for explicitly).
   - `Aabb3::center` is NaN for an empty box; `size`/`diagonal` are zero.
   - `Seg2Intersection::Overlap { t0, t1 }` are parameters on the first segment, `t0 < t1`.
+
+### 2026-10-20 — FND-10 (`amg-core::units`, lane E)
+- **`Error::Parse` and `Error::DimensionMismatch` added** as specified, with `Diagnostic`
+  hints (`Parse` delegates to the new additive `impl Diagnostic for ParseQuantityError`).
+  `ParseQuantityError` also derives `Eq`.
+- **New unit `Unit::TonnePerCubicMillimetre` (`t/mm^3`, scale 1)**, not in the note's table.
+  Every dimension now has a canonical unit, which `FormatStyle::Exact` needs for its
+  fallback (below); FEA decks use t/mm³ directly. `Unit::all()` has 49 entries.
+  `FormatSpec::for_unit(TonnePerCubicMillimetre)` is `FormatSpec::EXACT` (values ~1e-9).
+- **Typed accessors are `to_*`** (`p.to_mpa()`, `m.to_kg()`, `l.to_inches()`), because the
+  constructors already use the bare names (`Pressure::mpa(v)`); the note's `p.mpa()` would
+  collide. `Length::to_mm`/`Angle::to_rad` exist besides `get()`. Additive on every typed
+  quantity: `DIMENSION`, `in_unit(Unit) -> Result<f64>`, `AddAssign`/`SubAssign`,
+  `f64 * T`. Additive cross-type ops beyond the listed ones: `Length*Area`, `Area/Length`,
+  `Volume/Length`, `Volume/Area`, `Pressure*Area`, `Density*Volume`, `Energy/Length`.
+- Other additive items: `Dimension::new`, `Unit::scale()`, `Display` for `Unit` (symbol)
+  and `Quantity` (canonical value + `Dimension`), `LengthUnit::ALL`,
+  `TryFrom<Unit> for LengthUnit` (`Err(unit)`), `FormatSpec::EXACT`.
+- Clarifications of behaviour the interface left open:
+  - Conversion is `canonical = (v + offset) · scale` with the offset in the unit itself
+    (°C +273.15, °F +459.67, scale 5/9), equal to the note's figures. Units without an
+    offset multiply only, so `-0.0` keeps its sign.
+  - `Dimension` exponent arithmetic saturates at the `i8` range. `Display`: named units for
+    the twelve constants (`1` for dimensionless), otherwise `mm*t/s^3`, `1/s^2/K`.
+  - `checked_add`/`checked_sub` report `expected = self.dim`; `in_unit`/`expect_dim` report
+    the unit's/requested dimension as `expected`.
+  - `Angle::normalized_0_2pi` is `[0, 2π)`, `normalized_pm_pi` is `(-π, π]`.
+  - Parser: feet-inch accepts any foot/inch alias and no space after `'` (`5'3"`); its value
+    is returned in inches (`5' 3"` → 63, `Unit::Inch`). Mixed numbers do not require a
+    proper fraction. Spans: `ZeroDenominator` covers the fraction (`1/0`), `DecimalComma`
+    the comma, `UnknownUnit` the token up to the next whitespace, `Trailing` from the first
+    unexpected byte to the end, `InvalidNumber` the token including its sign.
+  - `FormatStyle::Fraction` uses binary denominators (1, 2, 4, … ≤ `max_denominator`) and
+    matches within the printed precision `0.5 · 10^-precision`; otherwise it prints decimals.
+    `FeetInch` requires a length (any target unit), ignores `show_unit`, prints `5' 3 1/2"`,
+    `5'`, `3 1/4"`, `0"`, and carries rounded inches into feet.
+  - `FormatStyle::Exact` prints the shortest round-trip decimal (`{}`; exponent form `{:e}`
+    outside `[1e-5, 1e16)`). If no `f64` in the target unit converts back to the identical
+    canonical bits (non-power-of-two scales leave gaps; overflow), it prints the canonical
+    unit instead and always shows its symbol, so the bit-for-bit contract holds for every
+    unit.
+  - The `Decimal` round-trip bound also allows the float rounding of the unit conversion
+    (a few ulp of the value), which the note's formula leaves out.
+  - `format_quantity` returns `Err(InvalidArgument)` for NaN/±inf.
+- `amg-core` gains `criterion` as a dev-dependency (bench `units`: `units/parse_quantity/*`,
+  `units/format_quantity/*`).
+
+### 2026-10-20 — review fixes for FND-03 and FND-10 (`amg-core`, lane E)
+- **`line_line`** now computes `s = ((w × db)·n)/|n|²`, `t = ((w × da)·n)/|n|²` with
+  `n = da × db`, `w = b.point − a.point`. The old `1 − (da·db)²` denominator cancelled to 0
+  for angles below about 1.5e-8 rad that still pass the `tol.angular` check, giving NaN.
+- **`point_triangle_closest`**: slivers with `|ab × ac| ≤ 1e-8 · max_edge²` (height below
+  about 1e-8 of the longest edge) return the closest point of the three edges. Ericson's
+  region tests gave wrong points for them (up to 22.9 mm off for 10 mm slivers). The edge
+  answer is within the sliver height of the exact one.
+- **`segment2_segment2`** now honours its documented endpoint tolerance in the non-parallel
+  case: if the lines cross outside the segments, an endpoint within `tol.linear` of the
+  other segment still gives `Point` (the closest of the four endpoint checks; `t`/`u` are
+  the endpoint's and its projection's parameters, `p` is on the first segment).
+- **`report` does not render hints** (a `dyn Error` has none); the Interfaces comment
+  "message + hint + source chain" is met by the additive
+  `report_diagnostic(e: &dyn Diagnostic) -> String` (user message, `  hint: …` line, then
+  the `  caused by: …` chain), re-exported at the crate root.
+- **`parse_quantity` rejects overflow**: a magnitude (decimal, fraction, mixed number) or
+  feet-inch total that is not finite (`1e400`, 400-digit integers) is `InvalidNumber`
+  spanning the number (the whole literal for feet-inch). Underflow (`1e-400`) parses as 0.
+- **Whitespace** in quantity literals is space, tab, CR, LF, NBSP (U+00A0) and narrow NBSP
+  (U+202F), both around the literal and between its parts.
+- **`Decimal` and `Fraction` never print `inf`**: a finite value that overflows in the target
+  unit (only units with scale < 1, e.g. `f64::MAX` mm in µm) is printed as `Exact` in the
+  canonical unit with its symbol, so the output always parses back. The round-trip
+  proptests now cover every finite `f64`.
+- **`Temperature` is affine**: it no longer has `Add`, `AddAssign`, `SubAssign`, `Neg`,
+  `Mul<f64>`, `f64 * Temperature`, `Div<f64>` or `Div<Self>`. `Temperature - Temperature`
+  returns the difference in kelvin as `f64`, and `Temperature::offset_k(dk)` applies one.
+  Nothing in the workspace used the removed operators. All other typed quantities keep the
+  full linear set.
+- New criterion bench `amg-core/benches/geom.rs` (`geom/ray_triangle`, throughput in
+  ray/triangle tests per second; target ≥ 50 M/s). Measured 2026-10-20: about 63 M tests/s
+  on one thread on a loaded dev machine (Windows 11, MSVC).
+
+### 2026-10-20 — FND-04 (`amg-jobs` CPU job system, lane E)
+Additive:
+- `JobState::is_finished(&self) -> bool`.
+- `JobSystemConfig` derives `Clone` and `Default` (the derived `Default` is the spec's).
+  `JobSystem`, `JobSystemConfig`, `JobCtx` and `JobHandle` have hand-written `Debug` impls
+  (the workspace lint `missing_debug_implementations` applies).
+
+Behaviour the interface left open (now documented on the items):
+- `JobSystem::jobs()` lists *unfinished* non-hidden jobs, sorted by id. A job leaves the list
+  before its handle reports finished, and `cancel(id)` returns `false` for finished jobs.
+- Cancelling a *queued* job through `JobHandle::cancel`, `JobSystem::cancel` or `cancel_all`
+  finishes it as `Cancelled` immediately; the pool skips it later. A queued child cancelled only
+  through its parent's token resolves when a pool thread reaches it (it does not run).
+- `JobCtx::spawn_child` on a detached context (`detached` / `with_token`) runs the child inline,
+  synchronously. Such children get ids from a separate counter starting at `1 << 63`.
+- `JobCtx::wait` off a pool thread blocks (condvar); on a pool thread it work-steals with
+  `rayon::yield_now` and, when idle, parks for 200 µs slices. `wait` and `wait_blocking` panic if
+  the result was already taken with `try_take`.
+- `JobSystem::shutdown`: jobs spawned afterwards are cancelled immediately.
+- Progress messages arriving faster than 30 Hz are dropped (the fraction is never dropped).
+  Progress notifications are rate-limited to 30 Hz per job; state-change notifications are not.
+  Panics in the notifier are swallowed.
+- Background below-normal priority uses a minimal `kernel32` FFI (`SetThreadPriority`) in
+  `amg-jobs/src/os.rs`; it is a no-op on non-Windows targets.
+- `JobInfo::started` is set when a pool thread picks the job up (always `Some` once `Running`).
+- `Diagnostic for JobError<E>`: `Failed` delegates to `E` (so a failure that is itself a
+  cancellation stays `is_cancelled`); `Cancelled` is `Severity::Info` with `is_cancelled()`;
+  `Panicked` is an `Error` with a generic "internal error" user message and a hint, while the
+  panic text stays in `Display` / `report()` for logs.
+- `.config/nextest.toml`: tests named `timing_*` run alone (`threads-required =
+  "num-test-threads"`); the `ci` profile also retries them twice.
+
+### 2026-10-20 — FND-05 deviations from §7 (lane E)
+CI files: `.github/workflows/ci.yml`, the local composite action `.github/actions/vcpkg/action.yml`,
+`vcpkg.json` (no deps, `builtin-baseline` = `9e593bb1…` = tag `2026.07.29`),
+`vcpkg-configuration.json` (overlay `./triplets`), `triplets/x64-windows-amg.cmake`. Where the
+implementation differs from §7:
+- **Action versions.** §7 says `actions/cache@v4`. The current majors on 2026-10-20 are used
+  instead, each pinned by commit SHA with a version comment: `actions/checkout` v7.0.1,
+  `actions/cache` v6.1.0, `actions/upload-artifact` v7.0.2, `Swatinem/rust-cache` v2.9.3,
+  `taiki-e/install-action` v2.87.29, `actions/download-artifact` v8.0.2. Tools:
+  `cargo-nextest@0.9`, `cargo-deny@0.20`.
+- **Concurrency.** `cancel-in-progress` is `true` only for `pull_request` events. Pushes to
+  `main` are never cancelled, so every `main` commit gets a complete run and saves caches.
+- **Toolchain step.** Every job runs `rustup toolchain install --no-self-update` (reads
+  `rust-toolchain.toml`) before rust-cache, instead of relying on the first `cargo` call. It
+  makes the install explicit and ensures rust-cache keys on the pinned rustc.
+- **vcpkg steps** live in one composite action (`.github/actions/vcpkg`) used by `clippy`,
+  `test` and `bench`. `fmt`, `deny` and `golden` don't need it (`golden` runs prebuilt,
+  statically linked binaries). The action fails fast if the cloned tag's commit differs from
+  `builtin-baseline`. It sets `VCPKG_DEFAULT_TRIPLET` and `VCPKG_DEFAULT_HOST_TRIPLET` to
+  `x64-windows-amg` (host tools are built once, release-only), and installs with
+  `--x-buildtrees-root=<runner.temp>b` to keep OCCT build paths under MAX_PATH.
+  BREP-01: if OCCT needs runtime resource files from `vcpkg_installed/`, add the action back to
+  `golden`.
+- **vcpkg cache key** is `vcpkg-<triplet>-<ImageVersion>-<hash(vcpkg.json, vcpkg-configuration.json,
+  triplets/**)>`, with restore keys `vcpkg-<triplet>-<ImageVersion>-`, `vcpkg-<triplet>-` and
+  `vcpkg-`. `ImageVersion` is a runner machine variable, not part of the `env` expression
+  context, so a step reads `$env:ImageVersion` and passes it to the key as a step output. With the §7 key a runner-image compiler update would hit the exact key, so the
+  rebuilt binaries would never be saved. Known limitation: the `files` directory grows with
+  stale ABI entries until the key prefix changes.
+- **golden LFS.** It checks out with `lfs: false`, writes `git lfs ls-files --long` object ids to
+  `.lfs-assets-id`, restores `.git/lfs` from `actions/cache` keyed by that file's hash, and then
+  runs `git lfs pull`. `lfs: true` on checkout would download everything before the cache is
+  restored, so the cache would never save bandwidth. The job also sets
+  `AMG_REQUIRE_TESTDATA=1` and runs nextest with `--no-tests=pass` (there are no `golden_`
+  tests yet).
+- **golden doesn't rebuild.** `test` runs `cargo nextest archive --profile ci` and uploads the
+  archive (artifact `nextest-archive`, kept 1 day). `golden` downloads it and runs
+  `cargo nextest run --archive-file … --workspace-remap . --extract-to <runner.temp>
+extest
+  --extract-overwrite -E 'test(golden_)'` on the LFS checkout. `test` runs
+  `-E 'not test(golden_)'`, so golden tests run once, with their data. The archive round-trip
+  and the remap were checked locally on Windows with nextest 0.9.148.
+- **clippy** runs twice: default features and `--all-features`, so feature-gated code is linted.
+- **WARP.** The local action `.github/actions/install-warp` downloads the
+  `Microsoft.Direct3D.WARP` NuGet package, pinned to version 1.0.20 with its sha256 (the
+  version wgpu's CI uses; 1.0.21 also exists). It copies `d3d10warp.dll` into
+  `target/debug` and `target/debug/deps` (in `golden`, the extract tree). The loader searches
+  the exe's directory before System32, so this DLL is used instead of the image's inbox copy,
+  and `AMG_REQUIRE_GPU=1` doesn't depend on what the runner image ships. This is the same
+  approach as wgpu's xtask `install-warp`. The DLL is CI-only and never shipped.
+- **bench job** runs only on `workflow_dispatch` with the input `bench: true`, so a manual
+  dispatch for an ordinary CI run doesn't also run benches. FND-08 adds the benches it runs.
+
+### 2026-10-20 — FND-06 (`amg-testkit`, lane E)
+- **`amg-testkit` depends on `amg-core`** (the interface's `TriSoup` borrows
+  `amg_core::Point3` and `MeshMetrics` holds an `amg_core::Aabb3`). The FND-02 layering
+  allow-list had `amg-testkit -> {}`; it is now `amg-testkit -> {amg-core}`. It still depends
+  on no other workspace crate. Consequence for `amg-core` only: its *unit* tests
+  (`#[cfg(test)]` inside the lib) cannot pass their `amg_core` types to testkit functions,
+  because the dev-dependency cycle links a second copy of `amg-core` and the types do not
+  unify (a compile error, not a silent bug). `amg-core` integration tests (`tests/*.rs`) see
+  the same single copy as the testkit and may use it. The layering test therefore keeps
+  allowing the `amg-core -> amg-testkit` dev edge.
+- **Third-party deps:** `rayon` (parallel BVH build and queries), `toml` (golden files),
+  `wgpu` + `pollster` (`gpu_available` probes one adapter per process; `AMG_WGPU_BACKEND`
+  `dx12|vulkan|warp` is honoured, `warp` = DX12 fallback adapter), `criterion` (dev).
+  `wgpu`/`pollster` sit behind the default-on cargo feature **`gpu`**; a crate that uses
+  `amg-testkit` with `default-features = false` gets a `gpu_available()` that always skips
+  (and panics under `AMG_REQUIRE_GPU=1`, since its GPU tests cannot run).
+  `wgpu` is the workspace pin FND-09 also uses; it brings `cargo deny` duplicate *warnings*
+  for `hashbrown` and `syn` (not errors).
+- Additive API:
+  - `TriSoup::corners(t)`; `one_sided_hausdorff(from, to, samples)`.
+  - `shapes::{TriMesh, cube, icosphere}` (also `amg_testkit::TriMesh`): reference meshes for
+    tests. `icosphere(c, r, k)` has `20·4^k` triangles, so each step quadruples the count.
+  - `testdata_dir()` and `external_testdata(rel)`: resolves `$AMG_TESTDATA_DIR/<rel>` and
+    skips (never fails, CI has no such corpus) when the variable is unset or the file is
+    absent. `testdata/external.toml` is the manifest format (path, sha256, source).
+  - `GoldenTolerances: Default` (1e-6 rel volume/area, 1e-6 mm bbox, no Hausdorff).
+- Clarifications of behaviour the interface left open:
+  - `MeshMetrics::vertices` counts distinct *referenced* indices; edges/Euler use indices as
+    given (callers weld first if their mesh does not share vertices). Self-loop edges of
+    degenerate triangles (`[a, a, b]`) are skipped, so they never count as boundary edges.
+    `MeshMetrics` rejects unknown fields when deserialised.
+  - `signed_volume` sums about the bbox centre to avoid cancellation far from the origin.
+  - `hausdorff` queries every referenced vertex plus `samples` area-weighted points per
+    direction (vertices catch corners and spikes; `samples == 0` means vertices only).
+    Sample `i` comes from a SplitMix64 stream seeded with `SEED + i`; BVH queries stop early
+    once a point cannot raise the running max, which keeps the max exact, so the result is
+    bit-identical regardless of thread count. A direction *from* a soup without triangles
+    contributes 0, a direction *to* one is `+inf`: both empty gives 0, exactly one empty
+    `+inf`. A zero-area soup is measured by its vertices only.
+  - `testdata(rel)` / `external_testdata(rel)` panic if `rel` is absolute or has `.`/`..`
+    components; `testdata` also panics if the file does not exist (a typo is a bug, not a
+    skip).
+  - Golden files: unknown keys (in the file, `[tolerances]` or `[metrics]`) are errors, so a
+    typo such as `hausdorff_ab` or `[tolerance]` fails instead of disabling a check. Bless
+    keeps the existing `[tolerances]` table (hand-tuned once); it is read on its own, so a
+    `[metrics]` schema change cannot drop it. Bless refuses (panics) if the file is not TOML,
+    has unknown top-level keys or an invalid `[tolerances]`, and whenever the `CI` variable
+    is set. When `hausdorff_abs` is set, bless also writes `<case>.stl` (binary STL, f32,
+    LFS-tracked) next to the TOML, and deletes a stale one when it is not; the check computes
+    the Hausdorff distance to it with 20 k samples, and an un-fetched reference skips that
+    check locally and fails with `AMG_REQUIRE_TESTDATA=1`. Counts are compared exactly.
+    Volume and area pass when `|a - e| <= rel * max(|e|, scale)` with `scale = d³` (volume)
+    or `d²` (area), `d` the expected bbox diagonal, so near-zero values (open or flat soups)
+    do not turn round-off into a huge relative error. Golden tests should be named
+    `golden_*` for CI's `golden` job filter.
+  - LFS patterns in `.gitattributes` are repo-wide (`*.stl *.3mf *.step *.stp *.obj *.ply
+    *.amg`, plus upper-case `STL/STEP/STP`), so golden reference meshes are covered too.
+- Measured: `hausdorff` on two 1 310 720-triangle icospheres, 100 k samples each, BVH builds
+  included (vertex queries too): **~0.87 s** median (criterion, bench profile,
+  `benches/hausdorff.rs`), target < 2 s.
+- Leftovers for MESH-01 integration: `TriMesh::from_flat` (flat `[f64]` / `[u32]` buffers),
+  `TriMesh::from_f32` (GPU/STL-style f32 positions) and a `welded(tol)` helper so unwelded
+  soups give meaningful topology metrics. Not done in FND-06.

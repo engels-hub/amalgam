@@ -1,0 +1,8 @@
+# Files expected under $AMG_TESTDATA_DIR (not in the repo). See README.md.
+# One [[file]] entry per file; tests skip a file that is absent.
+#
+# [[file]]
+# path = "kernel/loft/owner/bracket-sections.step"   # relative to AMG_TESTDATA_DIR
+# sha256 = "<64 hex digits>"
+# source = "owner, private"                           # where it came from / licence
+# used_by = "S20 KH-05"

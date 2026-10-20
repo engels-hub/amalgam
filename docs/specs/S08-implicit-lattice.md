@@ -56,3 +56,5 @@ benchmarks at multiple resolutions.
 
 ## Open questions
 1. Adopt `fidget` vs own evaluator — evaluate during refinement (licence MPL-2.0, fine).
+2. (from S10, 2026-10-20) IMP-05 writes an `ExternalLayer` (Rgba16Float premultiplied colour + R32Float reversed-Z depth) and copies the `Camera` WGSL layout from `docs/notes/viewport-rendering.md` §14, since `amg-implicit` cannot depend on `amg-render`.
+3. (from S12, 2026-10-20) IO-18 (3MF Beam Lattice read/write) depends on IMP-06; agree the beam/ball representation it converts to and from.

@@ -692,7 +692,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| SK-01 | Entity model, `ParamStore` layout, sketch plane (`amg_core::Plane`), constraint/dimension data types, ids, validation, serde | FND-03 | P0 | Todo | 1. All P0 entity kinds (point, line, circle, arc) and every `ConstraintKind`/`DimensionKind` variant can be created through the API. 2. Kind validation returns `WrongEntityKind` (≥ 1 negative test per variant). 3. Three fixture sketches round-trip through serde bit-identically. 4. `remove_entities` cascades to constraints (unit test). |
+| SK-01 | Entity model, `ParamStore` layout, sketch plane (`amg_core::Plane`), constraint/dimension data types, ids, validation, serde | FND-03 | P0 | Done | 1. All P0 entity kinds (point, line, circle, arc) and every `ConstraintKind`/`DimensionKind` variant can be created through the API. 2. Kind validation returns `WrongEntityKind` (≥ 1 negative test per variant). 3. Three fixture sketches round-trip through serde bit-identically. 4. `remove_entities` cascades to constraints (unit test). |
 | SK-02 | Residuals + analytic Jacobians for all P0 constraints and dimensions; `system::Residual`; chirality capture | SK-01 | P0 | Todo | 1. Every P0 constraint and dimension passes a central-difference Jacobian check (relative error < 1e-6) on 1000 random configurations each (proptest). 2. Captured `Side`/`TangentKind`/`AngleBranch` make the residual zero at creation (unit test). |
 | SK-14 | Solver test corpus + runner: corpus file format (JSON), `.slvs` 2D importer, ezpz text importer, hand-ported PlaneGCS cases, expected-result schema | SK-01 | P0 | Todo | 1. `testdata/sketch/corpus/` holds ≥ 120 cases: ≥ 60 from SolveSpace 2D (`test/constraint/*`), ≥ 20 PlaneGCS, ≥ 20 ezpz, ≥ 20 own. 2. Each case has expected DOF and status. 3. The runner reports pass/fail per case. 4. Licence notices are in each source subfolder. |
 | SK-13 | Solver prototype + ADR-007 benchmark: native prototype vs `libslvs` (feature `slvs`) vs ezpz on decision cases D1–D10 (note §5) | SK-02, SK-14 | P0 | Todo | 1. `docs/notes/sketch-solver-benchmark.md` reports every §5.3 metric for every option on D1–D10. 2. Proposed ADR-007 wording is in the PR. 3. The owner's decision is recorded. *This WP produces the decision, so it is not behind the ADR-007 gate.* |
@@ -710,7 +710,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Todo | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
 | SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Todo | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
 | SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Todo | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
-| SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-09, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
+| SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
 | SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Todo | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
 | SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Todo | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
 | SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Todo | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
@@ -948,4 +948,102 @@ Reference machine (vision doc), single thread.
 - The papers listed above (full citations in the note §2.5)
 
 ## Interface changes
-None yet (spec not `Ready`).
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S02 (B-rep kernel).**
+  - SK-09 now depends on BREP-17 (`plane_section`, `project_edges`) instead of BREP-09; applied in
+    the WP table. SK-08's section sketch on B-rep can use `plane_section` too.
+  - SOL-02/03 pass profiles through `make_planar_faces` with a `geom::Tag` per edge; the tag is
+    the sketch entity key, so the profile API must expose the entity key of each profile edge.
+- **From S05 (construction).** Optional: CON-03 offers `amg_features::construct::resolve` for
+  sketch-plane resolution (planar faces and construction planes), which avoids duplicated
+  plane-from-face code in SK-19/UI-09.
+- **From S11 (UI shell).**
+  - R5: `SketchEdit::SetDimensionLabel { id, pos }`.
+  - Clarify that `query::*` may run on the UI thread; the "not on the UI thread" rule covers the
+    solver entry points only.
+  - R6: label positions are UI-only and must not change the sketch feature's cache key (see S01
+    Interface changes, `Feature::key_data()`).
+- **From S12 (import/export).** SK-11 uses `dxf` 0.6.2 (MIT) and `usvg` 0.48.1 (Apache-2.0 OR
+  MIT) and maps `$INSUNITS` with the same table as IO-08 (`docs/notes/import-export-formats.md`).
+
+### 2026-10-20 — SK-01 (data model, lane B; updated after review the same day)
+- **Changed signatures:**
+  - `TangentKind::AtEndpoint { a_end: End, b_end: End, reversed: bool }` (was
+    `{ reversed }`). It names which end of each curve is tangent, so two arcs sharing both
+    endpoints (a lens) are unambiguous. `End { Start, End }` now lives in `amg_sketch::model`
+    (re-exported at the root, with serde) and SK-06's `profile` reuses it.
+  - `Sketch::add_point`, `Sketch::add_line` and `Sketch::alloc_param` return
+    `Result<_, SketchError>` and reject non-finite input with `InvalidValue` in every build.
+- **Deferred to their WPs (additive later; new serde variants do not break old files):**
+  `EntityKind::{Ellipse, EllipticArc}` and `DimensionKind::{EllipseMajor, EllipseMinor}`
+  (SK-22); `EntityKind::{Spline, Conic}`, `SplineDef` and `ConstraintKind::Curvature`
+  (SK-08). `geom::Curve2` has only `Line`/`Circle`/`Arc` for now (`Ellipse`/`BSpline` with
+  SK-22/SK-08). `Curve2` methods and `geom::intersect`/`CurveHit` land with SK-06;
+  `Sketch::add_constraint_oriented` with SK-02; `SketchGeom`/`ProfileKey` with SK-06/SK-15
+  (they need `SolveReport`/`ProfileSet`). `SketchEntityKey = EntityId` exists now.
+- **Additive:**
+  - `SketchError::UnknownParam(ParamId)`; `SketchError` implements `amg_core::Diagnostic`
+    and `From<amg_core::Cancelled>` (S00 error convention).
+  - Ids are `#[serde(transparent)]` and have `index() -> usize`.
+  - `ParamStore::{set_flags, contains, is_empty}`.
+  - `EntityKind::{name, children, own_params, endpoint(End)}`, `ConstraintKind::{name,
+    entities, as_dimension}`, `DimensionKind::{name, entities}`, `Sketch::point(EntityId) ->
+    Option<Point2>`, `Arc2::from_center_start_end`.
+- **Tangent sign conventions (for SK-02):**
+  - Line–circle/arc, either argument order (an arc uses its circle): orient the line
+    `start → end`, `d = end − start`, `s = cross(d, center − start) / |d|` (positive = centre
+    left of the line). `External` means `s = +r` (circle left of the oriented line);
+    `Internal` means `s = −r` (circle right).
+  - Circle/arc–circle/arc: `External` means `|c1 − c2| = r1 + r2`; `Internal` means
+    `|c1 − c2| = |r1 − r2|`.
+  - `AtEndpoint`: `t_a`, `t_b` are the directions of travel at the named ends (line:
+    `end − start`; arc: CCW tangent). The residual is `cross(t_a, t_b)`, and
+    `reversed == false` means `dot(t_a, t_b) > 0`.
+- **Behaviour the interface left open:**
+  - Revisions are unique process-wide (one global counter), are not serialised, and are fresh
+    after a load. Compare them only for equality. `structure_rev` changes on entity/constraint
+    add/remove, `set_driving`, `alloc_param` and `compact`. `values_rev` changes on those and on
+    `params_mut`, `set_dimension_value`, `set_construction` and `set_plane`.
+  - **Non-finite values.** Construction rejects them. A non-finite value written later through
+    `params_mut()` (for example by a diverged solve) makes *serialising* fail ("sketch
+    parameter i is not finite"), so a saved sketch always loads.
+  - **Load validation.** Deserialising a `Sketch` checks dangling ids, wrong kinds, parameters
+    out of range or owned twice, retired slots, and id counters behind existing ids. It also
+    runs cheap value checks: finite values and label positions, circle radius > 0, arc radius
+    > 0, and arc end on the circle through its start within
+    `Tolerance::DEFAULT.linear · max(1, r)`. The same entity checks run in `add_entity`.
+    Dimension value domains are enforced on add and `set_dimension_value`; on load only
+    finiteness.
+  - **Removal.** `remove_entities` removes dependents (curves built on a removed point) and
+    orphaned points (points of a removed curve that no surviving entity uses), then every
+    constraint touching any of them. `Projected` points are never swept as orphans; removing
+    one explicitly still works. It is atomic: an unknown id removes nothing.
+  - **Retired slots.** Param slots of removed entities and constraints are *retired*: kept in
+    the sketch (serialised as `retired`, omitted when empty), never accepted by `add_entity`
+    again (`NotApplicable`), and dropped by `compact`. `compact` also drops `alloc_param` slots
+    no entity or constraint owns.
+  - `add_arc` projects `end` radially onto the circle through `start`, so the arc's internal
+    equation holds at creation. It returns `Degenerate` when the start or end coincides with
+    the centre, or when the start and end directions coincide within
+    `Tolerance::DEFAULT.angular` (the sweep would be ambiguous between ~0 and 2π). `add_entity`
+    still accepts an arc whose start and end coincide in position (distinct point entities):
+    the SK-04 degenerate case.
+  - `add_entity` with `EntityOrigin::Projected` locks the entity's own params and those of its
+    child points.
+  - Kind validation (`WrongEntityKind`) follows the constraint table. `Tangent::AtEndpoint`
+    needs line/arc pairs with at least one arc. When it is added, the named ends must be the
+    same point entity or be joined by a chain of `Coincident` constraints; otherwise it fails
+    with `NotApplicable`. If the joining `Coincident` is removed later, the tangent stays, since
+    its residual is defined by the stored ends. `Distance` accepts every pair except
+    circle/arc–circle/arc. `Equal` accepts line–line, line–arc and circle/arc–circle/arc.
+    `Symmetric` needs two entities of the same kind and a line axis. `NotApplicable` covers the
+    same entity referenced twice, a point constrained onto its own curve, and a midpoint at the
+    line's own endpoint. Dimension values: distances/length ≥ 0; radius, diameter and arc length
+    > 0; angles finite; label position finite (`InvalidValue`).
+- **For S01 / DOC (`.amg` writer, ADR-010):** a bit-identical JSON round trip needs
+  `serde_json`'s `float_roundtrip` feature when parsing. `amg-sketch` enables it for its own
+  tests; the document loader should enable it too.

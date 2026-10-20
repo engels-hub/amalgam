@@ -857,7 +857,7 @@ inventory::collect!(ExtRegistration);
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| DOC-01 | Core data model: typed ids, `Design`/`DesignMeta`/`Component`/`Occurrence`/`BodyProps`/`ExtRecord`, `PMap`/`PVec` aliases over `imbl`, `DesignSnapshot`, `amg-doc::stub` geometry placeholders, `Evaluated`/`BodyGeom` skeleton; criterion bench imbl vs rpds vs `Arc<Vec<Arc<T>>>` | FND-03 | P0 | Todo | Unit tests create a design with ≥ 3 components, occurrences and body props. Bench at 10⁴ entries shows snapshot clone < 1 µs and one mutation after a clone < 5 µs. Results are recorded in the Refinement log, and the alias is switched if `imbl` misses either number. `serde_json` round-trip of a `Design` is byte-identical twice in a row (determinism). |
+| DOC-01 | Core data model: typed ids, `Design`/`DesignMeta`/`Component`/`Occurrence`/`BodyProps`/`ExtRecord`, `PMap`/`PVec` aliases over `imbl`, `DesignSnapshot`, `amg-doc::stub` geometry placeholders, `Evaluated`/`BodyGeom` skeleton; criterion bench imbl vs rpds vs `Arc<Vec<Arc<T>>>` | FND-03 | P0 | Done | Unit tests create a design with ≥ 3 components, occurrences and body props. Bench at 10⁴ entries shows snapshot clone < 1 µs and one mutation after a clone < 5 µs. Results are recorded in the Refinement log, and the alias is switched if `imbl` misses either number. `serde_json` round-trip of a `Design` is byte-identical twice in a row (determinism). |
 | DOC-02 | `Feature` trait, `FeatureBox` serde via registry, `register_feature!` + `inventory` registry, `UnknownFeature`, `Timeline` (marker, suppression, groups, ordering rule), `link()` convention; test-only features (`test.counter`, `test.box`, `test.add_mesh`) | DOC-01 | P0 | Todo | 1. Timeline of test features serializes and deserializes to equal JSON. 2. An unknown kind loads as `UnknownFeature` and re-serializes byte-identical. 3. A duplicate kind fails at startup. 4. A registry test asserts expected kinds are linked. 5. `MoveFeature` before a dependency is rejected. |
 | DOC-03 | Recompute engine core (synchronous): producer map, `Dependency` resolution, blake3 cache keys with `ENGINE_SALT`, `GeomCache` (LRU by bytes), `RecomputeCtx`, health propagation (error = no effect, upstream causes), suppression/marker handling | DOC-02, DOC-04 | P0 | Todo | Property test on random DAGs of `test.counter` features: after editing feature *k*, exactly the nodes transitively depending on *k* run (counter check); all others hit the cache. A failing feature leaves its input bodies unmodified and gives dependants `ErrorCause::Upstream`. Keys are identical across two process runs. Engine overhead < 5 ms for 200 cached features (criterion). |
 | DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Todo | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
@@ -867,7 +867,7 @@ inventory::collect!(ExtRegistration);
 | DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Todo | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
 | DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Todo | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
 | DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Todo | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
-| DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous. 2. 10 golden cases from the DOC-11 corpus run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut) and resolve to the intended entity (asserted by fingerprint). 3. Zero cases resolve to a wrong entity without a warning. 4. Naming survives save/load. |
+| DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous. 2. 10 golden cases from the DOC-11 corpus run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut) and resolve to the intended entity (asserted by fingerprint). 3. Zero cases resolve to a wrong entity without a warning. 4. Naming survives save/load. |
 | DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of corpus cases resolve to the intended entity after the edit script; the remainder fail with a feature error or warning; **0 silent wrong resolutions**. Runs in CI under 60 s. |
 | DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Todo | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
 | DOC-10 | Configurations: `ConfigTable`, param/suppression overrides, `SetActiveConfig`, per-config cache keys, persistence | DOC-05, DOC-12 | P2 | Todo | Design with 3 configurations: switching recomputes to the expected per-config volumes; switching back is a full cache hit (0 computes); configurations survive save/load. |
@@ -1002,6 +1002,68 @@ Phase 2 lane E (its SOL deps are Phase 2).
   evaluated state and derives `BodyId`. That is a change to the core data model, so an ADR has
   been proposed to the coordinator (not added to 02-decisions.md).
 
+**2026-10-20 — DOC-01 implementation (lane E).**
+- **Benchmark** (`crates/amg-doc/benches/snapshot.rs`, criterion 0.8.2, release, Windows 11 /
+  MSVC, machine shared with parallel builds so treat as upper bounds; median of
+  `--warm-up-time 1 --measurement-time 3`). Value type `Arc<BodyProps>` keyed by `BodyId`.
+
+  | Operation | n | imbl `OrdMap` | rpds `RedBlackTreeMapSync` | `Arc<Vec<Arc<T>>>` |
+  |---|---|---|---|---|
+  | clone | 10³ / 10⁴ / 10⁵ | 4.4 ns / **4.4 ns** / 6.6 ns | 4.1 / 4.5 / 4.6 ns | 4.1 / 4.4 / 6.4 ns |
+  | 1 mutation after clone | 10³ / 10⁴ / 10⁵ | 0.66 µs / **0.61 µs** / 1.0 µs | 0.56 / 1.07 / 1.60 µs | 5.8 µs / 59 µs / 1.85 ms |
+  | 100 mutations after clone | 10³ / 10⁴ / 10⁵ | 26 / 60 / 98 µs | 48 / 100 / 151 µs | 6.0 / 70 µs / 4.2 ms |
+  | ordered iteration | 10³ / 10⁴ / 10⁵ | 9.5 µs / 112 µs / 5.0 ms | 15 µs / 169 µs / 28 ms | 1.6 / 22 / 244 µs |
+  | diff after 1 mutation | 10³ / 10⁴ / 10⁵ | 1.6 / 1.0 / 2.7 µs (`OrdMap::diff`) | 36 µs / 230 µs / 3.6 ms (no diff; full ordered walk) | 0.5 / 9.8 / 82 µs (full walk) |
+  | `Design` clone (`snapshot`) | 10³ / 10⁴ / 10⁵ body props | 191 / **143** / 189 ns | — | — |
+  | `Design::set_body_props` after clone | 10³ / 10⁴ / 10⁵ | 1.13 / **1.00** / 0.99 µs | — | — |
+
+  At 10⁴ entries imbl meets both targets with margin (clone 4.4 ns < 1 µs; one mutation after a
+  clone 0.61 µs < 5 µs; a whole `Design` clone, which also clones the meta strings, 143 ns).
+  **The `PMap` alias stays on `imbl`.** rpds is close on single mutations but has no subtree-
+  skipping diff (DOC-09 relies on it) and iterates 2–6× slower. Per-entity `Arc` COW fails the
+  single-mutation target at 10⁴ (59 µs) as predicted. Its iteration is fastest, which doesn't
+  matter at our sizes.
+- **Licence correction:** `rpds` 1.x is MIT (not MPL-2.0); `imbl` is `MPL-2.0+` on crates.io.
+- **`design.json` encoding:** persistent maps serialize as arrays of `[key, value]` pairs in key
+  order, since most keys are structs (`BodyId`, `ExtKey`) and JSON object keys must be strings.
+  Duplicate keys, unknown fields and broken invariants (root missing, dangling occurrence
+  references, a child list that disagrees with `Occurrence::parent`, component cycles, ids
+  ≥ `next_id`) are load errors. Save → load → save is byte-identical (unit test).
+- **Review fixes (same day).** An independent review found that the public edit API could
+  produce designs that save but don't load. The rule is now: **every edit either succeeds and
+  leaves a design that saves and loads, or fails and changes nothing**, and `Design::validate()`
+  (run on load, public) checks the same invariants. The unit tests save and reload after every
+  edit. In detail:
+  - Body ids (`set_body_props`, `set_baked`) need an allocated origin (`1..next_id`) that isn't a
+    component, occurrence or extension id. Once DOC-02 lands, the origin must also be a timeline
+    feature (TODO in code).
+  - Non-finite values are rejected: transforms must be finite, and opacity must be finite and in
+    `0..=1`. `validate()` also checks finiteness and that the tolerance is positive.
+    `ExtRecord.data` can't hold non-finite numbers (`serde_json::Number` refuses them).
+  - Ids: allocation is checked and bounded by `ID_LIMIT = 2^53`, so ids stay exact in JSON tools
+    that read numbers as f64; an exhausted id space gives `ModelError::IdsExhausted`. On load,
+    `next_id` must be in `1..=2^53`, and every id has exactly one owner across components,
+    occurrences, extensions and body-origin features.
+  - Extensions: `ExtRecord.kind` must equal `ExtKey.kind`, an id can't be reused under another
+    kind, and `set_ext` rejects ids owned by other entity types.
+  - `Component::joints` must be empty until S06 adds a joint table, so any joint id is dangling.
+  - Every component must be reachable from the root.
+  - No-op edits (identical props or record, clearing an absent entry, same name) don't bump the
+    revision.
+  - `baked` holds `BakedBody { blob, geom }` (S12 request, see Interface changes).
+- **Wire-format evolution policy.** The wire structs use `deny_unknown_fields`, so a field we
+  don't know is an error, never silently dropped. Consequences:
+  - Every field added later (timeline, params, materials, …) gets `#[serde(default)]` on the
+    wire repr, so older files without it still load.
+  - A purely additive, defaulted field doesn't bump `FORMAT_VERSION`. The older build then
+    refuses the newer file with an unknown-field error rather than misreading it.
+  - DOC-07 decides whether to bump `FORMAT_VERSION` for each such field anyway, so old builds
+    report `TooNew` instead. Any rename, removal or change of meaning bumps the version and adds
+    a migration step with a fixture.
+  - `FORMAT_VERSION` stays 1 until DOC-07 freezes the first format.
+- Bench after the fixes: `Design::set_body_props` after a clone is 0.83 µs at 10⁴ entries
+  (including validation). `Design` clone is 99 ns.
+
 **Sources:**
 - RustSec RUSTSEC-2026-0250 (https://rustsec.org/advisories/RUSTSEC-2026-0250.html)
 - imbl docs (https://docs.rs/crate/imbl/latest)
@@ -1017,4 +1079,115 @@ Phase 2 lane E (its SOL deps are Phase 2).
 - Kripac 1997; Marcheix & Pierra 2002; Farjana & Han 2018
 
 ## Interface changes
-None yet (spec not `Ready`).
+
+### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
+
+Additive requests recorded by the integration pass; the owning lane confirms or adjusts them when it implements the affected WP.
+
+- **From S02 (B-rep kernel).**
+  - DOC-06 now also depends on BREP-06 (its Done-when test features include a fillet); applied in
+    the WP table.
+  - `NamingBuilder::from_history` should take `&[(u16 /*operand*/, &BodyNaming)]`: booleans and
+    patterns have several operands, and `amg_brep::InputSub` carries an `operand` field for this.
+  - `GeomFingerprint` comes from `BrepKernel::sub_geom_all` (`SubShapeGeom`).
+    `amg_brep::geom::GeomClass` mirrors S01's `GeomClass`; DOC-06 adds the `From` impl in `amg-doc`.
+  - The `BodyGeom::Solid` interim mutex can go once BREP-02 lands (`Shape: Send + Sync`). Open
+    question 6 no longer waits on S02 locking.
+  - `GeomCache` byte accounting can use `Shape::estimated_bytes()` / `TessMesh::estimated_bytes()`.
+- **From S05 (inspection).**
+  - `BodyGeom::Mesh` should hold `amg_mesh::MeshBody` instead of `Arc<IndexedMesh>` (S07 already
+    says `MeshBody` is what is stored), so the BVH and analysis are shared per evaluated body
+    across measure, section and picking.
+  - `UnitPrefs` exposes the display length unit, angle unit and precision.
+  - Phase 2: `Evaluated::body_to_world(BodyId, occurrence path)`; optionally
+    `EntityRef::Origin { component, which: OriginEntity }` to unify origin references (S03 uses
+    `PlaneInput::OriginXY..`, S05 uses `RefInput::Origin` meanwhile).
+- **Extension-record ids (S05 and S16, merged).** Add
+  `Command::AddExt { kind, record } -> CreatedId::Ext(ExtKey)` so `amg-doc` allocates
+  `ExtKey.id` (S16 assumes "lowest unused id of that kind"; document the rule either way), plus
+  `Design::exts_of_kind(&self, kind: &str) -> impl Iterator<Item = (&ExtKey, &ExtRecord)>` so
+  `amg-features::{am,inspect}` can list print setups and section analyses.
+- **From S11 (UI shell).**
+  - R1: `naming::topo_ref_at(eval, body, kind, index) -> Option<TopoRef>`.
+  - R2: `Evaluated::resolve_for_display(&Design, &EntityRef) -> Result<Resolved, ResolveError>`.
+  - R3: `Command::RenameComponent`. R4: `Command::SetDesignMeta { name, default_units }`.
+  - R6: a cache-key rule for UI-only data. Moving a sketch dimension label (`label_pos`) changes
+    the sketch feature JSON and so every downstream cache key. Proposal: `Feature::key_data()`,
+    defaulting to `to_json()`, which S03's sketch feature overrides to drop UI-only fields.
+  - R7: `Timeline::valid_move_range(id)`.
+  - Minor: `Document::preview` lacks the error type parameter (should return
+    `JobHandle<_, FeatureError>`); the `amg_doc::Diagnostic` struct shares its name with the
+    `amg_core::Diagnostic` trait (consider renaming the struct).
+- **From S12 (import/export); IO-14 is blocked without these, and MESH-16 already assumes baked
+  mesh bodies in Phase 1.**
+  1. `RecomputeCtx::baked(slot) -> Result<&BodyGeom, FeatureError>`, returning the baked payload
+     for `BodyId { origin: self, slot }`.
+  2. Add a feature together with its baked payloads in one undo entry: either
+     `Command::AddFeature { …, baked: Vec<(u32, BodyGeom)> }` or `Command::SetBaked` inside a
+     `Transaction`.
+  3. The baked map is persisted in `bodies/` by DOC-07 in Phase 1, not first in DOC-08 (Phase 3).
+- **From S17 (materials; MAT-06 implements and flags the PR; typed tables vs extension records is
+  QUESTIONS #39).**
+  - `Design` tables `materials: PMap<MaterialId, Arc<Material>>` and
+    `appearances: PMap<AppearanceId, Arc<Appearance>>`.
+  - Commands `SetMaterial`, `RemoveMaterial` (refused while in use, `CommandError::InUse`),
+    `SetAppearance`, `RemoveAppearance`; events `MaterialChanged`, `AppearanceChanged`.
+  - Accessors `body_material`, `body_appearance`, `material_users`; helpers `assign_material`,
+    `assign_appearance`, `remove_unused_materials` in `amg-doc`.
+  - MAT-02 (Phase 3): `BodyProps.face_appearances: Vec<(FaceSelector, AppearanceKey)>` with
+    `#[serde(default)]`.
+  - `MaterialKey` and `AppearanceKey` are type aliases exported by `amg-materials`, matching the
+    names already in `BodyProps`.
+- **From S20 (kernel hardening).** Feature health shows a `Warning` when `OpResult::warnings`
+  contains `KernelWarning::Strategy` or `FuzzyUsed`. `ENGINE_SALT` already includes
+  `kernel_version()`, which now carries `robust::POLICY_VERSION`.
+
+### 2026-10-20 — DOC-01 (core data model, lane E)
+Additive unless marked; the shapes in Interfaces otherwise hold.
+- **`DesignMeta::uuid` is `amg_core::PersistentId`** (FND-03's UUID v7 newtype, serialized as
+  the hyphenated string), not a raw `Uuid`. `DesignMeta` also carries the crate-private
+  `next_id` counter (§1); `Design::revision()` is runtime only and not serialized (loads as 0).
+- **`JointId`** added to the typed authored ids (Interfaces referenced `JointId /* S06 */`).
+- **`Design` read API** additions: `occurrences()`, `explicit_body_props()`, `baked(id)`,
+  `baked_bodies()`, `exts()`, `occurrence_paths(component)`, `validate()`. `timeline()` and `params()` arrive with DOC-02 and
+  DOC-04 (the fields don't exist yet, so `design.json` grows then; `FORMAT_VERSION` is fixed by
+  DOC-07).
+- **Low-level edit API on `Design`** (pub, documented as the layer DOC-05 commands build on;
+  application code still mutates documents only via `Document::apply`): `Design::new(name)`,
+  `Design::with_uuid(name, uuid)`, `add_component(parent, name, transform) ->
+  (ComponentId, OccurrenceId)`, `add_occurrence(parent, component, transform)` (rejects cycles),
+  `set_body_props(id, props) -> Result<()>` (default props clear the entry),
+  `set_baked(id, Option<BakedBody>) -> Result<()>`, `new_ext_key(kind) -> Result<ExtKey>`,
+  `set_ext(key, Option<ExtRecord>) -> Result<()>`, `set_name(name)`. Errors are the new
+  `ModelError { NotFound, IdInUse, WouldCycle, InvalidValue, IdsExhausted, Inconsistent }`
+  (`#[non_exhaustive]`); DOC-05 maps it into `CommandError`. A failed edit changes nothing, and a
+  no-op edit doesn't bump the revision. `pub const ID_LIMIT: u64 = 1 << 53`.
+- **`Evaluated`** is `Clone + Default`, with `Evaluated::new(revision)`, `nodes()` and
+  builder methods for the engine (`set_body`, `remove_body`, `set_sketch`, `set_construction`,
+  `set_node`). `BodyGeom::same_as(&other)` compares geometry by pointer (for DOC-09).
+- **`BodyGeom::Solid(stub::Shape)`**: the stub `Shape` is a cheap-clone `Send + Sync` handle with
+  `ptr_eq`. The "wrap it in a mutex" fallback (§3) is only needed if BREP-02's real `Shape`
+  isn't `Sync`.
+- **Stubs in `amg-doc::stub`**: `Shape`, `IndexedMesh`, `SdfGraph`, `SubdMesh`, `SketchGeom`
+  (no data), `SketchEntityKey(u64)`, `ProfileKey(u64)`, `MaterialKey(String)`,
+  `AppearanceKey(String)`, and `LengthUnit` (same variants and serde names as S00's
+  `amg_core::units::LengthUnit`, TODO(FND-10)). `UnitPrefs` is `{ length: LengthUnit }` until
+  FND-10 lands. No `amg-jobs` (FND-04) types are needed yet.
+- **`BlobRef(pub String)`**: path of a binary entry inside the `.amg` container. DOC-07 may
+  refine it.
+- **Changed: `Design::baked` is `PMap<BodyId, Arc<BakedBody>>`** (was `PMap<BodyId, BlobRef>`), with
+  `pub struct BakedBody { pub blob: BlobRef, pub geom: Option<BodyGeom> }`. This answers S12's
+  request that baked geometry be in memory before the first save. `geom` is not in
+  `design.json`. DOC-07 writes it to `blob` in `bodies/` on save and fills it back in on load
+  (S12 item 3: Phase 1). `PartialEq` compares geometry by pointer. S12 items 1–2
+  (`RecomputeCtx::baked`, adding a feature together with its baked payloads) remain for
+  DOC-03/DOC-05.
+- **Provisional naming types are in `amg-doc::naming` now** (data only: `EntityRef`, `TopoRef`,
+  `TopoKind`, `TopoName`, `NameSeg`, `Role`, `NameSource`, `GeomFingerprint`, `GeomClass`,
+  `BodyNaming`, `MatchQuality`, `Resolved`, `ResolveError`), because `EvalBody::naming` and
+  `eval::Diagnostic::entities` need them. `TopoName` has `new(segments)` and `segments()` and
+  serializes as an array. `GeomFingerprint` `Eq`/`Hash` quantise to `QUANTUM = 1e-6`
+  (provisional, DOC-11). `NamingBuilder` and the resolver stay in DOC-06.
+- **Naming clash:** `amg_doc::Diagnostic` (struct, per Interfaces) and `amg_core::Diagnostic`
+  (trait) share a name. Kept as specified, with a doc note. `ModelError` and `ResolveError`
+  implement the `amg_core::Diagnostic` trait.

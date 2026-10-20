@@ -1,0 +1,516 @@
+{
+  "plane": {
+    "origin": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "x": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "y": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "normal": [
+      0.0,
+      -1.0,
+      0.0
+    ]
+  },
+  "params": {
+    "values": [
+      -0.0,
+      5e-324,
+      1e+300,
+      -2.5,
+      0.0,
+      0.0,
+      10.0,
+      0.1,
+      0.0,
+      4.0,
+      10.0,
+      6.0,
+      9.0,
+      9.0,
+      8.0,
+      8.0,
+      30.0,
+      0.0,
+      3.0,
+      0.0,
+      20.0,
+      4.0,
+      20.0,
+      -4.0,
+      20.0,
+      1.5,
+      -2.5,
+      3.0,
+      4.0,
+      0.30000000000000004
+    ],
+    "flags": [
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": true
+      },
+      {
+        "locked": true
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": true
+      }
+    ]
+  },
+  "entities": {
+    "0": {
+      "kind": {
+        "Point": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "1": {
+      "kind": {
+        "Point": {
+          "x": 2,
+          "y": 3
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "2": {
+      "kind": {
+        "Point": {
+          "x": 4,
+          "y": 5
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "3": {
+      "kind": {
+        "Point": {
+          "x": 6,
+          "y": 7
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "4": {
+      "kind": {
+        "Line": {
+          "start": 2,
+          "end": 3
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "5": {
+      "kind": {
+        "Point": {
+          "x": 8,
+          "y": 9
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "6": {
+      "kind": {
+        "Point": {
+          "x": 10,
+          "y": 11
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "7": {
+      "kind": {
+        "Line": {
+          "start": 5,
+          "end": 6
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "11": {
+      "kind": {
+        "Point": {
+          "x": 16,
+          "y": 17
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "12": {
+      "kind": {
+        "Circle": {
+          "center": 11,
+          "radius": 18
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "13": {
+      "kind": {
+        "Point": {
+          "x": 19,
+          "y": 20
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "14": {
+      "kind": {
+        "Point": {
+          "x": 21,
+          "y": 22
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "15": {
+      "kind": {
+        "Point": {
+          "x": 23,
+          "y": 24
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "16": {
+      "kind": {
+        "Arc": {
+          "center": 13,
+          "start": 14,
+          "end": 15
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "17": {
+      "kind": {
+        "Point": {
+          "x": 25,
+          "y": 26
+        }
+      },
+      "construction": false,
+      "origin": {
+        "Projected": 7
+      }
+    },
+    "18": {
+      "kind": {
+        "Point": {
+          "x": 27,
+          "y": 28
+        }
+      },
+      "construction": true,
+      "origin": "Imported"
+    },
+    "19": {
+      "kind": {
+        "Line": {
+          "start": 17,
+          "end": 18
+        }
+      },
+      "construction": true,
+      "origin": "User"
+    }
+  },
+  "constraints": {
+    "0": {
+      "kind": {
+        "Coincident": {
+          "a": 0,
+          "b": 1
+        }
+      },
+      "aux": []
+    },
+    "1": {
+      "kind": {
+        "PointOnCurve": {
+          "point": 0,
+          "curve": 12
+        }
+      },
+      "aux": []
+    },
+    "2": {
+      "kind": {
+        "Midpoint": {
+          "point": 1,
+          "line": 4
+        }
+      },
+      "aux": []
+    },
+    "3": {
+      "kind": {
+        "Parallel": {
+          "a": 4,
+          "b": 7
+        }
+      },
+      "aux": []
+    },
+    "4": {
+      "kind": {
+        "Perpendicular": {
+          "a": 4,
+          "b": 19
+        }
+      },
+      "aux": []
+    },
+    "5": {
+      "kind": {
+        "Collinear": {
+          "a": 7,
+          "b": 4
+        }
+      },
+      "aux": []
+    },
+    "6": {
+      "kind": {
+        "Tangent": {
+          "a": 4,
+          "b": 12,
+          "kind": "External"
+        }
+      },
+      "aux": []
+    },
+    "7": {
+      "kind": {
+        "Tangent": {
+          "a": 12,
+          "b": 16,
+          "kind": "Internal"
+        }
+      },
+      "aux": []
+    },
+    "8": {
+      "kind": {
+        "Symmetric": {
+          "a": 0,
+          "b": 1,
+          "axis": 19
+        }
+      },
+      "aux": []
+    },
+    "9": {
+      "kind": {
+        "Vertical": {
+          "Line": 19
+        }
+      },
+      "aux": []
+    },
+    "10": {
+      "kind": {
+        "Fix": {
+          "entity": 17
+        }
+      },
+      "aux": []
+    },
+    "11": {
+      "kind": {
+        "Dimension": {
+          "kind": {
+            "Distance": {
+              "a": 0,
+              "b": 4,
+              "side": "Negative"
+            }
+          },
+          "value": 0.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            -1.25
+          ]
+        }
+      },
+      "aux": []
+    },
+    "12": {
+      "kind": {
+        "Dimension": {
+          "kind": {
+            "VerticalDistance": {
+              "a": 0,
+              "b": 1,
+              "side": "Negative"
+            }
+          },
+          "value": 2.5,
+          "driving": true,
+          "label_pos": [
+            1.25,
+            -1.25
+          ]
+        }
+      },
+      "aux": []
+    },
+    "13": {
+      "kind": {
+        "Dimension": {
+          "kind": {
+            "Angle": {
+              "a": 4,
+              "b": 7,
+              "branch": {
+                "reverse_a": true,
+                "reverse_b": false
+              }
+            }
+          },
+          "value": -0.5235987755982989,
+          "driving": true,
+          "label_pos": [
+            -0.26179938779914946,
+            -1.25
+          ]
+        }
+      },
+      "aux": []
+    },
+    "14": {
+      "kind": {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 12
+            }
+          },
+          "value": 3.0,
+          "driving": false,
+          "label_pos": [
+            1.5,
+            -1.25
+          ]
+        }
+      },
+      "aux": []
+    }
+  },
+  "retired": [
+    12,
+    13,
+    14,
+    15
+  ],
+  "next_entity": 20,
+  "next_constraint": 16
+}

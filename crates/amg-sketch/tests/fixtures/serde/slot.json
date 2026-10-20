@@ -1,0 +1,385 @@
+{
+  "plane": {
+    "origin": [
+      0.30000000000000004,
+      -0.3333333333333333,
+      1e-300
+    ],
+    "x": [
+      0.07928650970509075,
+      0.8414269805898185,
+      0.5345224838248488
+    ],
+    "y": [
+      -0.9603567451474546,
+      -0.07928650970509074,
+      0.2672612419124244
+    ],
+    "normal": [
+      0.2672612419124244,
+      -0.5345224838248488,
+      0.8017837257372732
+    ]
+  },
+  "params": {
+    "values": [
+      0.0,
+      0.0,
+      0.0,
+      3.141592653589793,
+      0.0,
+      -3.141592653589793,
+      17.0,
+      0.0,
+      17.0,
+      -3.141592653589793,
+      17.0,
+      3.141592653589793,
+      17.0,
+      0.0,
+      0.14285714285714285
+    ],
+    "flags": [
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      },
+      {
+        "locked": false
+      }
+    ]
+  },
+  "entities": {
+    "0": {
+      "kind": {
+        "Point": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "1": {
+      "kind": {
+        "Point": {
+          "x": 2,
+          "y": 3
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "2": {
+      "kind": {
+        "Point": {
+          "x": 4,
+          "y": 5
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "3": {
+      "kind": {
+        "Arc": {
+          "center": 0,
+          "start": 1,
+          "end": 2
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "4": {
+      "kind": {
+        "Point": {
+          "x": 6,
+          "y": 7
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "5": {
+      "kind": {
+        "Point": {
+          "x": 8,
+          "y": 9
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "6": {
+      "kind": {
+        "Point": {
+          "x": 10,
+          "y": 11
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "7": {
+      "kind": {
+        "Arc": {
+          "center": 4,
+          "start": 5,
+          "end": 6
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "8": {
+      "kind": {
+        "Line": {
+          "start": 6,
+          "end": 1
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "9": {
+      "kind": {
+        "Line": {
+          "start": 2,
+          "end": 5
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "10": {
+      "kind": {
+        "Point": {
+          "x": 12,
+          "y": 13
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    },
+    "11": {
+      "kind": {
+        "Circle": {
+          "center": 10,
+          "radius": 14
+        }
+      },
+      "construction": false,
+      "origin": "User"
+    }
+  },
+  "constraints": {
+    "0": {
+      "kind": {
+        "Tangent": {
+          "a": 3,
+          "b": 8,
+          "kind": {
+            "AtEndpoint": {
+              "a_end": "Start",
+              "b_end": "End",
+              "reversed": false
+            }
+          }
+        }
+      },
+      "aux": []
+    },
+    "1": {
+      "kind": {
+        "Tangent": {
+          "a": 3,
+          "b": 9,
+          "kind": {
+            "AtEndpoint": {
+              "a_end": "End",
+              "b_end": "Start",
+              "reversed": false
+            }
+          }
+        }
+      },
+      "aux": []
+    },
+    "2": {
+      "kind": {
+        "Tangent": {
+          "a": 7,
+          "b": 8,
+          "kind": {
+            "AtEndpoint": {
+              "a_end": "End",
+              "b_end": "Start",
+              "reversed": false
+            }
+          }
+        }
+      },
+      "aux": []
+    },
+    "3": {
+      "kind": {
+        "Tangent": {
+          "a": 7,
+          "b": 9,
+          "kind": {
+            "AtEndpoint": {
+              "a_end": "Start",
+              "b_end": "End",
+              "reversed": false
+            }
+          }
+        }
+      },
+      "aux": []
+    },
+    "4": {
+      "kind": {
+        "Equal": {
+          "a": 3,
+          "b": 7
+        }
+      },
+      "aux": []
+    },
+    "5": {
+      "kind": {
+        "Concentric": {
+          "a": 11,
+          "b": 7
+        }
+      },
+      "aux": []
+    },
+    "6": {
+      "kind": {
+        "Horizontal": {
+          "Points": [
+            0,
+            4
+          ]
+        }
+      },
+      "aux": []
+    },
+    "7": {
+      "kind": {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 3
+            }
+          },
+          "value": 3.141592653589793,
+          "driving": true,
+          "label_pos": [
+            1.5707963267948966,
+            -1.25
+          ]
+        }
+      },
+      "aux": []
+    },
+    "8": {
+      "kind": {
+        "Dimension": {
+          "kind": {
+            "Diameter": {
+              "curve": 11
+            }
+          },
+          "value": 0.2857142857142857,
+          "driving": true,
+          "label_pos": [
+            0.14285714285714285,
+            -1.25
+          ]
+        }
+      },
+      "aux": []
+    },
+    "9": {
+      "kind": {
+        "Dimension": {
+          "kind": {
+            "HorizontalDistance": {
+              "a": 0,
+              "b": 4,
+              "side": "Positive"
+            }
+          },
+          "value": 17.0,
+          "driving": true,
+          "label_pos": [
+            8.5,
+            -1.25
+          ]
+        }
+      },
+      "aux": []
+    },
+    "10": {
+      "kind": {
+        "Dimension": {
+          "kind": {
+            "ArcLength": {
+              "arc": 3
+            }
+          },
+          "value": 9.869604401089358,
+          "driving": false,
+          "label_pos": [
+            4.934802200544679,
+            -1.25
+          ]
+        }
+      },
+      "aux": []
+    }
+  },
+  "next_entity": 12,
+  "next_constraint": 11
+}

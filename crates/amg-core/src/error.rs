@@ -5,17 +5,29 @@
 //! - Every library crate defines its own `thiserror` enum, implements [`Diagnostic`] and
 //!   `From<Cancelled>`, so `ctx.checkpoint()?` works everywhere.
 
+use crate::units::{Dimension, ParseQuantityError};
+
 /// Shared cancellation marker; every crate's error implements `From<Cancelled>`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("operation cancelled")]
 pub struct Cancelled;
 
 /// Errors raised by `amg-core`.
-///
-/// The `Parse` and `DimensionMismatch` variants of the spec arrive with `units` (FND-10).
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A quantity literal could not be parsed.
+    #[error(transparent)]
+    Parse(#[from] ParseQuantityError),
+    /// A value has the wrong physical dimension (`10 mm + 5 deg`, a force where a length is
+    /// expected).
+    #[error("unit mismatch: expected {expected}, got {found}")]
+    DimensionMismatch {
+        /// The required dimension.
+        expected: Dimension,
+        /// The dimension of the value.
+        found: Dimension,
+    },
     /// Geometry is too small or degenerate for the operation (zero-length vector, collinear
     /// points, ...).
     #[error("degenerate geometry: {what}")]
@@ -85,6 +97,10 @@ impl Diagnostic for Cancelled {
 impl Diagnostic for Error {
     fn hint(&self) -> Option<String> {
         match self {
+            Error::Parse(e) => e.hint(),
+            Error::DimensionMismatch { expected, .. } => {
+                Some(format!("Enter a value in {expected} or a compatible unit."))
+            }
             Error::Degenerate { .. } => {
                 Some("Check for zero-length edges or coincident points.".to_owned())
             }
@@ -112,16 +128,40 @@ impl Diagnostic for Error {
 /// cannot load part
 ///   caused by: invalid id `x`
 /// ```
+///
+/// A plain `dyn Error` has no hint; use [`report_diagnostic`] to include it.
 pub fn report(e: &(dyn std::error::Error + 'static)) -> String {
-    use std::fmt::Write as _;
     let mut out = e.to_string();
+    push_causes(&mut out, e);
+    out
+}
+
+/// Like [`report`], for a [`Diagnostic`]: the user message, then the hint (if any), then the
+/// `source()` chain.
+///
+/// ```text
+/// unknown unit `foo`
+///   hint: Use a unit such as mm, cm, m, in, ft, deg, rad, kg, N, MPa or degC.
+/// ```
+pub fn report_diagnostic(e: &dyn Diagnostic) -> String {
+    use std::fmt::Write as _;
+    let mut out = e.user_message();
+    if let Some(h) = e.hint() {
+        // Writing into a String cannot fail.
+        let _ = write!(out, "\n  hint: {h}");
+    }
+    push_causes(&mut out, e);
+    out
+}
+
+fn push_causes(out: &mut String, e: &(dyn std::error::Error + 'static)) {
+    use std::fmt::Write as _;
     let mut cur = e.source();
     while let Some(s) = cur {
         // Writing into a String cannot fail.
         let _ = write!(out, "\n  caused by: {s}");
         cur = s.source();
     }
-    out
 }
 
 #[cfg(test)]
@@ -186,5 +226,27 @@ mod tests {
         let e = Outer(Error::InvalidId("x".into()));
         assert_eq!(report(&e), "cannot load part\n  caused by: invalid id `x`");
         assert_eq!(report(&Cancelled), "operation cancelled");
+    }
+
+    #[test]
+    fn report_diagnostic_renders_hint_and_chain() {
+        let e = Error::InvalidId("x".into());
+        assert_eq!(
+            report_diagnostic(&e),
+            format!("invalid id `x`\n  hint: {}", e.hint().unwrap())
+        );
+        assert_eq!(report_diagnostic(&Cancelled), "operation cancelled");
+        #[derive(Debug, thiserror::Error)]
+        #[error("cannot load part")]
+        struct Wrap(#[source] Error);
+        impl Diagnostic for Wrap {
+            fn hint(&self) -> Option<String> {
+                Some("Try again.".into())
+            }
+        }
+        assert_eq!(
+            report_diagnostic(&Wrap(Error::InvalidId("x".into()))),
+            "cannot load part\n  hint: Try again.\n  caused by: invalid id `x`"
+        );
     }
 }

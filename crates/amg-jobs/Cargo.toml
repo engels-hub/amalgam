@@ -9,6 +9,17 @@ publish.workspace = true
 
 [dependencies]
 amg-core.workspace = true
+rayon.workspace = true
+crossbeam-channel.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "jobs"
+harness = false
 
 [lints]
 workspace = true

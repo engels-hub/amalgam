@@ -1,0 +1,53 @@
+# Puts a pinned WARP (Microsoft's software D3D12 rasterizer) next to the test binaries, the way
+# wgpu's own CI does (gfx-rs/wgpu xtask `install-warp`). GitHub runners have no GPU, and with
+# AMG_REQUIRE_GPU=1 the GPU tests fail instead of skipping when no adapter is found. The
+# Windows loader searches the exe's directory before System32, so this DLL wins over the
+# (older) inbox d3d10warp.dll.
+#
+# Version and sha256 are pinned; NuGet packages are immutable. CI-only: the DLL is never
+# shipped. To bump: pick a version from
+# https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/index.json and update both.
+name: Install WARP
+description: Download the Microsoft.Direct3D.WARP NuGet package and copy d3d10warp.dll into the test binary directories.
+
+inputs:
+  target-dir:
+    description: Cargo profile output directory holding the test binaries (e.g. target/debug). The DLL goes into it and its deps/ subdirectory.
+    required: true
+  version:
+    description: Microsoft.Direct3D.WARP NuGet package version.
+    required: false
+    default: "1.0.20"
+  sha256:
+    description: SHA-256 of the .nupkg for `version`.
+    required: false
+    default: E5FE5DE661CE98B58EF9CFB736E73C0A7A2623D3BBF5F14839B2D55566D87E40
+
+runs:
+  using: composite
+  steps:
+    - name: Install WARP ${{ inputs.version }}
+      shell: pwsh
+      env:
+        WARP_VERSION: ${{ inputs.version }}
+        WARP_SHA256: ${{ inputs.sha256 }}
+        TARGET_DIR: ${{ inputs.target-dir }}
+      run: |
+        $work = Join-Path $env:RUNNER_TEMP 'warp'
+        New-Item -ItemType Directory -Force $work | Out-Null
+        $pkg = Join-Path $work 'warp.zip'
+        curl.exe -sSfL --retry 5 -o $pkg "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.WARP/$env:WARP_VERSION"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $hash = (Get-FileHash $pkg -Algorithm SHA256).Hash
+        if ($hash -ne $env:WARP_SHA256) {
+          Write-Error "WARP $env:WARP_VERSION sha256 is $hash, expected $env:WARP_SHA256"
+          exit 1
+        }
+        tar -xf $pkg -C $work build/native/bin/x64/d3d10warp.dll
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $dll = Join-Path $work 'build/native/bin/x64/d3d10warp.dll'
+        foreach ($dir in @($env:TARGET_DIR, (Join-Path $env:TARGET_DIR 'deps'))) {
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item -Force $dll $dir
+          Write-Host "WARP $env:WARP_VERSION -> $dir"
+        }

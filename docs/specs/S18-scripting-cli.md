@@ -24,3 +24,8 @@ Also the main vehicle for parity regression tests (rebuild reference models by s
 | SCR-04 | Add-ins: custom commands/toolbar buttons from Python | SCR-03, UI-02 | P2 | Todo | |
 | SCR-05 | CLI: recompute, export, run study, batch convert | DOC-07 | P1 | Todo | |
 | SCR-06 | Type stubs (`.pyi`) + docs generation | SCR-02 | P2 | Todo | |
+
+## Open questions
+1. (from S05, 2026-10-20) Python/CLI wrappers `measure(a, b)`, `physical_properties(body)`, `section_stats(body, plane)`; suggested CLI `amg-cli props <file>`.
+2. (from S11, 2026-10-20) SCR-03 and SCR-04 use `UiRegistry::register_dynamic` (`script.*` ids) and `PanelDef`.
+3. (from S20, 2026-10-20) Thin `amg-cli` subcommands `kernel replay <dir>… [--robust] [--json]`, `kernel promote <dump> --corpus <dir> --id <name>` and `kernel harness --corpus … --strategy … --jobs N --report out.json`, each calling an `amg_brep::capture` / `robust::corpus` function; until then S20 ships them as `amg-brep` examples.
