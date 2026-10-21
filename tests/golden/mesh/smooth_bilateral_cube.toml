@@ -1,0 +1,28 @@
+# Golden metrics for mesh/smooth_bilateral_cube. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 1001.9876271355392
+area = 599.945321104316
+vertices = 602
+triangles = 1200
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -0.05091716105792526,
+    -0.029177060424792567,
+    -0.027374490130019757,
+]
+max = [
+    10.039781529376087,
+    10.028102113572904,
+    10.03273480332133,
+]
