@@ -84,7 +84,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | manifold-csg-sys | fallback bindings if own `amg-manifold-sys` fails (S07) | MIT / Apache-2.0 | no | yes (`manifold`) | Planned (fallback only) |
 | parry3d-f64 | geometry test oracle, dev-only (S07) | Apache-2.0 | no | — | Planned (dev-only) |
 | obvhs | BVH benchmark reference, dev-only (S07) | MIT / Apache-2.0 | no | — | Planned (dev-only) |
-| cargo-nextest, cargo-deny | dev tools, not linked (S00) | MIT / Apache-2.0 | no | — | Planned |
+| cargo-nextest, cargo-deny | dev tools, not linked (S00) | MIT / Apache-2.0 | no | — | In use (dev tools; nextest 0.9.148, deny 0.20.2; CI) |
 | curvo =0.3.3 | `amg-nurbs` differential test oracle, dev-only (S20 KH-07/12/13) | MIT | no | n/a (dev-only) | Planned (dev-only) |
 | TiGL `tests/TestData/CurveNetworks` (data only, no code) | Gordon corpus under `testdata/kernel/loft/tigl/` with attribution (S20 KH-15/16) | Apache-2.0 | no | n/a (data) | Planned (test data) |
 | Microsoft.Direct3D.WARP 1.0.20 (NuGet) | CI only: software D3D12 adapter for GPU tests (FND-05), never shipped | Microsoft EULA (redistributable binary) | no | n/a (CI-only download) | In use (CI) |
