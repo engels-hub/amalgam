@@ -79,7 +79,10 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | kcl-ezpz | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | Planned (dev-only) |
 | robust | exact orientation predicates, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | Planned |
 | spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07); section caps, `amg-features::inspect` (S05) | MIT / Apache-2.0 | no | no | Planned |
-| rand, rand_chacha | seeded RANSAC and corpus generators, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | Planned |
+| rand, rand_chacha | seeded RANSAC and corpus generators, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | `rand_chacha` 0.9.0 In use (MESH-28 generators, `amg-mesh` feature `corpus`; `rand_core` only, no `rand`); `rand` Planned |
+| sha2 | sha256 of corpus models, `amg-mesh` feature `corpus` (S07, MESH-28) | MIT / Apache-2.0 | no | yes (`corpus`, test support) | In use (0.10.9) |
+| Thingi10K models (Zhou & Jacobson, arXiv:1605.04797), 165 unmodified STL files from `raw_meshes/` | **test data only**: `testdata/mesh/real/thingi10k/`, git-LFS (S07, MESH-28); only models licensed CC0 / public domain / CC-BY / CC-BY-SA, per-model licence, author, title and Thingiverse URL in `corpus.toml` and `real/thingi10k/NOTICE`; never compiled, linked or shipped | CC0-1.0, LicenseRef-PublicDomain, CC-BY-3.0, CC-BY-SA-3.0 (versions assumed, see the folder README) | share-alike (data) | no (not a dependency) | In use (test data) |
+| Thingi10K NC-licensed models (8) and Stanford 3D Scanning Repository bunny, dragon, armadillo | **fetch-only test data**: downloaded by `testdata/mesh/fetch.sh` / `fetch.ps1` into the git-ignored `testdata/mesh/fetch/` (pinned URL + sha256), never committed or redistributed (S07, MESH-28) | CC-BY-NC(-SA)-3.0 (Thingi10K); Stanford's research-use terms (`LicenseRef-Stanford-3DScanRep`) | restricted (data) | no | In use (fetch-only test data) |
 | oneTBB (vcpkg `tbb`) | Manifold parallel backend, `amg-manifold-sys` (S07, ADR-003) | Apache-2.0 | no | yes (`manifold`) | Planned |
 | manifold-csg-sys | fallback bindings if own `amg-manifold-sys` fails (S07) | MIT / Apache-2.0 | no | yes (`manifold`) | Planned (fallback only) |
 | parry3d-f64 | geometry test oracle, dev-only (S07) | Apache-2.0 | no | — | Planned (dev-only) |

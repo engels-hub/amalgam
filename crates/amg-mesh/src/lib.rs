@@ -19,6 +19,9 @@ mod hash;
 mod indexed;
 mod weld;
 
+#[cfg(feature = "corpus")]
+pub mod corpus;
+
 pub use attrs::{MeshAttrs, Rgba8, TriProperty};
 pub use body::MeshBody;
 pub use error::{MeshError, MeshResult, TopoError};

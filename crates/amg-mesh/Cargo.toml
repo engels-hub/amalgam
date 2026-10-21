@@ -13,8 +13,19 @@ amg-jobs.workspace = true
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+# MESH-28 corpus (feature `corpus`): manifest, hashing, seeded generators.
+toml = { workspace = true, optional = true }
+sha2 = { version = "0.10.9", optional = true }
+rand_chacha = { version = "0.9.0", optional = true }
+
+[features]
+# `amg_mesh::corpus`: broken-mesh corpus manifest + loader, seeded defect and benchmark
+# generators (MESH-28). Test support only; enabled for this crate's own tests via the
+# self dev-dependency below and by other crates' `[dev-dependencies]`.
+corpus = ["dep:toml", "dep:sha2", "dep:rand_chacha"]
 
 [dev-dependencies]
+amg-mesh = { path = ".", features = ["corpus"] }
 amg-testkit.workspace = true
 serde_json.workspace = true
 criterion.workspace = true
