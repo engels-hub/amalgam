@@ -1,0 +1,28 @@
+# Golden metrics for mesh/iso_torus_R20_r6_h1. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 14146.096126391856
+area = 4731.66770453191
+vertices = 20472
+triangles = 40944
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 0
+
+[metrics.bbox]
+min = [
+    -26.0,
+    -26.0,
+    -6.0,
+]
+max = [
+    26.0,
+    26.0,
+    6.0,
+]

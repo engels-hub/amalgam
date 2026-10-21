@@ -17,6 +17,7 @@ mod groups;
 mod halfedge;
 mod hash;
 mod indexed;
+pub mod iso;
 mod weld;
 
 pub use attrs::{MeshAttrs, Rgba8, TriProperty};

@@ -819,7 +819,7 @@ build, 8+ cores.
 | MESH-07 | QEM decimation (boundary/group/feature penalties, flip and quality checks, deterministic) | MESH-01 | P0 | Todo | 1 M → 100 k in < 2 s. Symmetric Hausdorff ≤ 0.2 % of bbox diagonal on the displaced-sphere benchmark. A closed manifold input stays closed and manifold. Group borders are kept when `preserve_group_borders`. Output is bit-identical across thread counts. |
 | MESH-08 | Smoothing: Laplacian (uniform/cotan), Taubin, bilateral normal filtering | MESH-01 | P0 | Todo | Taubin (50 iterations) on a noisy sphere (σ = 1 % r) shrinks volume by < 1 % and cuts RMS noise ≥ 3×. Bilateral on a noisy cube keeps feature dihedral angles within 5° of 90° and cuts RMS noise ≥ 3×. 1 M tris × 10 Taubin iterations < 300 ms. |
 | MESH-09 | Plane cut with CDT capping, `section`, separate shells, erase & fill, reverse normals | MESH-04 | P0 | Todo | Cutting a closed 1 M-tri mesh gives closed manifold halves whose volumes sum to the original within 1e-9 relative, including cuts exactly through vertices and edges, in < 300 ms. Cap faces are in one new `Cap` group. `separate_shells` count equals the analysis shell count. Erase & fill output is watertight. Reverse normals negates signed volume. |
-| MESH-17 | Isosurface extraction: sparse marching tetrahedra over `ScalarField` (`amg_mesh::iso`) | MESH-01 | P0 | Todo | Fuzz test over 1 000 random CSG fields (spheres, boxes, exact zeros on grid points, surfaces touching `bounds`): output is always a closed, oriented 2-manifold. Hausdorff to analytic sphere/torus ≤ cell size. 400³-effective narrow-band extraction of a 100 mm part < 2 s. Output is identical across thread counts. |
+| MESH-17 | Isosurface extraction: sparse marching tetrahedra over `ScalarField` (`amg_mesh::iso`) | MESH-01 | P0 | Review (wp/MESH-17-iso) | Fuzz test over 1 000 random CSG fields (spheres, boxes, exact zeros on grid points, surfaces touching `bounds`): output is always a closed, oriented 2-manifold. Hausdorff to analytic sphere/torus ≤ cell size. 400³-effective narrow-band extraction of a 100 mm part < 2 s. Output is identical across thread counts. |
 | MESH-10 | Shell/offset: quick normal offset (`amg-mesh`) + robust SDF shell (`amg-features::mesh::shell`, composes IMP-03 `MeshSdf` + MESH-17) | MESH-04, MESH-17, IMP-03 | P0 | Todo | Robust shell output is closed, manifold and SI-free (MESH-19 check) on 100 % of watertight corpus models. Measured wall thickness within ±1 voxel of target. Quick shell of 1 M tris < 300 ms, with its SI count reported. Robust shell of a 1 M-tri, 100 mm part at 0.25 mm voxel < 20 s. |
 | MESH-18 | Wrap repair (SDF dilate→erode closing, `amg-features::mesh::wrap`) | MESH-17, MESH-07, IMP-03 | P1 | Todo | 100 % of corpus models (including `expect_repairable = false`) give a watertight, SI-free result. Hausdorff to input ≤ 2× (offset + voxel). 1 M-tri scan at 0.5 mm voxel < 30 s. |
 | MESH-16 | Mesh bodies in the timeline: `BodyKind::Mesh(MeshBody)` integration, `MeshEntityRef` resolution (group id → fingerprint fallback), feature base (`OutputMode`), `MeshRepairFeature`, `MeshReverseNormalFeature` | DOC-02, DOC-05, MESH-04 | P0 | Todo | Repair and Reverse Normal run as features: undo/redo restores the exact mesh hash; re-editing params recomputes only dependents; cached results are hit on unchanged inputs. A downstream reference to a face group resolves after an upstream repair. Baked mesh body survives a `.amg` save/load bit-exact (with DOC-07 when available, else via `MeshBody` binary). |
@@ -1146,3 +1146,32 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   `PropertyGroup::{Materials(Vec<(String, Rgba8)>), Colors(Vec<Rgba8>)}`, giving the existing
   `tri_properties` its table; `IndexedMesh::append` remaps group ids. Until it lands, per-face
   slots survive only on unmodified imported bodies.
+
+### 2026-10-21 — MESH-17 (`amg_mesh::iso`, sparse marching tetrahedra; lane C)
+Implemented per §Interfaces. Notes and small deviations:
+- **Sign convention:** inside is `value < iso` (negative-inside SDF). `value >= iso`, NaN and
+  everything outside `bounds` are outside, so triangle normals point towards increasing values
+  and the signed volume of the inside is positive. `iso`/`cell_size`/`bounds`/`block_cells` are
+  validated (`MeshError::InvalidOption`).
+- **Lattice:** anchored at `bounds.min` with spacing `cell_size`; one extra forced-outside
+  layer on every side, which is what closes the surface at `bounds`. Cap vertices between an
+  in-bounds inside sample and a forced-outside sample sit at the clamped edge midpoint (so on
+  the bounds face when `bounds` is a multiple of `cell_size`).
+- **Vertex identity:** a tet-edge key = lower lattice point + direction bitmask (1..=7: three
+  axis edges, three face diagonals, the body diagonal). Same key in every block, so blocks are
+  merged by key in block order. Output is bit-identical across thread counts (tested with 1, 3
+  and 8 threads).
+- **Sparsity:** flat grid of `block_cells³` blocks (not a literal octree; the per-block
+  `may_cross` test gives the same pruning at the sizes in the budget). A block is skipped when
+  `may_cross` is false on its in-bounds part. At `bounds` the block is probed once: outside
+  means empty, inside means the probe value stands in for every sample (only the cap against
+  the forced-outside layer is generated). So `may_cross == false` must mean "all values on one
+  side of `iso` in this box".
+- **`project_steps`** (clamped to 3) does secant steps along the same tet edge, so topology and
+  the manifold guarantee are unaffected. Only edges with two real finite endpoints are refined.
+- Not done: no octree refinement above the block level; no GPU path. Slivers are expected, so
+  callers decimate (MESH-04).
+- Tests: `crates/amg-mesh/tests/iso.rs` (1 000-field CSG fuzz incl. exact zeros on lattice
+  points and surfaces crossing `bounds`; sphere/torus volume convergence; Hausdorff <= cell;
+  determinism; sparsity; cancellation; goldens in `tests/golden/mesh/`), bench
+  `crates/amg-mesh/benches/iso.rs`.
