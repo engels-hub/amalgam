@@ -17,15 +17,18 @@ use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
-use amg_core::Tolerance;
+use amg_core::{Dimension, Quantity, Tolerance};
+use amg_jobs::JobCtx;
 use serde::de::Error as _;
 use serde::ser::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::eval::{BodyGeom, ConstructionGeom, Diagnostic, Evaluated};
+use crate::expr::ExprError;
 use crate::id::{BodyId, ComponentId, ConstructionId, FeatureId, OccurrenceId, SketchId};
 use crate::model::Design;
 use crate::naming::{BodyNaming, EntityRef, ResolveError};
+use crate::param::Expr;
 use crate::registry::registry;
 use crate::stub::SketchGeom;
 
@@ -55,10 +58,11 @@ pub trait Feature: FeatureMeta + Send + Sync + fmt::Debug + Any {
     /// timeline (ordering rule, S01 §2).
     fn inputs(&self) -> Vec<Dependency>;
 
-    /// Parameter expressions this feature holds (DOC-05 uses it to refuse deleting a
-    /// parameter that a feature still reads). Defaults to none; DOC-04's `exprs_mut` is
-    /// still to come.
-    fn exprs(&self) -> Vec<&crate::param::Expr> {
+    /// Every parameter expression this feature uses (S01 §5). The recompute engine (DOC-03)
+    /// hashes their values into the cache key, and DOC-05 uses it to refuse deleting a
+    /// parameter that a feature still reads, so a feature must list all of its `Expr` fields.
+    /// `exprs_mut` is still to come.
+    fn exprs(&self) -> Vec<&Expr> {
         Vec::new()
     }
 
@@ -442,6 +446,9 @@ pub enum FeatureError {
         /// Version as written in the file.
         version: u32,
     },
+    /// A parameter expression failed to evaluate or has the wrong dimension.
+    #[error(transparent)]
+    Expr(#[from] ExprError),
     /// The recompute was cancelled.
     #[error("cancelled")]
     Cancelled,
@@ -453,11 +460,11 @@ impl amg_core::Diagnostic for FeatureError {
     }
 }
 
-/// What a feature sees while it computes.
+/// What a feature sees while it computes (S01 §3 Interfaces).
 ///
-/// **Provisional (DOC-02):** the minimum the test features need. DOC-03 owns this type and
-/// adds parameter evaluation, sketches, construction, resolution, progress and cancellation
-/// through `amg-jobs`.
+/// Built by the recompute engine ([`recompute`](crate::recompute)) for each node. `before` is
+/// the evaluated state just before the feature: every earlier non-suppressed, healthy feature
+/// has been applied.
 #[derive(Debug)]
 pub struct RecomputeCtx<'a> {
     design: &'a Design,
@@ -465,11 +472,13 @@ pub struct RecomputeCtx<'a> {
     feature: FeatureId,
     context: ComponentId,
     mode: ComputeMode,
+    job: Option<&'a JobCtx>,
 }
 
 impl<'a> RecomputeCtx<'a> {
     /// Context for computing `feature` (placed in `context`) against `before`, the evaluated
-    /// state just before it.
+    /// state just before it. Never cancelled and discards progress until
+    /// [`with_job`](Self::with_job).
     pub fn new(
         design: &'a Design,
         before: &'a Evaluated,
@@ -483,7 +492,15 @@ impl<'a> RecomputeCtx<'a> {
             feature,
             context,
             mode,
+            job: None,
         }
+    }
+
+    /// Connects the context to a job for progress and cancellation.
+    #[must_use]
+    pub fn with_job(mut self, job: &'a JobCtx) -> RecomputeCtx<'a> {
+        self.job = Some(job);
+        self
     }
 
     /// The snapshot being recomputed.
@@ -511,12 +528,69 @@ impl<'a> RecomputeCtx<'a> {
         &self.design.meta().tolerance
     }
 
+    /// Value of a parameter expression, in canonical units (mm, rad, ...).
+    pub fn eval(&self, e: &Expr) -> Result<Quantity, FeatureError> {
+        let prefs = &self.design.meta().default_units;
+        let params = self.design.params();
+        match e {
+            Expr::Inline(src) => Ok(params.try_eval(src.as_str(), None, prefs)?),
+            Expr::Param(id) => params.value(*id).ok_or_else(|| {
+                FeatureError::Expr(ExprError::UnknownParam {
+                    name: id.to_string(),
+                    span: 0..0,
+                })
+            }),
+        }
+    }
+
+    fn eval_dim(&self, e: &Expr, dim: Dimension) -> Result<f64, FeatureError> {
+        let prefs = &self.design.meta().default_units;
+        Ok(self.design.params().resolve(e, dim, prefs)?.value)
+    }
+
+    /// A length expression in mm.
+    pub fn eval_length(&self, e: &Expr) -> Result<f64, FeatureError> {
+        self.eval_dim(e, Dimension::LENGTH)
+    }
+
+    /// An angle expression in radians.
+    pub fn eval_angle(&self, e: &Expr) -> Result<f64, FeatureError> {
+        self.eval_dim(e, Dimension::ANGLE)
+    }
+
+    /// A dimensionless expression.
+    pub fn eval_scalar(&self, e: &Expr) -> Result<f64, FeatureError> {
+        self.eval_dim(e, Dimension::NONE)
+    }
+
     /// A body in its state just before this feature.
     pub fn body(&self, id: BodyId) -> Result<&'a BodyGeom, FeatureError> {
         self.before
             .body(id)
             .map(|b| &b.geom)
             .ok_or(FeatureError::MissingInput(Box::new(Dependency::Body(id))))
+    }
+
+    /// The element map of a body just before this feature, if it has one.
+    pub fn naming(&self, id: BodyId) -> Option<&'a BodyNaming> {
+        self.before.body(id)?.naming.as_deref()
+    }
+
+    /// A solved sketch.
+    pub fn sketch(&self, id: SketchId) -> Result<&'a SketchGeom, FeatureError> {
+        self.before
+            .sketch(id)
+            .map(|s| &**s)
+            .ok_or(FeatureError::MissingInput(Box::new(Dependency::Sketch(id))))
+    }
+
+    /// A construction plane, axis or point.
+    pub fn construction(&self, id: ConstructionId) -> Result<&'a ConstructionGeom, FeatureError> {
+        self.before
+            .construction(id)
+            .ok_or(FeatureError::MissingInput(Box::new(
+                Dependency::Construction(id),
+            )))
     }
 
     /// The id of this feature's output body `slot`.
@@ -527,11 +601,18 @@ impl<'a> RecomputeCtx<'a> {
         }
     }
 
-    /// Reports progress of a long compute (no-op until DOC-12).
-    pub fn progress(&self, _fraction: f32, _msg: &str) {}
+    /// Reports progress of a long compute (`fraction` in `[0, 1]` within this feature).
+    pub fn progress(&self, fraction: f32, msg: &str) {
+        if let Some(job) = self.job {
+            job.progress_msg(fraction, msg);
+        }
+    }
 
-    /// Cooperative cancellation point (never cancelled until DOC-12).
+    /// Cooperative cancellation point: `Err(Cancelled)` once the job was cancelled.
     pub fn check_cancelled(&self) -> Result<(), FeatureError> {
-        Ok(())
+        match self.job {
+            Some(job) if job.is_cancelled() => Err(FeatureError::Cancelled),
+            _ => Ok(()),
+        }
     }
 }

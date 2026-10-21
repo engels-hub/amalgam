@@ -67,6 +67,8 @@ imbl = "7.0.2"
 rpds = "1.2.1"
 # amg-doc (S01, DOC-02): link-time feature registry.
 inventory = "0.3.25"
+# amg-doc (S01, DOC-03): cache keys.
+blake3 = "1.8.2"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

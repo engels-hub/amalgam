@@ -12,6 +12,7 @@
 
 #![warn(missing_docs)]
 
+pub mod cache;
 pub mod command;
 pub mod eval;
 pub mod expr;
@@ -22,12 +23,14 @@ pub mod model;
 pub mod naming;
 pub mod param;
 mod pcoll;
+pub mod recompute;
 pub mod registry;
 pub mod stub;
 #[cfg(any(test, feature = "test-features"))]
 pub mod testing;
 pub mod timeline;
 
+pub use cache::{CacheStats, GeomCache};
 pub use command::{Command, CommandError, CommandOutcome, CreatedId, apply_command};
 pub use eval::{
     BodyGeom, CacheKey, ConstructionGeom, Diagnostic, ErrorCause, EvalBody, Evaluated, Health,
@@ -52,6 +55,7 @@ pub use naming::{
     ResolveError, Resolved, Role, TopoKind, TopoName, TopoRef,
 };
 pub use param::{Expr, ExprSrc, Param, ParamError, ParamKind, ParamTable, UnitSpec};
+pub use recompute::{ENGINE_FORMAT_VERSION, RecomputeResult, engine_salt, recompute};
 pub use registry::{FeatureRegistration, FeatureRegistry, RegistryError, registry, try_registry};
 pub use timeline::{FeatureNode, Group, Timeline};
 
