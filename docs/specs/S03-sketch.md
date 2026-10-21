@@ -703,7 +703,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-05 | Drag solving: `DragSession` for points, lines (translate), circle rim (radius), arc endpoints; weighted min-norm; warm start; SQP alternative only if SK-13 selected it | SK-03 | P0 | Todo | 1. On D4, D7 and a 200-entity generated sketch, 1000 scripted frames each: p95 step < 2 ms. 2. The jitter metric (note §5.3) is ≤ the SK-13 baseline. 3. No chirality flip on D7. 4. A fully constrained dragged point stays put. |
 | SK-06 | Profile/region detection (lines, arcs, circles): intersections, split/weld, merge overlaps, half-edge faces, holes and islands, open chains, issues | SK-01 | P0 | Done | 1. ≥ 25 golden fixtures pass: profile count, outer/hole counts and areas (relative 1e-9). Fixtures cover nested islands, T-junctions, tangent circles, overlapping collinear lines, near gaps, zero-length lines. 2. A fuzz test of 10 000 random line/arc soups never panics, satisfies Euler `V − E + F = 1 + C`, and the profile area sum equals the raster-union area within 0.5 %. 3. 500-curve sketch < 5 ms. |
 | SK-15 | Stable `ProfileId`s, `ProfileFingerprint`, `ProfileSet::match_previous` | SK-06 | P0 | Review | 1. 20 scripted dimension edits that keep topology keep every `ProfileId`. 2. 10 topology-changing edits give deterministic new ids, and `match_previous` maps each surviving region to the intended successor (fixtures list the intent). |
-| SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Todo | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
+| SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Review | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
 | SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Todo | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
 | SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Todo | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
 | SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Todo | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
@@ -1165,3 +1165,27 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   removed, disjoint curve, redrawn outer loop, vanishing lens, divider deleted, corner chopped,
   annulus to disc, split undone) check determinism and the intended successor by probe point;
   `match_fingerprint` purity; hole add changes the id but keeps `outer_sources`.
+
+### 2026-10-21 — SK-21 (composite builders, lane B)
+- **Landed:** `amg_sketch::build` (`src/build.rs`) with the 12 functions of the Interfaces
+  section and `Built { entities, constraints }` (re-exported at the crate root). `Built.entities`
+  lists everything created, points included, in creation order; reused entities (the `from` curve
+  of `arc_tangent`) are not listed. On error the builder removes what it created.
+- **Constraint sets and DOF** (whole sketch, SK-02 rank helper; tests in `tests/builders.rs`):
+  `rectangle_2pt` 2 H + 2 V, DOF 4; `rectangle_3pt` 3 Perpendicular, DOF 5; `rectangle_center`
+  H/V plus a construction diagonal and the centre point as its Midpoint, DOF 4; `polygon` a
+  construction circle, n-1 Equal between consecutive sides and n PointOnCurve (inscribed) or n
+  oriented Tangent (circumscribed), DOF 4; the three straight slots 4 AtEndpoint tangencies +
+  Equal radii, DOF 5 (`slot_center_point` adds a construction centreline and a midpoint centre
+  point); `slot_arc` 4 AtEndpoint tangencies, DOF 6; `circle_3pt` / `arc_3pt` no constraints
+  (DOF 3 / 5, the clicked points are not kept); `circle_2_tangent` 2 Tangent + a driving Radius
+  dimension, DOF 0 for the new circle; `arc_tangent` 1 AtEndpoint tangency, new arc DOF 2.
+- **Choices the spec left open.** Circumscribed polygon: `vertex` is the midpoint of the first
+  side, the construction circle is the incircle. `slot_center_point`: `end` is the centre of one
+  end arc. `slot_overall`: `a`, `b` are the extreme points. Tangent kinds are chosen with
+  `add_constraint_oriented`, so chirality matches the geometry. `circle_2_tangent` picks the
+  centre nearest `near` among the offset-curve intersections and treats lines and arcs as full
+  lines and circles. `arc_tangent` shares the existing endpoint entity of `from` as its start
+  (CCW) or end (CW).
+- **Known redundancy:** `slot_arc`'s centreline arc radius equation is implied by the caps (one
+  dependent Jacobian row); SK-04 must tolerate it.
