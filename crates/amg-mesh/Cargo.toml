@@ -50,5 +50,9 @@ harness = false
 name = "mesh_spatial"
 harness = false
 
+[[bench]]
+name = "mesh_decimate"
+harness = false
+
 [lints]
 workspace = true

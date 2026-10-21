@@ -1,0 +1,28 @@
+# Golden metrics for mesh/decimate_displaced_sphere_s5_5pct. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 4195.243613695279
+area = 1271.3925682983795
+vertices = 514
+triangles = 1024
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -10.031290926351748,
+    -10.195904737018086,
+    -10.611775230043971,
+]
+max = [
+    10.314255916016108,
+    10.195904737018093,
+    9.843082180783211,
+]
