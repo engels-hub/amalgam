@@ -124,7 +124,8 @@ fn workspace() -> (BTreeSet<String>, Vec<Edge>) {
         let from = pkg["name"].as_str().expect("name").to_owned();
         for dep in pkg["dependencies"].as_array().expect("dependencies") {
             let to = dep["name"].as_str().expect("dep name");
-            if to.starts_with("amg-") {
+            // A crate may enable its own test-only cargo features through a self dev-dependency.
+            if to.starts_with("amg-") && to != from {
                 let dev = dep["kind"].as_str() == Some("dev");
                 edges.push(Edge {
                     from: from.clone(),

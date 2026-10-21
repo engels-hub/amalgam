@@ -200,12 +200,22 @@ fn bench_diff(c: &mut Criterion) {
     g.finish();
 }
 
-/// A valid design with `n` body props. Feature ids can only be allocated by the timeline
-/// (DOC-02), so the design is built as a file and loaded, which also validates it.
+/// A valid design with `n` body props. Body props need a timeline origin, so the design is
+/// built as a file with one `test.counter` node per origin and loaded, which also validates it.
 fn design_with_body_props(n: usize) -> Design {
     let mut v =
         serde_json::to_value(Design::with_uuid("Bench", amg_core::PersistentId::NIL)).unwrap();
-    v["meta"]["next_id"] = (n as u64 / 4 + 3).into();
+    let last = (n.max(1) as u64 - 1) / 4 + 2;
+    v["meta"]["next_id"] = (last + 1).into();
+    let root = v["root"].clone();
+    v["timeline"]["nodes"] = (2..=last)
+        .map(|id| {
+            serde_json::json!({"id": id, "name": null, "context": root, "suppressed": false,
+                "group": null, "kind": "test.counter", "v": 1,
+                "data": {"deps": [], "value": 0, "fail": false}})
+        })
+        .collect();
+    v["timeline"]["marker"] = (last - 1).into();
     v["body_props"] = (0..n)
         .map(|i| serde_json::json!([key(i), &*props(i)]))
         .collect();

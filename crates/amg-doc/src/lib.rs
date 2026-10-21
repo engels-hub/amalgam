@@ -7,20 +7,30 @@
 //! - [`Evaluated`] — recompute output (geometry, health), never undone.
 //!
 //! DOC-01 provides ids, the authored model, the evaluated skeleton, provisional naming types
-//! and the [`stub`] placeholders for geometry types of other lanes.
+//! and the [`stub`] placeholders for geometry types of other lanes. DOC-02 adds the [`Feature`]
+//! trait, the [`registry`] (`register_feature!`) and the [`Timeline`].
 
 #![warn(missing_docs)]
 
 pub mod eval;
+pub mod feature;
 pub mod id;
 pub mod model;
 pub mod naming;
 mod pcoll;
+pub mod registry;
 pub mod stub;
+#[cfg(any(test, feature = "test-features"))]
+pub mod testing;
+pub mod timeline;
 
 pub use eval::{
     BodyGeom, CacheKey, ConstructionGeom, Diagnostic, ErrorCause, EvalBody, Evaluated, Health,
     NodeEval,
+};
+pub use feature::{
+    BodyChange, BodyChangeKind, ComputeMode, Dependency, Feature, FeatureBox, FeatureDataError,
+    FeatureError, FeatureMeta, FeatureOutput, MigrationError, RecomputeCtx, UnknownFeature,
 };
 pub use id::{
     BodyId, BodyRef, ComponentId, ConfigId, ConstructionId, ExtKey, FeatureId, GroupId, JointId,
@@ -34,3 +44,12 @@ pub use naming::{
     BodyNaming, EntityRef, GeomClass, GeomFingerprint, MatchQuality, NameSeg, NameSource,
     ResolveError, Resolved, Role, TopoKind, TopoName, TopoRef,
 };
+pub use registry::{FeatureRegistration, FeatureRegistry, RegistryError, registry, try_registry};
+pub use timeline::{FeatureNode, Group, Timeline};
+
+/// Not public API: paths used by `register_feature!`.
+#[doc(hidden)]
+pub mod __private {
+    pub use inventory;
+    pub use serde_json;
+}

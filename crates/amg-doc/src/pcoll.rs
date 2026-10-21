@@ -18,8 +18,10 @@ use serde::ser::{SerializeSeq, Serializer};
 pub(crate) type PMap<K, V> = imbl::OrdMap<K, V>;
 
 /// Persistent vector (RRB tree: cheap split/concat for timeline reorder).
-#[allow(dead_code, reason = "the timeline (DOC-02) is the first user")]
 pub(crate) type PVec<T> = imbl::Vector<T>;
+
+/// Persistent ordered set.
+pub(crate) type PSet<T> = imbl::OrdSet<T>;
 
 /// Serde for `PMap<K, Arc<V>>` as a JSON array of `[key, value]` pairs in key order.
 ///

@@ -858,7 +858,7 @@ inventory::collect!(ExtRegistration);
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | DOC-01 | Core data model: typed ids, `Design`/`DesignMeta`/`Component`/`Occurrence`/`BodyProps`/`ExtRecord`, `PMap`/`PVec` aliases over `imbl`, `DesignSnapshot`, `amg-doc::stub` geometry placeholders, `Evaluated`/`BodyGeom` skeleton; criterion bench imbl vs rpds vs `Arc<Vec<Arc<T>>>` | FND-03 | P0 | Done | Unit tests create a design with ≥ 3 components, occurrences and body props. Bench at 10⁴ entries shows snapshot clone < 1 µs and one mutation after a clone < 5 µs. Results are recorded in the Refinement log, and the alias is switched if `imbl` misses either number. `serde_json` round-trip of a `Design` is byte-identical twice in a row (determinism). |
-| DOC-02 | `Feature` trait, `FeatureBox` serde via registry, `register_feature!` + `inventory` registry, `UnknownFeature`, `Timeline` (marker, suppression, groups, ordering rule), `link()` convention; test-only features (`test.counter`, `test.box`, `test.add_mesh`) | DOC-01 | P0 | Todo | 1. Timeline of test features serializes and deserializes to equal JSON. 2. An unknown kind loads as `UnknownFeature` and re-serializes byte-identical. 3. A duplicate kind fails at startup. 4. A registry test asserts expected kinds are linked. 5. `MoveFeature` before a dependency is rejected. |
+| DOC-02 | `Feature` trait, `FeatureBox` serde via registry, `register_feature!` + `inventory` registry, `UnknownFeature`, `Timeline` (marker, suppression, groups, ordering rule), `link()` convention; test-only features (`test.counter`, `test.box`, `test.add_mesh`) | DOC-01 | P0 | Review | 1. Timeline of test features serializes and deserializes to equal JSON. 2. An unknown kind loads as `UnknownFeature` and re-serializes byte-identical. 3. A duplicate kind fails at startup. 4. A registry test asserts expected kinds are linked. 5. `MoveFeature` before a dependency is rejected. |
 | DOC-03 | Recompute engine core (synchronous): producer map, `Dependency` resolution, blake3 cache keys with `ENGINE_SALT`, `GeomCache` (LRU by bytes), `RecomputeCtx`, health propagation (error = no effect, upstream causes), suppression/marker handling | DOC-02, DOC-04 | P0 | Todo | Property test on random DAGs of `test.counter` features: after editing feature *k*, exactly the nodes transitively depending on *k* run (counter check); all others hit the cache. A failing feature leaves its input bodies unmodified and gives dependants `ErrorCause::Upstream`. Keys are identical across two process runs. Engine overhead < 5 ms for 200 cached features (criterion). |
 | DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Todo | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
 | DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Todo | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
@@ -1191,3 +1191,40 @@ Additive unless marked; the shapes in Interfaces otherwise hold.
 - **Naming clash:** `amg_doc::Diagnostic` (struct, per Interfaces) and `amg_core::Diagnostic`
   (trait) share a name. Kept as specified, with a doc note. `ModelError` and `ResolveError`
   implement the `amg_core::Diagnostic` trait.
+
+### 2026-10-20 — DOC-02 (feature trait, registry, timeline, lane E)
+Deviations from the Interfaces section; the rest holds.
+- **`Feature` is split.** `Feature: FeatureMeta + Send + Sync + Debug + Any`. `FeatureMeta`
+  (`kind(&self) -> &str`, `version`, `to_json() -> Result<Value, serde_json::Error>`, `as_any`,
+  `clone_arc`) is implemented by `register_feature!`, never by hand. `kind` returns `&str`, not
+  `&'static str`, so `UnknownFeature` can report the kind it read; `to_json` is fallible
+  (non-finite floats).
+- **`Feature::validate(&self) -> Result<(), FeatureError>`** (default `Ok`) added: called before a
+  feature enters a design and on load. Edits also require the JSON to round-trip byte-equal, which
+  rejects NaN/inf.
+- **`Feature::exprs`/`exprs_mut` and `FeatureError::Expr` are deferred to DOC-04** (they will be
+  defaulted trait methods / a new variant). `FeatureError::UnknownKind { kind, version }` and
+  `MissingInput(Box<Dependency>)` added. `RecomputeCtx` is a provisional minimal type
+  (`design`, `feature_id`, `context`, `mode`, `tolerance`, `body`, `new_body_id`, `progress`,
+  `check_cancelled`); DOC-03 owns it.
+- **Wire format.** A feature is `{"kind","v","data"}`; timeline nodes inline these next to
+  `id, name, context, suppressed, group`. Unknown kind or a *newer* version loads as
+  `UnknownFeature { kind, version, raw }` and saves back byte-identical (needs sorted JSON maps,
+  i.e. no `preserve_order`; checked with 20k random f64). Older versions run the registration's
+  `migrate`. Unknown features can be suppressed, renamed, removed, but not added, replaced or moved.
+- **Registry.** `register_feature!(T, "kind", version = N [, migrate = path])`;
+  `registry()` panics and `try_registry()` returns `RegistryError` on duplicate/malformed kind or
+  version 0. `link()` convention and the `test-features` cargo feature (self dev-dependency,
+  so integration tests see the test kinds). Dependency `inventory` 0.3.25.
+- **`Design` timeline API:** `timeline()`, `add_feature`, `replace_feature`, `remove_feature`,
+  `move_feature`, `set_marker`, `set_suppressed`, `rename_feature`, `group_features`, `ungroup`,
+  `set_group`; `Timeline::{len, marker, nodes, node, node_at, group, groups, group_range,
+  dependents, valid_move_range}` (S11 R7). New `ModelError::WouldBreakDependency { feature, input }`.
+- **Rules chosen.** Inserting at or before the marker advances it; a move keeps the marker between
+  the same neighbours. Groups are contiguous, non-empty, not nested; inserting or moving inside one
+  joins it. A deleted producer is allowed (dangling, reported at recompute) on load and after
+  `remove_feature`; add/replace need existing earlier producers.
+- **Body props origin rule** (resolves the DOC-01 TODO): a body's props need a timeline feature or
+  a baked body as origin; `remove_feature` drops the props and baked payloads of its bodies.
+- **Tests:** unit tests in `timeline.rs`/`registry.rs`; `tests/registry_link.rs` (separate binary:
+  kinds linked) and `tests/registry_duplicate.rs` (duplicate kind fails).
