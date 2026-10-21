@@ -1,0 +1,28 @@
+# Golden metrics for mesh/iso_sphere_r10_h1. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 4167.740631039456
+area = 1253.3865874361416
+vertices = 5582
+triangles = 11160
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -10.0,
+    -10.0,
+    -10.0,
+]
+max = [
+    10.0,
+    10.0,
+    10.0,
+]
