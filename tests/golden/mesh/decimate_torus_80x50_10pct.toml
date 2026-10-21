@@ -1,0 +1,28 @@
+# Golden metrics for mesh/decimate_torus_80x50_10pct. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 37235.93943902487
+area = 9467.180412257243
+vertices = 400
+triangles = 800
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 0
+
+[metrics.bbox]
+min = [
+    -37.93607188446948,
+    -37.936071884469484,
+    -8.026602245080172,
+]
+max = [
+    37.936071884469506,
+    37.93607188446947,
+    8.026602245080161,
+]

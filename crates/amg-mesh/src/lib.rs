@@ -12,6 +12,7 @@
 
 mod attrs;
 mod body;
+mod decimate;
 mod error;
 mod groups;
 mod halfedge;
@@ -21,6 +22,7 @@ mod weld;
 
 pub use attrs::{MeshAttrs, Rgba8, TriProperty};
 pub use body::MeshBody;
+pub use decimate::{DecimateOpts, DecimateReport, DecimateTarget, decimate};
 pub use error::{MeshError, MeshResult, TopoError};
 pub use groups::{
     DEFAULT_GROUP, FaceGroupId, FaceGroupInfo, FaceGroups, GroupFingerprint, GroupOrigin,
