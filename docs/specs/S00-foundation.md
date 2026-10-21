@@ -983,7 +983,7 @@ pub mod budget {
 | FND-04 | `amg-jobs` CPU job system: two pools, `Job`/`JobCtx`/`JobHandle`/`CancelToken`/`JobInfo`, progress sub-ranges, child jobs, panic capture, notifier, UI-thread guard (no GPU) | FND-02 | P0 | Done | Tests pass. (a) 1000 jobs spawned, `cancel_all` mid-way: every handle resolves (`Cancelled` or `Succeeded`) within 100 ms and none hang. (b) A panicking job yields `JobError::Panicked` and the system keeps working. (c) Progress is monotone and nested `sub()` ranges map correctly. (d) Cancelling a parent cancels its children. (e) A nested `ctx.wait` in a 1-thread pool completes (no deadlock). (f) `try_take`/`state` never block: criterion shows < 1 µs median. (g) Spawn-to-start latency on an idle pool is < 50 µs median. (h) A Background job saturating its pool does not delay an Interactive job by more than 5 ms. |
 | FND-05 | CI: `.github/workflows/ci.yml` (windows-2025; fmt, clippy, test, deny, golden jobs), rust-cache, vcpkg clone at pinned tag + `files` binary cache via `actions/cache`, empty `vcpkg.json` + `vcpkg-configuration.json` + overlay triplet, nextest `ci` profile with JUnit | FND-02 | P1 | Review | The pipeline is green on a push to `main` and on a PR. A second run on unchanged inputs has cargo cache hits, and its wall time is < 15 min. vcpkg caching is proven on a throwaway branch that adds one small port: the second run restores it from cache (log shows "Restored … from …"). The branch is not merged. Once FND-09 is done, the `test` job runs GPU tests on WARP (not skipped). |
 | FND-06 | Test data infrastructure: `testdata/` with git-LFS patterns, `amg-testkit` metrics (volume, area, bbox, Euler, edges, Hausdorff with BVH), golden files + bless workflow, `testdata()` / `gpu_available()` helpers | FND-03 | P0 | Done | Tests pass. A 10 mm cube soup gives volume 1000 ± 1e-9 mm³ and area 600 ± 1e-9 mm². Sphere tessellations converge to 4/3πr³ (error halves as the triangle count quadruples). Hausdorff of two concentric spheres r=10 and r=10.5 is 0.5 ± 0.01 mm, and 1M-triangle inputs finish in < 2 s. `AMG_BLESS=1` writes a golden file and the next run passes. An un-fetched LFS pointer is skipped locally and fails with `AMG_REQUIRE_TESTDATA=1`. |
-| FND-07 | Diagnostics: `diag::init` (tracing, env-filter `AMG_LOG`, rolling file logs, optional `tracy` feature), panic hook with `crash-<utc>.txt`, `RecoveryHook` registry; wired into `amg-cli` | FND-04 | P1 | Todo | An integration test runs a child process that panics. Afterwards the log file contains the panic message and a backtrace, `crash-*.txt` exists with version, git SHA and the last log lines, and the registered test recovery hook ran: stderr contains `Recovery file: <path>` and the file exists. A panic inside a job does not end the process. `amg-cli info` writes to the log. |
+| FND-07 | Diagnostics: `diag::init` (tracing, env-filter `AMG_LOG`, rolling file logs, optional `tracy` feature), panic hook with `crash-<utc>.txt`, `RecoveryHook` registry; wired into `amg-cli` | FND-04 | P1 | Review | An integration test runs a child process that panics. Afterwards the log file contains the panic message and a backtrace, `crash-*.txt` exists with version, git SHA and the last log lines, and the registered test recovery hook ran: stderr contains `Recovery file: <path>` and the file exists. A panic inside a job does not end the process. `amg-cli info` writes to the log. |
 | FND-08 | Benchmark harness: `amg_testkit::budget::BUDGETS` (one per vision budget row), criterion placeholder benches `budget/<id>`, optional `workflow_dispatch` bench job | FND-06 | P1 | Todo | `cargo bench -p amg-testkit -- --test` runs one placeholder per vision budget row (8 rows today, after the QUESTIONS #33 STL-import row). A unit test asserts `BUDGETS.len()` equals the number of rows parsed from `docs/00-vision.md`. The bench job can be triggered manually and uploads the criterion HTML report. |
 | FND-09 | `amg-jobs::gpu`: `GpuConfig` (+ `AMG_WGPU_BACKEND`), `Gpu` (instance/adapter/device/queue, optional features, device-lost flag), `upload`/`storage`/`Readback`, compute-pipeline cache; `amg-cli info` prints adapter. **Gate: ADR-004 (wgpu) accepted.** | FND-04 | P0 | Todo | The smoke test (add two 1M-element f32 buffers in WGSL) matches the CPU result bit-exactly on the owner's RTX 5060 Ti (DX12) and on WARP in CI. `Readback::try_get` returns `None` at least once before `Some` in a polled test, and never blocks for more than 1 ms per call. Pipeline-cache tests: the same desc gives `Arc::ptr_eq`, and an invalid WGSL gives `GpuError::Shader` with a message. Without an adapter the GPU tests skip (and fail if `AMG_REQUIRE_GPU=1`). `Gpu::new` takes < 300 ms on the owner's machine. A doc example shows building `egui_wgpu::WgpuSetup::Existing` from a `Gpu`, compiled as a doctest only if egui-wgpu is already a workspace dep, otherwise as a `text` block. |
 | FND-10 | `amg-core::units` (part 2 of core): `Dimension`, `Quantity`, typed quantities, `Unit` table, `LengthUnit`, `parse_quantity` (grammar in units note §7), `format_quantity` (Decimal/Fraction/FeetInch/Exact), `ParseQuantityError` with spans | FND-03 | P0 | Done | Tests pass. Every `Unit` symbol and alias parses (table-driven test generated from `Unit::all()`). Examples: `1/4 in` = 6.35 mm, `1 1/4"` = 31.75 mm, `5' 3 1/2"` = 1612.9 mm, `30 deg` = π/6, `20 degC` = 293.15 K, `7.85 g/cm^3` = 7.85e-9 t/mm³, `-.5e1 mm` = −5 mm. Errors carry correct spans for `12,5 mm`, `3 foo`, `1/0 in` and `1 m 20 cm`. Proptest round-trip: `Exact` style round-trips bit-for-bit, and `Decimal` stays within ½ ulp of the printed precision. `Fraction` prints `1 1/4 in` for 31.75 mm. Parsing a typical literal takes < 1 µs median (criterion). |
@@ -1457,3 +1457,71 @@ extest
 - Leftovers for MESH-01 integration: `TriMesh::from_flat` (flat `[f64]` / `[u32]` buffers),
   `TriMesh::from_f32` (GPU/STL-style f32 positions) and a `welded(tol)` helper so unwelded
   soups give meaningful topology metrics. Not done in FND-06.
+
+### 2026-10-20 — FND-07 (`amg-jobs::diag`, lane E)
+Files: `crates/amg-jobs/src/diag/{mod,hook,ring,time}.rs`, `crates/amg-jobs/tests/diag.rs`,
+`crates/amg-cli/{src/main.rs,tests/cli.rs}`.
+
+Additive:
+- **`DiagConfig` gains `version: &'static str` and `git_sha: &'static str`** (written into
+  crash reports). The binary passes them (`amg-cli` uses `CARGO_PKG_VERSION` and its build.rs
+  `AMG_GIT_SHA`), so `amg-jobs` has no build script. `DiagConfig: Default` (`amalgam`, this
+  crate's version, SHA `unknown`, default dir, filter `info`, stderr on),
+  `DiagConfig::resolved_log_dir()` and `default_log_dir()`.
+- **Log dir override:** env `AMG_LOG_DIR` (`diag::LOG_DIR_ENV`) beats `DiagConfig::log_dir`,
+  which beats the default `%LOCALAPPDATA%\Amalgam\logs` (non-Windows: `$XDG_STATE_HOME/amalgam/logs`,
+  `~/.local/state/amalgam/logs`, temp dir). Crash reports go to the same directory.
+  Constants `LOG_ENV` (`AMG_LOG`), `LOG_DIR_ENV`, `MAX_LOG_FILES` (7), `RING_LINES` (200),
+  `HOOK_TIMEOUT` (10 s).
+- `DiagGuard::log_dir()`. `impl Diagnostic for DiagError` (hint for `LogDir`).
+- **Crash-info providers** (the pluggable "adapter info"):
+  `pub type CrashInfoProvider = Box<dyn Fn() -> String + Send + Sync>;`
+  `pub fn register_crash_info(name: &'static str, provider: CrashInfoProvider);`
+  Each becomes a `name: text` line in the report's `[crash info]` section. It is a registry,
+  not a `DiagConfig` field, because the GPU adapter exists only after `diag::init`. The report
+  always has an `adapter:` line, `unknown` until FND-09 / the app registers a provider named
+  `"adapter"`.
+- `pub fn unregister_recovery_hook(name) -> bool` (a closed document drops its autosave hook);
+  registering an existing name replaces the hook.
+- **`pub fn catch_panic<R>(f: impl FnOnce() -> R + UnwindSafe) -> std::thread::Result<R>`**:
+  `catch_unwind` that marks the panic as handled. The job system now runs jobs and the notifier
+  through it (one-line changes in `system.rs` / `core.rs`). The hook logs a caught panic
+  (`caught panic in thread … at …: msg` + backtrace) and does nothing else; any other panic is
+  a crash (log, recovery hooks, crash report).
+- `amg-jobs` feature `tracy` (`tracing-tracy` 0.12.0 with Tracy's own `crash-handler` feature
+  off); `amg-cli` feature `tracy` forwards to it.
+
+Behaviour the interface left open:
+- `init` also calls `install_panic_hook` (idempotent). A second `init`, or one after another
+  global subscriber / `log` logger, is `AlreadyInitialised`; a `LogDir` error installs nothing.
+- Filter: `AMG_LOG` if set and valid, else `default_filter` (parsed lossily, base level
+  `info`); an invalid `AMG_LOG` is logged as a warning. One filter applies to all layers.
+- File layer: `tracing-appender` daily rotation, `<app_name>.<yyyy-mm-dd>.log`, 7 files kept,
+  non-blocking writer in **non-lossy** mode (a burst blocks the logger instead of dropping
+  lines), thread names on. Dropping the guard flushes it (also while a panic unwinds `main`);
+  a `panic = "abort"` or `process::exit` path may lose the last buffered file lines, but not
+  the crash report, which is written synchronously from the in-memory ring.
+- Ring layer: a second `fmt` layer into a process-wide ring of the last 200 *lines*
+  (multi-line events count per line). The crash report takes its snapshot before the panic
+  itself is logged, so the backtrace does not push context out.
+- Crash path order: log the panic + `Backtrace::force_capture()`, run the recovery hooks
+  (stderr `Recovery file: <path>` for each `Some`), write `crash-<yyyymmdd>T<hhmmss>.<ms>Z.txt`
+  (`-<n>` suffix on a clash; a header with app, version, SHA, UTC time, OS, thread, location and
+  message, then `[crash info]`, `[recovery]`, `[backtrace]`, `[last N log lines]`), then print
+  `Crash report: <path>`. Recovery hooks and crash-info providers each run on a helper thread
+  with a 10 s timeout: a panic *inside* the panic hook would abort the process, and a hook that
+  needs a lock the panicking thread holds must not hang it forever. The report records them as
+  `saved <path>`, `nothing to save`, `panicked` or `timed out`.
+- Before `init`, the hook still calls the previous hook (default stderr message) and writes
+  crash reports to the resolved default directory. After `init` the previous hook is not
+  called; with `stderr: false` a one-line `<app> panicked …` goes to stderr instead.
+- `amg-cli` logs to the file always and to stderr only when `AMG_LOG` is set. `info` logs an
+  `amg-cli info` event and prints the log dir. A failing `init` prints a warning and continues.
+- Test: `tests/diag.rs` re-runs its own binary (`diag_child --exact`, env switch
+  `AMG_DIAG_TEST_CHILD`, `AMG_LOG_DIR` = a temp dir). The child survives a job panic (no crash
+  file), then panics; the parent checks the log (both panics, a backtrace with the child's
+  frame), exactly one crash report (version, SHA, adapter, recovery, last lines) and the
+  recovery file. `crates/amg-cli/tests/cli.rs` checks that `info` writes to the log.
+
+Leftovers: FND-09 registers the `"adapter"` crash-info provider and adds the adapter to
+`amg-cli info`; S01 autosave registers its recovery hook; native crashes stay FND-12.

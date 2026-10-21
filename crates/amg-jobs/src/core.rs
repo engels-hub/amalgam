@@ -252,7 +252,7 @@ impl JobCore {
     /// Calls the notifier (state changes). Panics in the notifier are swallowed.
     pub(crate) fn notify(&self) {
         if let Some(n) = &self.notifier {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| n()));
+            let _ = crate::diag::catch_panic(std::panic::AssertUnwindSafe(|| n()));
         }
     }
 
