@@ -35,9 +35,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | Planned |
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
-| cxx, cxx-build | `amg-occt-sys` bridge (ADR-002, S02) | MIT / Apache-2.0 | no | yes (with `occt`) | Planned |
-| static_assertions | `amg-brep` (`Shape: Send + Sync` check, S02) | MIT / Apache-2.0 | no | no | Planned |
-| rayon | `amg-jobs` and domain crates (S00) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
+| cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |
+| rayon | `amg-jobs` and domain crates (S00); `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
@@ -57,10 +56,10 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | imbl | persistent collections, `amg-doc` (S01; DOC-01 bench confirmed; `im` is unmaintained). Pulls in `imbl-sized-chunks` (MPL-2.0+), `archery` (MIT), `wide`/`safe_arch` (Zlib/Apache-2.0/MIT), `rand_xoshiro`, `rand_core` 0.9 (MIT/Apache-2.0) | MPL-2.0 (crates.io: `MPL-2.0+`) | weak | no | In use (7.0.2) |
 | rpds | fallback persistent collections; DOC-01 bench comparison, `amg-doc` dev-only (S01) | MIT (1.x; older releases MPL-2.0) | no | — | In use (1.2.1, dev-only) |
 | ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |
-| dxf 0.6.2 (ixmilia) | DXF import (S03 SK-11), DXF export (S12 IO-08) | MIT | no | no | Planned |
-| usvg 0.48.1 | SVG import (S03 SK-11) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
-| criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | In use (criterion 0.8.2, proptest 1.12.0; dev-only) |
-| blake3 | cache keys and manifest hashes, `amg-doc` (S01); import source hash, `amg-io` (S12) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | Planned |
+| dxf | DXF import (S03) | MIT | no | no | Planned |
+| usvg | SVG import (S03) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
+| criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only) |
+| blake3 | cache keys and manifest hashes, `amg-doc` (S01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | Planned |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.5.17) |
 | parking_lot | locks, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.12.5) |
