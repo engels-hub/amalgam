@@ -20,6 +20,7 @@
 
 #![warn(missing_docs)]
 
+pub mod build;
 pub mod corpus;
 pub mod error;
 pub mod geom;
@@ -28,6 +29,7 @@ pub mod model;
 pub mod profile;
 pub mod solve;
 
+pub use build::Built;
 pub use error::SketchError;
 pub use geom::{Arc2, Circle2, Curve2, CurveHit};
 pub use ids::{ConstraintId, EntityId, ExternalLinkId, ParamId};
