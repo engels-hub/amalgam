@@ -376,7 +376,10 @@ pub(crate) fn detect(sketch: &Sketch, opts: &ProfileOptions) -> (ProfileSet, Sta
         let mut keys: Vec<EdgeKey> = fc.keys.clone();
         let mut area = fc.area;
         let mut moment = fc.moment;
-        let mut sources: Vec<EntityId> = fc.sources();
+        let mut outer_sources: Vec<EntityId> = fc.sources();
+        outer_sources.sort_unstable();
+        outer_sources.dedup();
+        let mut sources: Vec<EntityId> = outer_sources.clone();
         let mut holes: Vec<(EdgeKey, Loop)> = Vec::new();
         for &h in &holes_of[f] {
             let hc = &cycles[h];
@@ -408,6 +411,7 @@ pub(crate) fn detect(sketch: &Sketch, opts: &ProfileOptions) -> (ProfileSet, Sta
                 centroid,
                 bbox: fc.bbox,
                 sources,
+                outer_sources,
             },
         });
     }

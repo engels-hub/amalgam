@@ -32,6 +32,7 @@ use crate::model::{End, Sketch};
 
 mod arrange;
 mod hash;
+mod matching;
 #[cfg(test)]
 mod tests;
 
@@ -113,6 +114,9 @@ pub struct ProfileFingerprint {
     pub bbox: Aabb2,
     /// Every source entity of every edge (sorted, unique).
     pub sources: Vec<EntityId>,
+    /// Source entities of the outer loop only (sorted, unique): the `Profile { outer }` name
+    /// source of cap faces (persistent-naming note, section 5.4).
+    pub outer_sources: Vec<EntityId>,
 }
 
 /// One bounded face of the arrangement.
@@ -129,6 +133,12 @@ pub struct Profile {
 }
 
 impl Profile {
+    /// Sorted, deduplicated source entities (`source` plus `also`) of the outer loop. Cap
+    /// faces are named by this set, not by the [`ProfileId`] (persistent-naming note, 5.4).
+    pub fn outer_sources(&self) -> &[EntityId] {
+        &self.fingerprint.outer_sources
+    }
+
     /// True if `p` is inside the outer loop and outside every hole.
     pub fn contains(&self, p: Point2) -> bool {
         self.outer.contains(p) && !self.holes.iter().any(|h| h.contains(p))
@@ -181,6 +191,8 @@ impl Default for ProfileOptions {
         }
     }
 }
+
+pub use matching::ProfileMatch;
 
 /// Profiles of one sketch.
 #[derive(Clone, Debug, Default)]
