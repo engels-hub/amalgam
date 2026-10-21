@@ -12,9 +12,11 @@
 
 #![warn(missing_docs)]
 
+pub mod command;
 pub mod eval;
 pub mod expr;
 pub mod feature;
+pub mod history;
 pub mod id;
 pub mod model;
 pub mod naming;
@@ -26,6 +28,7 @@ pub mod stub;
 pub mod testing;
 pub mod timeline;
 
+pub use command::{Command, CommandError, CommandOutcome, CreatedId, apply_command};
 pub use eval::{
     BodyGeom, CacheKey, ConstructionGeom, Diagnostic, ErrorCause, EvalBody, Evaluated, Health,
     NodeEval,
@@ -35,6 +38,7 @@ pub use feature::{
     BodyChange, BodyChangeKind, ComputeMode, Dependency, Feature, FeatureBox, FeatureDataError,
     FeatureError, FeatureMeta, FeatureOutput, MigrationError, RecomputeCtx, UnknownFeature,
 };
+pub use history::{DEFAULT_UNDO_DEPTH, History, Transaction, UndoEntry, UndoStack};
 pub use id::{
     BodyId, BodyRef, ComponentId, ConfigId, ConstructionId, ExtKey, FeatureId, GroupId, JointId,
     OccurrenceId, ParamId, Revision, SketchId,

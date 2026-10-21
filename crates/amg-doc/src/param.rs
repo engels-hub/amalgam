@@ -747,6 +747,43 @@ impl Design {
         Ok(created)
     }
 
+    /// Turns the model parameters owned by any of `owners` into user parameters (their
+    /// feature was deleted; Fusion keeps the `d<n>` parameters). Returns the converted ids.
+    pub fn convert_model_params(&mut self, owners: &[FeatureId]) -> Vec<ParamId> {
+        let ids: Vec<ParamId> = self
+            .params
+            .params
+            .iter()
+            .filter(
+                |(_, p)| matches!(p.kind, ParamKind::Model { owner } if owners.contains(&owner)),
+            )
+            .map(|(&id, _)| id)
+            .collect();
+        for &id in &ids {
+            if let Some(p) = self.params.params.get_mut(&id) {
+                Arc::make_mut(p).kind = ParamKind::User;
+            }
+        }
+        if !ids.is_empty() {
+            self.bump();
+        }
+        ids
+    }
+
+    /// Changes the default units and re-evaluates every parameter under them. Fails (changing
+    /// nothing) if some expression no longer evaluates.
+    pub fn set_default_units(&mut self, units: UnitPrefs) -> Result<(), ParamError> {
+        if self.meta().default_units == units {
+            return Ok(());
+        }
+        let mut t = self.params.clone();
+        t.rebuild(&units)?;
+        self.params = t;
+        self.meta.default_units = units;
+        self.bump();
+        Ok(())
+    }
+
     fn param_or_err(&self, id: ParamId) -> Result<Param, ParamError> {
         self.params.get(id).cloned().ok_or(ParamError::NotFound(id))
     }

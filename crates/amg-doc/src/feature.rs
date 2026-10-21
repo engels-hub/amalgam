@@ -55,6 +55,13 @@ pub trait Feature: FeatureMeta + Send + Sync + fmt::Debug + Any {
     /// timeline (ordering rule, S01 §2).
     fn inputs(&self) -> Vec<Dependency>;
 
+    /// Parameter expressions this feature holds (DOC-05 uses it to refuse deleting a
+    /// parameter that a feature still reads). Defaults to none; DOC-04's `exprs_mut` is
+    /// still to come.
+    fn exprs(&self) -> Vec<&crate::param::Expr> {
+        Vec::new()
+    }
+
     /// Checks field values (finite, in range). Called before a feature enters a design and
     /// when a design is loaded, so an invalid feature is never stored.
     fn validate(&self) -> Result<(), FeatureError> {

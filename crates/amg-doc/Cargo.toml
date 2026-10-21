@@ -47,5 +47,9 @@ harness = false
 name = "params"
 harness = false
 
+[[bench]]
+name = "commands"
+harness = false
+
 [lints]
 workspace = true
