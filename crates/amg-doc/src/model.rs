@@ -551,6 +551,58 @@ impl Design {
         self.bump();
     }
 
+    /// Sets an occurrence's placement relative to its parent.
+    pub fn set_occurrence_transform(
+        &mut self,
+        occ: OccurrenceId,
+        transform: Transform,
+    ) -> Result<(), ModelError> {
+        check_transform(&transform)?;
+        let o = self.occurrences.get_mut(&occ).ok_or(ModelError::NotFound {
+            what: "occurrence",
+            id: occ.0,
+        })?;
+        if o.transform != transform {
+            Arc::make_mut(o).transform = transform;
+            self.bump();
+        }
+        Ok(())
+    }
+
+    /// Shows or hides an occurrence in the browser.
+    pub fn set_occurrence_visible(
+        &mut self,
+        occ: OccurrenceId,
+        visible: bool,
+    ) -> Result<(), ModelError> {
+        let o = self.occurrences.get_mut(&occ).ok_or(ModelError::NotFound {
+            what: "occurrence",
+            id: occ.0,
+        })?;
+        if o.visible != visible {
+            Arc::make_mut(o).visible = visible;
+            self.bump();
+        }
+        Ok(())
+    }
+
+    /// Renames a component (the root keeps the design name in sync, see [`Design::set_name`]).
+    pub fn rename_component(&mut self, id: ComponentId, name: &str) -> Result<(), ModelError> {
+        if id == self.root {
+            self.set_name(name);
+            return Ok(());
+        }
+        let c = self.components.get_mut(&id).ok_or(ModelError::NotFound {
+            what: "component",
+            id: id.0,
+        })?;
+        if c.name != name {
+            name.clone_into(&mut Arc::make_mut(c).name);
+            self.bump();
+        }
+        Ok(())
+    }
+
     // ---- internals -----------------------------------------------------------------------
 
     pub(crate) fn alloc(&mut self) -> Result<u64, ModelError> {

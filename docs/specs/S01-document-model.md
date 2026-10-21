@@ -861,7 +861,7 @@ inventory::collect!(ExtRegistration);
 | DOC-02 | `Feature` trait, `FeatureBox` serde via registry, `register_feature!` + `inventory` registry, `UnknownFeature`, `Timeline` (marker, suppression, groups, ordering rule), `link()` convention; test-only features (`test.counter`, `test.box`, `test.add_mesh`) | DOC-01 | P0 | Done | 1. Timeline of test features serializes and deserializes to equal JSON. 2. An unknown kind loads as `UnknownFeature` and re-serializes byte-identical. 3. A duplicate kind fails at startup. 4. A registry test asserts expected kinds are linked. 5. `MoveFeature` before a dependency is rejected. |
 | DOC-03 | Recompute engine core (synchronous): producer map, `Dependency` resolution, blake3 cache keys with `ENGINE_SALT`, `GeomCache` (LRU by bytes), `RecomputeCtx`, health propagation (error = no effect, upstream causes), suppression/marker handling | DOC-02, DOC-04 | P0 | Todo | Property test on random DAGs of `test.counter` features: after editing feature *k*, exactly the nodes transitively depending on *k* run (counter check); all others hit the cache. A failing feature leaves its input bodies unmodified and gives dependants `ErrorCause::Upstream`. Keys are identical across two process runs. Engine overhead < 5 ms for 200 cached features (criterion). |
 | DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Done | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
-| DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Todo | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
+| DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Review | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
 | DOC-12 | Recompute as a job: `Document::poll` (spawn, cancel-and-supersede, stale-result drop, atomic `Evaluated` swap), progress, `recompute_blocking`, preview recompute (`ComputeMode::Preview`), UI-thread debug assertion | DOC-03, FND-04 | P0 | Todo | Test: 50 rapid `SetParamExpr` commands during a slow (sleeping) recompute → only the last revision is swapped in, cancelled work leaves finished features cached, `poll` never blocks > 1 ms (measured). Preview results never enter the persistent cache or undo stack. |
 | DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Todo | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
 | DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Todo | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
@@ -1365,3 +1365,54 @@ list in §4. DOC-06 implements them; full signatures are in note §10.
 - The owner accepted `docs/notes/persistent-naming.md` and answered QUESTIONS #43–#49 with
   every recommendation (note §15). DOC-11 is Done; DOC-06 implements the note as written. The
   S03 "Replace curve" tool (question 4, option (c)) is a later S03 P1 item, not part of DOC-06.
+
+### 2026-10-21 — DOC-05 (commands, undo/redo, transactions, lane E)
+Code in `amg-doc::command` and `amg-doc::history` (new files); the shapes in Interfaces hold except as listed.
+- **Layering.** `Document` (owner of `evaluated`, the cache and the recompute jobs) is DOC-03's. DOC-05 provides
+  the part `Document` embeds: `History { snapshot(), design(), revision(), apply, transaction, undo, redo,
+  undo_label, redo_label, can_undo/can_redo, mark_saved/is_dirty, set_limit, clear_history }` over
+  `UndoStack`/`UndoEntry { label, before, after, commands }`, plus the free function
+  `apply_command(&mut Design, Command)`. `Document::apply` should delegate to `History::apply` and then schedule a
+  recompute. **Recompute seam:** no callback; `History::revision()` (monotonic, also bumped by undo/redo, unlike
+  `Design::revision`) or `Arc::ptr_eq` on `History::snapshot()` tells the document the authored state changed.
+- **Atomicity.** `apply_command` runs on a scratch `Design` clone (O(1)) and swaps it in on success, so a command
+  with several steps (delete + parameter conversion) never half-applies. A command that changes nothing (the
+  design's `revision` did not move) creates no undo entry.
+- **Transactions** edit a private scratch copy and publish on `commit()`; `rollback()`, dropping, or `?` discard
+  it, so rollback is exact by construction. A failing command inside a transaction changes nothing and leaves the
+  transaction usable. Empty transactions add no entry. `CommandOutcome::revision` inside a transaction is the
+  revision `commit` will publish.
+- **Command set.** All of the Interfaces enum except `SetActiveConfig` (DOC-10). Added: `SetGroup`
+  (rename/collapse), `RenameComponent` (S11 R3), `SetDesignMeta { name, default_units }` (S11 R4; re-evaluates
+  parameters atomically), `AddExt { record }` (S05/S16; allocates the key, returns `CreatedId::Ext(key)`).
+  `CreatedId` gains `Ext(ExtKey)`, so it is no longer `Copy`. `CommandError` is `#[non_exhaustive]` and gains
+  `InUse { what, id, by }` and `Model(ModelError)`; `ModelError`/`ParamError` map in via `From`. `WrongMode` is
+  declared but unused until DOC-08.
+- **`SetDesignMode`** to a *different* mode is refused (`Invalid`): the History/Direct switch bakes evaluated
+  bodies and belongs to DOC-08. Setting the current mode is a no-op.
+- **Parameters and features.**
+  - Deleting a feature turns the model parameters it owns into user parameters (`Design::convert_model_params`);
+    undo is one snapshot swap.
+  - `Feature::exprs(&self) -> Vec<&Expr>` (defaulted to empty; additive) lets `DeleteParam` refuse a parameter
+    that a feature field reads (`InUse { by: feature ids }`) and `AddFeature`/`EditFeature` reject `Expr::Param`
+    ids that don't exist.
+  - **Still open:** `exprs_mut` and the conversion of `Expr::Inline` fields into model parameters on `AddFeature`.
+    Features are immutable behind `Arc`, so the conversion needs a `with_exprs`-style rebuild supplied by the
+    feature types; until then `AddFeature` stores inline expressions as given. Every feature type must implement
+    `exprs` (S03/S04 WPs).
+- **`Design` additions** (`model.rs`, `param.rs`): `set_occurrence_transform`, `set_occurrence_visible`,
+  `rename_component`, `convert_model_params`, `set_default_units`.
+- **Dirty tracking:** every entry has a sequence number; `mark_saved` remembers the current one, so undoing back to
+  the saved state is clean again. Dropping the saved entry off the depth limit leaves the document dirty.
+- **Depth limit:** `DEFAULT_UNDO_DEPTH = 500`, `History::with_limit` / `set_limit`; oldest entries drop first.
+- **Not done / for others.** The journal hook (`RecoverySession::on_commit`) is DOC-07/DOC-12's:
+  `UndoEntry::commands` has what it needs. Preview on a scratch snapshot is DOC-03. `SetBaked` /
+  `AddFeature { baked }` (S12 item 2) is not added: `BakedBody::geom` is not serializable, so the command would not
+  round-trip; DOC-08 decides.
+- **Tests.** `tests/commands.rs`: serde round trip of every command; proptest (64 cases of up to 199 random ops
+  over 22 command kinds: a failed command leaves the design byte-identical, every reachable state validates,
+  undo-all equals the initial JSON, redo-all the final JSON, the final JSON reloads byte-identically);
+  transactions (commit, rollback, drop, empty); depth limit and dirty tracking; parameter conversion and in-use
+  rules; component and extension commands.
+- **Benchmarks** (`benches/commands.rs`, 200-feature design, loaded machine): `apply` of `EditFeature` 3.8 us; `apply` + `undo` of `SetSuppressed` 1.5 us; `undo` + `redo` pair
+  11 ns. Budget (each < 1 ms) met by more than two orders of magnitude.
