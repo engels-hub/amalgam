@@ -75,7 +75,47 @@ fn info(diag: Option<&DiagGuard>) {
     println!("profile:            {profile}");
     println!("interactive pool:   {threads} threads");
     println!("background pool:    {background} threads");
-    // FND-09 replaces this with the adapter from amg_jobs::gpu.
-    println!("gpu:                not initialised (FND-09)");
     println!("log dir:            {log_dir}");
+    gpu_info();
+}
+
+/// Opens the shared device the app would use (`AMG_WGPU_BACKEND` honoured) and prints it.
+fn gpu_info() {
+    use amg_jobs::gpu::{Gpu, GpuConfig, wgpu};
+
+    let cfg = match GpuConfig::try_from_env() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            println!("gpu:                error: {e}");
+            return;
+        }
+    };
+    let start = std::time::Instant::now();
+    match Gpu::new_blocking(&cfg) {
+        Ok(gpu) => {
+            let ms = start.elapsed().as_secs_f64() * 1e3;
+            let info = gpu.info();
+            println!("gpu:                {}", info.name);
+            println!(
+                "gpu backend:        {:?} ({:?})",
+                info.backend, info.device_type
+            );
+            println!("gpu driver:         {} {}", info.driver, info.driver_info);
+            println!(
+                "gpu features:       SHADER_F64={} TIMESTAMP_QUERY={}",
+                gpu.has(wgpu::Features::SHADER_F64),
+                gpu.has(wgpu::Features::TIMESTAMP_QUERY)
+            );
+            println!("gpu init:           {ms:.0} ms");
+            tracing::info!(adapter = %info.name, backend = ?info.backend, init_ms = ms, "gpu");
+        }
+        Err(e) => {
+            use amg_core::Diagnostic as _;
+            println!("gpu:                unavailable: {e}");
+            tracing::warn!(error = %e, "gpu unavailable");
+            if let Some(hint) = e.hint() {
+                println!("                    {hint}");
+            }
+        }
+    }
 }

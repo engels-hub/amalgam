@@ -13,16 +13,24 @@ rayon.workspace = true
 crossbeam-channel.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
+bytemuck = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 tracing-tracy = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
 
 [features]
+default = ["gpu"]
+# `amg_jobs::gpu`: the shared wgpu device (FND-09).
+gpu = ["dep:wgpu", "dep:bytemuck", "dep:pollster"]
 # Tracy profiler layer in `diag::init` (builds the Tracy C++ client).
 tracy = ["dep:tracing-tracy"]
 
 [dev-dependencies]
+amg-testkit.workspace = true
+bytemuck.workspace = true
 criterion.workspace = true
 
 [[bench]]

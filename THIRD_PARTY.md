@@ -15,7 +15,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | SolveSpace `libslvs` + `slvs` 0.6 crate | `amg-sketch` differential-test oracle behind feature `slvs` (S03, SK-13/SK-14); runtime fallback only if the owner decides (S03 OQ 4) | GPL-3.0 | **yes** | yes | Planned (test-only) |
 | bindgen | build dep of `slvs` (needs libclang) | BSD-3-Clause | no | yes (with `slvs`) | Planned (test-only) |
 | fidget | `amg-implicit` CPU evaluator (S08, under evaluation) | MPL-2.0 | weak | — | Planned (undecided) |
-| wgpu 30.0.1 | `amg-jobs`, `amg-render`, `amg-compute` (ADR-004) | MIT / Apache-2.0 | no | no | In use (30.0.1; `amg-testkit` GPU probe, behind feature `gpu`) |
+| wgpu 30.0.1 | `amg-jobs`, `amg-render`, `amg-compute` (ADR-004) | MIT / Apache-2.0 | no | no | In use (30.0.1; `amg-jobs::gpu` and the `amg-testkit` GPU probe, both behind feature `gpu`, default on) |
 | egui, eframe, egui-wgpu 0.37.0 (or 0.36.2, QUESTIONS #23) | `amg-ui`, `amg-app`, `amg-render` (feature `egui`; eframe as dev-dep for the spin example) (ADR-005, S10, S11) | MIT / Apache-2.0 | no | no | Planned |
 | egui_extras 0.37.0 (features `svg`, `serde`) | `amg-ui` tables and SVG icons (S11) | MIT / Apache-2.0 | no | no | Planned |
 | resvg 0.45.x (via egui_extras `svg`) | SVG icon rasterisation (S11) | Apache-2.0 / MIT | no | no | Planned |
@@ -64,8 +64,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.5.17) |
 | parking_lot | locks, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.12.5) |
-| bytemuck | GPU buffer casts, `amg-jobs::gpu` (S00); bulk FFI buffer casts, `amg-brep` (S02) | Zlib / MIT / Apache-2.0 | no | no | Planned |
-| pollster | `Gpu::new_blocking`, `amg-jobs::gpu` (S00) | MIT / Apache-2.0 | no | no | In use (1.0.1; `amg-testkit` GPU probe) |
+| bytemuck | GPU buffer casts, `amg-jobs::gpu` (S00); bulk FFI buffer casts, `amg-brep` (S02) | Zlib / MIT / Apache-2.0 | no | no | In use (1.25.2; `amg-jobs::gpu`, feature `gpu`) |
+| pollster | `Gpu::new_blocking`, `amg-jobs::gpu` (S00) | MIT / Apache-2.0 | no | no | In use (1.0.1; `Gpu::new_blocking` in `amg-jobs::gpu` and the `amg-testkit` GPU probe) |
 | tracing-appender | rolling log files, `amg-jobs::diag` (S00) | MIT | no | no | In use (0.2.5) |
 | tracing-tracy (+ tracy-client 0.19.0, tracy-client-sys 0.30.1 which builds the bundled Tracy C++ client) | optional profiler layer, `amg-jobs::diag` (S00); its default features minus `crash-handler` (the diag panic hook and FND-12 own crash handling) | tracing-tracy, tracy-client: MIT / Apache-2.0; tracy-client-sys: (MIT OR Apache-2.0) AND BSD-3-Clause | no | yes (`tracy` on `amg-jobs` / `amg-cli`) | In use (0.12.0, feature-gated) |
 | clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | In use (4.6.7) |

@@ -7,7 +7,8 @@ use std::sync::OnceLock;
 use crate::env;
 
 /// True when a GPU test should run: a wgpu adapter exists for the backend selected by
-/// `AMG_WGPU_BACKEND` (`dx12`, `vulkan` or `warp`; default: the primary backends).
+/// `AMG_WGPU_BACKEND` (`dx12`, `vulkan` or `warp`; default: DX12 on Windows, the primary
+/// backends elsewhere — the same choice as `amg_jobs::gpu::GpuConfig::from_env`).
 ///
 /// Without an adapter it prints a skip notice and returns `false`, unless `AMG_REQUIRE_GPU=1`
 /// (CI runs GPU tests on WARP), in which case it panics. The probe runs once per process.
@@ -34,9 +35,10 @@ pub fn gpu_available() -> bool {
 
 #[cfg(feature = "gpu")]
 fn probe() -> Result<String, String> {
-    wgpu_probe::probe_adapter(wgpu_probe::Selection::from_env(
-        std::env::var(env::WGPU_BACKEND).ok().as_deref(),
-    ))
+    let value = std::env::var(env::WGPU_BACKEND).ok();
+    let sel = wgpu_probe::backend::BackendSelection::parse(value.as_deref())
+        .unwrap_or_else(|e| panic!("{e}"));
+    wgpu_probe::probe_adapter(sel)
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -61,39 +63,24 @@ fn decide(probe: &Result<String, String>, require: bool) -> bool {
 
 #[cfg(feature = "gpu")]
 mod wgpu_probe {
-    use crate::env;
+    /// The `AMG_WGPU_BACKEND` parser of `amg_jobs::gpu`, compiled here from the same source
+    /// file. The testkit may not depend on `amg-jobs` (layering; `amg-jobs` dev-depends on the
+    /// testkit), but both must pick the same adapter. Its unit tests run in both crates.
+    #[path = "../../../../amg-jobs/src/gpu/backend.rs"]
+    #[allow(dead_code, reason = "shared with amg-jobs, which uses the whole file")]
+    pub(super) mod backend;
 
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub(super) struct Selection {
-        pub(super) backends: wgpu::Backends,
-        /// WARP is the DX12 software fallback adapter.
-        pub(super) fallback: bool,
-    }
+    use backend::BackendSelection;
 
-    impl Selection {
-        pub(super) fn from_env(v: Option<&str>) -> Selection {
-            let s = |backends, fallback| Selection { backends, fallback };
-            match v.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
-                None | Some("") => s(wgpu::Backends::PRIMARY, false),
-                Some("dx12") => s(wgpu::Backends::DX12, false),
-                Some("vulkan") => s(wgpu::Backends::VULKAN, false),
-                Some("warp") => s(wgpu::Backends::DX12, true),
-                Some(other) => panic!(
-                    "{}={other:?} is not one of dx12, vulkan, warp",
-                    env::WGPU_BACKEND
-                ),
-            }
-        }
-    }
-
-    /// `Ok(adapter name)` or `Err(reason)`.
-    pub(super) fn probe_adapter(sel: Selection) -> Result<String, String> {
+    /// `Ok(adapter name)` or `Err(reason)`. Same adapter request as `amg_jobs::gpu::Gpu::new`
+    /// with the default config.
+    pub(super) fn probe_adapter(sel: BackendSelection) -> Result<String, String> {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         desc.backends = sel.backends;
         let instance = wgpu::Instance::new(desc);
         let options = wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: sel.fallback,
+            force_fallback_adapter: sel.force_fallback_adapter,
             compatible_surface: None,
             apply_limit_buckets: false,
         };
@@ -112,34 +99,9 @@ mod wgpu_probe {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
-
         #[test]
-        fn backend_selection() {
-            assert_eq!(
-                Selection::from_env(None),
-                Selection {
-                    backends: wgpu::Backends::PRIMARY,
-                    fallback: false
-                }
-            );
-            assert_eq!(
-                Selection::from_env(Some(" WARP ")),
-                Selection {
-                    backends: wgpu::Backends::DX12,
-                    fallback: true
-                }
-            );
-            assert_eq!(
-                Selection::from_env(Some("vulkan")).backends,
-                wgpu::Backends::VULKAN
-            );
-        }
-
-        #[test]
-        #[should_panic(expected = "not one of")]
-        fn unknown_backend_panics() {
-            let _ = Selection::from_env(Some("metal"));
+        fn env_var_name_is_shared() {
+            assert_eq!(super::backend::WGPU_BACKEND_ENV, crate::env::WGPU_BACKEND);
         }
     }
 }
