@@ -78,8 +78,8 @@ Test-Pin 'cmake'   (Get-Version 'cmake' @('--version') 'cmake version (\S+)') '4
 Test-Pin 'ninja'   (Get-Version 'ninja' @('--version') '^(\S+)') '1.13.2' 'exact'
 
 # vcpkg: tool version plus the registry tag/commit of VCPKG_ROOT.
-$vcpkgPin = '2026.07.29'
-$vcpkgBaseline = '9e593bb18ea69cc5095e012465dcd675a822ed0d'
+$vcpkgPin = '2026.10.16'
+$vcpkgBaseline = '9eec002df1cd109f8f104cd966a763daf9751489'
 if ($env:VCPKG_ROOT -and (Test-Path (Join-Path $env:VCPKG_ROOT 'vcpkg.exe'))) {
     $vcpkgExe = Join-Path $env:VCPKG_ROOT 'vcpkg.exe'
     $tool = (& $vcpkgExe version 2>&1 | Out-String)
