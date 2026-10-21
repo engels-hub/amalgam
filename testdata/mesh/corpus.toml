@@ -1,0 +1,2536 @@
+# Broken-mesh corpus manifest (MESH-28, S07). Format 1. One [[mesh]] entry per file.
+#
+# - `file`: path relative to testdata/mesh/. `real/...` files are committed through git-LFS;
+#   `fetch/...` files (fetch = true) are NOT in the repo: `fetch.sh` / `fetch.ps1` download them
+#   from `fetch_url` (pinned by `fetch_sha256`) and verify `sha256` of the resulting file.
+# - `license`: SPDX id (or a LicenseRef-* for terms with no SPDX id). `source_url` is the page
+#   the licence applies to; `author` / `title` carry the attribution that CC-BY needs.
+# - `defects`: ground truth from the corpus builder (exact-weld edge statistics with numpy plus the
+#   Thingi10K self-intersection counts), vocabulary in `amg_mesh::corpus::Defect`. It is
+#   provisional until MESH-02 reproduces it (that WP must report these flags on 100 % of entries).
+# - `expect_repairable = false`: scan-like soups excluded from the 95 % watertight target (wrap only).
+# - `faces` is the triangle count stored in the file (STL: triangles, PLY: faces).
+#
+# Licence versions: Thingi10K records only the licence family. Thingiverse offered CC 3.0
+# (unported) in 2009-2015, so CC-BY-3.0 / CC-BY-SA-3.0 are assumed. See real/thingi10k/README.md.
+
+[corpus]
+format = 1
+
+[[mesh]]
+id = "thingi10k-36371"
+file = "real/thingi10k/36371.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:11322"
+license = "CC-BY-SA-3.0"
+author = "HPaul"
+title = "Coin Sorter and Counting/Wrapping Tubes"
+sha256 = "7323f86138df7c9a827a965a7cad002a9719dcea45d5579d4deb74ee8669ab6a"
+faces = 1740
+defects = ["self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 36371"
+
+[[mesh]]
+id = "thingi10k-37213"
+file = "real/thingi10k/37213.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:11653"
+license = "CC-BY-SA-3.0"
+author = "peter_"
+title = "3D-Printable Laser Cutter"
+sha256 = "ed7bd127b721edc54eacae6c24363f293d5964d5a69b7c77b5356089d3d6f2ac"
+faces = 3816
+defects = ["non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 37213"
+
+[[mesh]]
+id = "thingi10k-37825"
+file = "real/thingi10k/37825.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:11825"
+license = "CC-BY-SA-3.0"
+author = "kyle170"
+title = "Minecraft Creeper"
+sha256 = "44b6e7cad8faf6657e52b57cc5cd8371dc73b3d049467bbd40cc8c724648e2bd"
+faces = 162
+defects = ["non_manifold_edges"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 37825"
+
+[[mesh]]
+id = "thingi10k-38066"
+file = "real/thingi10k/38066.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:11882"
+license = "CC-BY-SA-3.0"
+author = "PolygonPusher"
+title = "Hook for hanging pots and pans"
+sha256 = "d54dc64c71f26d59258d952f949dabf1fa1ded7fdfb74af3c774bfe6f95646a7"
+faces = 1332
+defects = ["holes", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 38066"
+
+[[mesh]]
+id = "thingi10k-38096"
+file = "real/thingi10k/38096.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:11796"
+license = "CC-BY-SA-3.0"
+author = "cymon"
+title = "Recorder (instrument)"
+sha256 = "630bca948e4d478e2d79e6d38ffa630f8d482b09f0579d1e42a6380993788a51"
+faces = 2514
+defects = ["inverted", "degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 38096"
+
+[[mesh]]
+id = "thingi10k-39646"
+file = "real/thingi10k/39646.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:11980"
+license = "CC-BY-SA-3.0"
+author = "sconine"
+title = "Mechanical Animals"
+sha256 = "e94f565cc494972e8cf0caed985f0a51777e61fd1522265b93a4e5d8c0285b7b"
+faces = 1168
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 39646"
+
+[[mesh]]
+id = "thingi10k-41928"
+file = "real/thingi10k/41928.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:12904"
+license = "CC-BY-SA-3.0"
+author = "cymon"
+title = "Empire State Recorder (instrument)"
+sha256 = "3fe3e56c18b712df7390d682e0b605f98fa33349c5e82a19952d7beb1bc804fd"
+faces = 1973
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 41928"
+
+[[mesh]]
+id = "thingi10k-42290"
+file = "real/thingi10k/42290.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:12993"
+license = "CC-BY-SA-3.0"
+author = "Tunell"
+title = "Harry Potter Glasses"
+sha256 = "8d01c170a973cf5f73f95c4968e2d74407828824cf50a92372d051f5263402e6"
+faces = 1148
+defects = ["inconsistent_orientation"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 42290"
+
+[[mesh]]
+id = "thingi10k-42636"
+file = "real/thingi10k/42636.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:13072"
+license = "CC-BY-SA-3.0"
+author = "1oldclown"
+title = "LED mounts"
+sha256 = "18a14cb12a99c8dd034d2ae44b3ac4ec5d52e58c7d76d9958c6700dff4b458a5"
+faces = 2370
+defects = ["holes", "inconsistent_orientation", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 42636"
+
+[[mesh]]
+id = "thingi10k-42733"
+file = "real/thingi10k/42733.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:13101"
+license = "CC-BY-SA-3.0"
+author = "Beehive"
+title = "Floorplan Lightswitch"
+sha256 = "501fff58d6c4fd585c9e795ed95b324633579e2923f86f2e133078e0b1ad6a84"
+faces = 3728
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 42733"
+
+[[mesh]]
+id = "thingi10k-42734"
+file = "real/thingi10k/42734.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:13101"
+license = "CC-BY-SA-3.0"
+author = "Beehive"
+title = "Floorplan Lightswitch"
+sha256 = "0d344d2635c2f342b5828da29ef91c97c590cc21b13646235e5eb27238274ba5"
+faces = 16184
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 42734"
+
+[[mesh]]
+id = "thingi10k-42881"
+file = "real/thingi10k/42881.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:13153"
+license = "CC-BY-SA-3.0"
+author = "beekeeper"
+title = "New Museum Maracas"
+sha256 = "c842f50b7c0cb6efb411ef7443a18782b1b9d7e9c5fcf3d8d8ac22b327c48053"
+faces = 9376
+defects = ["holes", "non_manifold_edges", "degenerate", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 42881"
+
+[[mesh]]
+id = "thingi10k-45616"
+file = "real/thingi10k/45616.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:13740"
+license = "CC-BY-SA-3.0"
+author = "DEF"
+title = "D&Acirc;&sup2; - Modular parametric car"
+sha256 = "1e0abc10cb5258d0df673f3210f61df49e6d3a31f262f2d15c98ff51ccc1b905"
+faces = 2444
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 45616"
+
+[[mesh]]
+id = "thingi10k-46245"
+file = "real/thingi10k/46245.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:14127"
+license = "CC-BY-SA-3.0"
+author = "trihedral"
+title = "FrostByte"
+sha256 = "6887f9cc6c782ec1ef83c07f3d529b437edc0b0b0c07a1138ae22b94323d306a"
+faces = 2930
+defects = ["inconsistent_orientation"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 46245"
+
+[[mesh]]
+id = "thingi10k-46529"
+file = "real/thingi10k/46529.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:14189"
+license = "LicenseRef-PublicDomain"
+author = "foxdewayne"
+title = "Necklace Holder"
+sha256 = "d402a4e9dd4cf441846c1ce85ad410c32a45b8c9cc796e98ebbab7aa69cb94ee"
+faces = 1058
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 46529"
+
+[[mesh]]
+id = "thingi10k-47979"
+file = "real/thingi10k/47979.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:11710"
+license = "CC-BY-SA-3.0"
+author = "Lenbok"
+title = "SOTC Model Cleanup Test"
+sha256 = "d8dc394fa1a9f5b1655934ac58407a03be7acbd973cf25ced7dd0adb739a534c"
+faces = 7241
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 47979"
+
+[[mesh]]
+id = "thingi10k-49162"
+file = "real/thingi10k/49162.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:14599"
+license = "CC-BY-SA-3.0"
+author = "Ktronics"
+title = "Tri-Track dual servo robot tank chassis"
+sha256 = "6ca212a9740356ce5d39b15353b0f95a0f37323d9de414be40d5e283768b1460"
+faces = 2396
+defects = ["holes", "non_manifold_vertices", "inconsistent_orientation", "self_intersections", "multiple_shells", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 49162"
+
+[[mesh]]
+id = "thingi10k-49333"
+file = "real/thingi10k/49333.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:14878"
+license = "LicenseRef-PublicDomain"
+author = "clintkc"
+title = "Cube in Sphere"
+sha256 = "d75acb5b18e54732a31917b49576f7b6be1f0df2e16e6659b3cd129df3cc231a"
+faces = 2464
+defects = ["holes", "non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 49333"
+
+[[mesh]]
+id = "thingi10k-49377"
+file = "real/thingi10k/49377.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:14974"
+license = "CC-BY-SA-3.0"
+author = "cptnAWESOME"
+title = "Sesame Street Sign"
+sha256 = "84cdb00d2033bca6ebf7795e12358f6fd2ac0b6250d2a33d45af3b391b10121b"
+faces = 236
+defects = ["multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 49377"
+
+[[mesh]]
+id = "thingi10k-50270"
+file = "real/thingi10k/50270.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:15245"
+license = "CC-BY-SA-3.0"
+author = "alexw2150"
+title = "Speakers"
+sha256 = "4939c49ddc7d59f2bbcd9e643583cac6ca2003c940b8099e3120fe9686a18ef2"
+faces = 1990
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 50270"
+
+[[mesh]]
+id = "thingi10k-50272"
+file = "real/thingi10k/50272.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:15247"
+license = "CC-BY-SA-3.0"
+author = "alexw2150"
+title = "Radio"
+sha256 = "88da65f5f9a7076b251cc4229ce1fa1dd9864569707b025b906a45a8127e7b03"
+faces = 1358
+defects = ["holes", "non_manifold_edges", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 50272"
+
+[[mesh]]
+id = "thingi10k-50489"
+file = "real/thingi10k/50489.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:15276"
+license = "CC-BY-SA-3.0"
+author = "mfussi"
+title = "Heightmap to STL"
+sha256 = "b377f8f8894ab48060502226ae3d5886c5e22fcda307f18c6adda935567336a4"
+faces = 9876
+defects = ["holes", "non_manifold_vertices", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 50489"
+
+[[mesh]]
+id = "thingi10k-51474"
+file = "real/thingi10k/51474.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:15614"
+license = "CC-BY-SA-3.0"
+author = "MakerBotWorkshop"
+title = "MakerBot Damsels"
+sha256 = "723b0ddebcf10c4e0c77ccb51ebe4cfb81cbdfcd7b4abfe62f2f6148e0333700"
+faces = 5103
+defects = ["non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 51474"
+
+[[mesh]]
+id = "thingi10k-51490"
+file = "real/thingi10k/51490.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:14599"
+license = "CC-BY-SA-3.0"
+author = "Ktronics"
+title = "Tri-Track dual servo robot tank chassis"
+sha256 = "7f1ed01fd59e76db625ff06800363e40908e12d1d0164a4b48af688f7f108ee3"
+faces = 676
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 51490"
+
+[[mesh]]
+id = "thingi10k-52058"
+file = "real/thingi10k/52058.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:15752"
+license = "CC-BY-SA-3.0"
+author = "improbablecog"
+title = "CBot - 01"
+sha256 = "95749ef390f383fb00e1f27887db7e6cfa905cfc6591bd87704212a1d32ccaf0"
+faces = 15268
+defects = ["self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 52058"
+
+[[mesh]]
+id = "thingi10k-52310"
+file = "real/thingi10k/52310.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:15830"
+license = "CC-BY-SA-3.0"
+author = "Typhoon69"
+title = "Double CO2 Holder for Mountain Bike"
+sha256 = "1b01be6bedc54a54dfbbb6a5def6e02258d6184ed76876e8f421de6c59ceb6df"
+faces = 3886
+defects = ["holes", "non_manifold_vertices", "inconsistent_orientation", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 52310"
+
+[[mesh]]
+id = "thingi10k-52863"
+file = "real/thingi10k/52863.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:16068"
+license = "LicenseRef-PublicDomain"
+author = "chris"
+title = "Three digit electromechanical Counter / Register 2.0"
+sha256 = "b39587e57caa9f078b85be50b7ad68b0ada34608a28af6a41372df1fddaff23d"
+faces = 420
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 52863"
+
+[[mesh]]
+id = "thingi10k-55557"
+file = "real/thingi10k/55557.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:16954"
+license = "CC-BY-SA-3.0"
+author = "Max"
+title = "The Convenient Typer"
+sha256 = "aa6b84bcce0390798f8ea04fb1a002f6d876dbc78bd9612756c66b4acec0cade"
+faces = 1959
+defects = ["holes", "non_manifold_edges", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 55557"
+
+[[mesh]]
+id = "thingi10k-55558"
+file = "real/thingi10k/55558.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:16954"
+license = "CC-BY-SA-3.0"
+author = "Max"
+title = "The Convenient Typer"
+sha256 = "9ceb24fc2935584240e23532fd5ecb82fc7573f2b2bddfd65c9eca9ff10f4a2f"
+faces = 1394
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 55558"
+
+[[mesh]]
+id = "thingi10k-55572"
+file = "real/thingi10k/55572.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:16954"
+license = "CC-BY-SA-3.0"
+author = "Max"
+title = "The Convenient Typer"
+sha256 = "c75670da2a82b049760f36c64a4ea72c75854d492323bcbaa3c6fd63542c3e6a"
+faces = 610
+defects = ["holes", "non_manifold_vertices", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 55572"
+
+[[mesh]]
+id = "thingi10k-58879"
+file = "real/thingi10k/58879.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:18154"
+license = "CC-BY-SA-3.0"
+author = "elk"
+title = "Supportless Kazoo"
+sha256 = "0449989e22b9b5108f2d10f54a0b669f50b8d83c3ef9bc39be77ebdb73f0f88a"
+faces = 2980
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 58879"
+
+[[mesh]]
+id = "thingi10k-59227"
+file = "real/thingi10k/59227.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:18291"
+license = "CC-BY-3.0"
+author = "Thing-O-Fun"
+title = "Exploded Planetary Gear Set"
+sha256 = "d37c1ce3edaa081ba22f556fca056120fabb67a8929967c11d10404fcfc7b949"
+faces = 3756
+defects = ["holes", "non_manifold_vertices", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 59227"
+
+[[mesh]]
+id = "thingi10k-60170"
+file = "real/thingi10k/60170.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:18642"
+license = "CC-BY-3.0"
+author = "elmwolf"
+title = "Octo Badge"
+sha256 = "1d8ecda6512562f2dc4c131abd80fcdaa214abc2174a74c283cc255e31f81aca"
+faces = 3784
+defects = ["degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 60170"
+
+[[mesh]]
+id = "thingi10k-60565"
+file = "real/thingi10k/60565.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:18392"
+license = "CC-BY-3.0"
+author = "Kepler"
+title = "Mini Rover"
+sha256 = "d2ef01bb4596b5c020ad9f04a0e1facaed242ae979c9db53dcaf6b963e8580e2"
+faces = 898
+defects = ["inconsistent_orientation"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 60565"
+
+[[mesh]]
+id = "thingi10k-61134"
+file = "real/thingi10k/61134.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:19043"
+license = "CC-BY-3.0"
+author = "foxdewayne"
+title = "MK7 X Carrage for Prusa Mendel"
+sha256 = "da6a4b64fda866aef57e226b6d49297e85b0090ef5c7dd0c49beaaf9e5e18631"
+faces = 2272
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 61134"
+
+[[mesh]]
+id = "thingi10k-61460"
+file = "real/thingi10k/61460.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:19168"
+license = "CC-BY-3.0"
+author = "pmoews"
+title = "Two Color Archimedean Solids - 1"
+sha256 = "4e3ddc9213dee4f8667d2db43e36d89063570a1135a2c833a27532b1c07d1c8c"
+faces = 112
+defects = ["non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 61460"
+
+[[mesh]]
+id = "thingi10k-64576"
+file = "real/thingi10k/64576.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:20577"
+license = "CC-BY-3.0"
+author = "alany"
+title = "Toy Gyroscope"
+sha256 = "564fb0efbd7e7b83f31a8f95ef704ec0f05a2ccc5b3bbf7cfeac6fad69c8b61b"
+faces = 1496
+defects = ["non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 64576"
+
+[[mesh]]
+id = "thingi10k-65509"
+file = "real/thingi10k/65509.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:20948"
+license = "CC-BY-SA-3.0"
+author = "mrbenbritton"
+title = "Penny whistle mouthpiece"
+sha256 = "a9469a44969e0465cc7f8aa828d3fc60c125bd582ad0eeedab74e7bb8fec38eb"
+faces = 878
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 65509"
+
+[[mesh]]
+id = "thingi10k-66129"
+file = "real/thingi10k/66129.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:21195"
+license = "CC-BY-SA-3.0"
+author = "willkear"
+title = "1967 Shelby Cobra"
+sha256 = "fb63fdd34297389727161b2325bbcd3b1021009a58131a3ba8189367021a4cb8"
+faces = 23170
+defects = ["holes", "non_manifold_vertices", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 66129"
+
+[[mesh]]
+id = "thingi10k-67331"
+file = "real/thingi10k/67331.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:21767"
+license = "CC-BY-3.0"
+author = "custom3dstuff"
+title = "Toast in a toaster!"
+sha256 = "eca345ef9e7badaf2c543765a65043f57e5b40d489a02a34fa186291805d49c8"
+faces = 2802
+defects = ["multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 67331"
+
+[[mesh]]
+id = "thingi10k-68339"
+file = "real/thingi10k/68339.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:22191"
+license = "CC-BY-3.0"
+author = "virtumake"
+title = "Biscuit CutterStamp"
+sha256 = "de1e45c9f63204b4645a39044c8c306f2b110ab9cfad43369c8b84043ade7a31"
+faces = 5426
+defects = ["holes", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 68339"
+
+[[mesh]]
+id = "thingi10k-68434"
+file = "real/thingi10k/68434.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:22236"
+license = "CC-BY-3.0"
+author = "EdinKali"
+title = "BSG cookie cutters"
+sha256 = "4af87d903c31dcdc9a0947a5067ec96e076c32b59639f305a8c6a6488d2aaf1f"
+faces = 504
+defects = ["holes", "inconsistent_orientation", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 68434"
+
+[[mesh]]
+id = "thingi10k-69171"
+file = "real/thingi10k/69171.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:22537"
+license = "CC-BY-SA-3.0"
+author = "therobotfish"
+title = "3D printed Quadcopter"
+sha256 = "833c02844f6c6688e751ce73ba769221ac963898354adec9cad8a76300fc880f"
+faces = 548
+defects = ["holes", "multiple_shells", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 69171"
+
+[[mesh]]
+id = "thingi10k-69172"
+file = "real/thingi10k/69172.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:22537"
+license = "CC-BY-SA-3.0"
+author = "therobotfish"
+title = "3D printed Quadcopter"
+sha256 = "e8f1fe8ac1344231cb67eea995c64bccbaf958f39b5cb076c322b9cfa9d2dc5c"
+faces = 664
+defects = ["holes", "non_manifold_vertices", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 69172"
+
+[[mesh]]
+id = "thingi10k-70368"
+file = "real/thingi10k/70368.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:22977"
+license = "CC-BY-3.0"
+author = "crazytiti"
+title = "1/20 Suzuki samurai body"
+sha256 = "f84bfda31ac43c68102d442f24f1da16546d0d4f9481d4861e47bb3b467a9a85"
+faces = 4016
+defects = ["non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 70368"
+
+[[mesh]]
+id = "thingi10k-71381"
+file = "real/thingi10k/71381.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:23437"
+license = "CC-BY-3.0"
+author = "Thing-O-Fun"
+title = "Thing-O-Hoist"
+sha256 = "36d7c063333394b959c53231589267d52e71f2d2cf796e616f5e485a4eacad3b"
+faces = 1386
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 71381"
+
+[[mesh]]
+id = "thingi10k-71622"
+file = "real/thingi10k/71622.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:23549"
+license = "CC-BY-3.0"
+author = "rweaving"
+title = "Lotus Flower"
+sha256 = "0bc5b1b4752d2683d5084c41bdfcbdcfda4a738da3d5b9fc5a19adcf168a2fde"
+faces = 2658
+defects = ["holes", "non_manifold_vertices", "self_intersections", "multiple_shells", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 71622"
+
+[[mesh]]
+id = "thingi10k-71710"
+file = "real/thingi10k/71710.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:23589"
+license = "CC-BY-3.0"
+author = "Daid"
+title = "Cat gears key chain."
+sha256 = "5f670cbcd4a001d27ae400afed7511668abc3d800e4246b166b5d0a5534fa01c"
+faces = 4676
+defects = ["non_manifold_edges", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 71710"
+
+[[mesh]]
+id = "thingi10k-71711"
+file = "real/thingi10k/71711.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:23589"
+license = "CC-BY-3.0"
+author = "Daid"
+title = "Cat gears key chain."
+sha256 = "9230285596d83d6a496d127de6ca83165e07ac7b18ddfa8045b6acba90f8e488"
+faces = 612
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 71711"
+
+[[mesh]]
+id = "thingi10k-72657"
+file = "real/thingi10k/72657.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:23936"
+license = "CC-BY-SA-3.0"
+author = "odie_wan"
+title = "3in RC Plane Spinner"
+sha256 = "527de1a12f15ffed336fabf748a836a1e43736744875afb1ab37112267f57064"
+faces = 4022
+defects = ["holes", "non_manifold_vertices", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 72657"
+
+[[mesh]]
+id = "thingi10k-73156"
+file = "real/thingi10k/73156.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:24152"
+license = "CC-BY-SA-3.0"
+author = "unknown"
+title = "Tyree--the Smiling; Tail Wagging Robot by mrigs"
+sha256 = "e7592a3815c5336021fbf3fb3890502c3a7f5b27a6af1c7ec93ece513da71d72"
+faces = 496
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 73156"
+
+[[mesh]]
+id = "thingi10k-74242"
+file = "real/thingi10k/74242.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:24404"
+license = "CC-BY-SA-3.0"
+author = "Lochemage"
+title = "Motorcycle Keychain with Light"
+sha256 = "34fe192fa1c817d3d147d996b8d038e8c82988c514cf121d6d634425842f86a8"
+faces = 589
+defects = ["holes", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 74242"
+
+[[mesh]]
+id = "thingi10k-74452"
+file = "real/thingi10k/74452.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:24670"
+license = "CC-BY-SA-3.0"
+author = "beekeeper"
+title = "GOLF-IN-MINIATURE : The Desktop 18 Hole Miniature Golf Course"
+sha256 = "cb15fb26e93edea6bbe64c198395158a6120c3864816a6c4b5d84c09ec1814ea"
+faces = 440
+defects = ["holes", "non_manifold_edges", "degenerate", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 74452"
+
+[[mesh]]
+id = "thingi10k-76204"
+file = "real/thingi10k/76204.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:25344"
+license = "CC-BY-SA-3.0"
+author = "dnewman"
+title = "Magic Block Piercing Trick"
+sha256 = "cd2aee4fae4839f66f2e03b508fc28b840a53421f4d965e62cd8dc70994a157e"
+faces = 2912
+defects = ["multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 76204"
+
+[[mesh]]
+id = "thingi10k-76230"
+file = "real/thingi10k/76230.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:25357"
+license = "CC-BY-3.0"
+author = "rweaving"
+title = "Teal & Pintail Duck Whistle"
+sha256 = "c85e44c2c89843227c6ce6ec6a58b79be3b41e8bdab1323bf98f817242238ff8"
+faces = 3668
+defects = ["holes", "degenerate", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 76230"
+
+[[mesh]]
+id = "thingi10k-78028"
+file = "real/thingi10k/78028.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:26059"
+license = "CC-BY-3.0"
+author = "doommeister"
+title = "Om Nom The Chompy Dinosoar"
+sha256 = "66aa4d7f09d0efaa416eb8599e8c771bce9e04279eea4a3b9c513b613845c584"
+faces = 3072
+defects = ["non_manifold_edges", "degenerate", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 78028"
+
+[[mesh]]
+id = "thingi10k-78736"
+file = "real/thingi10k/78736.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:26334"
+license = "CC-BY-3.0"
+author = "GregFrost"
+title = "Almost Impossible Heart"
+sha256 = "6af149b1c15f5ddbb0b688eca12b5bf68d9cfa1ad1669f65fded2a52896dfbe8"
+faces = 7044
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 78736"
+
+[[mesh]]
+id = "thingi10k-80442"
+file = "real/thingi10k/80442.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:22679"
+license = "CC-BY-SA-3.0"
+author = "atartanian"
+title = "Toy Car with captured wheel (Dualstrusion)"
+sha256 = "a361c516a2d1aa58b18099a03c984438299b4ea91936a369c4ba4d68cc7343b2"
+faces = 1280
+defects = ["inconsistent_orientation", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 80442"
+
+[[mesh]]
+id = "thingi10k-81254"
+file = "real/thingi10k/81254.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:27310"
+license = "CC-BY-3.0"
+author = "alexw2150"
+title = "Keyboard"
+sha256 = "a8d4bde06722cb9cd136332d97a3d42353b80b650be30261e42fc4cd4c7f344f"
+faces = 4684
+defects = ["inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 81254"
+
+[[mesh]]
+id = "thingi10k-82055"
+file = "real/thingi10k/82055.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:27624"
+license = "CC-BY-SA-3.0"
+author = "theroar"
+title = "Travel  Baseball Game"
+sha256 = "4428a72845a5f27f96fef49a6ba93c36824692e54d9dcfaf05af642cb5e8eb86"
+faces = 5431
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 82055"
+
+[[mesh]]
+id = "thingi10k-82177"
+file = "real/thingi10k/82177.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:27624"
+license = "CC-BY-SA-3.0"
+author = "theroar"
+title = "Travel  Baseball Game"
+sha256 = "d4ce8513cf831f0dcd711e46d149ec7c44c7b4c247731b6351d60107e4dcd07d"
+faces = 2389
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 82177"
+
+[[mesh]]
+id = "thingi10k-83715"
+file = "real/thingi10k/83715.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:28270"
+license = "CC-BY-SA-3.0"
+author = "chefmaki"
+title = "Wolverine Claws in plastic"
+sha256 = "b64077aec1553a79c591a9ad95aa26c25e47d8d1ab236d17517e052b25e23a02"
+faces = 414
+defects = ["non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 83715"
+
+[[mesh]]
+id = "thingi10k-85799"
+file = "real/thingi10k/85799.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:29098"
+license = "CC-BY-3.0"
+author = "Bioluminescence"
+title = "Cufflinks - Doctor Who Edition"
+sha256 = "adb75a27acd561f37aae4c48e6761e53a2ba0bd3137074c9dbb629e07a95520b"
+faces = 1652
+defects = ["inverted", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 85799"
+
+[[mesh]]
+id = "thingi10k-87719"
+file = "real/thingi10k/87719.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:29860"
+license = "CC-BY-3.0"
+author = "devtty1"
+title = "Modular Bicycle Dashboard"
+sha256 = "0175597239c2bd3172b1199d3c137cd11138a1895c883261e9563c570d709314"
+faces = 574
+defects = ["inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 87719"
+
+[[mesh]]
+id = "thingi10k-87720"
+file = "real/thingi10k/87720.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:29860"
+license = "CC-BY-3.0"
+author = "devtty1"
+title = "Modular Bicycle Dashboard"
+sha256 = "1d4b1593d2b2367500059b7c8cfcd5586c55d8e392ab21a8508ffb5e15d61f0d"
+faces = 544
+defects = ["inconsistent_orientation", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 87720"
+
+[[mesh]]
+id = "thingi10k-87863"
+file = "real/thingi10k/87863.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:29927"
+license = "CC-BY-SA-3.0"
+author = "iceberg"
+title = "Perry the Platypus Figure"
+sha256 = "bbc70795da44169035cf1f2377a44707bbc456d721f5e7b490c4fdad15d99146"
+faces = 4287
+defects = ["holes", "non_manifold_edges", "duplicate", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 87863"
+
+[[mesh]]
+id = "thingi10k-89802"
+file = "real/thingi10k/89802.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:30753"
+license = "CC-BY-SA-3.0"
+author = "MarcoMT"
+title = "The cube - The smallest game of mental activation for dogs"
+sha256 = "378e06d2d075eed63f82f936b2c82c8c3b9e673834484bffcf3bda836f1ea7da"
+faces = 5696
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 89802"
+
+[[mesh]]
+id = "thingi10k-90225"
+file = "real/thingi10k/90225.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:30958"
+license = "CC-BY-3.0"
+author = "pmoews"
+title = "Duals of Polyhedra"
+sha256 = "a473ab497ea700157270e0aee7269807e387078e256bfc1d056e038999453d2c"
+faces = 180
+defects = ["degenerate"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 90225"
+
+[[mesh]]
+id = "thingi10k-92067"
+file = "real/thingi10k/92067.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:31686"
+license = "CC-BY-3.0"
+author = "MakerBot"
+title = "UPS Truck"
+sha256 = "4ca1e09bfb9ca103c824eb3c24dbec70b1cadaca425369c10fe6bd1f6e76251c"
+faces = 1386
+defects = ["non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 92067"
+
+[[mesh]]
+id = "thingi10k-94016"
+file = "real/thingi10k/94016.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:31392"
+license = "CC-BY-SA-3.0"
+author = "jmabry"
+title = "13:30 Printable Headphones"
+sha256 = "9d521d6186c2ffa56fb89d216b54e9bc52c5930d214331ab408c0b12a5a9b4aa"
+faces = 25408
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 94016"
+
+[[mesh]]
+id = "thingi10k-94479"
+file = "real/thingi10k/94479.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:32667"
+license = "CC-BY-3.0"
+author = "bottleworks"
+title = "My version of the LYMAN FILAMENT EXTRUDER"
+sha256 = "c5564d44e74868e109eb5e2a2915906a7598bdac16527e64d5dd8f36edb43c9c"
+faces = 858
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 94479"
+
+[[mesh]]
+id = "thingi10k-94736"
+file = "real/thingi10k/94736.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:32774"
+license = "CC-BY-SA-3.0"
+author = "Hyena_Of_Doom"
+title = "1500 Megawatt Aperture Science Heavy Duty Super-Colliding Super Button Replica (Portal)"
+sha256 = "dbaaea47e48fb4706b73d9b628a46d2b97bfe560bdd1cc73e4afd4f516fa71f5"
+faces = 1288
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 94736"
+
+[[mesh]]
+id = "thingi10k-95410"
+file = "real/thingi10k/95410.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33048"
+license = "CC-BY-SA-3.0"
+author = "JO3RI"
+title = "Alphabet Cubes"
+sha256 = "be723248fdbe884a22676dc33d6026d6375d30bd284d34fa661e33080ec93c9e"
+faces = 946
+defects = ["inverted"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 95410"
+
+[[mesh]]
+id = "thingi10k-95777"
+file = "real/thingi10k/95777.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33102"
+license = "CC-BY-SA-3.0"
+author = "northshore"
+title = "RC plane with brushless motor - ABS plastic and PS Foam hybrib"
+sha256 = "30490be3e9562610183fe2aa9c001b8fb582de2bbde2e6ae1c671fb8b8c4194a"
+faces = 3696
+defects = ["inconsistent_orientation", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 95777"
+
+[[mesh]]
+id = "thingi10k-95783"
+file = "real/thingi10k/95783.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33102"
+license = "CC-BY-SA-3.0"
+author = "northshore"
+title = "RC plane with brushless motor - ABS plastic and PS Foam hybrib"
+sha256 = "6cd58a6e2fa7b72fda1a416ca3dfeca0a511d412ccadc9bdf8cd3e574db5c713"
+faces = 776
+defects = ["inverted", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 95783"
+
+[[mesh]]
+id = "thingi10k-96564"
+file = "real/thingi10k/96564.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33477"
+license = "CC-BY-SA-3.0"
+author = "Ablapo"
+title = "Tablet Stand - Halloween Monster Edition"
+sha256 = "0ecce82853e28ec069cc2eba614ba30b34f7bce5ea6a75789356c765ae7ac39c"
+faces = 10686
+defects = ["non_manifold_vertices", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 96564"
+
+[[mesh]]
+id = "thingi10k-96954"
+file = "real/thingi10k/96954.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33621"
+license = "CC-BY-3.0"
+author = "mtdna"
+title = "Quick-Set Domino Tumble Tracks!"
+sha256 = "d25ad956306dd9f09a45f2e57cb4b88b6d163e1349ac933134742bf0ddea75ce"
+faces = 2432
+defects = ["degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 96954"
+
+[[mesh]]
+id = "thingi10k-97160"
+file = "real/thingi10k/97160.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33696"
+license = "CC0-1.0"
+author = "chris"
+title = "3-bit Mechanical Punch Card Reader"
+sha256 = "cc7034e7ae5ac84663e6b00511b845ba312c844094d47978a98b7db32d80609c"
+faces = 2694
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 97160"
+
+[[mesh]]
+id = "thingi10k-97162"
+file = "real/thingi10k/97162.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33696"
+license = "CC0-1.0"
+author = "chris"
+title = "3-bit Mechanical Punch Card Reader"
+sha256 = "055aca9a8f914237c63bc96ff2fbe8cfc335c69b7b7a283f1df0e17a9dc4574c"
+faces = 550
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 97162"
+
+[[mesh]]
+id = "thingi10k-98572"
+file = "real/thingi10k/98572.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33913"
+license = "CC-BY-SA-3.0"
+author = "MakeALot"
+title = "Big Ben"
+sha256 = "62604a151f97e299545ba9a51d711e2c1e2c32b6d0256c218063679ae15af7c0"
+faces = 7276
+defects = ["non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 98572"
+
+[[mesh]]
+id = "thingi10k-98658"
+file = "real/thingi10k/98658.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:34295"
+license = "CC-BY-3.0"
+author = "ravix"
+title = "Interlocking 3D Carcassonne Tiles"
+sha256 = "67dc1125bed3b6980b1f024dd6f062afe37eced22adde86e83419adb0ec35b5b"
+faces = 2350
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 98658"
+
+[[mesh]]
+id = "thingi10k-98664"
+file = "real/thingi10k/98664.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:34295"
+license = "CC-BY-3.0"
+author = "ravix"
+title = "Interlocking 3D Carcassonne Tiles"
+sha256 = "47b1db35e54a5af30e16434a4ec0a48b103a348f6941beb69ab9c7f3b553c5bf"
+faces = 480
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 98664"
+
+[[mesh]]
+id = "thingi10k-98672"
+file = "real/thingi10k/98672.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:34295"
+license = "CC-BY-3.0"
+author = "ravix"
+title = "Interlocking 3D Carcassonne Tiles"
+sha256 = "88a3f3245a6b0ceb4854bd195e3d66f5c352109a21e6e05da140b734f5bc2bc5"
+faces = 1768
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 98672"
+
+[[mesh]]
+id = "thingi10k-99899"
+file = "real/thingi10k/99899.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:34778"
+license = "CC-BY-SA-3.0"
+author = "emmett"
+title = "Automatic Transmission Model"
+sha256 = "51b97dc8597a3c9576e3c2b73dccb6ecbd6db0dab24864a7a5b6f0ad75166b76"
+faces = 1924
+defects = ["degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 99899"
+
+[[mesh]]
+id = "thingi10k-100029"
+file = "real/thingi10k/100029.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33732"
+license = "CC-BY-SA-3.0"
+author = "northshore"
+title = "Full ABS RC plane with brushless electric motor"
+sha256 = "24bf46eb22e100337fb7b07a98db264e4d68918bae21c068c9440c9a759f9a5c"
+faces = 452
+defects = ["holes", "non_manifold_edges", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 100029"
+
+[[mesh]]
+id = "thingi10k-100037"
+file = "real/thingi10k/100037.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:33732"
+license = "CC-BY-SA-3.0"
+author = "northshore"
+title = "Full ABS RC plane with brushless electric motor"
+sha256 = "12b6e5b19ec7a68757ec637dd3543321fee3801f028c7d25299c18e603614b1a"
+faces = 375
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 100037"
+
+[[mesh]]
+id = "thingi10k-100682"
+file = "real/thingi10k/100682.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:34774"
+license = "CC-BY-3.0"
+author = "MakerBot"
+title = "Nesting Igloos"
+sha256 = "70d7000214356cba7783d827334997d0014ee612779131fa357114f8b624acd4"
+faces = 1492
+defects = ["self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 100682"
+
+[[mesh]]
+id = "thingi10k-100727"
+file = "real/thingi10k/100727.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:35104"
+license = "CC-BY-3.0"
+author = "barspin"
+title = "OpenRC 1:10 RC Differential"
+sha256 = "4f1451e20de0ee9f0a4d86b81d080afd7f0cd36e46ba07d308a4110d4d2955ee"
+faces = 3244
+defects = ["holes", "non_manifold_vertices", "self_intersections", "multiple_shells", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 100727"
+
+[[mesh]]
+id = "thingi10k-100729"
+file = "real/thingi10k/100729.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:35104"
+license = "CC-BY-3.0"
+author = "barspin"
+title = "OpenRC 1:10 RC Differential"
+sha256 = "f58d7ac32d54bd0a6ecdd67b2adcee4b3e27adb983192e191dcd15226ba87be3"
+faces = 3426
+defects = ["holes", "non_manifold_vertices", "self_intersections", "multiple_shells", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 100729"
+
+[[mesh]]
+id = "thingi10k-105858"
+file = "real/thingi10k/105858.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:37147"
+license = "CC-BY-SA-3.0"
+author = "yukiSUZUKI"
+title = "Hand-made camera lens"
+sha256 = "e14424056f89fd9fd51cc1e637384daf8a18152448d508423618e356fd7eb93f"
+faces = 25696
+defects = ["non_manifold_edges", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 105858"
+
+[[mesh]]
+id = "thingi10k-109086"
+file = "real/thingi10k/109086.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:38351"
+license = "CC-BY-3.0"
+author = "gpvillamil"
+title = "Customizable blimp for embossing or dualstrusion"
+sha256 = "d7e5a147f646e4dc6c413e36a2cdf79949e20758acdc6205f289c0f9b6b0c905"
+faces = 2632
+defects = ["non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 109086"
+
+[[mesh]]
+id = "thingi10k-111399"
+file = "real/thingi10k/111399.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:39253"
+license = "CC-BY-SA-3.0"
+author = "jasonwelsh"
+title = "Universal Servo Driven Tank Tracks"
+sha256 = "64ac59db876b8aa10ef66080fb8fa329025fa8954d9a64d6c6adb84066151cb4"
+faces = 4978
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 111399"
+
+[[mesh]]
+id = "thingi10k-111959"
+file = "real/thingi10k/111959.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:39466"
+license = "CC-BY-3.0"
+author = "satoer"
+title = "Duplo hexagon railroad crossing"
+sha256 = "d33f4af93a69dca89d9ac7ce7be344825d73a91a6f8e22548e0ad8ba221befd1"
+faces = 25841
+defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections", "multiple_shells", "unwelded", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 111959"
+
+[[mesh]]
+id = "thingi10k-112777"
+file = "real/thingi10k/112777.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:27908"
+license = "CC-BY-3.0"
+author = "ThePlanetMike"
+title = "Mars Curiosity Rover"
+sha256 = "4f841dfd29c91e18039cf685b73778108d3a88e62116ac754f870a13d6db7d95"
+faces = 4754
+defects = ["non_manifold_vertices", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 112777"
+
+[[mesh]]
+id = "thingi10k-112852"
+file = "real/thingi10k/112852.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:39822"
+license = "CC-BY-SA-3.0"
+author = "s_p_e_x"
+title = "cliff-therm"
+sha256 = "daac4b6cdefaaa0f6dd92c9c93234e56e66d1f8eea1155053e612a3952f9bcf1"
+faces = 444
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 112852"
+
+[[mesh]]
+id = "thingi10k-112854"
+file = "real/thingi10k/112854.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:39822"
+license = "CC-BY-SA-3.0"
+author = "s_p_e_x"
+title = "cliff-therm"
+sha256 = "0bd4d2b756ae520eb162ee290a66a15a98e7f76e7fdd611fb5392c7935559e92"
+faces = 1244
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 112854"
+
+[[mesh]]
+id = "thingi10k-112855"
+file = "real/thingi10k/112855.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:39822"
+license = "CC-BY-SA-3.0"
+author = "s_p_e_x"
+title = "cliff-therm"
+sha256 = "c2e2a520927ba368929b12757d6999018c62a00be1beebf6de4acaae0b514c1a"
+faces = 3997
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "duplicate", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 112855"
+
+[[mesh]]
+id = "thingi10k-116068"
+file = "real/thingi10k/116068.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:41206"
+license = "CC-BY-SA-3.0"
+author = "Gab_9"
+title = "croco-bike 2040"
+sha256 = "5a7aadd8c499d4a118027984691417e763dfb0a6afc68f11e4f6cc787a2a7601"
+faces = 3900
+defects = ["holes", "inconsistent_orientation", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 116068"
+
+[[mesh]]
+id = "thingi10k-119051"
+file = "real/thingi10k/119051.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:42579"
+license = "CC-BY-SA-3.0"
+author = "petropixel"
+title = "Detailed Wankel Engine Model"
+sha256 = "66448dfc9f51c969b268cb99f521be92cb86fb960a7f827b59f27b1c379495c9"
+faces = 388
+defects = ["inconsistent_orientation"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 119051"
+
+[[mesh]]
+id = "thingi10k-122866"
+file = "real/thingi10k/122866.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:44200"
+license = "CC-BY-SA-3.0"
+author = "pintokitkat"
+title = "Tube roller"
+sha256 = "68dd210d73befb4d700ef67efed89d4365e871e9903a03c1878b42a4130f560e"
+faces = 192
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 122866"
+
+[[mesh]]
+id = "thingi10k-122947"
+file = "real/thingi10k/122947.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:44483"
+license = "CC-BY-SA-3.0"
+author = "smartin"
+title = "Beer Belt Clip"
+sha256 = "d7a3fa5a2c83dabe6f426801e893b5dc5cee01099f59ebd8301b8f693be0d9e3"
+faces = 8614
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 122947"
+
+[[mesh]]
+id = "thingi10k-124375"
+file = "real/thingi10k/124375.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:45347"
+license = "CC-BY-3.0"
+author = "Mr_MegaTronic"
+title = "VEND - the totally printed candy dispenser"
+sha256 = "3976cbc164d25e6fd60ac03536c938ee03614a6a68bcbae10b6709f7d69018a8"
+faces = 1630
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 124375"
+
+[[mesh]]
+id = "thingi10k-124709"
+file = "real/thingi10k/124709.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:28706"
+license = "CC-BY-SA-3.0"
+author = "kataze"
+title = "Snap Together Shutter Shades"
+sha256 = "51df0ebc4445ef7a2a6f2849c04e59db409957cbd9e32a22d25dfe160480b886"
+faces = 1840
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 124709"
+
+[[mesh]]
+id = "thingi10k-125947"
+file = "real/thingi10k/125947.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:46251"
+license = "CC-BY-SA-3.0"
+author = "cobbal"
+title = "Companion Dodecahedron"
+sha256 = "520c42d2e13f9d285446d1e0850ed621d77dc1d827fd68c8256a832fb21796a4"
+faces = 13894
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 125947"
+
+[[mesh]]
+id = "thingi10k-128911"
+file = "real/thingi10k/128911.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:47565"
+license = "CC-BY-SA-3.0"
+author = "petropixel"
+title = "Balloon Powered Turbine"
+sha256 = "c977f930ae505d8369a4f72d2bccd4a69bf7e6b66ebe3801fa0953561866bf50"
+faces = 3364
+defects = ["inverted", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 128911"
+
+[[mesh]]
+id = "thingi10k-129923"
+file = "real/thingi10k/129923.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:48377"
+license = "CC-BY-3.0"
+author = "apdesigns"
+title = "Tamiya M-series Mini Cooper"
+sha256 = "fe388290ce0d36b861c660945b161b39c49113a9cb1bc64539b7eeae27f048f9"
+faces = 2012
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 129923"
+
+[[mesh]]
+id = "thingi10k-129924"
+file = "real/thingi10k/129924.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:48377"
+license = "CC-BY-3.0"
+author = "apdesigns"
+title = "Tamiya M-series Mini Cooper"
+sha256 = "bfa5bd2efcffd3c007b6cb37e2277e118600aa7c7c858a031dbbf58643c2b46a"
+faces = 11348
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 129924"
+
+[[mesh]]
+id = "thingi10k-130443"
+file = "real/thingi10k/130443.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:48695"
+license = "CC-BY-SA-3.0"
+author = "calebkraft"
+title = "Modular VW bus container"
+sha256 = "92ae51f91ccf261abb76f158ac71f2464766645a1f9e579e3cbfaea118053534"
+faces = 2496
+defects = ["holes", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 130443"
+
+[[mesh]]
+id = "thingi10k-130974"
+file = "real/thingi10k/130974.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:49033"
+license = "CC-BY-SA-3.0"
+author = "DigitalTargeter"
+title = "Fokker DR.1 Triplane"
+sha256 = "9f2e344db9c26bee2eb0b14ebf71b2cb4448b26f7f9b5fd8e7f1f4f11957e8a3"
+faces = 872
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 130974"
+
+[[mesh]]
+id = "thingi10k-132062"
+file = "real/thingi10k/132062.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:49634"
+license = "CC-BY-SA-3.0"
+author = "JoeMattie"
+title = "Joe&#039;s FPV QuadCopter variant"
+sha256 = "73df051d65f0483318ffced432741b10c50a3947f1703e663fcbc0f569fd0d8b"
+faces = 178
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 132062"
+
+[[mesh]]
+id = "thingi10k-134617"
+file = "real/thingi10k/134617.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:51018"
+license = "CC-BY-SA-3.0"
+author = "zefram"
+title = "Napier Deltic Engine Model"
+sha256 = "f50bf5d64e4242e0179acbc7584a6ed32f637885e9661a5a34353a94b6c69e86"
+faces = 428
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 134617"
+
+[[mesh]]
+id = "thingi10k-134637"
+file = "real/thingi10k/134637.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:51018"
+license = "CC-BY-SA-3.0"
+author = "zefram"
+title = "Napier Deltic Engine Model"
+sha256 = "e462df1d3aead606a678270d849f29ba4ba1a32ec827ba588939e99e13ae5e3e"
+faces = 8824
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 134637"
+
+[[mesh]]
+id = "thingi10k-135456"
+file = "real/thingi10k/135456.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:51403"
+license = "CC-BY-SA-3.0"
+author = "Miax"
+title = "Mad Mare Studio&#039;s Medium-Duty Robot Gripper"
+sha256 = "ef90ea16f109688c7c313f6c736af7f178dd131bdb7c3633c65f8e20981316f1"
+faces = 2666
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 135456"
+
+[[mesh]]
+id = "thingi10k-135460"
+file = "real/thingi10k/135460.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:51403"
+license = "CC-BY-SA-3.0"
+author = "Miax"
+title = "Mad Mare Studio&#039;s Medium-Duty Robot Gripper"
+sha256 = "4a551e4ce862e619a6a2d86c96d758c91796fe352dffebcd4cd0edda898924e0"
+faces = 880
+defects = ["inconsistent_orientation"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 135460"
+
+[[mesh]]
+id = "thingi10k-135753"
+file = "real/thingi10k/135753.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:51403"
+license = "CC-BY-SA-3.0"
+author = "Miax"
+title = "Mad Mare Studio&#039;s Medium-Duty Robot Gripper"
+sha256 = "768df8af1b0168a347072c6f85265c7021ff2bb4a97f731d0e924e8f08da3cbb"
+faces = 2620
+defects = ["inconsistent_orientation", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 135753"
+
+[[mesh]]
+id = "thingi10k-136393"
+file = "real/thingi10k/136393.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:51842"
+license = "CC-BY-SA-3.0"
+author = "petropixel"
+title = "Balloon Turbine Car"
+sha256 = "83e39d9eb5d54d22d300082ee3050921501d14c8c16ba30e8936ecca15d5475f"
+faces = 1368
+defects = ["inconsistent_orientation", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 136393"
+
+[[mesh]]
+id = "thingi10k-138200"
+file = "real/thingi10k/138200.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:52769"
+license = "CC-BY-SA-3.0"
+author = "MakerBot"
+title = "5-Cylinder Radial Engine Model"
+sha256 = "a89f49332f5c8e780eea1d07dcf0210801e4e137bbe28a0c0cb4f05d2eef34ca"
+faces = 336
+defects = ["non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 138200"
+
+[[mesh]]
+id = "thingi10k-153966"
+file = "real/thingi10k/153966.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:61536"
+license = "CC-BY-3.0"
+author = "MakerBot"
+title = "TimeSquare Time Square"
+sha256 = "6dbcededcd2389366cb080910d3ef260e2f5c24b7aee3ea849de72e975053f48"
+faces = 3772
+defects = ["holes", "non_manifold_vertices", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 153966"
+
+[[mesh]]
+id = "thingi10k-180689"
+file = "real/thingi10k/180689.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:71637"
+license = "CC-BY-3.0"
+author = "moriza"
+title = "NASA - Galileo Spacecraft"
+sha256 = "d5693d2a7a6255baa16d4ec2f71aaee895b3429ed62a26c27b2fb06fa88d6eb2"
+faces = 3287
+defects = ["holes", "non_manifold_edges", "degenerate", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 180689"
+
+[[mesh]]
+id = "thingi10k-180690"
+file = "real/thingi10k/180690.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:71637"
+license = "CC-BY-3.0"
+author = "moriza"
+title = "NASA - Galileo Spacecraft"
+sha256 = "f6f8894033160f9bb3bc27591703c362e59f669e4b484b958b26548e08359f54"
+faces = 2204
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 180690"
+
+[[mesh]]
+id = "thingi10k-192041"
+file = "real/thingi10k/192041.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:85168"
+license = "CC-BY-SA-3.0"
+author = "hooptey"
+title = "Vertical Axis Wind Turbine"
+sha256 = "28f4d84e3952ba20a4abc50e12cda6df1eb8248cff092c56b8037db1a11685ce"
+faces = 2436
+defects = ["holes", "non_manifold_vertices", "self_intersections", "multiple_shells", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 192041"
+
+[[mesh]]
+id = "thingi10k-204953"
+file = "real/thingi10k/204953.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:93320"
+license = "CC-BY-3.0"
+author = "pixil3d"
+title = "iOS App Icon Keychains"
+sha256 = "22103e87b32f8831363642dcb8e34d659bf5745fe1c42ea5e3c3833da5a32561"
+faces = 572
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 204953"
+
+[[mesh]]
+id = "thingi10k-217025"
+file = "real/thingi10k/217025.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:101105"
+license = "CC0-1.0"
+author = "chris"
+title = "The Turbo Entabulator - a 3D-printable  fully mechanical computer"
+sha256 = "d91265c4b13fc9db41bdbc41b13de284521ecccdb86b1a38282032dc3b7e6231"
+faces = 4588
+defects = ["holes", "multiple_shells", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 217025"
+
+[[mesh]]
+id = "thingi10k-225354"
+file = "real/thingi10k/225354.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:106256"
+license = "CC0-1.0"
+author = "stuartpb"
+title = "Spiff.scad"
+sha256 = "6585cfde2265baac57b8db79090e8c43bf18031245039c583fbb8b1df2276d6b"
+faces = 2088
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 225354"
+
+[[mesh]]
+id = "thingi10k-232912"
+file = "real/thingi10k/232912.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:111008"
+license = "CC-BY-3.0"
+author = "pattonsrobots"
+title = "1st Printed ESRA Talking Robot"
+sha256 = "7e82adcc109d9bbf6b6932775ab9c504ab4d8bc683e8d0b1fb3488a2861254fb"
+faces = 1024
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 232912"
+
+[[mesh]]
+id = "thingi10k-237181"
+file = "real/thingi10k/237181.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:111008"
+license = "CC-BY-3.0"
+author = "pattonsrobots"
+title = "1st Printed ESRA Talking Robot"
+sha256 = "026956dd137ef8a2b5c4ddc129d1525f66c80a505dc795fdf49a11233044e19e"
+faces = 4154
+defects = ["non_manifold_edges", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 237181"
+
+[[mesh]]
+id = "thingi10k-238415"
+file = "real/thingi10k/238415.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:114349"
+license = "CC-BY-SA-3.0"
+author = "infinityplusplus"
+title = "Traxbot  -  an EZ-robot build"
+sha256 = "34b1c9e0690d36518a494318580f9a338050a82054f239874aee9766ae12b251"
+faces = 12032
+defects = ["non_manifold_edges", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 238415"
+
+[[mesh]]
+id = "thingi10k-238418"
+file = "real/thingi10k/238418.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:114349"
+license = "CC-BY-SA-3.0"
+author = "infinityplusplus"
+title = "Traxbot  -  an EZ-robot build"
+sha256 = "e49dcdf097f8c7e1f3f2857662d283b0a5b1357783b431fa2d7ad65a6315a0f1"
+faces = 12724
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 238418"
+
+[[mesh]]
+id = "thingi10k-239185"
+file = "real/thingi10k/239185.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:114784"
+license = "CC-BY-SA-3.0"
+author = "IdefixRC"
+title = "Botmobile Dune Buggy - 2013 Version"
+sha256 = "9bd9a198f6471cefcca91f3b07c23b258b0d8a9372951c275b96dc5ea27eda68"
+faces = 7176
+defects = ["non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 239185"
+
+[[mesh]]
+id = "thingi10k-240292"
+file = "real/thingi10k/240292.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:115469"
+license = "CC-BY-3.0"
+author = "TheKretchfoop"
+title = "Modular Honeycomb Frame"
+sha256 = "1b1306371a53cb85321e0ee8bbac2aef98c4e6a996d564dd271abcadc721a64b"
+faces = 1996
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 240292"
+
+[[mesh]]
+id = "thingi10k-243266"
+file = "real/thingi10k/243266.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:114784"
+license = "CC-BY-SA-3.0"
+author = "IdefixRC"
+title = "Botmobile Dune Buggy - 2013 Version"
+sha256 = "be90b11ffb80a9404a6707c49f0987584a4553e182f1994203a52f5f3b72f7ab"
+faces = 7234
+defects = ["non_manifold_vertices", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 243266"
+
+[[mesh]]
+id = "thingi10k-255237"
+file = "real/thingi10k/255237.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:124865"
+license = "CC-BY-3.0"
+author = "gpvillamil"
+title = "123D Shuttle Rocket with Connectors"
+sha256 = "18c1a8fd6dcfb319d47092a184d8a5971744f2a5cbd4c342f6803af2d4672333"
+faces = 22892
+defects = ["non_manifold_vertices", "inconsistent_orientation", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 255237"
+
+[[mesh]]
+id = "thingi10k-259180"
+file = "real/thingi10k/259180.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:116571"
+license = "CC-BY-3.0"
+author = "jasonwelsh"
+title = "Open Source Action Figure with 70 Points of Articulation (aka Dexter)"
+sha256 = "d1ec6c1b6215498772e31eb1743dd2291acabfb28f1aa1166e80e5de2ba4b203"
+faces = 10472
+defects = ["self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 259180"
+
+[[mesh]]
+id = "thingi10k-270324"
+file = "real/thingi10k/270324.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:135209"
+license = "CC-BY-3.0"
+author = "barspin"
+title = "OpenRC 1:10 car shocks"
+sha256 = "04fe95e3b01c658ffb1c62c641518e5d4a27603828192c87f0b0bbb25f4ca975"
+faces = 4554
+defects = ["holes", "non_manifold_vertices", "self_intersections", "multiple_shells", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 270324"
+
+[[mesh]]
+id = "thingi10k-346288"
+file = "real/thingi10k/346288.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:184219"
+license = "CC-BY-SA-3.0"
+author = "3DBROOKLYN"
+title = "Movember Stache Combs"
+sha256 = "3c28f19d39a14cf453fb987d5ea64c117680f37fc7ac8cd96f48c025f5fbcf4a"
+faces = 9236
+defects = ["self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 346288"
+
+[[mesh]]
+id = "thingi10k-423819"
+file = "real/thingi10k/423819.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:229975"
+license = "CC-BY-SA-3.0"
+author = "stumphopper"
+title = "wind gauge"
+sha256 = "6efae490bb73af1f62a477cef34268df0f6d1c7b0dd8fdbaf590393ed363bf38"
+faces = 1492
+defects = ["degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 423819"
+
+[[mesh]]
+id = "thingi10k-425320"
+file = "real/thingi10k/425320.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:230139"
+license = "CC-BY-SA-3.0"
+author = "mathgrrl"
+title = "Print-In-Place Fidget Cube"
+sha256 = "6c95ef9aa575ad118642763825084f934c8a3727cada44f4813f8d995755f723"
+faces = 9875
+defects = ["holes", "non_manifold_vertices", "inconsistent_orientation", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 425320"
+
+[[mesh]]
+id = "thingi10k-425321"
+file = "real/thingi10k/425321.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:230139"
+license = "CC-BY-SA-3.0"
+author = "mathgrrl"
+title = "Print-In-Place Fidget Cube"
+sha256 = "a9f929a9eb9ff78730a797c25a70c8267ff1a026bf74287fbe2ff5a7fa98ef32"
+faces = 9027
+defects = ["holes", "non_manifold_vertices", "inconsistent_orientation", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 425321"
+
+[[mesh]]
+id = "thingi10k-458128"
+file = "real/thingi10k/458128.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:250463"
+license = "CC-BY-SA-3.0"
+author = "CodeCreations"
+title = "Skewered Trilobite Hair Clip (small; simplified; plated)"
+sha256 = "66a9c9e82e580364d0c81de314838dfb967f3ccb8faa805c6c58a580d8f16311"
+faces = 19286
+defects = ["self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 458128"
+
+[[mesh]]
+id = "thingi10k-472091"
+file = "real/thingi10k/472091.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:259005"
+license = "CC-BY-3.0"
+author = "MakerBot"
+title = "4-8-8-4 Big Boy Locomotive"
+sha256 = "886e941f1fa2208dce58c023ad58ed3ca1f59bfcea35d6ffa58c027af346c328"
+faces = 9204
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 472091"
+
+[[mesh]]
+id = "thingi10k-472098"
+file = "real/thingi10k/472098.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:259005"
+license = "CC-BY-3.0"
+author = "MakerBot"
+title = "4-8-8-4 Big Boy Locomotive"
+sha256 = "62550bca09bed154700ee683dfc7117da94b0887381a2832e5018fde03d84fa3"
+faces = 574
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 472098"
+
+[[mesh]]
+id = "thingi10k-475828"
+file = "real/thingi10k/475828.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:261218"
+license = "CC-BY-3.0"
+author = "Bluebie"
+title = "Fennec Fox Head Drawer/Cupboard Handle"
+sha256 = "7d52bdab4a60d7b143c08de5f97494c4d64d5a810a8e8a88c273b157f7e8cb97"
+faces = 278
+defects = ["self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 475828"
+
+[[mesh]]
+id = "thingi10k-492895"
+file = "real/thingi10k/492895.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:272234"
+license = "CC-BY-SA-3.0"
+author = "3dxl"
+title = "XL-RCM 10.0 PIXXY: Pocket drone / FPV quad"
+sha256 = "dcc8f2ada53b4d44cd9be9ba47d974692ccc65b06fc5a8d75f2200bac4fa0257"
+faces = 860
+defects = ["holes", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 492895"
+
+[[mesh]]
+id = "thingi10k-500086"
+file = "real/thingi10k/500086.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:276836"
+license = "CC-BY-3.0"
+author = "LorenIPSVM"
+title = "Heatwave 3d Printable Typeface"
+sha256 = "b90e470f87d61837fa2c351c6eb0def7aa1e510401b0cccab4d63ad7c52427d7"
+faces = 5796
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 500086"
+
+[[mesh]]
+id = "thingi10k-503407"
+file = "real/thingi10k/503407.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:279098"
+license = "CC-BY-SA-3.0"
+author = "Kraaij"
+title = "Calendar Blocks"
+sha256 = "60bfb50d75fbf32b4fac3aedfa366ad813c6b02ad05567c17a13fe0dcebd0a9a"
+faces = 2448
+defects = ["holes", "non_manifold_vertices", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 503407"
+
+[[mesh]]
+id = "thingi10k-503409"
+file = "real/thingi10k/503409.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:279098"
+license = "CC-BY-SA-3.0"
+author = "Kraaij"
+title = "Calendar Blocks"
+sha256 = "83c58ee8c795e84e7971cf3afb590fd101f53f168843ab656eafeb67b7bb93f8"
+faces = 1638
+defects = ["holes", "non_manifold_vertices", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 503409"
+
+[[mesh]]
+id = "thingi10k-503947"
+file = "real/thingi10k/503947.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:279274"
+license = "CC-BY-SA-3.0"
+author = "Jmadden99"
+title = "Whisked"
+sha256 = "7a25c78081f88f2c9aaf9dd8ba35aca8d2c6fedbe3c1affdee15d24dac65343c"
+faces = 4898
+defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 503947"
+
+[[mesh]]
+id = "thingi10k-635747"
+file = "real/thingi10k/635747.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:367226"
+license = "CC-BY-SA-3.0"
+author = "adafruit"
+title = "Adabot"
+sha256 = "ebf45d2320cf7bdb3e29584c53b68fc26427e1f7123018f2bd6db5bf24bef706"
+faces = 630
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 635747"
+
+[[mesh]]
+id = "thingi10k-650186"
+file = "real/thingi10k/650186.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:367262"
+license = "CC-BY-SA-3.0"
+author = "9999NYC"
+title = "Next Level Sheet: 3d Printable Typeface"
+sha256 = "02d927dbd257be9d075632733093421477ad6d7712c55af34dce865f89b83ecb"
+faces = 11364
+defects = ["holes", "non_manifold_vertices", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 650186"
+
+[[mesh]]
+id = "thingi10k-656709"
+file = "real/thingi10k/656709.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:367226"
+license = "CC-BY-SA-3.0"
+author = "adafruit"
+title = "Adabot"
+sha256 = "3a70acbadd7699bffdd891214f7bfa94be7652090ec2071c5a08f5382b5efe0f"
+faces = 2024
+defects = ["holes", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 656709"
+
+[[mesh]]
+id = "thingi10k-669971"
+file = "real/thingi10k/669971.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:392115"
+license = "CC-BY-3.0"
+author = "GE"
+title = "Build Your Own Jet Engine"
+sha256 = "3d3f1cc5102e921a1114abfdf7895aa79b973cf32f0b1eb30d7eda30d206c42a"
+faces = 26910
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 669971"
+
+[[mesh]]
+id = "thingi10k-679616"
+file = "real/thingi10k/679616.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:398548"
+license = "CC-BY-SA-3.0"
+author = "FatalError3141"
+title = "Parts Tray Drawers"
+sha256 = "8feb4668db059e14a3e821ef59af397f541fc3117cb41d092ab078a0bade70f8"
+faces = 796
+defects = ["holes", "degenerate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 679616"
+
+[[mesh]]
+id = "thingi10k-702411"
+file = "real/thingi10k/702411.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:42198"
+license = "CC-BY-SA-3.0"
+author = "barspin"
+title = "OpenRC 1:10 4WD Truggy Concept RC Car"
+sha256 = "395e22153b9b32c3056d4f6631b7ff918b77b33a00789688b116692642484548"
+faces = 5084
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 702411"
+
+[[mesh]]
+id = "thingi10k-702412"
+file = "real/thingi10k/702412.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:42198"
+license = "CC-BY-SA-3.0"
+author = "barspin"
+title = "OpenRC 1:10 4WD Truggy Concept RC Car"
+sha256 = "c9f95e9616ba4639dda67e8aa51bb951d449e916d157c64e6fa44875a3ae0cd9"
+faces = 826
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 702412"
+
+[[mesh]]
+id = "thingi10k-838516"
+file = "real/thingi10k/838516.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:508896"
+license = "CC-BY-3.0"
+author = "CreativeTools"
+title = "Universal stand-alone filament spool holder (Fully 3D-printable)"
+sha256 = "c0d6ccd6b3f644b25b9cf3fa85167ca00625e30982311264f96d09725b2f03b4"
+faces = 968
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 838516"
+
+[[mesh]]
+id = "thingi10k-919989"
+file = "real/thingi10k/919989.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:570797"
+license = "CC-BY-SA-3.0"
+author = "ekaggrat"
+title = "holo clock"
+sha256 = "7a1e5fc71bf2c58d0d2f718703d225251b0526b3a123da5a9cabf6294abab9ac"
+faces = 13254
+defects = ["non_manifold_vertices", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 919989"
+
+[[mesh]]
+id = "thingi10k-1004827"
+file = "real/thingi10k/1004827.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:624569"
+license = "CC-BY-SA-3.0"
+author = "mz4250"
+title = "The Dread Gazebo!!!!"
+sha256 = "cfe4b1c32bd9c303c2f5e6d5ec93daed857dcf0844092a965ab64fcb2273920a"
+faces = 4356
+defects = ["holes", "degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 1004827"
+
+[[mesh]]
+id = "thingi10k-1017013"
+file = "real/thingi10k/1017013.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:632523"
+license = "CC-BY-SA-3.0"
+author = "Herrigold"
+title = "Victorian House Construction Set"
+sha256 = "312d422f9e538c714f8773642986903349af414e41183a7df0f26bd2ddad6d3d"
+faces = 3532
+defects = ["holes", "non_manifold_edges", "duplicate", "self_intersections", "multiple_shells", "unwelded", "hopeless"]
+expect_repairable = false
+dataset_id = "Thingi10K file_id 1017013"
+
+[[mesh]]
+id = "thingi10k-1051178"
+file = "real/thingi10k/1051178.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:649284"
+license = "CC-BY-SA-3.0"
+author = "LoboCNC"
+title = "Frankenstein Light Switch Plate"
+sha256 = "a7e7045e5202fd8200cbc20e831cb5735bc83b2f1dc2b139b2530b97815701be"
+faces = 25874
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 1051178"
+
+[[mesh]]
+id = "thingi10k-1181082"
+file = "real/thingi10k/1181082.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:684376"
+license = "CC-BY-SA-3.0"
+author = "joefe"
+title = "Steampunk cube gears"
+sha256 = "69a6aa6747a15ef2f795e82b0c5881ece16864838118db130bed302d44d18585"
+faces = 18348
+defects = ["self_intersections", "multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 1181082"
+
+[[mesh]]
+id = "thingi10k-1514498"
+file = "real/thingi10k/1514498.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:957943"
+license = "CC-BY-SA-3.0"
+author = "stylesuxx"
+title = "Vienna Giant Wheel (Riesenrad)"
+sha256 = "a581fda4387373a255e57c9956f33203000977a0d9b81fc99464351cdef603c5"
+faces = 4560
+defects = ["multiple_shells"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 1514498"
+
+[[mesh]]
+id = "thingi10k-1535139"
+file = "real/thingi10k/1535139.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:971527"
+license = "CC-BY-SA-3.0"
+author = "burton15"
+title = "Sand Spirograph"
+sha256 = "a57b396ef5a3e678f7a0702875cbee9ca4a538a03047d5228fafb83c5cfdbf95"
+faces = 1422
+defects = []
+expect_repairable = true
+dataset_id = "Thingi10K file_id 1535139"
+
+[[mesh]]
+id = "thingi10k-1582375"
+file = "real/thingi10k/1582375.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:1002335"
+license = "CC-BY-SA-3.0"
+author = "jkurstin22"
+title = "Chicago Updated"
+sha256 = "1a85684d6cb276538cd2f3e6683eebe11f7cdc3853e2ea1cd9c25209ce56f9a7"
+faces = 242
+defects = ["non_manifold_edges"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 1582375"
+
+[[mesh]]
+id = "thingi10k-1681239"
+file = "real/thingi10k/1681239.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:1068443"
+license = "CC-BY-3.0"
+author = "Mojoptix"
+title = "Digital Sundial"
+sha256 = "b3a3f01be69b71047168cc9a095889ab568e79767684dfbf1b29dcc877f3e617"
+faces = 3113
+defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 1681239"
+
+[[mesh]]
+id = "thingi10k-1750623"
+file = "real/thingi10k/1750623.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:1068443"
+license = "CC-BY-3.0"
+author = "Mojoptix"
+title = "Digital Sundial"
+sha256 = "40ba73a0ab2f843b0314d2f8e2879251096cd582516dbba59ef93157f0ac27fc"
+faces = 5938
+defects = ["non_manifold_vertices", "self_intersections"]
+expect_repairable = true
+dataset_id = "Thingi10K file_id 1750623"
+
+[[mesh]]
+id = "thingi10k-82326"
+file = "fetch/thingi10k/82326.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:27715"
+license = "CC-BY-NC-3.0"
+author = "jasonwelsh"
+title = "Stuffed Regal Stag"
+sha256 = "b06a25c3060df108d98212d9702c4403978cc56dd9f1ed91a050d919866aec36"
+faces = 35384
+defects = ["self_intersections"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/82326.stl"
+fetch_sha256 = "b06a25c3060df108d98212d9702c4403978cc56dd9f1ed91a050d919866aec36"
+fetch_archive = "none"
+dataset_id = "Thingi10K file_id 82326"
+notes = "Non-commercial or no-derivatives licence: fetch-only, never committed."
+
+[[mesh]]
+id = "thingi10k-106839"
+file = "fetch/thingi10k/106839.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:37525"
+license = "CC-BY-NC-3.0"
+author = "laird"
+title = "Blizzard of Unique Snowflakes"
+sha256 = "9186130b1f91bf8732b84b87f2a1d0a5164e8c66a5ff0a74707fbafcb852bfce"
+faces = 11072
+defects = ["degenerate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/106839.stl"
+fetch_sha256 = "9186130b1f91bf8732b84b87f2a1d0a5164e8c66a5ff0a74707fbafcb852bfce"
+fetch_archive = "none"
+dataset_id = "Thingi10K file_id 106839"
+notes = "Non-commercial or no-derivatives licence: fetch-only, never committed."
+
+[[mesh]]
+id = "thingi10k-375080"
+file = "fetch/thingi10k/375080.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:201097"
+license = "CC-BY-NC-SA-3.0"
+author = "sneakypoo"
+title = "Labyrinth Gift Box"
+sha256 = "e5e191ca920fd6d9ec098319433c36238ee728409233290e1beba89f4125a4e6"
+faces = 11328
+defects = ["holes", "self_intersections", "unwelded"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/375080.stl"
+fetch_sha256 = "e5e191ca920fd6d9ec098319433c36238ee728409233290e1beba89f4125a4e6"
+fetch_archive = "none"
+dataset_id = "Thingi10K file_id 375080"
+notes = "Non-commercial or no-derivatives licence: fetch-only, never committed."
+
+[[mesh]]
+id = "thingi10k-850630"
+file = "fetch/thingi10k/850630.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:517329"
+license = "CC-BY-NC-SA-3.0"
+author = "kongorilla"
+title = "Kongo&#039;s Bugging Eyeballs"
+sha256 = "971c04835170870a75d96c4c482e07d0f4a2cdeaf5721f567cc983d316ce9816"
+faces = 47476
+defects = ["self_intersections"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/850630.stl"
+fetch_sha256 = "971c04835170870a75d96c4c482e07d0f4a2cdeaf5721f567cc983d316ce9816"
+fetch_archive = "none"
+dataset_id = "Thingi10K file_id 850630"
+notes = "Non-commercial or no-derivatives licence: fetch-only, never committed."
+
+[[mesh]]
+id = "thingi10k-1063856"
+file = "fetch/thingi10k/1063856.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:662115"
+license = "CC-BY-NC-3.0"
+author = "LtDan"
+title = "Printable Trumpet"
+sha256 = "ab4f9959cc33caca12388a8041c2ff3715e1dbfb9abf293d3858e982ff6fa55f"
+faces = 28080
+defects = ["holes", "non_manifold_vertices", "unwelded"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/1063856.stl"
+fetch_sha256 = "ab4f9959cc33caca12388a8041c2ff3715e1dbfb9abf293d3858e982ff6fa55f"
+fetch_archive = "none"
+dataset_id = "Thingi10K file_id 1063856"
+notes = "Non-commercial or no-derivatives licence: fetch-only, never committed."
+
+[[mesh]]
+id = "thingi10k-1312956"
+file = "fetch/thingi10k/1312956.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:824415"
+license = "CC-BY-NC-3.0"
+author = "ericthepoolboy"
+title = "Working Gear Driven 4WD Toyota Transfer Case Model"
+sha256 = "2114b2bf236129e53ed3fff83340b42b8cce9a6206e4fd905562b915105278c2"
+faces = 15264
+defects = ["self_intersections"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/1312956.stl"
+fetch_sha256 = "2114b2bf236129e53ed3fff83340b42b8cce9a6206e4fd905562b915105278c2"
+fetch_archive = "none"
+dataset_id = "Thingi10K file_id 1312956"
+notes = "Non-commercial or no-derivatives licence: fetch-only, never committed."
+
+[[mesh]]
+id = "thingi10k-1496712"
+file = "fetch/thingi10k/1496712.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:947423"
+license = "CC-BY-NC-3.0"
+author = "francfalco"
+title = "Finger Wrench (digit spanner)"
+sha256 = "5d9b24116ab7d6e40ac46c5ccaf2950c3689d3fc413a1a7ad2bb6a1589961e3e"
+faces = 10582
+defects = ["non_manifold_vertices", "self_intersections"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/1496712.stl"
+fetch_sha256 = "5d9b24116ab7d6e40ac46c5ccaf2950c3689d3fc413a1a7ad2bb6a1589961e3e"
+fetch_archive = "none"
+dataset_id = "Thingi10K file_id 1496712"
+notes = "Non-commercial or no-derivatives licence: fetch-only, never committed."
+
+[[mesh]]
+id = "thingi10k-1572508"
+file = "fetch/thingi10k/1572508.stl"
+format = "stl"
+source_url = "https://www.thingiverse.com/thing:996398"
+license = "CC-BY-NC-3.0"
+author = "ist"
+title = "PHIL - The Filament Holder by TheNewHob"
+sha256 = "cd9a7abe406b16c1afcd3eea0a113d6889c1fc7b2e85b756e82a0f79456bdff3"
+faces = 16064
+defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections", "multiple_shells"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/1572508.stl"
+fetch_sha256 = "cd9a7abe406b16c1afcd3eea0a113d6889c1fc7b2e85b756e82a0f79456bdff3"
+fetch_archive = "none"
+dataset_id = "Thingi10K file_id 1572508"
+notes = "Non-commercial or no-derivatives licence: fetch-only, never committed."
+
+[[mesh]]
+id = "stanford-bunny-zipper"
+file = "fetch/stanford/bun_zipper.ply"
+format = "ply"
+source_url = "https://graphics.stanford.edu/data/3Dscanrep/"
+license = "LicenseRef-Stanford-3DScanRep"
+author = "Stanford Computer Graphics Laboratory"
+title = "The Stanford Bunny, zippered reconstruction of 10 range scans"
+sha256 = "b1acc63bece78444aa2e15bdcc72371a201279b98c6f5d4b74c993d02f0566fe"
+faces = 69451
+defects = ["holes", "unwelded"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://graphics.stanford.edu/pub/3Dscanrep/bunny.tar.gz"
+fetch_sha256 = "a5720bd96d158df403d153381b8411a727a1d73cff2f33dc9b212d6f75455b84"
+fetch_archive = "tar.gz"
+fetch_member = "bunny/reconstruction/bun_zipper.ply"
+notes = "Scan reconstruction: 223 boundary edges (base and hole patches), 1113 unreferenced vertices."
+
+[[mesh]]
+id = "stanford-dragon-vrip"
+file = "fetch/stanford/dragon_vrip.ply"
+format = "ply"
+source_url = "https://graphics.stanford.edu/data/3Dscanrep/"
+license = "LicenseRef-Stanford-3DScanRep"
+author = "Stanford Computer Graphics Laboratory"
+title = "The Stanford Dragon, VRIP reconstruction (871 k faces)"
+sha256 = "fea87ff48f2aba22fb53e7b67c3ff3f7b8c2a3b3a0653af62c48bba67c6d5744"
+faces = 871414
+defects = ["holes", "degenerate", "multiple_shells"]
+expect_repairable = true
+fetch = true
+fetch_url = "https://graphics.stanford.edu/pub/3Dscanrep/dragon/dragon_recon.tar.gz"
+fetch_sha256 = "74ac1d90989c9b1732edee82d57e9ce71452144cf4355f108d8c9c616d28d02f"
+fetch_archive = "tar.gz"
+fetch_member = "dragon_recon/dragon_vrip.ply"
+notes = "Large real scan: 4270 boundary edges, 367 degenerate faces, 151 components. Also a 1 M-class performance input."
+
+[[mesh]]
+id = "stanford-armadillo"
+file = "fetch/stanford/Armadillo.ply"
+format = "ply"
+source_url = "https://graphics.stanford.edu/data/3Dscanrep/"
+license = "LicenseRef-Stanford-3DScanRep"
+author = "Stanford Computer Graphics Laboratory"
+title = "The Stanford Armadillo (346 k faces)"
+sha256 = "483563fca686b66168e1e45339c50e71a5dc8a526a04a545a16b9237d5eaa023"
+faces = 345944
+defects = []
+expect_repairable = true
+fetch = true
+fetch_url = "https://graphics.stanford.edu/pub/3Dscanrep/armadillo/Armadillo.ply.gz"
+fetch_sha256 = "8b9b56cc36e66d54429b1e1e75bd89e833645bfe0dc7c1afd1205877a7356a3f"
+fetch_archive = "gz"
+notes = "Closed, oriented, manifold; large clean control model."

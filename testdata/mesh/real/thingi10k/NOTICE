@@ -1,0 +1,175 @@
+Thingi10K subset (MESH-28)
+
+Meshes from the Thingi10K dataset (Qingnan Zhou and Alec Jacobson, "Thingi10K: A Dataset of
+10,000 3D-Printing Models", arXiv:1605.04797), downloaded unmodified from
+https://huggingface.co/datasets/Thingi10K/Thingi10K (raw_meshes/<file_id>.stl).
+Only models whose Thingiverse licence is CC0 / public domain / CC-BY / CC-BY-SA were kept.
+Each file is a Thingiverse upload under the licence below; attribution is required for CC-BY and CC-BY-SA.
+The CC-BY-SA models are used as unmodified test data and are not part of any shipped build.
+
+file_id	thing	licence	author	title
+36371	https://www.thingiverse.com/thing:11322	CC-BY-SA-3.0	HPaul	Coin Sorter and Counting/Wrapping Tubes
+37213	https://www.thingiverse.com/thing:11653	CC-BY-SA-3.0	peter_	3D-Printable Laser Cutter
+37825	https://www.thingiverse.com/thing:11825	CC-BY-SA-3.0	kyle170	Minecraft Creeper
+38066	https://www.thingiverse.com/thing:11882	CC-BY-SA-3.0	PolygonPusher	Hook for hanging pots and pans
+38096	https://www.thingiverse.com/thing:11796	CC-BY-SA-3.0	cymon	Recorder (instrument)
+39646	https://www.thingiverse.com/thing:11980	CC-BY-SA-3.0	sconine	Mechanical Animals
+41928	https://www.thingiverse.com/thing:12904	CC-BY-SA-3.0	cymon	Empire State Recorder (instrument)
+42290	https://www.thingiverse.com/thing:12993	CC-BY-SA-3.0	Tunell	Harry Potter Glasses
+42636	https://www.thingiverse.com/thing:13072	CC-BY-SA-3.0	1oldclown	LED mounts
+42733	https://www.thingiverse.com/thing:13101	CC-BY-SA-3.0	Beehive	Floorplan Lightswitch
+42734	https://www.thingiverse.com/thing:13101	CC-BY-SA-3.0	Beehive	Floorplan Lightswitch
+42881	https://www.thingiverse.com/thing:13153	CC-BY-SA-3.0	beekeeper	New Museum Maracas
+45616	https://www.thingiverse.com/thing:13740	CC-BY-SA-3.0	DEF	D&Acirc;&sup2; - Modular parametric car
+46245	https://www.thingiverse.com/thing:14127	CC-BY-SA-3.0	trihedral	FrostByte
+46529	https://www.thingiverse.com/thing:14189	LicenseRef-PublicDomain	foxdewayne	Necklace Holder
+47979	https://www.thingiverse.com/thing:11710	CC-BY-SA-3.0	Lenbok	SOTC Model Cleanup Test
+49162	https://www.thingiverse.com/thing:14599	CC-BY-SA-3.0	Ktronics	Tri-Track dual servo robot tank chassis
+49333	https://www.thingiverse.com/thing:14878	LicenseRef-PublicDomain	clintkc	Cube in Sphere
+49377	https://www.thingiverse.com/thing:14974	CC-BY-SA-3.0	cptnAWESOME	Sesame Street Sign
+50270	https://www.thingiverse.com/thing:15245	CC-BY-SA-3.0	alexw2150	Speakers
+50272	https://www.thingiverse.com/thing:15247	CC-BY-SA-3.0	alexw2150	Radio
+50489	https://www.thingiverse.com/thing:15276	CC-BY-SA-3.0	mfussi	Heightmap to STL
+51474	https://www.thingiverse.com/thing:15614	CC-BY-SA-3.0	MakerBotWorkshop	MakerBot Damsels
+51490	https://www.thingiverse.com/thing:14599	CC-BY-SA-3.0	Ktronics	Tri-Track dual servo robot tank chassis
+52058	https://www.thingiverse.com/thing:15752	CC-BY-SA-3.0	improbablecog	CBot - 01
+52310	https://www.thingiverse.com/thing:15830	CC-BY-SA-3.0	Typhoon69	Double CO2 Holder for Mountain Bike
+52863	https://www.thingiverse.com/thing:16068	LicenseRef-PublicDomain	chris	Three digit electromechanical Counter / Register 2.0
+55557	https://www.thingiverse.com/thing:16954	CC-BY-SA-3.0	Max	The Convenient Typer
+55558	https://www.thingiverse.com/thing:16954	CC-BY-SA-3.0	Max	The Convenient Typer
+55572	https://www.thingiverse.com/thing:16954	CC-BY-SA-3.0	Max	The Convenient Typer
+58879	https://www.thingiverse.com/thing:18154	CC-BY-SA-3.0	elk	Supportless Kazoo
+59227	https://www.thingiverse.com/thing:18291	CC-BY-3.0	Thing-O-Fun	Exploded Planetary Gear Set
+60170	https://www.thingiverse.com/thing:18642	CC-BY-3.0	elmwolf	Octo Badge
+60565	https://www.thingiverse.com/thing:18392	CC-BY-3.0	Kepler	Mini Rover
+61134	https://www.thingiverse.com/thing:19043	CC-BY-3.0	foxdewayne	MK7 X Carrage for Prusa Mendel
+61460	https://www.thingiverse.com/thing:19168	CC-BY-3.0	pmoews	Two Color Archimedean Solids - 1
+64576	https://www.thingiverse.com/thing:20577	CC-BY-3.0	alany	Toy Gyroscope
+65509	https://www.thingiverse.com/thing:20948	CC-BY-SA-3.0	mrbenbritton	Penny whistle mouthpiece
+66129	https://www.thingiverse.com/thing:21195	CC-BY-SA-3.0	willkear	1967 Shelby Cobra
+67331	https://www.thingiverse.com/thing:21767	CC-BY-3.0	custom3dstuff	Toast in a toaster!
+68339	https://www.thingiverse.com/thing:22191	CC-BY-3.0	virtumake	Biscuit CutterStamp
+68434	https://www.thingiverse.com/thing:22236	CC-BY-3.0	EdinKali	BSG cookie cutters
+69171	https://www.thingiverse.com/thing:22537	CC-BY-SA-3.0	therobotfish	3D printed Quadcopter
+69172	https://www.thingiverse.com/thing:22537	CC-BY-SA-3.0	therobotfish	3D printed Quadcopter
+70368	https://www.thingiverse.com/thing:22977	CC-BY-3.0	crazytiti	1/20 Suzuki samurai body
+71381	https://www.thingiverse.com/thing:23437	CC-BY-3.0	Thing-O-Fun	Thing-O-Hoist
+71622	https://www.thingiverse.com/thing:23549	CC-BY-3.0	rweaving	Lotus Flower
+71710	https://www.thingiverse.com/thing:23589	CC-BY-3.0	Daid	Cat gears key chain.
+71711	https://www.thingiverse.com/thing:23589	CC-BY-3.0	Daid	Cat gears key chain.
+72657	https://www.thingiverse.com/thing:23936	CC-BY-SA-3.0	odie_wan	3in RC Plane Spinner
+73156	https://www.thingiverse.com/thing:24152	CC-BY-SA-3.0	unknown	Tyree--the Smiling; Tail Wagging Robot by mrigs
+74242	https://www.thingiverse.com/thing:24404	CC-BY-SA-3.0	Lochemage	Motorcycle Keychain with Light
+74452	https://www.thingiverse.com/thing:24670	CC-BY-SA-3.0	beekeeper	GOLF-IN-MINIATURE : The Desktop 18 Hole Miniature Golf Course
+76204	https://www.thingiverse.com/thing:25344	CC-BY-SA-3.0	dnewman	Magic Block Piercing Trick
+76230	https://www.thingiverse.com/thing:25357	CC-BY-3.0	rweaving	Teal & Pintail Duck Whistle
+78028	https://www.thingiverse.com/thing:26059	CC-BY-3.0	doommeister	Om Nom The Chompy Dinosoar
+78736	https://www.thingiverse.com/thing:26334	CC-BY-3.0	GregFrost	Almost Impossible Heart
+80442	https://www.thingiverse.com/thing:22679	CC-BY-SA-3.0	atartanian	Toy Car with captured wheel (Dualstrusion)
+81254	https://www.thingiverse.com/thing:27310	CC-BY-3.0	alexw2150	Keyboard
+82055	https://www.thingiverse.com/thing:27624	CC-BY-SA-3.0	theroar	Travel  Baseball Game
+82177	https://www.thingiverse.com/thing:27624	CC-BY-SA-3.0	theroar	Travel  Baseball Game
+83715	https://www.thingiverse.com/thing:28270	CC-BY-SA-3.0	chefmaki	Wolverine Claws in plastic
+85799	https://www.thingiverse.com/thing:29098	CC-BY-3.0	Bioluminescence	Cufflinks - Doctor Who Edition
+87719	https://www.thingiverse.com/thing:29860	CC-BY-3.0	devtty1	Modular Bicycle Dashboard
+87720	https://www.thingiverse.com/thing:29860	CC-BY-3.0	devtty1	Modular Bicycle Dashboard
+87863	https://www.thingiverse.com/thing:29927	CC-BY-SA-3.0	iceberg	Perry the Platypus Figure
+89802	https://www.thingiverse.com/thing:30753	CC-BY-SA-3.0	MarcoMT	The cube - The smallest game of mental activation for dogs
+90225	https://www.thingiverse.com/thing:30958	CC-BY-3.0	pmoews	Duals of Polyhedra
+92067	https://www.thingiverse.com/thing:31686	CC-BY-3.0	MakerBot	UPS Truck
+94016	https://www.thingiverse.com/thing:31392	CC-BY-SA-3.0	jmabry	13:30 Printable Headphones
+94479	https://www.thingiverse.com/thing:32667	CC-BY-3.0	bottleworks	My version of the LYMAN FILAMENT EXTRUDER
+94736	https://www.thingiverse.com/thing:32774	CC-BY-SA-3.0	Hyena_Of_Doom	1500 Megawatt Aperture Science Heavy Duty Super-Colliding Super Button Replica (Portal)
+95410	https://www.thingiverse.com/thing:33048	CC-BY-SA-3.0	JO3RI	Alphabet Cubes
+95777	https://www.thingiverse.com/thing:33102	CC-BY-SA-3.0	northshore	RC plane with brushless motor - ABS plastic and PS Foam hybrib
+95783	https://www.thingiverse.com/thing:33102	CC-BY-SA-3.0	northshore	RC plane with brushless motor - ABS plastic and PS Foam hybrib
+96564	https://www.thingiverse.com/thing:33477	CC-BY-SA-3.0	Ablapo	Tablet Stand - Halloween Monster Edition
+96954	https://www.thingiverse.com/thing:33621	CC-BY-3.0	mtdna	Quick-Set Domino Tumble Tracks!
+97160	https://www.thingiverse.com/thing:33696	CC0-1.0	chris	3-bit Mechanical Punch Card Reader
+97162	https://www.thingiverse.com/thing:33696	CC0-1.0	chris	3-bit Mechanical Punch Card Reader
+98572	https://www.thingiverse.com/thing:33913	CC-BY-SA-3.0	MakeALot	Big Ben
+98658	https://www.thingiverse.com/thing:34295	CC-BY-3.0	ravix	Interlocking 3D Carcassonne Tiles
+98664	https://www.thingiverse.com/thing:34295	CC-BY-3.0	ravix	Interlocking 3D Carcassonne Tiles
+98672	https://www.thingiverse.com/thing:34295	CC-BY-3.0	ravix	Interlocking 3D Carcassonne Tiles
+99899	https://www.thingiverse.com/thing:34778	CC-BY-SA-3.0	emmett	Automatic Transmission Model
+100029	https://www.thingiverse.com/thing:33732	CC-BY-SA-3.0	northshore	Full ABS RC plane with brushless electric motor
+100037	https://www.thingiverse.com/thing:33732	CC-BY-SA-3.0	northshore	Full ABS RC plane with brushless electric motor
+100682	https://www.thingiverse.com/thing:34774	CC-BY-3.0	MakerBot	Nesting Igloos
+100727	https://www.thingiverse.com/thing:35104	CC-BY-3.0	barspin	OpenRC 1:10 RC Differential
+100729	https://www.thingiverse.com/thing:35104	CC-BY-3.0	barspin	OpenRC 1:10 RC Differential
+105858	https://www.thingiverse.com/thing:37147	CC-BY-SA-3.0	yukiSUZUKI	Hand-made camera lens
+109086	https://www.thingiverse.com/thing:38351	CC-BY-3.0	gpvillamil	Customizable blimp for embossing or dualstrusion
+111399	https://www.thingiverse.com/thing:39253	CC-BY-SA-3.0	jasonwelsh	Universal Servo Driven Tank Tracks
+111959	https://www.thingiverse.com/thing:39466	CC-BY-3.0	satoer	Duplo hexagon railroad crossing
+112777	https://www.thingiverse.com/thing:27908	CC-BY-3.0	ThePlanetMike	Mars Curiosity Rover
+112852	https://www.thingiverse.com/thing:39822	CC-BY-SA-3.0	s_p_e_x	cliff-therm
+112854	https://www.thingiverse.com/thing:39822	CC-BY-SA-3.0	s_p_e_x	cliff-therm
+112855	https://www.thingiverse.com/thing:39822	CC-BY-SA-3.0	s_p_e_x	cliff-therm
+116068	https://www.thingiverse.com/thing:41206	CC-BY-SA-3.0	Gab_9	croco-bike 2040
+119051	https://www.thingiverse.com/thing:42579	CC-BY-SA-3.0	petropixel	Detailed Wankel Engine Model
+122866	https://www.thingiverse.com/thing:44200	CC-BY-SA-3.0	pintokitkat	Tube roller
+122947	https://www.thingiverse.com/thing:44483	CC-BY-SA-3.0	smartin	Beer Belt Clip
+124375	https://www.thingiverse.com/thing:45347	CC-BY-3.0	Mr_MegaTronic	VEND - the totally printed candy dispenser
+124709	https://www.thingiverse.com/thing:28706	CC-BY-SA-3.0	kataze	Snap Together Shutter Shades
+125947	https://www.thingiverse.com/thing:46251	CC-BY-SA-3.0	cobbal	Companion Dodecahedron
+128911	https://www.thingiverse.com/thing:47565	CC-BY-SA-3.0	petropixel	Balloon Powered Turbine
+129923	https://www.thingiverse.com/thing:48377	CC-BY-3.0	apdesigns	Tamiya M-series Mini Cooper
+129924	https://www.thingiverse.com/thing:48377	CC-BY-3.0	apdesigns	Tamiya M-series Mini Cooper
+130443	https://www.thingiverse.com/thing:48695	CC-BY-SA-3.0	calebkraft	Modular VW bus container
+130974	https://www.thingiverse.com/thing:49033	CC-BY-SA-3.0	DigitalTargeter	Fokker DR.1 Triplane
+132062	https://www.thingiverse.com/thing:49634	CC-BY-SA-3.0	JoeMattie	Joe&#039;s FPV QuadCopter variant
+134617	https://www.thingiverse.com/thing:51018	CC-BY-SA-3.0	zefram	Napier Deltic Engine Model
+134637	https://www.thingiverse.com/thing:51018	CC-BY-SA-3.0	zefram	Napier Deltic Engine Model
+135456	https://www.thingiverse.com/thing:51403	CC-BY-SA-3.0	Miax	Mad Mare Studio&#039;s Medium-Duty Robot Gripper
+135460	https://www.thingiverse.com/thing:51403	CC-BY-SA-3.0	Miax	Mad Mare Studio&#039;s Medium-Duty Robot Gripper
+135753	https://www.thingiverse.com/thing:51403	CC-BY-SA-3.0	Miax	Mad Mare Studio&#039;s Medium-Duty Robot Gripper
+136393	https://www.thingiverse.com/thing:51842	CC-BY-SA-3.0	petropixel	Balloon Turbine Car
+138200	https://www.thingiverse.com/thing:52769	CC-BY-SA-3.0	MakerBot	5-Cylinder Radial Engine Model
+153966	https://www.thingiverse.com/thing:61536	CC-BY-3.0	MakerBot	TimeSquare Time Square
+180689	https://www.thingiverse.com/thing:71637	CC-BY-3.0	moriza	NASA - Galileo Spacecraft
+180690	https://www.thingiverse.com/thing:71637	CC-BY-3.0	moriza	NASA - Galileo Spacecraft
+192041	https://www.thingiverse.com/thing:85168	CC-BY-SA-3.0	hooptey	Vertical Axis Wind Turbine
+204953	https://www.thingiverse.com/thing:93320	CC-BY-3.0	pixil3d	iOS App Icon Keychains
+217025	https://www.thingiverse.com/thing:101105	CC0-1.0	chris	The Turbo Entabulator - a 3D-printable  fully mechanical computer
+225354	https://www.thingiverse.com/thing:106256	CC0-1.0	stuartpb	Spiff.scad
+232912	https://www.thingiverse.com/thing:111008	CC-BY-3.0	pattonsrobots	1st Printed ESRA Talking Robot
+237181	https://www.thingiverse.com/thing:111008	CC-BY-3.0	pattonsrobots	1st Printed ESRA Talking Robot
+238415	https://www.thingiverse.com/thing:114349	CC-BY-SA-3.0	infinityplusplus	Traxbot  -  an EZ-robot build
+238418	https://www.thingiverse.com/thing:114349	CC-BY-SA-3.0	infinityplusplus	Traxbot  -  an EZ-robot build
+239185	https://www.thingiverse.com/thing:114784	CC-BY-SA-3.0	IdefixRC	Botmobile Dune Buggy - 2013 Version
+240292	https://www.thingiverse.com/thing:115469	CC-BY-3.0	TheKretchfoop	Modular Honeycomb Frame
+243266	https://www.thingiverse.com/thing:114784	CC-BY-SA-3.0	IdefixRC	Botmobile Dune Buggy - 2013 Version
+255237	https://www.thingiverse.com/thing:124865	CC-BY-3.0	gpvillamil	123D Shuttle Rocket with Connectors
+259180	https://www.thingiverse.com/thing:116571	CC-BY-3.0	jasonwelsh	Open Source Action Figure with 70 Points of Articulation (aka Dexter)
+270324	https://www.thingiverse.com/thing:135209	CC-BY-3.0	barspin	OpenRC 1:10 car shocks
+346288	https://www.thingiverse.com/thing:184219	CC-BY-SA-3.0	3DBROOKLYN	Movember Stache Combs
+423819	https://www.thingiverse.com/thing:229975	CC-BY-SA-3.0	stumphopper	wind gauge
+425320	https://www.thingiverse.com/thing:230139	CC-BY-SA-3.0	mathgrrl	Print-In-Place Fidget Cube
+425321	https://www.thingiverse.com/thing:230139	CC-BY-SA-3.0	mathgrrl	Print-In-Place Fidget Cube
+458128	https://www.thingiverse.com/thing:250463	CC-BY-SA-3.0	CodeCreations	Skewered Trilobite Hair Clip (small; simplified; plated)
+472091	https://www.thingiverse.com/thing:259005	CC-BY-3.0	MakerBot	4-8-8-4 Big Boy Locomotive
+472098	https://www.thingiverse.com/thing:259005	CC-BY-3.0	MakerBot	4-8-8-4 Big Boy Locomotive
+475828	https://www.thingiverse.com/thing:261218	CC-BY-3.0	Bluebie	Fennec Fox Head Drawer/Cupboard Handle
+492895	https://www.thingiverse.com/thing:272234	CC-BY-SA-3.0	3dxl	XL-RCM 10.0 PIXXY: Pocket drone / FPV quad
+500086	https://www.thingiverse.com/thing:276836	CC-BY-3.0	LorenIPSVM	Heatwave 3d Printable Typeface
+503407	https://www.thingiverse.com/thing:279098	CC-BY-SA-3.0	Kraaij	Calendar Blocks
+503409	https://www.thingiverse.com/thing:279098	CC-BY-SA-3.0	Kraaij	Calendar Blocks
+503947	https://www.thingiverse.com/thing:279274	CC-BY-SA-3.0	Jmadden99	Whisked
+635747	https://www.thingiverse.com/thing:367226	CC-BY-SA-3.0	adafruit	Adabot
+650186	https://www.thingiverse.com/thing:367262	CC-BY-SA-3.0	9999NYC	Next Level Sheet: 3d Printable Typeface
+656709	https://www.thingiverse.com/thing:367226	CC-BY-SA-3.0	adafruit	Adabot
+669971	https://www.thingiverse.com/thing:392115	CC-BY-3.0	GE	Build Your Own Jet Engine
+679616	https://www.thingiverse.com/thing:398548	CC-BY-SA-3.0	FatalError3141	Parts Tray Drawers
+702411	https://www.thingiverse.com/thing:42198	CC-BY-SA-3.0	barspin	OpenRC 1:10 4WD Truggy Concept RC Car
+702412	https://www.thingiverse.com/thing:42198	CC-BY-SA-3.0	barspin	OpenRC 1:10 4WD Truggy Concept RC Car
+838516	https://www.thingiverse.com/thing:508896	CC-BY-3.0	CreativeTools	Universal stand-alone filament spool holder (Fully 3D-printable)
+919989	https://www.thingiverse.com/thing:570797	CC-BY-SA-3.0	ekaggrat	holo clock
+1004827	https://www.thingiverse.com/thing:624569	CC-BY-SA-3.0	mz4250	The Dread Gazebo!!!!
+1017013	https://www.thingiverse.com/thing:632523	CC-BY-SA-3.0	Herrigold	Victorian House Construction Set
+1051178	https://www.thingiverse.com/thing:649284	CC-BY-SA-3.0	LoboCNC	Frankenstein Light Switch Plate
+1181082	https://www.thingiverse.com/thing:684376	CC-BY-SA-3.0	joefe	Steampunk cube gears
+1514498	https://www.thingiverse.com/thing:957943	CC-BY-SA-3.0	stylesuxx	Vienna Giant Wheel (Riesenrad)
+1535139	https://www.thingiverse.com/thing:971527	CC-BY-SA-3.0	burton15	Sand Spirograph
+1582375	https://www.thingiverse.com/thing:1002335	CC-BY-SA-3.0	jkurstin22	Chicago Updated
+1681239	https://www.thingiverse.com/thing:1068443	CC-BY-3.0	Mojoptix	Digital Sundial
+1750623	https://www.thingiverse.com/thing:1068443	CC-BY-3.0	Mojoptix	Digital Sundial

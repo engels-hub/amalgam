@@ -806,7 +806,7 @@ build, 8+ cores.
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | MESH-01 | `IndexedMesh`, `MeshAttrs`, `FaceGroups`, `HalfEdgeMesh` (directed edges, split/collapse/flip, GC), conversions, weld, `MeshBody` binary encoding | FND-03 | P0 | Done | Round-trip Indexed→HalfEdge→Indexed preserves positions, faces (up to compaction), attributes and group ids (property test, 1 000 random meshes). Fins / bow-ties convert with `SplitVertices`, and the counts are reported. Topology-edit property test keeps all half-edge invariants. 1 M-tri half-edge build < 100 ms. Weld of 1 M-tri soup < 80 ms. `MeshBody` binary round-trip is bit-exact. |
-| MESH-28 | Broken-mesh corpus: `testdata/mesh/corpus.toml` manifest, LFS-committed redistributable set, `fetch.ps1/.sh` for fetch-only sets, seeded synthetic defect + benchmark generators, corpus test harness | FND-06, MESH-01 | P0 | Todo | Manifest has ≥ 150 real models covering all 11 defect categories, each with SPDX licence, source URL and sha256. LFS total ≤ 300 MB. Generator reproduces each defect category from `(shape, defects, seed)`, plus 100 k / 1 M / 10 M benchmark meshes, bit-identically. The harness iterates the manifest under `cargo nextest` and skips fetch-only entries when they are absent. |
+| MESH-28 | Broken-mesh corpus: `testdata/mesh/corpus.toml` manifest, LFS-committed redistributable set, `fetch.ps1/.sh` for fetch-only sets, seeded synthetic defect + benchmark generators, corpus test harness | FND-06, MESH-01 | P0 | Review | Manifest has ≥ 150 real models covering all 11 defect categories, each with SPDX licence, source URL and sha256. LFS total ≤ 300 MB. Generator reproduces each defect category from `(shape, defects, seed)`, plus 100 k / 1 M / 10 M benchmark meshes, bit-identically. The harness iterates the manifest under `cargo nextest` and skips fetch-only entries when they are absent. |
 | MESH-02 | Analysis: shells, boundary loops, non-manifold edges/vertices, orientation, degenerate/duplicate, area/volume, `AnalysisReport` | MESH-01, MESH-28 | P0 | Todo | Report matches the manifest's defect flags on 100 % of corpus entries and the synthetic generator's ground truth. 1 M-tri analysis < 100 ms; 10 M < 1.2 s. |
 | MESH-03 | `Bvh` (binned SAH, parallel), `MeshSpatial`: ray cast, closest point, box query, fast winding number (Barill 2018), exact winding number, signed distance | MESH-01 | P0 | Todo | 1 M-tri BVH build < 150 ms (and within 2× of `obvhs` PLOC in a dev-bench). Ray cast and closest point equal brute force on 10 k random queries (and agree with `parry3d-f64` in a dev-test). Fast winding number within 0.01 of exact at β = 2 for points ≥ 1 mean edge length off the surface. 1 M FWN queries on a 1 M mesh < 1.5 s. Results are identical across 1/4/16 rayon threads. |
 | MESH-19 | Self-intersection detection (BVH self-traversal + exact `robust` predicates) | MESH-03 | P0 | Todo | On 10 k-tri random soups, the pair set equals the O(n²) exact brute force. No false positives for edge/vertex-adjacent triangles on the corpus's clean models. Intersecting-spheres synthetic case is found. 1 M-tri check < 500 ms. |
@@ -1011,6 +1011,32 @@ Already listed: Manifold (Apache-2.0), `faer`, `nalgebra`, `rayon`, `glam`, `thi
 
 *Design note created:* `docs/notes/mesh-processing.md`.
 
+**2026-10-21 — MESH-28 implemented (lane C agent, branch `wp/MESH-28-corpus`).**
+- **Corpus:** `testdata/mesh/corpus.toml` has 176 entries. 165 are committed (Thingi10K, 70 MB of
+  the 300 MB budget, largest file 1.35 MB, LFS through the existing `*.stl` patterns); 11 are
+  fetch-only (8 Thingi10K NC models, Stanford bunny / dragon / armadillo) through `fetch.sh` /
+  `fetch.ps1`, driven by `fetch.tsv` (URL + sha256 of the download and of the extracted file).
+- **Coverage of the committed set:** self_intersections 116, holes 78, multiple_shells 63,
+  degenerate 52, non_manifold_edges 45, unwelded 38, inconsistent_orientation 36, duplicate 25,
+  non_manifold_vertices 25, hopeless 12 (`expect_repairable = false`), inverted 5, plus 20 clean
+  controls. The Thingi10K dataset has few small closed models with negative volume, hence 5.
+- **Licence evidence:** the dataset's `input_summary.csv` licence column per model; only CC0,
+  public domain, CC-BY and CC-BY-SA were taken. SPDX versions (3.0) are assumed because the
+  dataset records only the family (see `real/thingi10k/README.md`; the owner may want to confirm).
+- **Defect ground truth** was derived with a numpy script (exact-weld edge statistics, signed
+  volume, a 1e-4 x diagonal weld test for `unwelded`, Thingi10K self-intersection counts). The
+  Rust test `every_corpus_model_matches_its_manifest_entry` re-derives holes, non-manifold edges
+  and vertices, orientation, degenerate, duplicate, shells and inverted independently and
+  matches all of them; `unwelded` and `self_intersections` stay provisional until MESH-02 /
+  MESH-19.
+- **Code:** `amg_mesh::corpus` behind the cargo feature `corpus` (off by default; this crate's
+  tests enable it through a self dev-dependency): manifest types and validation, STL / PLY
+  reader, `quick_stats`, `synth` (5 shapes, 12 defect classes, `ChaCha8Rng`, ground truth,
+  reproducible from `(shape, defects, seed)`), `bench` (displaced geodesic spheres, 100 820 /
+  1 003 520 / 9 996 980 triangles, bit-identical for 1 and N threads; `boolean_pair`).
+- **Left for others:** MESH-02 must reproduce the manifest flags (including `unwelded`); the
+  corpus tests need an LFS pull (CI `golden` job sets `AMG_REQUIRE_TESTDATA=1`).
+
 ## Interface changes
 ### 2026-10-20 — MESH-01 (`IndexedMesh`, `HalfEdgeMesh`, weld, `MeshBody`; lane C)
 Deviations from §Interfaces:
@@ -1146,3 +1172,10 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   `PropertyGroup::{Materials(Vec<(String, Rgba8)>), Colors(Vec<Rgba8>)}`, giving the existing
   `tri_properties` its table; `IndexedMesh::append` remaps group ids. Until it lands, per-face
   slots survive only on unmodified imported bodies.
+
+### 2026-10-21 - MESH-28 (corpus; lane C)
+Additive only: cargo feature `amg-mesh/corpus` (optional deps `toml`, `sha2` 0.10, `rand_chacha`
+0.9, declared in `crates/amg-mesh/Cargo.toml` rather than the workspace table) exposing
+`amg_mesh::corpus::{Manifest, Entry, Defect, FileStatus, read_mesh, quick_stats, synth, bench}`.
+Other crates (INS-02, IMP-03) use it with `amg-mesh = { workspace = true, features = ["corpus"] }`
+under `[dev-dependencies]`. `lib.rs` gained one `#[cfg(feature = "corpus")] pub mod corpus;`.
