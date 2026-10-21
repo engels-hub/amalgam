@@ -551,6 +551,8 @@ impl ProfileSet {
     pub fn at_point(&self, p: Point2) -> Option<ProfileId>;              // innermost profile
     /// SK-15: map old ids to new ones after a topology change, by key, then fingerprint.
     pub fn match_previous(&self, previous: &ProfileSet) -> BTreeMap<ProfileId, ProfileMatch>;
+    /// Pure fingerprint match (persistent-naming note, 5.4); never `Same`.
+    pub fn match_fingerprint(&self, fp: &ProfileFingerprint) -> ProfileMatch;
 }
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ProfileMatch { Same(ProfileId), Fingerprint { new: ProfileId, score: f64 }, Lost }
@@ -700,7 +702,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-04 | DOF analysis (rank-revealing QR/SVD, per-entity status), diagnosis (redundant / conflicting / degenerate groups, leave-one-out refinement), `check_constraint` | SK-03 | P0 | Todo | 1. All 50 hand-made DOF cases (§Testing) match exactly: total DOF, every entity's `ConstraintState`, and dependency groups as sets. 2. `check_constraint` agrees with full re-analysis on every case. 3. Analysis of a 500-entity sketch < 10 ms. |
 | SK-05 | Drag solving: `DragSession` for points, lines (translate), circle rim (radius), arc endpoints; weighted min-norm; warm start; SQP alternative only if SK-13 selected it | SK-03 | P0 | Todo | 1. On D4, D7 and a 200-entity generated sketch, 1000 scripted frames each: p95 step < 2 ms. 2. The jitter metric (note §5.3) is ≤ the SK-13 baseline. 3. No chirality flip on D7. 4. A fully constrained dragged point stays put. |
 | SK-06 | Profile/region detection (lines, arcs, circles): intersections, split/weld, merge overlaps, half-edge faces, holes and islands, open chains, issues | SK-01 | P0 | Done | 1. ≥ 25 golden fixtures pass: profile count, outer/hole counts and areas (relative 1e-9). Fixtures cover nested islands, T-junctions, tangent circles, overlapping collinear lines, near gaps, zero-length lines. 2. A fuzz test of 10 000 random line/arc soups never panics, satisfies Euler `V − E + F = 1 + C`, and the profile area sum equals the raster-union area within 0.5 %. 3. 500-curve sketch < 5 ms. |
-| SK-15 | Stable `ProfileId`s, `ProfileFingerprint`, `ProfileSet::match_previous` | SK-06 | P0 | Todo | 1. 20 scripted dimension edits that keep topology keep every `ProfileId`. 2. 10 topology-changing edits give deterministic new ids, and `match_previous` maps each surviving region to the intended successor (fixtures list the intent). |
+| SK-15 | Stable `ProfileId`s, `ProfileFingerprint`, `ProfileSet::match_previous` | SK-06 | P0 | Review | 1. 20 scripted dimension edits that keep topology keep every `ProfileId`. 2. 10 topology-changing edits give deterministic new ids, and `match_previous` maps each surviving region to the intended successor (fixtures list the intent). |
 | SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Todo | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
 | SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Todo | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
 | SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Todo | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
@@ -1141,3 +1143,25 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **Dependencies.** `serde_json` (feature `float_roundtrip`) moved from dev-dependency to a normal
   dependency of `amg-sketch` for the corpus loader. The `.slvs` and ezpz importers are written for
   Amalgam; no SolveSpace or ezpz code is used. Test data licences are in `THIRD_PARTY.md`.
+
+### 2026-10-21 - SK-15 (stable profile ids and matching, lane B)
+- **Landed:** `profile::matching` with `ProfileMatch { Same, Fingerprint { new, score }, Lost }`
+  (re-exported at the crate root), `ProfileSet::match_previous` and the pure
+  `ProfileSet::match_fingerprint` requested by the persistent-naming note (section 12), and
+  `Profile::outer_sources()`. `ProfileFingerprint` gains `outer_sources` (sorted, unique source
+  ids of the outer loop only): additive field, needed for cap names (note section 5.4) and for
+  scoring; no change to the `ProfileId` scheme.
+- **Algorithm:** identical ids are `Same`. The remaining old profiles are assigned one-to-one,
+  best score first (ties: old id, then new id), to the remaining new ones. Score = 0.3 outer-source
+  Jaccard + 0.1 all-source Jaccard + 0.3 area ratio + 0.3 centroid proximity (distance over the
+  old bbox diagonal); below 0.5 is `Lost`. A region redrawn with fresh entities in the same place
+  scores 0.6 (rescued, TNP-13, but never exact: consumers must warn). Splits map the old id to the
+  best-scoring piece; merges give the merged region to the best old region and lose the other.
+- **Known limit:** a region whose bounding curves are all replaced and that also moves far
+  (a circle dragged by more than about two of its diameters) is `Lost`; that is intended, since a
+  fingerprint cannot distinguish it from a new region.
+- **Tests** (`tests/profile_ids.rs`): 20 scripted dimension edits (size, hole position/radius,
+  crossing line offset) keep every id and match `Same`; 10 topology edits (split, hole added or
+  removed, disjoint curve, redrawn outer loop, vanishing lens, divider deleted, corner chopped,
+  annulus to disc, split undone) check determinism and the intended successor by probe point;
+  `match_fingerprint` purity; hole add changes the id but keeps `outer_sources`.

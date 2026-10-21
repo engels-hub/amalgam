@@ -37,8 +37,8 @@ pub use model::{
     TangentKind,
 };
 pub use profile::{
-    Loop, Profile, ProfileEdge, ProfileFingerprint, ProfileId, ProfileIssue, ProfileOptions,
-    ProfileSet, VertexKey, detect_profiles,
+    Loop, Profile, ProfileEdge, ProfileFingerprint, ProfileId, ProfileIssue, ProfileMatch,
+    ProfileOptions, ProfileSet, VertexKey, detect_profiles,
 };
 
 /// Evaluated geometry is keyed by entity id (replaces S01's `amg_doc::stub::SketchEntityKey`).
