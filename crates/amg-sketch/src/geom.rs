@@ -1,10 +1,15 @@
 //! Evaluated 2D sketch curves.
 //!
 //! `Segment2` and `Aabb2` are the `amg-core` types; circles and arcs are sketch-specific.
-//! Curve queries (`eval`, `closest`, `bbox`, `intersect`, ...) land with SK-06; ellipses with
-//! SK-22 and B-splines with SK-08.
+//! Curve queries (`eval`, `closest`, `bbox`, ...) and [`intersect`] are in `query` (SK-06);
+//! ellipses arrive with SK-22 and B-splines with SK-08.
 
 use amg_core::{Point2, Segment2};
+
+mod query;
+
+pub(crate) use query::intersect_detailed;
+pub use query::{CurveHit, intersect};
 
 /// Full circle.
 #[derive(Copy, Clone, Debug, PartialEq)]

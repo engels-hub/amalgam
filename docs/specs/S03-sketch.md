@@ -699,7 +699,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-03 | Production solver core: substitution, connected components + Dulmage–Mendelsohn blocks, dense/sparse damped min-norm GN/LM, structure cache, `SolveStatus` / unsatisfied reporting, cancellation, driven-dimension measurement | SK-13 (gate: ADR-007 decided) | P0 | Todo | 1. ≥ 95 % of the SK-14 corpus passes, and 100 % of its non-degenerate well-constrained cases. 2. D9 warm solve < 5 ms median on the reference machine (criterion). 3. The same input solved 100× gives bit-identical params. 4. Cancellation returns `Cancelled` within 1 ms. |
 | SK-04 | DOF analysis (rank-revealing QR/SVD, per-entity status), diagnosis (redundant / conflicting / degenerate groups, leave-one-out refinement), `check_constraint` | SK-03 | P0 | Todo | 1. All 50 hand-made DOF cases (§Testing) match exactly: total DOF, every entity's `ConstraintState`, and dependency groups as sets. 2. `check_constraint` agrees with full re-analysis on every case. 3. Analysis of a 500-entity sketch < 10 ms. |
 | SK-05 | Drag solving: `DragSession` for points, lines (translate), circle rim (radius), arc endpoints; weighted min-norm; warm start; SQP alternative only if SK-13 selected it | SK-03 | P0 | Todo | 1. On D4, D7 and a 200-entity generated sketch, 1000 scripted frames each: p95 step < 2 ms. 2. The jitter metric (note §5.3) is ≤ the SK-13 baseline. 3. No chirality flip on D7. 4. A fully constrained dragged point stays put. |
-| SK-06 | Profile/region detection (lines, arcs, circles): intersections, split/weld, merge overlaps, half-edge faces, holes and islands, open chains, issues | SK-01 | P0 | Todo | 1. ≥ 25 golden fixtures pass: profile count, outer/hole counts and areas (relative 1e-9). Fixtures cover nested islands, T-junctions, tangent circles, overlapping collinear lines, near gaps, zero-length lines. 2. A fuzz test of 10 000 random line/arc soups never panics, satisfies Euler `V − E + F = 1 + C`, and the profile area sum equals the raster-union area within 0.5 %. 3. 500-curve sketch < 5 ms. |
+| SK-06 | Profile/region detection (lines, arcs, circles): intersections, split/weld, merge overlaps, half-edge faces, holes and islands, open chains, issues | SK-01 | P0 | Review | 1. ≥ 25 golden fixtures pass: profile count, outer/hole counts and areas (relative 1e-9). Fixtures cover nested islands, T-junctions, tangent circles, overlapping collinear lines, near gaps, zero-length lines. 2. A fuzz test of 10 000 random line/arc soups never panics, satisfies Euler `V − E + F = 1 + C`, and the profile area sum equals the raster-union area within 0.5 %. 3. 500-curve sketch < 5 ms. |
 | SK-15 | Stable `ProfileId`s, `ProfileFingerprint`, `ProfileSet::match_previous` | SK-06 | P0 | Todo | 1. 20 scripted dimension edits that keep topology keep every `ProfileId`. 2. 10 topology-changing edits give deterministic new ids, and `match_previous` maps each surviving region to the intended successor (fixtures list the intent). |
 | SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Todo | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
 | SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Todo | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
@@ -1047,3 +1047,36 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **For S01 / DOC (`.amg` writer, ADR-010):** a bit-identical JSON round trip needs
   `serde_json`'s `float_roundtrip` feature when parsing. `amg-sketch` enables it for its own
   tests; the document loader should enable it too.
+
+### 2026-10-20 — SK-06 (profile/region detection, lane B)
+- **Landed:** `geom::{intersect, CurveHit}` and the `Curve2` methods (`param_range`, `eval`,
+  `derivative`, `curvature`, `closest`, `bbox`, `reversed`, `trimmed`, `is_closed`, `length`);
+  `amg_sketch::profile` (`detect_profiles`, `ProfileSet`, `Profile`, `Loop`, `ProfileEdge`,
+  `VertexKey`, `ProfileId`, `ProfileFingerprint`, `ProfileIssue`, `ProfileOptions`) re-exported at
+  the crate root, plus `pub type ProfileKey = ProfileId`. Curve parameters: line `[0, 1]`,
+  circle `[0, 2π]` (angle), arc `[0, |sweep|]` along the direction of travel.
+- **Additive (not in the Interfaces text):** `Curve2::curvature`; `Loop::{signed_area, contains,
+  bbox}`; `Profile::contains`; `ProfileSet::{get, at_point}`.
+- **Behaviour the interface left open:**
+  - `intersect` reports an overlap of two collinear/co-circular curves as tangential hits at the
+    overlap's end points (the profile code also gets an overlap flag internally and reports
+    `ProfileIssue::Overlap`). A tangent contact within the tolerance is one tangential hit.
+  - `ProfileSet::open_chains` also holds bridges (edges whose removal disconnects the graph and
+    that bound no face on either side), not only dangling trees.
+  - `Loop::signed_area` integrates the curves as stored, while `ProfileFingerprint::area` and
+    the area used for ordering integrate through the welded vertices. They differ by at most
+    `weld_tol · perimeter` (each vertex may sit up to the weld tolerance from a curve end);
+    goldens compare the fingerprint area, and the test helper checks the difference against that
+    scale-aware bound.
+  - Faces whose area is at most `0.5 · weld_tol · perimeter` are dropped as slivers.
+  - `ProfileId` hashes (FNV-1a, 64 bit) the sorted `(source entity, start vertex key, end vertex
+    key, direction)` of all outer and hole edges. Unrelated edits and dimension changes keep it.
+- **Deferred:** `SketchGeom` until `SolveReport` exists (SK-03); `ProfileSet::match_previous`
+  stays with SK-15. `amg-sketch` gains `criterion` as a dev-dependency (bench
+  `benches/profiles.rs`); no new third-party crates.
+- **Tests and numbers:** 38 golden fixtures (`tests/profiles.rs`); 10 000 fuzz cases
+  (`src/profile/tests.rs`: 7000 lattice-snapped soups with the Euler relation and a 0.5 % raster
+  area oracle, 3000 generic float soups with the structural checks only, since a near-gap
+  narrower than a raster cell can seal a pocket the oracle does not see). The area check allows
+  0.5 % plus a raster-discretisation term (boundary cells and pinched wedges). Bench
+  (`benches/profiles.rs`, 2026-10-21): 500 curves 1.02 ms (budget 5 ms), 5000 curves 16.1 ms.

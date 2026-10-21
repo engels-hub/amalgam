@@ -230,6 +230,7 @@ version = "0.1.0"
 dependencies = [
  "amg-core",
  "amg-jobs",
+ "criterion",
  "proptest",
  "serde",
  "serde_json",
