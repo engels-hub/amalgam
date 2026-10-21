@@ -1,0 +1,74 @@
+{
+  "format": 1,
+  "id": "own/circle_fixed_centre_radius",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "Circle with fixed centre and a radius dimension (DOF 0).",
+  "tags": [
+    "dof"
+  ],
+  "entities": [
+    {
+      "name": "c",
+      "geom": {
+        "point": {
+          "at": [
+            1.0,
+            2.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "k",
+      "geom": {
+        "circle": {
+          "center": 0,
+          "radius": 4.5
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Radius": {
+            "curve": 1
+          }
+        },
+        "value": 5.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            1.0,
+            2.0
+          ]
+        },
+        "radii": {
+          "1": 5.0
+        }
+      }
+    }
+  }
+}

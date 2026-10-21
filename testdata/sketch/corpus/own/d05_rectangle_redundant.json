@@ -1,0 +1,191 @@
+{
+  "format": 1,
+  "id": "own/d05_rectangle_redundant",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "D5: the D2 rectangle plus a parallel and an equal constraint that follow from the others (consistent redundancy).",
+  "tags": [
+    "decision:D5",
+    "redundant"
+  ],
+  "entities": [
+    {
+      "name": "p0",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "p1",
+      "geom": {
+        "point": {
+          "at": [
+            20.4,
+            0.3
+          ]
+        }
+      }
+    },
+    {
+      "name": "p2",
+      "geom": {
+        "point": {
+          "at": [
+            19.7,
+            10.5
+          ]
+        }
+      }
+    },
+    {
+      "name": "p3",
+      "geom": {
+        "point": {
+          "at": [
+            0.3,
+            9.6
+          ]
+        }
+      }
+    },
+    {
+      "name": "l01",
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 1
+        }
+      }
+    },
+    {
+      "name": "l12",
+      "geom": {
+        "line": {
+          "start": 1,
+          "end": 2
+        }
+      }
+    },
+    {
+      "name": "l23",
+      "geom": {
+        "line": {
+          "start": 2,
+          "end": 3
+        }
+      }
+    },
+    {
+      "name": "l30",
+      "geom": {
+        "line": {
+          "start": 3,
+          "end": 0
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Horizontal": {
+        "Line": 4
+      }
+    },
+    {
+      "Vertical": {
+        "Line": 5
+      }
+    },
+    {
+      "Horizontal": {
+        "Line": 6
+      }
+    },
+    {
+      "Vertical": {
+        "Line": 7
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Length": {
+            "line": 4
+          }
+        },
+        "value": 20.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Length": {
+            "line": 5
+          }
+        },
+        "value": 10.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Parallel": {
+        "a": 4,
+        "b": 6
+      }
+    },
+    {
+      "Equal": {
+        "a": 5,
+        "b": 7
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged_redundant",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            20.0,
+            -0.0
+          ],
+          "2": [
+            20.0,
+            10.0
+          ],
+          "3": [
+            -0.0,
+            10.0
+          ]
+        }
+      }
+    }
+  }
+}

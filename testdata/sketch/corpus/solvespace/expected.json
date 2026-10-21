@@ -1,0 +1,887 @@
+{
+  "licence": "GPL-3.0-or-later",
+  "upstream": "https://github.com/solvespace/solvespace, commit 5bb74ad2, test/constraint/",
+  "cases": [
+    {
+      "files": [
+        "angle/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/angle/normal.slvs: driving constraint",
+      "tags": [
+        "angle"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "angle/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/angle/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "angle",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "angle/reference.slvs"
+      ],
+      "description": "SolveSpace test/constraint/angle/reference.slvs: reference (driven) dimension",
+      "tags": [
+        "angle"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 6,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "angle/reference_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/angle/reference_v22.slvs: reference (driven) dimension; re-saved in file format v22",
+      "tags": [
+        "angle",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 6,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "arc_line_tangent/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/arc_line_tangent/normal.slvs: driving constraint",
+      "tags": [
+        "arc_line_tangent"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "arc_line_tangent/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/arc_line_tangent/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "arc_line_tangent",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "at_midpoint/line_pt_normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/at_midpoint/line_pt_normal.slvs: driving constraint",
+      "tags": [
+        "at_midpoint"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 4,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "at_midpoint/line_pt_normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/at_midpoint/line_pt_normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "at_midpoint",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 4,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "curve_curve_tangent/arc_arc.slvs"
+      ],
+      "description": "SolveSpace test/constraint/curve_curve_tangent/arc_arc.slvs: driving constraint",
+      "tags": [
+        "curve_curve_tangent"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "curve_curve_tangent/arc_arc_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/curve_curve_tangent/arc_arc_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "curve_curve_tangent",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "diameter/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/diameter/normal.slvs: driving constraint",
+      "tags": [
+        "diameter"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "diameter/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/diameter/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "diameter",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "diameter/reference.slvs"
+      ],
+      "description": "SolveSpace test/constraint/diameter/reference.slvs: reference (driven) dimension",
+      "tags": [
+        "diameter"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "diameter/reference_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/diameter/reference_v22.slvs: reference (driven) dimension; re-saved in file format v22",
+      "tags": [
+        "diameter",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "equal_length_lines/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/equal_length_lines/normal.slvs: driving constraint",
+      "tags": [
+        "equal_length_lines"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "equal_length_lines/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/equal_length_lines/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "equal_length_lines",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "equal_line_arc_len/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/equal_line_arc_len/normal.slvs: driving constraint",
+      "tags": [
+        "equal_line_arc_len"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 8,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "equal_line_arc_len/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/equal_line_arc_len/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "equal_line_arc_len",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 8,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "equal_line_arc_len/pi.slvs"
+      ],
+      "description": "SolveSpace test/constraint/equal_line_arc_len/pi.slvs: driving constraint",
+      "tags": [
+        "equal_line_arc_len"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 8,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "equal_line_arc_len/tau.slvs"
+      ],
+      "description": "SolveSpace test/constraint/equal_line_arc_len/tau.slvs: driving constraint",
+      "tags": [
+        "equal_line_arc_len"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 8,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "equal_radius/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/equal_radius/normal.slvs: driving constraint",
+      "tags": [
+        "equal_radius"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "equal_radius/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/equal_radius/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "equal_radius",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "horizontal/line.slvs"
+      ],
+      "description": "SolveSpace test/constraint/horizontal/line.slvs: driving constraint",
+      "tags": [
+        "horizontal"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "horizontal/line_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/horizontal/line_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "horizontal",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "horizontal/pt_pt.slvs"
+      ],
+      "description": "SolveSpace test/constraint/horizontal/pt_pt.slvs: driving constraint",
+      "tags": [
+        "horizontal"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "horizontal/pt_pt_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/horizontal/pt_pt_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "horizontal",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "large_dimensions/perpendicular_4m.slvs"
+      ],
+      "description": "SolveSpace test/constraint/large_dimensions/perpendicular_4m.slvs: driving constraint",
+      "tags": [
+        "large_dimensions"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 4
+      }
+    },
+    {
+      "files": [
+        "parallel/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/parallel/normal.slvs: driving constraint",
+      "tags": [
+        "parallel"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "parallel/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/parallel/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "parallel",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "perpendicular/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/perpendicular/normal.slvs: driving constraint",
+      "tags": [
+        "perpendicular"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "perpendicular/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/perpendicular/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "perpendicular",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 7,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "points_coincident/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/points_coincident/normal.slvs: driving constraint",
+      "tags": [
+        "points_coincident"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "points_coincident/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/points_coincident/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "points_coincident",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_line_distance/extended.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_line_distance/extended.slvs: driving constraint",
+      "tags": [
+        "pt_line_distance"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_line_distance/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_line_distance/normal.slvs: driving constraint",
+      "tags": [
+        "pt_line_distance"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_line_distance/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_line_distance/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "pt_line_distance",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_line_distance/reference.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_line_distance/reference.slvs: reference (driven) dimension",
+      "tags": [
+        "pt_line_distance"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 6,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_line_distance/reference_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_line_distance/reference_v22.slvs: reference (driven) dimension; re-saved in file format v22",
+      "tags": [
+        "pt_line_distance",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 6,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_on_circle/negative_dia.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_on_circle/negative_dia.slvs: driving constraint",
+      "tags": [
+        "pt_on_circle"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_on_circle/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_on_circle/normal.slvs: driving constraint",
+      "tags": [
+        "pt_on_circle"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 4,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_on_circle/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_on_circle/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "pt_on_circle",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 4,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_on_line/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_on_line/normal.slvs: driving constraint",
+      "tags": [
+        "pt_on_line"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_on_line/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_on_line/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "pt_on_line",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 5,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_pt_distance/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_pt_distance/normal.slvs: driving constraint",
+      "tags": [
+        "pt_pt_distance"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_pt_distance/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_pt_distance/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "pt_pt_distance",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_pt_distance/reference.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_pt_distance/reference.slvs: reference (driven) dimension",
+      "tags": [
+        "pt_pt_distance"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 4,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "pt_pt_distance/reference_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/pt_pt_distance/reference_v22.slvs: reference (driven) dimension; re-saved in file format v22",
+      "tags": [
+        "pt_pt_distance",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 4,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "symmetric/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/symmetric/normal.slvs: driving constraint",
+      "tags": [
+        "symmetric"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "symmetric/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/symmetric/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "symmetric",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "symmetric_horiz/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/symmetric_horiz/normal.slvs: driving constraint",
+      "tags": [
+        "symmetric_horiz"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "symmetric_horiz/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/symmetric_horiz/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "symmetric_horiz",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "symmetric_line/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/symmetric_line/normal.slvs: driving constraint",
+      "tags": [
+        "symmetric_line"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 6,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "symmetric_line/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/symmetric_line/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "symmetric_line",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 6,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "symmetric_vert/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/symmetric_vert/normal.slvs: driving constraint",
+      "tags": [
+        "symmetric_vert"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "symmetric_vert/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/symmetric_vert/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "symmetric_vert",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 2,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "vertical/line.slvs"
+      ],
+      "description": "SolveSpace test/constraint/vertical/line.slvs: driving constraint",
+      "tags": [
+        "vertical"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "vertical/line_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/vertical/line_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "vertical",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "vertical/pt_pt.slvs"
+      ],
+      "description": "SolveSpace test/constraint/vertical/pt_pt.slvs: driving constraint",
+      "tags": [
+        "vertical"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "vertical/pt_pt_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/vertical/pt_pt_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "vertical",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 3,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "where_dragged/normal.slvs"
+      ],
+      "description": "SolveSpace test/constraint/where_dragged/normal.slvs: driving constraint",
+      "tags": [
+        "where_dragged"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 0,
+        "solution": "start"
+      }
+    },
+    {
+      "files": [
+        "where_dragged/normal_v22.slvs"
+      ],
+      "description": "SolveSpace test/constraint/where_dragged/normal_v22.slvs: driving constraint; re-saved in file format v22",
+      "tags": [
+        "where_dragged",
+        "format-v22"
+      ],
+      "expected": {
+        "status": "converged",
+        "dof": 0,
+        "solution": "start"
+      }
+    }
+  ]
+}

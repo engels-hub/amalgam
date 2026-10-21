@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "id": "own/duplicate_coincident",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "The same coincidence stated twice (redundant, DOF 2).",
+  "tags": [
+    "redundant"
+  ],
+  "entities": [
+    {
+      "name": "a",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "b",
+      "geom": {
+        "point": {
+          "at": [
+            0.1,
+            0.1
+          ]
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Coincident": {
+        "a": 0,
+        "b": 1
+      }
+    },
+    {
+      "Coincident": {
+        "a": 1,
+        "b": 0
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged_redundant",
+    "dof": 2,
+    "solution": {
+      "witness": {
+        "points": {
+          "0": [
+            0.05,
+            0.05
+          ],
+          "1": [
+            0.05,
+            0.05
+          ]
+        }
+      }
+    }
+  }
+}

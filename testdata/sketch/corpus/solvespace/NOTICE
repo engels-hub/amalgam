@@ -1,0 +1,23 @@
+SolveSpace constraint test files (test data only)
+=================================================
+
+Files:      every *.slvs below this directory
+Upstream:   https://github.com/solvespace/solvespace  (path: test/constraint/)
+Commit:     5bb74ad2 (master at the time of import, 2026-10-20)
+Copyright:  (c) the SolveSpace authors
+Licence:    GPL-3.0-or-later; the full text is in COPYING next to this file.
+
+What was copied: the 2D, single-workplane files of test/constraint/ (3D-only cases such as
+pt_face_distance, pt_on_face, pt_plane_distance, pt_in_plane and free_in_3d* were left out),
+plus the trivial `comment` case dropped as empty. The files are unmodified except that older
+duplicates were removed: for most cases upstream keeps the same sketch saved by two older
+file-format revisions (`*_v20.slvs`, `*_v22.slvs`); this corpus keeps the base file and the
+`*_v22.slvs` re-save (labelled with the tag `format-v22`) as format-revision coverage and
+drops the `*_v20.slvs` files.
+
+Use: these files are read at test time by amg-sketch's corpus importer
+(crates/amg-sketch/src/corpus/slvs.rs, written for Amalgam, not derived from SolveSpace
+code). They are test data. They are never compiled into, linked with, or shipped in any
+Amalgam binary or crate, and no SolveSpace source code is part of this repository.
+Expectations (status, DOF) are in expected.json and were derived with Amalgam's own
+reference oracle, not taken from SolveSpace.

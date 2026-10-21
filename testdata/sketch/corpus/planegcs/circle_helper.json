@@ -1,0 +1,104 @@
+{
+  "format": 1,
+  "id": "planegcs/circle_helper",
+  "source": {
+    "set": "planegcs",
+    "origin": "scenario after FreeCAD Sketcher tests (TestSketcherSolver: circle with a point on it); numbers authored for Amalgam",
+    "licence": "LGPL-2.1-or-later"
+  },
+  "description": "Circle with a fixed centre and radius and a point on it, vertically above the centre.",
+  "tags": [
+    "freecad",
+    "circle"
+  ],
+  "entities": [
+    {
+      "name": "c",
+      "geom": {
+        "point": {
+          "at": [
+            2.0,
+            -1.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "q",
+      "geom": {
+        "point": {
+          "at": [
+            0.3,
+            5.5
+          ]
+        }
+      }
+    },
+    {
+      "name": "k",
+      "geom": {
+        "circle": {
+          "center": 0,
+          "radius": 5.0
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Radius": {
+            "curve": 2
+          }
+        },
+        "value": 6.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "PointOnCurve": {
+        "point": 1,
+        "curve": 2
+      }
+    },
+    {
+      "Vertical": {
+        "Points": [
+          0,
+          1
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            2.0,
+            -1.0
+          ],
+          "1": [
+            2.0,
+            5.0
+          ]
+        },
+        "radii": {
+          "2": 6.0
+        }
+      }
+    }
+  }
+}

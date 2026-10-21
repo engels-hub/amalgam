@@ -1,0 +1,139 @@
+{
+  "format": 1,
+  "id": "planegcs/equal_radius_arc_circle",
+  "source": {
+    "set": "planegcs",
+    "origin": "scenario after FreeCAD Sketcher tests (planegcs gtest: equal radius, arc and circle); numbers authored for Amalgam",
+    "licence": "LGPL-2.1-or-later"
+  },
+  "description": "A circle forced to the radius (5) of an arc with fixed centre and start.",
+  "tags": [
+    "freecad",
+    "arc"
+  ],
+  "entities": [
+    {
+      "name": "c",
+      "geom": {
+        "point": {
+          "at": [
+            10.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "s",
+      "geom": {
+        "point": {
+          "at": [
+            14.0,
+            3.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "e",
+      "geom": {
+        "point": {
+          "at": [
+            10.348782368720626,
+            4.987820251299121
+          ]
+        }
+      }
+    },
+    {
+      "name": "arc",
+      "geom": {
+        "arc": {
+          "center": 0,
+          "start": 1,
+          "end": 2
+        }
+      }
+    },
+    {
+      "name": "oc",
+      "geom": {
+        "point": {
+          "at": [
+            -10.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "k",
+      "geom": {
+        "circle": {
+          "center": 4,
+          "radius": 6.0
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Fix": {
+        "entity": 1
+      }
+    },
+    {
+      "Vertical": {
+        "Points": [
+          0,
+          2
+        ]
+      }
+    },
+    {
+      "Fix": {
+        "entity": 4
+      }
+    },
+    {
+      "Equal": {
+        "a": 5,
+        "b": 3
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            10.0,
+            0.0
+          ],
+          "1": [
+            14.0,
+            3.0
+          ],
+          "2": [
+            10.0,
+            5.0
+          ],
+          "4": [
+            -10.0,
+            0.0
+          ]
+        },
+        "radii": {
+          "5": 5.0
+        }
+      }
+    }
+  }
+}

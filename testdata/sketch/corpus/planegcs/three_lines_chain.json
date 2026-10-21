@@ -1,0 +1,182 @@
+{
+  "format": 1,
+  "id": "planegcs/three_lines_chain",
+  "source": {
+    "set": "planegcs",
+    "origin": "scenario after FreeCAD Sketcher tests (TestSketcherSolver: three lines (perpendicular, parallel, lengths)); numbers authored for Amalgam",
+    "licence": "LGPL-2.1-or-later"
+  },
+  "description": "A Z-shaped chain of three lines with a horizontal first segment.",
+  "tags": [
+    "freecad",
+    "lines"
+  ],
+  "entities": [
+    {
+      "name": "a",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "b",
+      "geom": {
+        "point": {
+          "at": [
+            10.3,
+            0.3
+          ]
+        }
+      }
+    },
+    {
+      "name": "c",
+      "geom": {
+        "point": {
+          "at": [
+            9.7,
+            5.2
+          ]
+        }
+      }
+    },
+    {
+      "name": "d",
+      "geom": {
+        "point": {
+          "at": [
+            19.0,
+            5.3
+          ]
+        }
+      }
+    },
+    {
+      "name": "l1",
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 1
+        }
+      }
+    },
+    {
+      "name": "l2",
+      "geom": {
+        "line": {
+          "start": 1,
+          "end": 2
+        }
+      }
+    },
+    {
+      "name": "l3",
+      "geom": {
+        "line": {
+          "start": 2,
+          "end": 3
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Horizontal": {
+        "Line": 4
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Length": {
+            "line": 4
+          }
+        },
+        "value": 10.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Perpendicular": {
+        "a": 4,
+        "b": 5
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Length": {
+            "line": 5
+          }
+        },
+        "value": 5.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Parallel": {
+        "a": 4,
+        "b": 6
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Length": {
+            "line": 6
+          }
+        },
+        "value": 10.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            10.0,
+            0.0
+          ],
+          "2": [
+            10.0,
+            5.0
+          ],
+          "3": [
+            20.0,
+            5.0
+          ]
+        }
+      }
+    }
+  }
+}

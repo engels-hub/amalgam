@@ -10,6 +10,8 @@
 //! - [`profile`]: profile/region detection ([`detect_profiles`], [`ProfileSet`]).
 //! - [`error`]: the [`SketchError`] enum.
 //! - [`solve`]: residual equations with analytic Jacobians (SK-02); the solver from SK-03.
+//! - [`corpus`]: the solver test corpus format, `.slvs`/ezpz importers, a reference checker
+//!   and the solver-agnostic runner (SK-14; test infrastructure).
 //!
 //! Lengths are mm in sketch-plane coordinates, angles are radians, all `f64`. Collections are
 //! `BTreeMap`s, so iteration order (and serialised output) is deterministic.
@@ -18,6 +20,7 @@
 
 #![warn(missing_docs)]
 
+pub mod corpus;
 pub mod error;
 pub mod geom;
 pub mod ids;

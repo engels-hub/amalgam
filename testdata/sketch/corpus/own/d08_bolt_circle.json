@@ -1,0 +1,1844 @@
+{
+  "format": 1,
+  "id": "own/d08_bolt_circle",
+  "source": {
+    "set": "own",
+    "origin": "docs/notes/sketch-solver.md; written for Amalgam",
+    "licence": "LicenseRef-Amalgam-Personal"
+  },
+  "description": "D8 (reduced): 24 equal holes on a bolt circle of radius 50, spaced by 15 degree angle dimensions from a fixed centre (many identical blocks).",
+  "tags": [
+    "decision:D8",
+    "large"
+  ],
+  "entities": [
+    {
+      "name": "o",
+      "geom": {
+        "point": {
+          "at": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            50.270570226267,
+            -0.109305423206
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            48.655980829118,
+            12.744467213685
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            43.443831323374,
+            24.662458263218
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            35.657507408748,
+            34.980537925753
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            24.870603193145,
+            43.270451782717
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            12.967358227228,
+            48.480058235014
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            0.343190833424,
+            50.284200985575
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -12.895041096659,
+            48.388651292632
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -24.757023257615,
+            43.504651012918
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -35.362721700313,
+            35.55752733095
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -43.587297994192,
+            25.074414632352
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -48.450869974571,
+            13.058941715658
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -49.836331648451,
+            -0.293156251953
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -48.310288578621,
+            -13.023690713064
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -43.550832403823,
+            -24.687534706556
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -35.576552340964,
+            -35.1557054253
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -24.642991933086,
+            -43.601451680703
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            -12.862401769285,
+            -47.976990691888
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            0.038392430977,
+            -49.878178913156
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            13.011660965403,
+            -48.248817681424
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            24.789446615293,
+            -43.068598129606
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            35.298658830382,
+            -34.960113530728
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            42.950096619955,
+            -24.821781805963
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "point": {
+          "at": [
+            48.658858034828,
+            -12.556911066954
+          ]
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 1,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 2,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 3,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 4,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 5,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 6,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 7,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 8,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 9,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 10,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 11,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 12,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 13,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 14,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 15,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 16,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 17,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 18,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 19,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 20,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 21,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 22,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 23,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "circle": {
+          "center": 24,
+          "radius": 3.4
+        }
+      }
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 1
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 2
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 3
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 4
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 5
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 6
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 7
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 8
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 9
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 10
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 11
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 12
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 13
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 14
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 15
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 16
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 17
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 18
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 19
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 20
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 21
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 22
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 23
+        }
+      },
+      "construction": true
+    },
+    {
+      "geom": {
+        "line": {
+          "start": 0,
+          "end": 24
+        }
+      },
+      "construction": true
+    }
+  ],
+  "constraints": [
+    {
+      "Fix": {
+        "entity": 0
+      }
+    },
+    {
+      "Horizontal": {
+        "Line": 49
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 1,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 2,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 3,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 4,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 5,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 6,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 7,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 8,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 9,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 10,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 11,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 12,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 13,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 14,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 15,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 16,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 17,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 18,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 19,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 20,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 21,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 22,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 23,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Distance": {
+            "a": 0,
+            "b": 24,
+            "side": "Positive"
+          }
+        },
+        "value": 50.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 49,
+            "b": 50,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 50,
+            "b": 51,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 51,
+            "b": 52,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 52,
+            "b": 53,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 53,
+            "b": 54,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 54,
+            "b": 55,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 55,
+            "b": 56,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 56,
+            "b": 57,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 57,
+            "b": 58,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 58,
+            "b": 59,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 59,
+            "b": 60,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 60,
+            "b": 61,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 61,
+            "b": 62,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 62,
+            "b": 63,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 63,
+            "b": 64,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 64,
+            "b": 65,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 65,
+            "b": 66,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 66,
+            "b": 67,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 67,
+            "b": 68,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 68,
+            "b": 69,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 69,
+            "b": 70,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 70,
+            "b": 71,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Angle": {
+            "a": 71,
+            "b": 72,
+            "branch": {
+              "reverse_a": false,
+              "reverse_b": false
+            }
+          }
+        },
+        "value": 0.2617993877991494,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Dimension": {
+        "kind": {
+          "Radius": {
+            "curve": 25
+          }
+        },
+        "value": 3.0,
+        "driving": true,
+        "label_pos": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Equal": {
+        "a": 26,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 27,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 28,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 29,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 30,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 31,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 32,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 33,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 34,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 35,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 36,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 37,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 38,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 39,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 40,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 41,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 42,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 43,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 44,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 45,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 46,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 47,
+        "b": 25
+      }
+    },
+    {
+      "Equal": {
+        "a": 48,
+        "b": 25
+      }
+    }
+  ],
+  "expected": {
+    "status": "converged",
+    "dof": 0,
+    "solution": {
+      "target": {
+        "points": {
+          "0": [
+            0.0,
+            0.0
+          ],
+          "1": [
+            50.0,
+            0.0
+          ],
+          "2": [
+            48.296291314453,
+            12.940952255126
+          ],
+          "3": [
+            43.301270189222,
+            25.0
+          ],
+          "4": [
+            35.355339059327,
+            35.355339059327
+          ],
+          "5": [
+            25.0,
+            43.301270189222
+          ],
+          "6": [
+            12.940952255126,
+            48.296291314453
+          ],
+          "7": [
+            0.0,
+            50.0
+          ],
+          "8": [
+            -12.940952255126,
+            48.296291314453
+          ],
+          "9": [
+            -25.0,
+            43.301270189222
+          ],
+          "10": [
+            -35.355339059327,
+            35.355339059327
+          ],
+          "11": [
+            -43.301270189222,
+            25.0
+          ],
+          "12": [
+            -48.296291314453,
+            12.940952255126
+          ],
+          "13": [
+            -50.0,
+            0.0
+          ],
+          "14": [
+            -48.296291314453,
+            -12.940952255126
+          ],
+          "15": [
+            -43.301270189222,
+            -25.0
+          ],
+          "16": [
+            -35.355339059327,
+            -35.355339059327
+          ],
+          "17": [
+            -25.0,
+            -43.301270189222
+          ],
+          "18": [
+            -12.940952255126,
+            -48.296291314453
+          ],
+          "19": [
+            -0.0,
+            -50.0
+          ],
+          "20": [
+            12.940952255126,
+            -48.296291314453
+          ],
+          "21": [
+            25.0,
+            -43.301270189222
+          ],
+          "22": [
+            35.355339059327,
+            -35.355339059327
+          ],
+          "23": [
+            43.301270189222,
+            -25.0
+          ],
+          "24": [
+            48.296291314453,
+            -12.940952255126
+          ]
+        },
+        "radii": {
+          "25": 3.0,
+          "26": 3.0,
+          "27": 3.0,
+          "28": 3.0,
+          "29": 3.0,
+          "30": 3.0,
+          "31": 3.0,
+          "32": 3.0,
+          "33": 3.0,
+          "34": 3.0,
+          "35": 3.0,
+          "36": 3.0,
+          "37": 3.0,
+          "38": 3.0,
+          "39": 3.0,
+          "40": 3.0,
+          "41": 3.0,
+          "42": 3.0,
+          "43": 3.0,
+          "44": 3.0,
+          "45": 3.0,
+          "46": 3.0,
+          "47": 3.0,
+          "48": 3.0
+        }
+      }
+    }
+  }
+}
