@@ -23,6 +23,7 @@ amg-topopt.workspace = true
 amg-am.workspace = true
 imbl.workspace = true
 inventory.workspace = true
+blake3.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
@@ -45,6 +46,10 @@ harness = false
 
 [[bench]]
 name = "params"
+harness = false
+
+[[bench]]
+name = "recompute"
 harness = false
 
 [lints]

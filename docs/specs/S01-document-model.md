@@ -859,7 +859,7 @@ inventory::collect!(ExtRegistration);
 |---|---|---|---|---|---|
 | DOC-01 | Core data model: typed ids, `Design`/`DesignMeta`/`Component`/`Occurrence`/`BodyProps`/`ExtRecord`, `PMap`/`PVec` aliases over `imbl`, `DesignSnapshot`, `amg-doc::stub` geometry placeholders, `Evaluated`/`BodyGeom` skeleton; criterion bench imbl vs rpds vs `Arc<Vec<Arc<T>>>` | FND-03 | P0 | Done | Unit tests create a design with ≥ 3 components, occurrences and body props. Bench at 10⁴ entries shows snapshot clone < 1 µs and one mutation after a clone < 5 µs. Results are recorded in the Refinement log, and the alias is switched if `imbl` misses either number. `serde_json` round-trip of a `Design` is byte-identical twice in a row (determinism). |
 | DOC-02 | `Feature` trait, `FeatureBox` serde via registry, `register_feature!` + `inventory` registry, `UnknownFeature`, `Timeline` (marker, suppression, groups, ordering rule), `link()` convention; test-only features (`test.counter`, `test.box`, `test.add_mesh`) | DOC-01 | P0 | Done | 1. Timeline of test features serializes and deserializes to equal JSON. 2. An unknown kind loads as `UnknownFeature` and re-serializes byte-identical. 3. A duplicate kind fails at startup. 4. A registry test asserts expected kinds are linked. 5. `MoveFeature` before a dependency is rejected. |
-| DOC-03 | Recompute engine core (synchronous): producer map, `Dependency` resolution, blake3 cache keys with `ENGINE_SALT`, `GeomCache` (LRU by bytes), `RecomputeCtx`, health propagation (error = no effect, upstream causes), suppression/marker handling | DOC-02, DOC-04 | P0 | Todo | Property test on random DAGs of `test.counter` features: after editing feature *k*, exactly the nodes transitively depending on *k* run (counter check); all others hit the cache. A failing feature leaves its input bodies unmodified and gives dependants `ErrorCause::Upstream`. Keys are identical across two process runs. Engine overhead < 5 ms for 200 cached features (criterion). |
+| DOC-03 | Recompute engine core (synchronous): producer map, `Dependency` resolution, blake3 cache keys with `ENGINE_SALT`, `GeomCache` (LRU by bytes), `RecomputeCtx`, health propagation (error = no effect, upstream causes), suppression/marker handling | DOC-02, DOC-04 | P0 | Review | Property test on random DAGs of `test.counter` features: after editing feature *k*, exactly the nodes transitively depending on *k* run (counter check); all others hit the cache. A failing feature leaves its input bodies unmodified and gives dependants `ErrorCause::Upstream`. Keys are identical across two process runs. Engine overhead < 5 ms for 200 cached features (criterion). |
 | DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Done | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
 | DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Todo | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
 | DOC-12 | Recompute as a job: `Document::poll` (spawn, cancel-and-supersede, stale-result drop, atomic `Evaluated` swap), progress, `recompute_blocking`, preview recompute (`ComputeMode::Preview`), UI-thread debug assertion | DOC-03, FND-04 | P0 | Todo | Test: 50 rapid `SetParamExpr` commands during a slow (sleeping) recompute → only the last revision is swapped in, cancelled work leaves finished features cached, `poll` never blocks > 1 ms (measured). Preview results never enter the persistent cache or undo stack. |
@@ -1365,3 +1365,51 @@ list in §4. DOC-06 implements them; full signatures are in note §10.
 - The owner accepted `docs/notes/persistent-naming.md` and answered QUESTIONS #43–#49 with
   every recommendation (note §15). DOC-11 is Done; DOC-06 implements the note as written. The
   S03 "Replace curve" tool (question 4, option (c)) is a later S03 P1 item, not part of DOC-06.
+
+### 2026-10-21 — DOC-03 (recompute engine core, lane E)
+Synchronous engine in `amg-doc::recompute` and `amg-doc::cache`; DOC-12 wraps it in a job.
+- **Entry point.** `recompute(&Design, &GeomCache, ComputeMode, &JobCtx) -> Result<RecomputeResult,
+  Cancelled>`; `RecomputeResult { evaluated, computed, cached }` (the lists are in timeline order and
+  make the incremental property testable). `JobCtx::detached()` for synchronous callers.
+  `engine_salt(&Tolerance)`, `ENGINE_FORMAT_VERSION = 1`.
+- **Producer map = last healthy writer's key.** Reading body *b* chains the key of the last node
+  that wrote *b* (created, modified or deleted it), `Sketch`/`Construction` chain their creator, and
+  `Dependency::Feature(f)` chains *f*'s key. A node whose input has no producer (failed, suppressed,
+  rolled back, deleted) gets `Error` with `ErrorCause::Upstream(producer)` without computing. Entity
+  deps resolve through their body/sketch/construction producer; `Resolve` stays the feature's job
+  (DOC-06).
+- **Key layout (v1).** `blake3(salt ‖ kind ‖ version ‖ canonical_json ‖ [expr: tag, value bits,
+  dimension] ‖ [input: tag, producer key, occurrence transform bits] ‖ context component ‖ mode)`,
+  every variable-length field length-prefixed. **Decisions the spec left open:** (1) parameter
+  *names* are not hashed, only value bits and dimension, so renaming a parameter keeps the cache;
+  an `Expr::Inline` also hashes its source text. (2) "Context component transform bits" is
+  implemented as the transforms of occurrences the feature reads (`Dependency::Occurrence`, in-context
+  entity paths) plus the context `ComponentId`: features compute in their component's frame, so a
+  component's own placement does not affect its geometry. (3) `-0.0` is normalised via `v + 0.0`.
+  (4) The salt has a placeholder `KERNEL_VERSION = "stub-kernel-0"`; TODO(BREP-02) use
+  `amg_brep::kernel_version()`. Document uuid is not in any key: keys are identical across
+  documents and processes (golden hex test).
+- **Failures are not cached** (a failing feature re-runs and re-fails on every pass); `Cancelled`
+  never is. Caching errors is a possible later optimisation (needs a cache entry enum).
+- **Engine checks on fresh outputs** (before caching): `Created` bodies must have `origin ==
+  feature`; `Modified`/`Deleted` bodies must exist; a feature can't output both a sketch and
+  construction geometry. Violations become a node `Error` and have no effect.
+- **Additive interface changes.** `Feature::exprs(&self) -> Vec<&Expr>` (defaulted to empty; every
+  feature with `Expr` fields must list them or edits won't invalidate its key; `exprs_mut` is still
+  DOC-05's). `FeatureError::Expr(ExprError)`. `RecomputeCtx` gains `with_job`, `eval`,
+  `eval_length` (mm), `eval_angle` (rad), `eval_scalar`, `naming`, `sketch`, `construction`;
+  `progress`/`check_cancelled` are wired to the `JobCtx`. `RecomputeCtx::new` is unchanged.
+  `GeomCache { new, get, insert, contains, set_budget, budget, clear, stats }` with
+  `CacheKey::to_hex`. `resolve` and `baked` (S12 item 1) are not here: they belong to DOC-06/DOC-07.
+- **Cache accounting.** `estimate_bytes` is a flat per-output estimate until the geometry stubs
+  carry sizes (TODO(BREP-02), TODO(MESH-02)). Preview-mode outputs share the in-memory cache under
+  distinct keys; keeping them out of the persistent cache is DOC-12/DOC-07.
+- **Dependency.** `blake3` 1.8.7 (licence check: CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH
+  LLVM-exception, ADR-012 compatible; THIRD_PARTY.md row now In use).
+- **Tests.** `tests/recompute.rs`: proptest on random DAGs (≤ 13 `test.counter` nodes, 64 cases)
+  checks the exact recompute set against an independent oracle, matching counters, changed keys, and
+  that reverting an edit is fully cached; failure semantics, missing producer, suppression round-trip,
+  marker, determinism + golden keys, mode/tolerance in key, parameter dependence (unrelated
+  parameter keeps cache, equal value via another unit hits, `-0 mm`), missing parameter,
+  cancellation (finished features stay cached). Unit tests for the LRU in `cache.rs`.
+- **Bench** (`benches/recompute.rs`, 200 `test.counter` features, all cached, release, heavily loaded machine): `recompute/all_cached_chain_200` 355 µs (347-364), `recompute/all_cached_wide_200` 250 µs (242-260); target < 5 ms.
