@@ -17,6 +17,7 @@ mod groups;
 mod halfedge;
 mod hash;
 mod indexed;
+mod smooth;
 mod weld;
 
 #[cfg(feature = "corpus")]
@@ -31,6 +32,7 @@ pub use groups::{
 };
 pub use halfedge::{ConversionReport, HalfEdgeMesh, NonManifoldPolicy};
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
+pub use smooth::{LaplacianWeights, SmoothMethod, SmoothOpts, smooth};
 
 /// "No element" marker for `u32` indices.
 pub const INVALID: u32 = u32::MAX;

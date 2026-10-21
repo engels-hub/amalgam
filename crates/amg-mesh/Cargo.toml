@@ -35,5 +35,9 @@ proptest.workspace = true
 name = "mesh_build"
 harness = false
 
+[[bench]]
+name = "smooth"
+harness = false
+
 [lints]
 workspace = true

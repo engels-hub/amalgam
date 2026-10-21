@@ -817,7 +817,7 @@ build, 8+ cores.
 | MESH-06 | Isotropic remesh (Botsch–Kobbelt) with feature-edge, boundary and group-border preservation, projection to input | MESH-01, MESH-03 | P0 | Todo | On corpus watertight models and synthetic shapes: ≥ 95 % of triangles have min angle ≥ 30°; ≥ 90 % of edges within [0.8 L, 1.33 L]; Hausdorff to input ≤ 0.5 L. Cube feature edges stay within 1e-3 mm. Topology (genus, shells) unchanged. 1 M → ~1 M tris, 5 iterations, < 10 s. |
 | MESH-22 | Adaptive remesh (curvature sizing field, tolerance ε) | MESH-06 | P1 | Todo | Max deviation from input ≤ ε on synthetic surfaces (sphere, torus, displaced sphere). Triangle count ≤ 60 % of uniform remesh at the same max deviation. |
 | MESH-07 | QEM decimation (boundary/group/feature penalties, flip and quality checks, deterministic) | MESH-01 | P0 | Todo | 1 M → 100 k in < 2 s. Symmetric Hausdorff ≤ 0.2 % of bbox diagonal on the displaced-sphere benchmark. A closed manifold input stays closed and manifold. Group borders are kept when `preserve_group_borders`. Output is bit-identical across thread counts. |
-| MESH-08 | Smoothing: Laplacian (uniform/cotan), Taubin, bilateral normal filtering | MESH-01 | P0 | Todo | Taubin (50 iterations) on a noisy sphere (σ = 1 % r) shrinks volume by < 1 % and cuts RMS noise ≥ 3×. Bilateral on a noisy cube keeps feature dihedral angles within 5° of 90° and cuts RMS noise ≥ 3×. 1 M tris × 10 Taubin iterations < 300 ms. |
+| MESH-08 | Smoothing: Laplacian (uniform/cotan), Taubin, bilateral normal filtering | MESH-01 | P0 | Review | Taubin (50 iterations) on a noisy sphere (σ = 1 % r) shrinks volume by < 1 % and cuts RMS noise ≥ 3×. Bilateral on a noisy cube keeps feature dihedral angles within 5° of 90° and cuts RMS noise ≥ 3×. 1 M tris × 10 Taubin iterations < 300 ms. |
 | MESH-09 | Plane cut with CDT capping, `section`, separate shells, erase & fill, reverse normals | MESH-04 | P0 | Todo | Cutting a closed 1 M-tri mesh gives closed manifold halves whose volumes sum to the original within 1e-9 relative, including cuts exactly through vertices and edges, in < 300 ms. Cap faces are in one new `Cap` group. `separate_shells` count equals the analysis shell count. Erase & fill output is watertight. Reverse normals negates signed volume. |
 | MESH-17 | Isosurface extraction: sparse marching tetrahedra over `ScalarField` (`amg_mesh::iso`) | MESH-01 | P0 | Todo | Fuzz test over 1 000 random CSG fields (spheres, boxes, exact zeros on grid points, surfaces touching `bounds`): output is always a closed, oriented 2-manifold. Hausdorff to analytic sphere/torus ≤ cell size. 400³-effective narrow-band extraction of a 100 mm part < 2 s. Output is identical across thread counts. |
 | MESH-10 | Shell/offset: quick normal offset (`amg-mesh`) + robust SDF shell (`amg-features::mesh::shell`, composes IMP-03 `MeshSdf` + MESH-17) | MESH-04, MESH-17, IMP-03 | P0 | Todo | Robust shell output is closed, manifold and SI-free (MESH-19 check) on 100 % of watertight corpus models. Measured wall thickness within ±1 voxel of target. Quick shell of 1 M tris < 300 ms, with its SI count reported. Robust shell of a 1 M-tri, 100 mm part at 0.25 mm voxel < 20 s. |
@@ -1179,3 +1179,24 @@ Additive only: cargo feature `amg-mesh/corpus` (optional deps `toml`, `sha2` 0.1
 `amg_mesh::corpus::{Manifest, Entry, Defect, FileStatus, read_mesh, quick_stats, synth, bench}`.
 Other crates (INS-02, IMP-03) use it with `amg-mesh = { workspace = true, features = ["corpus"] }`
 under `[dev-dependencies]`. `lib.rs` gained one `#[cfg(feature = "corpus")] pub mod corpus;`.
+
+**2026-10-21 — MESH-08 implementation (lane C agent, wp/MESH-08-smooth).**
+- `amg-mesh::smooth` (own module): `smooth`, `SmoothOpts`, `SmoothMethod`, `LaplacianWeights`;
+  `SmoothOpts::new(method, iterations)` and `SmoothMethod::TAUBIN_DEFAULT` are additive helpers.
+  The `Interfaces` signatures are unchanged.
+- No sparse solve and no new dependency: all methods are explicit Jacobi iterations over a CSR
+  vertex→face / vertex→vertex adjacency built inside the module (MESH-01 internals untouched).
+  Results are independent of thread count.
+- Taubin uses uniform weights. Cotangent weights are clamped at 0 and recomputed each step; a
+  degenerate vertex falls back to uniform.
+- Bilateral: face-normal filter with vertex-ring neighbours (spatial sigma = mean centroid
+  distance, range sigma = `sigma_normal` on |ni - nj|), then area-weighted vertex update
+  (Sun 2007 / Zheng 2011). `iterations` = outer (normal filter + vertex update) rounds.
+- Locked vertices: boundary / non-manifold-edge vertices (`fix_boundary`), vertices touching more
+  than one face group (`preserve_group_borders`), vertices outside the `selection`, unreferenced
+  vertices.
+- Finding: Taubin 0.5/-0.53 slightly inflates the low frequencies (factor 1 + 0.03k per pair), so
+  volume change is resolution dependent; on an icosphere with 20 480 tris, 1 % noise, 50
+  iterations: +0.32 % volume, radial RMS 0.0993 → 0.0276 mm (3.6×). On 5 120 tris it was +1.2 %.
+- Tests in `smooth/tests.rs` (Taubin sphere, bilateral cube, locking, options, cancel,
+  determinism, goldens `tests/golden/mesh/smooth_*`); bench `benches/smooth.rs`.
