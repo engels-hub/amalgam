@@ -8,8 +8,8 @@
 //! or fails and leaves the design unchanged. Loading checks the same invariants
 //! ([`Design::validate`]), so a file can't hold a state the edit API couldn't produce.
 //!
-//! The timeline and its edits live in [`crate::timeline`] (DOC-02); the parameter table
-//! (DOC-04) joins `Design` in its work package.
+//! The timeline and its edits live in [`crate::timeline`] (DOC-02); the parameter table and its
+//! edits live in [`crate::param`] (DOC-04).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::eval::BodyGeom;
 use crate::id::{BodyId, ComponentId, ExtKey, FeatureId, GroupId, JointId, OccurrenceId, Revision};
+use crate::param::ParamTable;
 use crate::pcoll::{PMap, entries};
 use crate::stub::{AppearanceKey, LengthUnit, MaterialKey};
 use crate::timeline::Timeline;
@@ -54,6 +55,8 @@ pub struct Design {
     extensions: PMap<ExtKey, Arc<ExtRecord>>,
     /// The parametric timeline (DOC-02; edits in `timeline.rs`).
     pub(crate) timeline: Timeline,
+    /// Parameters (DOC-04); edits in [`crate::param`].
+    pub(crate) params: ParamTable,
     /// Runtime only: authored changes since the design was created or loaded.
     #[serde(skip)]
     revision: Revision,
@@ -313,6 +316,7 @@ impl Design {
             baked: PMap::new(),
             extensions: PMap::new(),
             timeline: Timeline::default(),
+            params: ParamTable::default(),
             revision: Revision(0),
         }
     }
@@ -620,6 +624,8 @@ impl Design {
             Some("extension")
         } else if self.timeline.group(GroupId(id)).is_some() {
             Some("group")
+        } else if self.params.get(crate::id::ParamId(id)).is_some() {
+            Some("parameter")
         } else if self.timeline.contains(FeatureId(id))
             || self.body_props.range(feature.clone()).next().is_some()
             || self.baked.range(feature).next().is_some()
@@ -715,6 +721,9 @@ impl Design {
         for n in self.timeline.nodes() {
             claim(n.id.0, "feature")?;
         }
+        for p in self.params.ids() {
+            claim(p.0, "parameter")?;
+        }
         let origins: BTreeSet<u64> = self
             .body_props
             .keys()
@@ -724,6 +733,12 @@ impl Design {
             .collect();
         for o in origins {
             claim(o, "feature")?;
+        }
+        if let Err(m) = self
+            .params
+            .check(&self.meta.default_units, |id| owners.get(&id).copied())
+        {
+            return bad(m);
         }
         if let Some(b) = self
             .body_props
@@ -848,11 +863,15 @@ struct DesignRepr {
     /// Added by DOC-02 (defaulted, per the wire-format policy).
     #[serde(default)]
     timeline: Timeline,
+    /// Added by DOC-04; defaulted so files without it still load.
+    #[serde(default)]
+    params: ParamTable,
 }
 
 impl TryFrom<DesignRepr> for Design {
     type Error = ModelError;
     fn try_from(r: DesignRepr) -> Result<Design, ModelError> {
+        let params = r.params.loaded(&r.meta.default_units)?;
         let d = Design {
             meta: r.meta,
             root: r.root,
@@ -862,6 +881,7 @@ impl TryFrom<DesignRepr> for Design {
             baked: r.baked,
             extensions: r.extensions,
             timeline: r.timeline,
+            params,
             revision: Revision(0),
         };
         d.validate()?;
@@ -1311,6 +1331,7 @@ mod tests {
                 "extensions",
                 "meta",
                 "occurrences",
+                "params",
                 "root",
                 "timeline"
             ]

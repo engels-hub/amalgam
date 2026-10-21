@@ -860,7 +860,7 @@ inventory::collect!(ExtRegistration);
 | DOC-01 | Core data model: typed ids, `Design`/`DesignMeta`/`Component`/`Occurrence`/`BodyProps`/`ExtRecord`, `PMap`/`PVec` aliases over `imbl`, `DesignSnapshot`, `amg-doc::stub` geometry placeholders, `Evaluated`/`BodyGeom` skeleton; criterion bench imbl vs rpds vs `Arc<Vec<Arc<T>>>` | FND-03 | P0 | Done | Unit tests create a design with ≥ 3 components, occurrences and body props. Bench at 10⁴ entries shows snapshot clone < 1 µs and one mutation after a clone < 5 µs. Results are recorded in the Refinement log, and the alias is switched if `imbl` misses either number. `serde_json` round-trip of a `Design` is byte-identical twice in a row (determinism). |
 | DOC-02 | `Feature` trait, `FeatureBox` serde via registry, `register_feature!` + `inventory` registry, `UnknownFeature`, `Timeline` (marker, suppression, groups, ordering rule), `link()` convention; test-only features (`test.counter`, `test.box`, `test.add_mesh`) | DOC-01 | P0 | Review | 1. Timeline of test features serializes and deserializes to equal JSON. 2. An unknown kind loads as `UnknownFeature` and re-serializes byte-identical. 3. A duplicate kind fails at startup. 4. A registry test asserts expected kinds are linked. 5. `MoveFeature` before a dependency is rejected. |
 | DOC-03 | Recompute engine core (synchronous): producer map, `Dependency` resolution, blake3 cache keys with `ENGINE_SALT`, `GeomCache` (LRU by bytes), `RecomputeCtx`, health propagation (error = no effect, upstream causes), suppression/marker handling | DOC-02, DOC-04 | P0 | Todo | Property test on random DAGs of `test.counter` features: after editing feature *k*, exactly the nodes transitively depending on *k* run (counter check); all others hit the cache. A failing feature leaves its input bodies unmodified and gives dependants `ErrorCause::Upstream`. Keys are identical across two process runs. Engine overhead < 5 ms for 200 cached features (criterion). |
-| DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Todo | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
+| DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Review | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
 | DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Todo | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
 | DOC-12 | Recompute as a job: `Document::poll` (spawn, cancel-and-supersede, stale-result drop, atomic `Evaluated` swap), progress, `recompute_blocking`, preview recompute (`ComputeMode::Preview`), UI-thread debug assertion | DOC-03, FND-04 | P0 | Todo | Test: 50 rapid `SetParamExpr` commands during a slow (sleeping) recompute → only the last revision is swapped in, cancelled work leaves finished features cached, `poll` never blocks > 1 ms (measured). Preview results never enter the persistent cache or undo stack. |
 | DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Todo | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
@@ -1064,6 +1064,17 @@ Phase 2 lane E (its SOL deps are Phase 2).
 - Bench after the fixes: `Design::set_body_props` after a clone is 0.83 µs at 10⁴ entries
   (including validation). `Design` clone is 99 ns.
 
+**2026-10-20 — DOC-04 implementation (lane E).**
+- Lexer + Pratt parser (`amg-doc::expr`), dimension-checked evaluation and `ParamTable` landed
+  with >= 190 table cases, error/span/printing tables and three proptests (print/parse
+  round-trip, fuzz no-panic, value format round-trip). Deviations are listed under Interface
+  changes (2026-10-20, DOC-04).
+- Cycle detection returns the first cycle the DFS reaches, which need not be the longest: with
+  `c = b + a`, `e = c - 1 mm`, setting `a = e / 2` reports `[a, e, c, a]`. A self reference
+  (`a = a + 1`) is reported as `Cycle([a, a])`, because the name is registered before its
+  expression is resolved.
+- Bench `benches/params.rs` (1 000 chained params): editing the head parameter re-evaluates all 999 dependents in 0.61 ms (including the `Design` clone and validation; target < 2 ms). A full load of the 1 000-parameter design from JSON takes 4.2 ms, which includes serde parsing of the whole file, parsing 1 000 expressions and evaluating them; no budget applies to it.
+
 **Sources:**
 - RustSec RUSTSEC-2026-0250 (https://rustsec.org/advisories/RUSTSEC-2026-0250.html)
 - imbl docs (https://docs.rs/crate/imbl/latest)
@@ -1228,3 +1239,42 @@ Deviations from the Interfaces section; the rest holds.
   a baked body as origin; `remove_feature` drops the props and baked payloads of its bodies.
 - **Tests:** unit tests in `timeline.rs`/`registry.rs`; `tests/registry_link.rs` (separate binary:
   kinds linked) and `tests/registry_duplicate.rs` (duplicate kind fails).
+
+### 2026-10-20 — DOC-04 (parameters & expressions, lane E)
+Deviations from the Interfaces/§5 text; everything else holds as specified.
+- **`Dim` is `amg_core::Dimension`** (FND-10's 5-slot exponent vector: mm, t, s, K, rad), not the
+  8-slot `Dim` with kg. `Quantity` is amg-core's too. Mass is carried in tonnes (mm-t-s system),
+  so no kg slot is needed. `stub::LengthUnit` is now `pub use amg_core::units::LengthUnit`
+  (same serde names). No amg-core changes were needed.
+- **Parse/eval signatures:** `expr::parse(src) -> Result<Ast, ExprError>` (no `UnitTable`
+  argument; the table is amg-core's static one). `expr::eval(&Ast, &dyn Env, &EvalOptions) ->
+  Result<Quantity, ExprError>` with `EvalOptions { expected, field_unit, length_unit,
+  angle_unit, strict }` instead of `(expected, prefs)`. `ParamTable::try_eval` takes `prefs`;
+  extra helpers `resolve(&Expr, Dim, prefs)`, `references`, `dependents`. `ExprError` is
+  `#[non_exhaustive]` and gains `InvalidName`.
+- **`ParamTable::value(id) -> Option<Quantity>`** (was `Quantity`): stored values are always
+  valid, `None` only for an unknown id.
+- **Fraction rule:** a literal `a/b` followed by a unit (`1/4 in`) is a fraction literal; without a
+  following unit it is ordinary division, so `2/4^2` is 0.125 (division of 2 by 4^2) rather than
+  the literal EBNF's `(2/4)^2`. This deviates only where the results would differ. Unit `^` binds
+  per factor (`N/mm^2` is N per mm squared). Bare unit primaries are allowed; `min` is the
+  minute unit unless followed by `(`. Constants count as unit-free literals for the bare-number
+  rules (`PI` in an angle field is PI degrees).
+- **Strict mode** (open question 3) is an `EvalOptions::strict` flag that disables only the
+  "unit-free literal beside a length/angle in `+`/`-` takes the default unit" rule; a whole
+  unit-free literal expression still takes the field's default unit. `ParamTable` always
+  evaluates leniently; persisting the preference is left to DOC-05/UI. A param with
+  `unit: None` accepts any dimension.
+- **`Design` API** (low-level, DOC-05 builds on it): `params()`, `try_eval`, `add_param`,
+  `set_param_expr`, `rename_param` (rewrites referencing sources via spans), `set_param_meta`,
+  `delete_param` (refused while referenced), `add_model_params(owner, Vec<(&mut Expr, Dim)>)`
+  (names `d<n>`, all-or-nothing). `Design` gains a `params` field, serialized as `[id, param]`
+  entries with `#[serde(default)]` on the wire repr (additive, per the wire-format policy; no
+  `FORMAT_VERSION` bump, DOC-07 decides). Name/compiled/value caches are runtime only, rebuilt
+  on load. `params` ids are claimed by `validate()`; `owner_of` knows `"parameter"`.
+- **Request for DOC-02:** `Feature::exprs_mut` must report each field's dimension, i.e. yield
+  `(&mut Expr, Dim)` pairs, because `add_model_params` needs the dimension to pick the unit and
+  to type-check. TODO(DOC-02): validate that a model param's owner is a timeline feature.
+- **Left for DOC-05:** reject deleting a parameter referenced by a feature field, convert model
+  params to user params when their feature is deleted, and re-evaluate params when the default
+  unit changes.

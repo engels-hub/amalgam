@@ -13,10 +13,12 @@
 #![warn(missing_docs)]
 
 pub mod eval;
+pub mod expr;
 pub mod feature;
 pub mod id;
 pub mod model;
 pub mod naming;
+pub mod param;
 mod pcoll;
 pub mod registry;
 pub mod stub;
@@ -28,6 +30,7 @@ pub use eval::{
     BodyGeom, CacheKey, ConstructionGeom, Diagnostic, ErrorCause, EvalBody, Evaluated, Health,
     NodeEval,
 };
+pub use expr::{Dim, ExprError};
 pub use feature::{
     BodyChange, BodyChangeKind, ComputeMode, Dependency, Feature, FeatureBox, FeatureDataError,
     FeatureError, FeatureMeta, FeatureOutput, MigrationError, RecomputeCtx, UnknownFeature,
@@ -44,6 +47,7 @@ pub use naming::{
     BodyNaming, EntityRef, GeomClass, GeomFingerprint, MatchQuality, NameSeg, NameSource,
     ResolveError, Resolved, Role, TopoKind, TopoName, TopoRef,
 };
+pub use param::{Expr, ExprSrc, Param, ParamError, ParamKind, ParamTable, UnitSpec};
 pub use registry::{FeatureRegistration, FeatureRegistry, RegistryError, registry, try_registry};
 pub use timeline::{FeatureNode, Group, Timeline};
 

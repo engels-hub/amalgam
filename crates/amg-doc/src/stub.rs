@@ -69,20 +69,9 @@ pub struct MaterialKey(pub String);
 #[serde(transparent)]
 pub struct AppearanceKey(pub String);
 
-/// Document length unit. Same variants and serde names as S00's `amg_core::units::LengthUnit`.
-///
-/// TODO(FND-10): replace with `pub use amg_core::units::LengthUnit;` (file format unchanged).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[allow(missing_docs, reason = "unit names are self-explanatory")]
-pub enum LengthUnit {
-    Micrometre,
-    #[default]
-    Millimetre,
-    Centimetre,
-    Metre,
-    Inch,
-    Foot,
-}
+/// Document length unit: re-exported from FND-10 (`amg_core::units::LengthUnit`; same variants
+/// and serde names as the former stub, so the file format is unchanged).
+pub use amg_core::units::LengthUnit;
 
 #[cfg(test)]
 mod tests {
