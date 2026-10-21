@@ -6,7 +6,7 @@
 | **Decides** | the final `TopoName`/`NameSeg` grammar and `GeomFingerprint`; how features build names (`NamingBuilder`); the naming rules for each S04 feature, mesh face groups and imported bodies; the resolver (candidate sets, fingerprint metric, thresholds, warnings); failure UX; storage and versioning in `.amg`; performance budgets; the golden TNP corpus format and its cases; the API DOC-06 implements |
 | **Produced by** | DOC-11 (2026-10-20) |
 | **Needed before** | DOC-06 (framework), DOC-13 (full corpus), S04 SOL-01..SOL-13 (naming rules), S07 mesh refs, S11 re-pick UI |
-| **Status** | **Proposed** (revised 2026-10-20 after review, §16). The owner marks it `Accepted` here (S01 DOC-11 Done-when) after answering §15. Thresholds marked *provisional* are re-tuned by DOC-06/DOC-13 runs and the change is recorded in §13 |
+| **Status** | **Accepted** (owner, 2026-10-21; revised 2026-10-20 after review, §16). §15 answered: every recommendation taken. Thresholds marked *provisional* are re-tuned by DOC-06/DOC-13 runs and the change is recorded in §13 |
 
 The roadmap lists persistent naming as project risk #2. This note fixes the scheme so DOC-06
 can be implemented without design decisions of its own. The provisional types in
@@ -1639,6 +1639,7 @@ same cases. DOC-13 adds a seeded fuzz run that nobody tunes on (`amg-features/te
   listed in §16. Hand-checked again with the revised rules: TNP-01..23 keep their expected
   outcomes (TNP-02's edit changed, TNP-20 now follows from §6.2 rule (c), TNP-22's nearest
   seam corrected to d ≈ 1.58). New cases TNP-24..30 were computed by hand the same way.
+- **2026-10-21 (owner).** Note Accepted; §15 answered with every recommendation (QUESTIONS #43–#49).
 
 
 ## 14. Sources
@@ -1680,8 +1681,9 @@ same cases. DOC-13 adds a seeded fuzz run that nobody tunes on (`amg-features/te
   https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/BRepFace_entityToken.htm).
 
 ## 15. Owner questions
-Also listed in `docs/QUESTIONS.md` (#43–#49). The note uses the recommended option until the
-owner answers; each answer is recorded here and in §13.
+Also listed in `docs/QUESTIONS.md` (#43–#49). **Answered 2026-10-21:** the owner took every
+recommendation: 1 (a), 2 (c), 3 (a), 4 (a) now and (c) later, 5 (a), 6 (a), 7 (a). The note's
+text already follows these options, so nothing below changes.
 
 | # | Question | Options | Recommendation |
 |---|---|---|---|

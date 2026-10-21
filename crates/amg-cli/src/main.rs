@@ -100,14 +100,17 @@ fn gpu_info() {
                 "gpu backend:        {:?} ({:?})",
                 info.backend, info.device_type
             );
-            println!("gpu driver:         {} {}", info.driver, info.driver_info);
+            println!(
+                "gpu driver:         {}",
+                format!("{} {}", info.driver, info.driver_info).trim_end()
+            );
             println!(
                 "gpu features:       SHADER_F64={} TIMESTAMP_QUERY={}",
                 gpu.has(wgpu::Features::SHADER_F64),
                 gpu.has(wgpu::Features::TIMESTAMP_QUERY)
             );
             println!("gpu init:           {ms:.0} ms");
-            tracing::info!(adapter = %info.name, backend = ?info.backend, init_ms = ms, "gpu");
+            tracing::info!(adapter = %info.name, backend = ?info.backend, init_ms = ms.round(), "gpu");
         }
         Err(e) => {
             use amg_core::Diagnostic as _;
