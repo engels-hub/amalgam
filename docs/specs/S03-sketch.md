@@ -693,7 +693,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | SK-01 | Entity model, `ParamStore` layout, sketch plane (`amg_core::Plane`), constraint/dimension data types, ids, validation, serde | FND-03 | P0 | Done | 1. All P0 entity kinds (point, line, circle, arc) and every `ConstraintKind`/`DimensionKind` variant can be created through the API. 2. Kind validation returns `WrongEntityKind` (≥ 1 negative test per variant). 3. Three fixture sketches round-trip through serde bit-identically. 4. `remove_entities` cascades to constraints (unit test). |
-| SK-02 | Residuals + analytic Jacobians for all P0 constraints and dimensions; `system::Residual`; chirality capture | SK-01 | P0 | Todo | 1. Every P0 constraint and dimension passes a central-difference Jacobian check (relative error < 1e-6) on 1000 random configurations each (proptest). 2. Captured `Side`/`TangentKind`/`AngleBranch` make the residual zero at creation (unit test). |
+| SK-02 | Residuals + analytic Jacobians for all P0 constraints and dimensions; `system::Residual`; chirality capture | SK-01 | P0 | Review | 1. Every P0 constraint and dimension passes a central-difference Jacobian check (relative error < 1e-6) on 1000 random configurations each (proptest). 2. Captured `Side`/`TangentKind`/`AngleBranch` make the residual zero at creation (unit test). |
 | SK-14 | Solver test corpus + runner: corpus file format (JSON), `.slvs` 2D importer, ezpz text importer, hand-ported PlaneGCS cases, expected-result schema | SK-01 | P0 | Todo | 1. `testdata/sketch/corpus/` holds ≥ 120 cases: ≥ 60 from SolveSpace 2D (`test/constraint/*`), ≥ 20 PlaneGCS, ≥ 20 ezpz, ≥ 20 own. 2. Each case has expected DOF and status. 3. The runner reports pass/fail per case. 4. Licence notices are in each source subfolder. |
 | SK-13 | Solver prototype + ADR-007 benchmark: native prototype vs `libslvs` (feature `slvs`) vs ezpz on decision cases D1–D10 (note §5) | SK-02, SK-14 | P0 | Todo | 1. `docs/notes/sketch-solver-benchmark.md` reports every §5.3 metric for every option on D1–D10. 2. Proposed ADR-007 wording is in the PR. 3. The owner's decision is recorded. *This WP produces the decision, so it is not behind the ADR-007 gate.* |
 | SK-03 | Production solver core: substitution, connected components + Dulmage–Mendelsohn blocks, dense/sparse damped min-norm GN/LM, structure cache, `SolveStatus` / unsatisfied reporting, cancellation, driven-dimension measurement | SK-13 (gate: ADR-007 decided) | P0 | Todo | 1. ≥ 95 % of the SK-14 corpus passes, and 100 % of its non-degenerate well-constrained cases. 2. D9 warm solve < 5 ms median on the reference machine (criterion). 3. The same input solved 100× gives bit-identical params. 4. Cancellation returns `Cancelled` within 1 ms. |
@@ -1047,3 +1047,27 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **For S01 / DOC (`.amg` writer, ADR-010):** a bit-identical JSON round trip needs
   `serde_json`'s `float_roundtrip` feature when parsing. `amg-sketch` enables it for its own
   tests; the document loader should enable it too.
+
+### 2026-10-20 — SK-02 (residuals + analytic Jacobians, lane B)
+- **`system::Residual` as specified, with one change:** `owners` is not `Vec<ConstraintId>`.
+  Arc internal equations need an entity owner, so `EquationOwner { Entity(EntityId),
+  Constraint(ConstraintId) }` is used. `x` is the whole parameter vector, indexed by
+  `ParamId::index`; `jacobian` overwrites a rows x params row-major block.
+- **New public API in `amg_sketch::solve`:** `EquationSystem`, `SketchResidual`,
+  `SketchSystem { system, fixed, free, length_scale }`, `build_system[_scaled]`,
+  `constraint_residual`, `entity_residual`, `fixed_params`, `characteristic_length`,
+  `orient_constraint`, `Sketch::add_constraint_oriented`, `numeric_rank`, `dof`.
+  `dof`/`numeric_rank` (full-pivot elimination) are the rank helper SK-21 uses; SK-04 replaces
+  them with QR.
+- **Deviation, `AtEndpoint`:** the residual is `Lc * wrap(angle(t_a, t_b) - (reversed ? pi : 0))`
+  rather than the raw `cross(t_a, t_b)` from the SK-01 note. It has the same root to first
+  order, but the flipped branch is not a root, so chirality is kept. Angular rows are scaled by
+  the characteristic length `Lc` (Parallel, Perpendicular, AtEndpoint, Angle dimension).
+- **Deviation, angle dimension:** the residual is `Lc * wrap(angle(u, w) - v)`.
+  `orient_constraint` may swap `a` and `b`, because the `AngleBranch` flags alone only
+  distinguish `theta` from `theta + pi`.
+- **Conventions:** dimensions are `sigma * measure - v` (rows in mm). Line-line distance uses
+  the signed distance of `b`'s midpoint from `a`; point-point ignores side. `Symmetric` rows:
+  points 2, lines 4 (start-start, end-end), circles 3, arcs 5. Equal line-arc uses the arc
+  length `r * sweep`. Degenerate input gives value 0 and a zero gradient (no NaN).
+- **Driven dimensions** produce no rows; they are measured later (SK-03).
