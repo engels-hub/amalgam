@@ -866,9 +866,10 @@ inventory::collect!(ExtRegistration);
 | DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Todo | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
 | DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Todo | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
 | DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Todo | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
-| DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Todo | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
-| DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous. 2. 10 golden cases from the DOC-11 corpus run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut) and resolve to the intended entity (asserted by fingerprint). 3. Zero cases resolve to a wrong entity without a warning. 4. Naming survives save/load. |
-| DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of corpus cases resolve to the intended entity after the edit script; the remainder fail with a feature error or warning; **0 silent wrong resolutions**. Runs in CI under 60 s. |
+| DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Review | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
+| DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous, plus unmerged, widened, class-changed (no ∞ arithmetic) and tombstone lookup by lineage. 2. 10 golden cases from the DOC-11 corpus (TNP-01/02/03/05/06/07/08/09/10/12) run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut, probe) and resolve to the intended entity (asserted by fingerprint); the other DOC-06-phase cases (TNP-04/11/24..28) meet their recorded `expect`. 3. Zero silent wrong resolutions (DOC-11 note §11.2 definition) over all DOC-06-phase cases. 4. Naming survives save/load (TNP-28). 5. The note §9 benches (`naming/finish-1000`, `naming/resolve`) run and their results are recorded in the note's §13. |
+| DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of the core corpus cases (DOC-11 note §11.4) meet their recorded `expect` (intended entity and quality, or the expected warning/error); the remainder fail with a feature error or warning; **0 silent wrong resolutions** (note §11.2 definition: a quiet `Ok` on a non-intended entity, or a quiet `Ok` where an error is expected). The harness measures the naive index baseline on every case and ≥ 5 cases are measured to break it (predictions in the corpus are corrected where the measurement differs). The held-out fuzz set (note §11.6) has 0 silent wrong resolutions. Runs in CI under 60 s (the fuzz set may run nightly if it doesn't fit). |
+
 | DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Todo | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
 | DOC-10 | Configurations: `ConfigTable`, param/suppression overrides, `SetActiveConfig`, per-config cache keys, persistence | DOC-05, DOC-12 | P2 | Todo | Design with 3 configurations: switching recomputes to the expected per-config volumes; switching back is a full cache hit (0 computes); configurations survive save/load. |
 
@@ -1278,3 +1279,85 @@ Deviations from the Interfaces/§5 text; everything else holds as specified.
 - **Left for DOC-05:** reject deleting a parameter referenced by a feature field, convert model
   params to user params when their feature is deleted, and re-evaluate params when the default
   unit changes.
+
+### 2026-10-20 — DOC-11 (persistent naming note, lane E)
+`docs/notes/persistent-naming.md` (status Proposed until the owner marks it Accepted) fixes the
+naming scheme. These changes replace the provisional naming block in Interfaces and the stage
+list in §4. DOC-06 implements them; full signatures are in note §10.
+- **`NameSeg` grammar changed.**
+  - `Modified` is removed: a 1:1-modified face keeps its name.
+  - New variants: `Gen { feature, role, from }` (was `Generated`), `Bound { faces, index,
+    count }` (edges and vertices, derived from adjacent face names), `Split { feature, index,
+    count }` (adds `feature`/`count`), `Merge { feature, with }` (adds `feature`), and
+    `Inst { feature, instance }` (pattern/mirror copies).
+  - `NameSource` gains `SketchPoint`, `Profile { sketch, outer }` (outer-loop source ids of a
+    region, not the `ProfileId`), `Selection { key }`, `Construction` and `Digest(u64)`;
+    `MAX_NAME_DEPTH = 8`.
+- **`TopoRef`** gains `key: u32` (`#[serde(default)]`): a per-selection key, allocated by
+  whoever edits the feature data and kept by Accept match and Re-pick, so generated names
+  don't change when a ref is refreshed.
+- **`GeomFingerprint`** gains `radius: Option<f64>` (`#[serde(default)]`), and
+  `distance(..) -> Option<f64>` (`None` on a class mismatch). `QUANTUM = 1e-6` is confirmed. The resolution metric and thresholds are in `naming::thresholds`.
+  `NAMING_VERSION` (= 1) becomes part of `ENGINE_SALT`.
+- **`EntityRef::Profile`** gains `fingerprint: Option<ProfileFp>` (`#[serde(default)]`),
+  wrapping S03's `ProfileFingerprint`.
+- **`BodyNaming`** gains `groups: BTreeMap<u32, TopoName>` (mesh face groups) and
+  `removed: Arc<BTreeMap<TopoName, FeatureId>>` (tombstones). New constructors:
+  `name_of`, `instanced`, `for_import`, `for_mesh`.
+- **`NamingBuilder`**:
+  - `from_history` takes `&[(u16, OperandNaming)]`, adopting the S02 request.
+  - New `tag`, `role` and `split_order`.
+  - `finish(kernel, shape)` (adds the kernel).
+  - New `OperandNaming`, `SplitOrder` and `NamingError` variants.
+- **Resolution types.**
+  - `MatchQuality` gains `Widened`.
+  - `Resolved` gains `warning: Option<ResolveWarning>` and loses `Eq`.
+  - `ResolveError::NotFound` gains `removed_by: Option<FeatureId>`.
+  - `ResolveError::Ambiguous` carries `candidates: Vec<(BodyId, u32)>` instead of a count.
+  - New `SetPolicy`, `ResolutionRecord`, the `NamingView` trait, free `resolve()`, and
+    `topo_ref_at(view, kernel, body, kind, index)` (S11 R1, with the kernel added).
+- **Body lineage.**
+  - `BodyChangeKind::Created` gains `derived_from: Option<BodyId>`.
+  - New `BodyChangeKind::Consumed { into: BodyId }`.
+  - New `Evaluated::successors(BodyId)`.
+- **`NodeEval`** gains `resolutions: Arc<[ResolutionRecord]>` (UI re-pick, Accept match,
+  corpus harness).
+- **`RecomputeCtx`**:
+  - `resolve` records a `ResolutionRecord` and turns warnings into node diagnostics
+    automatically.
+  - New `resolve_all(refs, SetPolicy)`, `resolve_profile`, `naming_builder()`, and
+    `kernel()` (if it isn't already exposed).
+- **Resolver stages (§4 superseded).**
+  - Lineage match with split and bound indices as wildcards.
+  - A unique candidate → `Exact`/`Widened`.
+  - Several candidates → fingerprint ratio test (`Ambiguous` on ties, `IndexDrift`/`NewSplit`
+    warnings).
+  - No candidates → tombstone or adjacency check (`NotFound`), else stage-3 fingerprint-only
+    with a warning.
+- **DOC-06 scope additions:** test features `test.brep_box`, `test.brep_prism` (with
+  `unify_same_domain` after Cut/Join), `test.brep_fillet` (with a `policy` field) and
+  `test.probe` (note §10), and the corpus harness with its macros (`$pick`, `accept`,
+  `saveload`, …; note §11.2). DOC-06's 10 "intended entity" cases are still
+  TNP-01/02/03/05/06/07/08/09/10/12; the DOC-06-phase cases TNP-24..28 also run, and TNP-28
+  covers Done-when 4 (save/load).
+- **DOC-13 Done-when adjusted** in the WP table. The corpus has expected-error cases
+  (TNP-04/11/18/20/22), so "resolve to the intended entity" becomes "meet the recorded
+  `expect`". "Silent wrong" is defined in note §11.2, and ≥ 5 cases must be *measured* to
+  break the naive index baseline. A held-out fuzz set is added (note §11.6).
+- **Revision 2026-10-20 (review response, note §16).**
+  - `ResolveWarning` is now `NewSplit { feature: Option<FeatureId>, pieces }`, `Unmerged`,
+    `Widened { cause: WidenCause }`, `IndexDrift`, `ClassChanged`, `LowMargin`, `FarMatch`,
+    `BodyChanged { now_in }`, `FingerprintOnly`, `NoFingerprint` (precedence in note §6.4).
+  - `ResolutionRecord { r: EntityRef, result: Result<Vec<Resolved>, ResolveError>, current:
+    Vec<EntityRef> }` (covers profile refs and set members expanded to all split pieces).
+  - `RecomputeCtx` records resolutions in a `Mutex<Vec<ResolutionRecord>>`; features call
+    `resolve*` sequentially from the `compute` thread, so the order is deterministic. New
+    `RecomputeCtx::region_source(sketch, key)` and `NamingBuilder::selection(operand, sub,
+    key)`.
+  - `SetPolicy::DropMissing` expands an `Ambiguous` member whose candidates are all new-split
+    pieces to all of them (warned), pending QUESTIONS #44.
+  - Cross-spec contracts the note relies on: S04 simplifies every BodyOp result with
+    `unify_same_domain`; S02 Q5 (quantised split order) and Q6 (fillet/shell history
+    tests); S03 planar-face sketch frame rule and `Profile::outer_sources`. Owner questions
+    are QUESTIONS #43–#49.
+
