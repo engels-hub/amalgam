@@ -17,6 +17,7 @@ mod groups;
 mod halfedge;
 mod hash;
 mod indexed;
+mod spatial;
 mod weld;
 
 pub use attrs::{MeshAttrs, Rgba8, TriProperty};
@@ -28,6 +29,10 @@ pub use groups::{
 };
 pub use halfedge::{ConversionReport, HalfEdgeMesh, NonManifoldPolicy};
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
+pub use spatial::{
+    Bvh, BvhNode, BvhNodeKind, BvhOpts, ClosestPoint, DEFAULT_WINDING_BETA, MeshSpatial, RayHit,
+    TriFeature,
+};
 
 /// "No element" marker for `u32` indices.
 pub const INVALID: u32 = u32::MAX;

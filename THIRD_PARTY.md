@@ -82,8 +82,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | rand, rand_chacha | seeded RANSAC and corpus generators, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | Planned |
 | oneTBB (vcpkg `tbb`) | Manifold parallel backend, `amg-manifold-sys` (S07, ADR-003) | Apache-2.0 | no | yes (`manifold`) | Planned |
 | manifold-csg-sys | fallback bindings if own `amg-manifold-sys` fails (S07) | MIT / Apache-2.0 | no | yes (`manifold`) | Planned (fallback only) |
-| parry3d-f64 | geometry test oracle, dev-only (S07) | Apache-2.0 | no | — | Planned (dev-only) |
-| obvhs | BVH benchmark reference, dev-only (S07) | MIT / Apache-2.0 | no | — | Planned (dev-only) |
+| parry3d-f64 =0.31.1 | ray cast / closest point test oracle, `amg-mesh` dev-dependency only (S07 MESH-03); never linked into shipped binaries | Apache-2.0 | no | n/a (dev-only) | In use (dev/test-only; cargo deny clean) |
+| obvhs =0.4.0 (`parallel`) | PLOC BVH build benchmark reference, `amg-mesh` dev-dependency only (S07 MESH-03); never linked into shipped binaries | MIT / Apache-2.0 | no | n/a (bench-only) | In use (dev/bench-only; cargo deny clean) |
 | cargo-nextest, cargo-deny | dev tools, not linked (S00) | MIT / Apache-2.0 | no | — | In use (dev tools; nextest 0.9.148, deny 0.20.2; CI) |
 | curvo =0.3.3 | `amg-nurbs` differential test oracle, dev-only (S20 KH-07/12/13) | MIT | no | n/a (dev-only) | Planned (dev-only) |
 | TiGL `tests/TestData/CurveNetworks` (data only, no code) | Gordon corpus under `testdata/kernel/loft/tigl/` with attribution (S20 KH-15/16) | Apache-2.0 | no | n/a (data) | Planned (test data) |
