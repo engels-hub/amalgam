@@ -1,6 +1,6 @@
 //! Dev-only test helpers: golden-geometry metrics, test data access and budget benches.
 //!
-//! Spec: S00 §5 (FND-06). Lane: E.
+//! Spec: S00 §5 (FND-06, FND-08). Lane: E.
 //!
 //! Every crate may list `amg-testkit` under `[dev-dependencies]`. It never depends on a domain
 //! crate: geometry comes in as a borrowed [`TriSoup`], so a mesh, a B-rep tessellation or an
@@ -13,6 +13,8 @@
 //!   un-fetched pointer files; [`external_testdata`] resolves files under `AMG_TESTDATA_DIR`.
 //! - [`gpu_available`] decides whether a GPU test runs.
 //! - [`shapes`] builds reference meshes (cube, icosphere) for tests.
+//! - [`budget::BUDGETS`] lists the vision's performance budgets; their criterion benches are
+//!   named `budget/<id>`.
 
 #![warn(missing_docs)]
 #![allow(
@@ -20,6 +22,7 @@
     reason = "test helpers; a failure is a test failure"
 )]
 
+pub mod budget;
 mod bvh;
 mod env;
 mod golden;

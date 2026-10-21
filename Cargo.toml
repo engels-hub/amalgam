@@ -58,7 +58,9 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 pollster = "1.0.1"
 clap = { version = "4.6.7", features = ["derive"] }
 toml = "1.1.8"
-criterion = "0.8.2"
+# html_reports (no extra crates): the CI bench job uploads target/criterion as HTML. Set here
+# so the feature set is identical for `-p` and `--workspace` builds.
+criterion = { version = "0.8.2", features = ["html_reports"] }
 proptest = "1.12.0"
 # amg-doc (S01): persistent collections; rpds is the bench comparison / fallback (DOC-01).
 imbl = "7.0.2"

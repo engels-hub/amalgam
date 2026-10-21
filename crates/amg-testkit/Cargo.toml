@@ -31,5 +31,9 @@ serde_json.workspace = true
 name = "hausdorff"
 harness = false
 
+[[bench]]
+name = "budgets"
+harness = false
+
 [lints]
 workspace = true
