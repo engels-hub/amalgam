@@ -697,7 +697,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-01 | Entity model, `ParamStore` layout, sketch plane (`amg_core::Plane`), constraint/dimension data types, ids, validation, serde | FND-03 | P0 | Done | 1. All P0 entity kinds (point, line, circle, arc) and every `ConstraintKind`/`DimensionKind` variant can be created through the API. 2. Kind validation returns `WrongEntityKind` (≥ 1 negative test per variant). 3. Three fixture sketches round-trip through serde bit-identically. 4. `remove_entities` cascades to constraints (unit test). |
 | SK-02 | Residuals + analytic Jacobians for all P0 constraints and dimensions; `system::Residual`; chirality capture | SK-01 | P0 | Done | 1. Every P0 constraint and dimension passes a central-difference Jacobian check (relative error < 1e-6) on 1000 random configurations each (proptest). 2. Captured `Side`/`TangentKind`/`AngleBranch` make the residual zero at creation (unit test). |
 | SK-14 | Solver test corpus + runner: corpus file format (JSON), `.slvs` 2D importer, ezpz text importer, hand-ported PlaneGCS cases, expected-result schema | SK-01 | P0 | Done | 1. `testdata/sketch/corpus/` holds ≥ 120 cases: ≥ 60 from SolveSpace 2D (`test/constraint/*`), ≥ 20 PlaneGCS, ≥ 20 ezpz, ≥ 20 own. 2. Each case has expected DOF and status. 3. The runner reports pass/fail per case. 4. Licence notices are in each source subfolder. |
-| SK-13 | Solver prototype + ADR-007 benchmark: native prototype vs `libslvs` (feature `slvs`) vs ezpz on decision cases D1–D10 (note §5) | SK-02, SK-14 | P0 | Todo | 1. `docs/notes/sketch-solver-benchmark.md` reports every §5.3 metric for every option on D1–D10. 2. Proposed ADR-007 wording is in the PR. 3. The owner's decision is recorded. *This WP produces the decision, so it is not behind the ADR-007 gate.* |
+| SK-13 | Solver prototype + ADR-007 benchmark: native prototype vs `libslvs` (feature `slvs`) vs ezpz on decision cases D1–D10 (note §5) | SK-02, SK-14 | P0 | Review | 1. `docs/notes/sketch-solver-benchmark.md` reports every §5.3 metric for every option on D1–D10. 2. Proposed ADR-007 wording is in the PR. 3. The owner's decision is recorded. *This WP produces the decision, so it is not behind the ADR-007 gate.* |
 | SK-03 | Production solver core: substitution, connected components + Dulmage–Mendelsohn blocks, dense/sparse damped min-norm GN/LM, structure cache, `SolveStatus` / unsatisfied reporting, cancellation, driven-dimension measurement | SK-13 (gate: ADR-007 decided) | P0 | Todo | 1. ≥ 95 % of the SK-14 corpus passes, and 100 % of its non-degenerate well-constrained cases. 2. D9 warm solve < 5 ms median on the reference machine (criterion). 3. The same input solved 100× gives bit-identical params. 4. Cancellation returns `Cancelled` within 1 ms. |
 | SK-04 | DOF analysis (rank-revealing QR/SVD, per-entity status), diagnosis (redundant / conflicting / degenerate groups, leave-one-out refinement), `check_constraint` | SK-03 | P0 | Todo | 1. All 50 hand-made DOF cases (§Testing) match exactly: total DOF, every entity's `ConstraintState`, and dependency groups as sets. 2. `check_constraint` agrees with full re-analysis on every case. 3. Analysis of a 500-entity sketch < 10 ms. |
 | SK-05 | Drag solving: `DragSession` for points, lines (translate), circle rim (radius), arc endpoints; weighted min-norm; warm start; SQP alternative only if SK-13 selected it | SK-03 | P0 | Todo | 1. On D4, D7 and a 200-entity generated sketch, 1000 scripted frames each: p95 step < 2 ms. 2. The jitter metric (note §5.3) is ≤ the SK-13 baseline. 3. No chirality flip on D7. 4. A fully constrained dragged point stays put. |
@@ -1189,3 +1189,42 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   (CCW) or end (CW).
 - **Known redundancy:** `slot_arc`'s centreline arc radius equation is implied by the caps (one
   dependent Jacobian row); SK-04 must tolerate it.
+
+### 2026-10-21 — SK-13 (solver prototype + ADR-007 benchmark, lane B)
+- **Result:** the §5.4 decision rule selects option A (own solver). Report:
+  `docs/notes/sketch-solver-benchmark.md`; summary in `docs/notes/sketch-solver.md` §5.5; proposed
+  ADR-007 text in `docs/QUESTIONS.md` #50 (the owner decides; ADR-007 not edited).
+- **Native prototype** `amg_sketch::solve::proto` (throwaway quality; SK-03 replaces it): `solve`,
+  `ProtoOptions` (`ProtoAlgorithm::{LevenbergMarquardt, DogLeg}`, substitution, analysis, diagnosis),
+  `ProtoReport`/`ProtoStatus`/`ProtoGroup`, `ProtoDrag` with `DragMethod::{WeightedMinNorm, Sqp}`.
+  Substitution covers coincident, H/V, concentric, circle equal-radius and fixed params; components;
+  dense hand-written semidefinite Cholesky (no `nalgebra`/`faer` yet); DOF per component via
+  `numeric_rank`; dependency groups by row-wise orthogonalisation of the unsubstituted Jacobian, one
+  group per circuit (not merged), falling back to the unsatisfied rows.
+- **Comparison harness** `amg_sketch::corpus::compare` (test infrastructure): `Contender`/`Loaded`,
+  `ContenderBackend` (a `CorpusBackend`), `judge`, `metrics::{measure, markdown, csv}`; adapters
+  `native`, `slvs` (feature `slvs`, GPL-3.0, test-only) and `ezpz` (feature `ezpz-bench`, MIT).
+  Report tool `examples/sk13_report.rs`; criterion bench `benches/solver_compare.rs`
+  (`sk13/<cold|warm|drag>/<Dn>/<option>`); acceptance tests `tests/sk13_compare.rs`.
+- **Numbers (release, 200 runs):** native 10/10 decision cases, 135/135 corpus; D9 warm 0.09 ms
+  median; drag p95 D4 1.3 µs, D7 27 µs; D7 jitter 66 (libslvs 106, feasible SQP 0.85). libslvs 10/10,
+  118/125 corpus (10 inexpressible), 0 cases it passes and native fails. ezpz 9/10, 121/128.
+- **Findings for later WPs:** SK-03 `Algorithm::Auto` = LM; the rank test is required for
+  `ConvergedRedundant`. SK-05: weighted min-norm flips the D7 linkage at the toggle (as libslvs and
+  ezpz do); a feasible-SQP drag (KKT step + min-norm restoration + step halving) does not, at the same
+  cost. The D7 cursor path lies outside the linkage's reach (`|b − o1|` up to 16 > 12 mm), so D7
+  measures behaviour at the toggle, not through it.
+- **libslvs build:** the `slvs` 0.6 crate's bindgen 0.64 needs **libclang ≤ 15** (libclang 18 gives
+  empty bindings and the crate does not compile); built here with the PyPI `libclang==15.0.6.1`
+  wheel in a VS 2022 x64 developer environment. `amg-sketch/build.rs` links `advapi32` on Windows
+  when `slvs` is on (mimalloc needs it). Sign conventions measured against the corpus:
+  `PT_LINE_DISTANCE` and `PROJ_PT_DISTANCE` are the negative of ours. libslvs reports redundant but
+  satisfied systems as `INCONSISTENT`; the adapter re-judges them with SK-02 residuals.
+- **Dependencies:** optional `slvs` 0.6.0 (GPL-3.0; feature `slvs`) and `kcl-ezpz` 0.2.18 (MIT;
+  feature `ezpz-bench`; pulls `faer` 0.23, `winnow`, `indexmap`, `libm`, `mutants`, all MIT /
+  Apache-2.0). `deny.toml` gets a `GPL-3.0-only` exception for crate `slvs` (shared file; flagged).
+  THIRD_PARTY.md rows updated.
+- **Interface changes:** none to shared crates. Two one-line module declarations in `amg-sketch`
+  (`solve::proto`, `corpus::compare`). Lane D: CI's `clippy --all-features` job will build `slvs` and
+  needs libclang ≤ 15 (or must exclude the feature) — see QUESTIONS #50.
+

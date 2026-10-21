@@ -12,8 +12,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | Manifold | `amg-mesh` booleans (ADR-003) | Apache-2.0 | no | no | Planned |
 | fTetWild | `amg-fem` tet meshing (ADR-008) | MPL-2.0 | weak | yes | Planned |
 | TetGen | `amg-fem` fallback mesher (ADR-008) | AGPL-3.0 | **yes** | yes | Planned |
-| SolveSpace `libslvs` + `slvs` 0.6 crate | `amg-sketch` differential-test oracle behind feature `slvs` (S03, SK-13/SK-14); runtime fallback only if the owner decides (S03 OQ 4) | GPL-3.0 | **yes** | yes | Planned (test-only) |
-| bindgen | build dep of `slvs` (needs libclang) | BSD-3-Clause | no | yes (with `slvs`) | Planned (test-only) |
+| SolveSpace `libslvs` + `slvs` 0.6 crate | `amg-sketch` differential-test oracle behind feature `slvs` (S03, SK-13/SK-14); runtime fallback only if the owner decides (S03 OQ 4) | GPL-3.0 | **yes** | yes | In use (0.6.0, test-only, feature `slvs`, never default; needs libclang ≤ 15) |
+| bindgen | build dep of `slvs` (needs libclang ≤ 15) | BSD-3-Clause | no | yes (with `slvs`) | In use (0.64.0, test-only) |
 | SolveSpace `test/constraint/*.slvs` files (commit 5bb74ad2) | **test data only**: `testdata/sketch/corpus/solvespace/`, read at test time by `amg-sketch` (S03, SK-14); never compiled, linked or shipped; licence text and `NOTICE` kept beside the files | GPL-3.0-or-later | **yes** (data) | no (not a dependency) | In use (test data) |
 | ezpz `test_cases/*/problem.md` (commit 915882cc) | **test data only**: `testdata/sketch/corpus/ezpz/` (S03, SK-14) | MIT | no | no | In use (test data) |
 | FreeCAD Sketcher test scenarios (commit 33adf618) | **test data only**: hand-ported scenarios, `testdata/sketch/corpus/planegcs/` (S03, SK-14); no FreeCAD file copied verbatim | LGPL-2.1-or-later | weak (data) | no | In use (test data) |
@@ -76,7 +76,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |
 | smallvec | small inline vectors, `amg-sketch`, `amg-mesh`, `amg-brep` history, `amg-nurbs` (S03, S07, S02, S20) | MIT / Apache-2.0 | no | no | In use (1.16.3, `amg-sketch`) |
 | fontdb | system font discovery for sketch text (S03, SK-10) | MIT | no | no | Planned |
-| kcl-ezpz | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | Planned (dev-only) |
+| kcl-ezpz (+ faer 0.23, winnow, indexmap, libm, mutants: MIT / Apache-2.0) | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | In use (0.2.18, dev-only, feature `ezpz-bench`) |
 | robust | exact orientation predicates, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | Planned |
 | spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07); section caps, `amg-features::inspect` (S05) | MIT / Apache-2.0 | no | no | Planned |
 | rand, rand_chacha | seeded RANSAC and corpus generators, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | `rand_chacha` 0.9.0 In use (MESH-28 generators, `amg-mesh` feature `corpus`; `rand_core` only, no `rand`); `rand` Planned |

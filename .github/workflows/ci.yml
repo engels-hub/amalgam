@@ -64,8 +64,12 @@ jobs:
       - name: clippy (default features)
         run: cargo clippy --workspace --all-targets -- -D warnings
       # Feature-gated code (tracy, copyleft-gated backends, …) is linted too.
+      # amg-sketch's `slvs` feature (SK-13 oracle) needs libclang <= 15, which the runner lacks,
+      # so amg-sketch is linted with every other feature.
       - name: clippy (all features)
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude amg-sketch --all-targets --all-features -- -D warnings
+      - name: clippy (amg-sketch, all features but slvs)
+        run: cargo clippy -p amg-sketch --all-targets --features ezpz-bench -- -D warnings
 
   test:
     name: test

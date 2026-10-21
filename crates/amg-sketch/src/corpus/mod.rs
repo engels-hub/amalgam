@@ -18,11 +18,14 @@
 //!   rank-revealing QR, a damped minimum-norm Gauss–Newton). It is slow and dense and is
 //!   not a solver candidate; it validates the corpus and lets the runner work before SK-03.
 //! - [`runner`] runs a [`CorpusBackend`] over cases and reports pass/fail per case.
+//! - [`compare`] is the SK-13 solver comparison (ADR-007): the native prototype, libslvs
+//!   (feature `slvs`) and ezpz (feature `ezpz-bench`) behind one interface, plus metrics.
 //!
 //! Sign conventions follow the S03 constraint table and SK-01's `TangentKind` notes:
 //! signed distances are positive on the **left** of an oriented line (`Side::Positive`), and
 //! a point/line–circle distance with `Side::Positive` is measured outside the circle.
 
+pub mod compare;
 pub mod ezpz;
 pub mod reference;
 pub mod runner;
