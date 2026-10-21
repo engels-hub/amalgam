@@ -10,13 +10,13 @@ installed on the owner's machine when FND-01 ran (2026-10-20).
 | VS Build Tools 2022 | 17.14, MSVC v143 / 14.44, Win 11 SDK 10.0.26100 | 17.14.42, MSVC 14.44.35207, SDK 10.0.26100.0 |
 | CMake | 4.3.x | 4.3.4 |
 | Ninja | 1.13.2 | 1.13.2 |
-| vcpkg | tag `2026.07.29` | tag `2026.07.29`, tool 2026-07-27 |
+| vcpkg | tag `2026.10.16` | tag `2026.10.16`, tool 2026-09-26 |
 | Git + LFS | Git ≥ 2.50, git-lfs | Git 2.44.0 (upgrade pending, see §8), git-lfs 3.4.1 |
 | cargo-nextest | latest 0.9.x | 0.9.148 |
 | cargo-deny | latest 0.18.x+ | 0.20.2 |
 | Python | 3.12+ (optional until S18) | 3.12.2 |
 
-**vcpkg baseline:** tag `2026.07.29` = commit `9e593bb18ea69cc5095e012465dcd675a822ed0d`.
+**vcpkg baseline:** tag `2026.10.16` = commit `9eec002df1cd109f8f104cd966a763daf9751489`.
 This SHA is the `builtin-baseline` that FND-05 writes into `vcpkg.json`.
 
 ## 1. Prerequisites
@@ -57,7 +57,7 @@ short path works.
 
 ```powershell
 git clone https://github.com/microsoft/vcpkg.git D:\dev\vcpkg
-git -C D:\dev\vcpkg checkout 2026.07.29
+git -C D:\dev\vcpkg checkout 2026.10.16
 D:\dev\vcpkg\bootstrap-vcpkg.bat -disableMetrics
 setx VCPKG_ROOT D:\dev\vcpkg
 setx VCPKG_DEFAULT_BINARY_CACHE D:\dev\vcpkg-cache

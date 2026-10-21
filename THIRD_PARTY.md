@@ -8,7 +8,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 
 | Dependency | Used by | Licence | Copyleft? | Feature-gated? | Status |
 |---|---|---|---|---|---|
-| OpenCASCADE (OCCT) 8.0.0 (vcpkg `opencascade` 8.0.0#1 at baseline `2026.07.29`, `default-features: false`, no TBB; fallback 7.9.3#1; 8.0.1 bump pending QUESTIONS #27) | `amg-occt-sys` (ADR-002, S02); also S20 strategies (`GeomFill_Gordon`, `GeomPlate`) | LGPL-2.1-only with the OCCT exception (port installs LICENSE_LGPL_21 and OCCT_LGPL_EXCEPTION). Linked statically; relinking possible from the object files | weak | yes (`occt`, default on) | Planned |
+| OpenCASCADE (OCCT) 8.0.1 (vcpkg `opencascade` 8.0.1 at baseline `2026.10.16`, `default-features: false`, no TBB; fallback 7.9.3#1; FND-13, QUESTIONS #27) | `amg-occt-sys` (ADR-002, S02); also S20 strategies (`GeomFill_Gordon`, `GeomPlate`) | LGPL-2.1-only with the OCCT exception (port installs LICENSE_LGPL_21 and OCCT_LGPL_EXCEPTION). Linked statically; relinking possible from the object files | weak | yes (`occt`, default on) | Planned |
 | Manifold | `amg-mesh` booleans (ADR-003) | Apache-2.0 | no | no | Planned |
 | fTetWild | `amg-fem` tet meshing (ADR-008) | MPL-2.0 | weak | yes | Planned |
 | TetGen | `amg-fem` fallback mesher (ADR-008) | AGPL-3.0 | **yes** | yes | Planned |

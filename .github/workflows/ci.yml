@@ -32,7 +32,7 @@ env:
   RUST_BACKTRACE: "1"
   # vcpkg registry tag. Its commit must equal `builtin-baseline` in vcpkg.json (the vcpkg
   # action checks this). Bump both in one PR (docs/dev-setup.md §9).
-  VCPKG_TAG: "2026.07.29"
+  VCPKG_TAG: "2026.10.16"
 
 defaults:
   run:
