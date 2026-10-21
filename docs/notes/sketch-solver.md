@@ -6,7 +6,7 @@
 | **Decides** | ADR-007 (own Rust solver vs `libslvs` FFI) |
 | **Produced by** | S03 refinement (2026-10-19); the benchmark it plans is SK-13 |
 | **Needed before** | SK-03 (decision gate in roadmap §Decision gates) |
-| **Status** | Draft. The recommendation is pending SK-13 numbers and the owner's decision |
+| **Status** | SK-13 measured (2026-10-21, [`sketch-solver-benchmark.md`](sketch-solver-benchmark.md)): the §5.4 rule selects option A. ADR-007 waits for the owner (QUESTIONS #50) |
 
 ## 1. Problem
 
@@ -252,7 +252,7 @@ be the *only* solver: a permissive build would have no sketcher. B is therefore 
 oracle or an optional runtime fallback, never a replacement for A or C. That leaves the real
 choice as **A vs C as the primary solver**, with B kept for differential testing.
 
-**Provisional recommendation (to be confirmed by SK-13):** **A as primary.** Add **B behind
+**Provisional recommendation (confirmed by SK-13 on 2026-10-21, §5.5):** **A as primary.** Add **B behind
 the `slvs` cargo feature, dev/test only**, as a differential oracle in the corpus runner
 (`cargo nextest --features slvs`). Do not ship B as a runtime fallback unless SK-13 shows A
 failing > 2 % of corpus cases that B solves. C is used as a source of MIT-licensed test cases
@@ -314,6 +314,31 @@ Choose **A as primary** if all of these hold:
 
 If A misses (1) or (2) by more than 2×, evaluate C as primary. Keep B as the `slvs` dev/test
 oracle in either case. A runtime libslvs fallback is added only by a separate owner decision.
+
+### 5.5 SK-13 results (2026-10-21)
+Full tables, method and raw CSV: [`sketch-solver-benchmark.md`](sketch-solver-benchmark.md).
+
+| Rule | Threshold | A. native prototype | B. libslvs | C. ezpz |
+|---|---|---|---|---|
+| Decision cases solved | ≥ 9/10 | **10/10** | 10/10 | 9/10 |
+| D9 warm solve, median | < 5 ms | **0.09 ms** | 0.65 ms | 0.16 ms |
+| Drag p95, D4 / D7 | < 2 ms | **1.3 / 27 µs** | 23 / 390 µs | 25 / 770 µs |
+| Drag jitter D7 (≤ 1.5× libslvs) | ≤ 158 | **66** (feasible SQP: 0.85) | 106 | 66 |
+| Diagnosis D5 / D6 | ≥ libslvs | **both minimal circuits / minimal conflict set** | empty list / non-minimal pair | none |
+| SK-14 corpus | — | **135/135** | 118/125 (10 inexpressible) | 121/128 (7 inexpressible) |
+
+**Recommendation for ADR-007: option A (own Rust solver) as the only shipped solver; libslvs
+stays a test-only oracle behind `slvs` (no corpus gap: 0 cases where libslvs beats A); ezpz stays a
+test-case source and benchmark reference.** Proposed text: benchmark note §7 and QUESTIONS #50.
+
+Consequences for later WPs:
+- SK-03: `Algorithm::Auto` = LM (dogleg was equal or worse); the rank test is needed for
+  `ConvergedRedundant`; per-circuit diagnosis (no merging of groups that share members) is more
+  specific than libslvs and should be kept in SK-04.
+- SK-05: weighted min-norm drag flips the D7 linkage at the toggle (68 flips, as do libslvs and
+  ezpz); the feasible-SQP variant does not. SK-05 needs SQP (default or fallback).
+- Building libslvs needs libclang ≤ 15 for the `slvs` crate's bindgen 0.64 (see the benchmark note
+  §6); CI's `--all-features` jobs need that or must exclude `slvs`.
 
 ## 6. Risks
 - **Hand-written Jacobians drift from residuals.** Mitigation: a mandatory

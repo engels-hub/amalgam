@@ -30,7 +30,10 @@ confidence-threshold = 0.9
 unused-allowed-license = "allow"
 # GPL/AGPL/LGPL crates are only allowed through per-crate exceptions that are listed in
 # THIRD_PARTY.md and sit behind a cargo feature.
-exceptions = []
+exceptions = [
+    # S03 SK-13: SolveSpace libslvs, dev/test oracle behind amg-sketch feature `slvs` only.
+    { allow = ["GPL-3.0-only"], crate = "slvs" },
+]
 
 [licenses.private]
 # Our own crates are `publish = false` and carry LicenseRef-Amalgam-Personal.
