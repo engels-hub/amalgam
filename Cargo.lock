@@ -216,6 +216,7 @@ dependencies = [
  "proptest",
  "rand_chacha",
  "rayon",
+ "robust",
  "serde",
  "serde_json",
  "sha2",

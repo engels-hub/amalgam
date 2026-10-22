@@ -13,6 +13,8 @@ amg-jobs.workspace = true
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+# MESH-19 exact orientation predicates (ADR-012, THIRD_PARTY.md).
+robust = "=1.2.0"
 # MESH-28 corpus (feature `corpus`): manifest, hashing, seeded generators.
 toml = { workspace = true, optional = true }
 sha2 = { version = "0.10.9", optional = true }
@@ -52,6 +54,10 @@ harness = false
 
 [[bench]]
 name = "mesh_decimate"
+harness = false
+
+[[bench]]
+name = "mesh_selfint"
 harness = false
 
 [lints]

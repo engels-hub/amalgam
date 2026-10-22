@@ -8,6 +8,7 @@
 //! any rayon thread count.
 
 mod bvh;
+mod pairs;
 mod tri;
 mod winding;
 
