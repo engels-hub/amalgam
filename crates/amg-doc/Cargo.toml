@@ -56,5 +56,9 @@ harness = false
 name = "recompute"
 harness = false
 
+[[bench]]
+name = "document"
+harness = false
+
 [lints]
 workspace = true

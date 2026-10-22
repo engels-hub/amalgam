@@ -862,7 +862,7 @@ inventory::collect!(ExtRegistration);
 | DOC-03 | Recompute engine core (synchronous): producer map, `Dependency` resolution, blake3 cache keys with `ENGINE_SALT`, `GeomCache` (LRU by bytes), `RecomputeCtx`, health propagation (error = no effect, upstream causes), suppression/marker handling | DOC-02, DOC-04 | P0 | Done | Property test on random DAGs of `test.counter` features: after editing feature *k*, exactly the nodes transitively depending on *k* run (counter check); all others hit the cache. A failing feature leaves its input bodies unmodified and gives dependants `ErrorCause::Upstream`. Keys are identical across two process runs. Engine overhead < 5 ms for 200 cached features (criterion). |
 | DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Done | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
 | DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Done | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
-| DOC-12 | Recompute as a job: `Document::poll` (spawn, cancel-and-supersede, stale-result drop, atomic `Evaluated` swap), progress, `recompute_blocking`, preview recompute (`ComputeMode::Preview`), UI-thread debug assertion | DOC-03, FND-04 | P0 | Todo | Test: 50 rapid `SetParamExpr` commands during a slow (sleeping) recompute → only the last revision is swapped in, cancelled work leaves finished features cached, `poll` never blocks > 1 ms (measured). Preview results never enter the persistent cache or undo stack. |
+| DOC-12 | Recompute as a job: `Document::poll` (spawn, cancel-and-supersede, stale-result drop, atomic `Evaluated` swap), progress, `recompute_blocking`, preview recompute (`ComputeMode::Preview`), UI-thread debug assertion | DOC-03, FND-04 | P0 | Review | Test: 50 rapid `SetParamExpr` commands during a slow (sleeping) recompute → only the last revision is swapped in, cancelled work leaves finished features cached, `poll` never blocks > 1 ms (measured). Preview results never enter the persistent cache or undo stack. |
 | DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Todo | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
 | DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Todo | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
 | DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Todo | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
@@ -1464,3 +1464,37 @@ Synchronous engine in `amg-doc::recompute` and `amg-doc::cache`; DOC-12 wraps it
   parameter keeps cache, equal value via another unit hits, `-0 mm`), missing parameter,
   cancellation (finished features stay cached). Unit tests for the LRU in `cache.rs`.
 - **Bench** (`benches/recompute.rs`, 200 `test.counter` features, all cached, release, heavily loaded machine): `recompute/all_cached_chain_200` 355 µs (347-364), `recompute/all_cached_wide_200` 250 µs (242-260); target < 5 ms.
+
+### 2026-10-23 — DOC-12 (recompute as a job, lane E)
+`amg-doc::document` (new): `Document` embeds DOC-05's `History`, DOC-03's engine and a `GeomCache`. No `amg-jobs`
+change was needed (`mark_ui_thread`/`is_ui_thread`, `JobCtx::sub`/`progress_msg` and `JobHandle::try_take` already
+existed), so nothing is added under S00 Interface changes.
+- **Revision used for staleness is `History::revision()`** (monotonic, moves on undo/redo), not `Design::revision`
+  (which goes back with undo). `Evaluated::revision` still holds the `Design::revision`.
+- **`poll(&mut self, &JobSystem)`**: (1) collect a finished job (`try_take`): swap in only if its revision is current
+  (one `Arc<Evaluated>` store), else drop it; (2) cancel a running job whose revision is old and detach its handle;
+  (3) if stale and idle, spawn `RecomputeJob { snapshot, revision, cache, mode }` on the Interactive pool. The new
+  job starts immediately, not after the cancelled one stops, so the one feature in flight at cancel time may be
+  computed twice (tests allow at most one); everything finished before the cancel is reused from the cache.
+- **Failure**: a panicking job (or one cancelled by someone else, e.g. shutdown) is recorded as
+  `RecomputeStatus::Failed` for that revision and not retried every frame; the next edit is a new revision.
+- **`recompute_blocking(&mut self, &JobSystem) -> Result<(), RecomputeError>`** (the spec said `FeatureError`; feature
+  errors are health, not job failure, so the error type is `RecomputeError { Cancelled, Panicked }`).
+  `debug_assert!(!is_ui_thread())`. Reuses a running job for the current revision, cancels a stale one.
+- **`recompute_status() -> RecomputeStatus { Idle, Running { progress, message }, Stale, Failed(String) }`.** `Failed`
+  is an addition. The engine now reports per-feature progress with the feature's name (`progress_msg`) and gives each
+  feature a `JobCtx::sub` range, so a feature's own `ctx.progress` maps into its slot.
+- **`preview(&self, &JobSystem, &Command) -> Result<JobHandle<Arc<Evaluated>, RecomputeError>, CommandError>`** applies
+  the command to a scratch clone of the snapshot (`apply_command`) and runs `ComputeMode::Preview` against a separate
+  `preview_cache` (256 MiB), so previews never enter the persistent cache (`Document::cache`, what DOC-14 persists),
+  history or revision. Repeated previews hit the preview cache.
+- **Delegation**: `apply`, `transaction` (History's `Transaction`), `undo`, `redo`, labels, `is_dirty`, `snapshot`,
+  `design`, `history()`/`history_mut()`. `drain_events` is DOC-09. `Drop` cancels a running job.
+- **Test feature** `test.slow` (`TestSlow { ms: Expr, tag, panic }`): sleeps in 1 ms slices that check cancellation.
+- **Tests** `tests/document.rs`: 50 rapid `SetParamExpr` edits during a ~400 ms recompute (evaluated `Arc` unchanged
+  until the end, exactly one swap, final keys equal a synchronous pass, untouched features never recomputed, every
+  `poll` < 1 ms); cancelled work stays cached (reuse, at most one double compute); stale finished result dropped;
+  blocking recompute is a no-op when current and undo is a full cache hit; UI-thread assertion (debug builds);
+  preview leaves cache/history/revision untouched and rejects bad commands; progress + feature name; panic is
+  reported once and not retried.
+- **Bench** (`benches/document.rs`, 50 slow features, release, loaded machine): `document/poll_idle` 2.8 ns; `document/edit_poll_supersede` (`apply` of `SetParamExpr` + a `poll` that cancels one job and spawns the next) 5.0 us (4.9-5.1). Budget (poll < 1 ms) met by more than two orders of magnitude.

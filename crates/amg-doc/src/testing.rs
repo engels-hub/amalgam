@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use amg_core::PersistentId;
 use serde::{Deserialize, Serialize};
@@ -13,10 +14,11 @@ use crate::feature::{
     BodyChange, BodyChangeKind, Dependency, Feature, FeatureError, FeatureOutput, RecomputeCtx,
 };
 use crate::id::FeatureId;
+use crate::param::Expr;
 use crate::stub::{IndexedMesh, Shape};
 
 /// Kinds registered by this module.
-pub const KINDS: [&str; 3] = ["test.add_mesh", "test.box", "test.counter"];
+pub const KINDS: [&str; 4] = ["test.add_mesh", "test.box", "test.counter", "test.slow"];
 
 /// Forces these registrations to be linked (registry `link()` convention).
 pub fn link() {}
@@ -169,3 +171,53 @@ impl Feature for TestAddMesh {
 }
 
 crate::register_feature!(TestAddMesh, "test.add_mesh", version = 1);
+
+/// Sleeps `ms` milliseconds (a dimensionless parameter) in 1 ms slices that check for
+/// cancellation, then creates mesh body slot 0. Counts its computes like `test.counter`.
+/// With `panic`, it panics instead. For the recompute-job tests (DOC-12).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestSlow {
+    /// Duration in milliseconds.
+    pub ms: Expr,
+    /// Payload so features with equal parameters have distinct keys.
+    pub tag: i64,
+    /// Panic in `compute`.
+    pub panic: bool,
+}
+
+impl Feature for TestSlow {
+    fn inputs(&self) -> Vec<Dependency> {
+        Vec::new()
+    }
+
+    fn exprs(&self) -> Vec<&Expr> {
+        vec![&self.ms]
+    }
+
+    fn compute(&self, ctx: &mut RecomputeCtx<'_>) -> Result<FeatureOutput, FeatureError> {
+        if let Ok(mut m) = COUNTS.lock() {
+            *m.entry((ctx.design().meta().uuid, ctx.feature_id()))
+                .or_default() += 1;
+        }
+        assert!(!self.panic, "test.slow asked to panic");
+        let ms = ctx.eval_scalar(&self.ms)?;
+        let end = Instant::now() + Duration::from_secs_f64(ms.max(0.0) / 1000.0);
+        while Instant::now() < end {
+            ctx.check_cancelled()?;
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        Ok(FeatureOutput {
+            bodies: vec![BodyChange {
+                id: ctx.new_body_id(0),
+                change: BodyChangeKind::Created {
+                    geom: BodyGeom::Mesh(Arc::new(IndexedMesh::default())),
+                    naming: None,
+                },
+            }],
+            ..FeatureOutput::default()
+        })
+    }
+}
+
+crate::register_feature!(TestSlow, "test.slow", version = 1);
