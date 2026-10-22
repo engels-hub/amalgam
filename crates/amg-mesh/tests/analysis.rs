@@ -506,5 +506,6 @@ fn bad_input_is_an_error_not_a_panic() {
         self_intersections: true,
         ..AnalyzeOpts::default()
     };
-    assert!(analyze(&m, &opts, &JobCtx::detached()).is_err());
+    let r = analyze(&m, &opts, &JobCtx::detached()).expect("empty mesh");
+    assert_eq!(r.self_intersecting_pairs, Some(vec![]));
 }

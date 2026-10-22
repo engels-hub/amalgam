@@ -1328,3 +1328,10 @@ one `[[bench]] mesh_analysis`. Deviations from §Interfaces:
 - `analyze` rejects `self_intersections: true` with `MeshError::InvalidOption` until MESH-19
   is wired in. `MeshBody::analysis()` / `try_analysis()` are not added yet (shared body.rs).
 - `testdata/mesh/corpus.toml` defect flags corrected as logged above (lane C owns the corpus).
+
+### 2026-10-23 — MESH-02 / MESH-19 wiring (merge review)
+- `analyze` with `AnalyzeOpts::self_intersections = true` now fills
+  `AnalysisReport::self_intersecting_pairs` by building a `MeshSpatial` over a copy of the mesh
+  and calling `self_intersections` (MESH-19). It no longer returns `InvalidOption`. Callers that
+  already hold a `MeshSpatial` should call `self_intersections` directly to avoid the copy and
+  rebuild.

@@ -20,6 +20,7 @@ mod unwelded;
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use amg_core::Aabb3;
@@ -28,7 +29,7 @@ use rayon::prelude::*;
 
 use crate::error::{MeshError, MeshResult};
 use crate::indexed::IndexedMesh;
-use crate::{FaceId, INVALID};
+use crate::{BvhOpts, FaceId, INVALID, MeshSpatial, SelfIntersectOpts, self_intersections};
 
 /// Faces per work item. Fixed: results never depend on the thread count.
 const FACE_CHUNK: usize = 1 << 14;
@@ -43,9 +44,9 @@ pub struct AnalyzeOpts {
     /// Faces with an area at or below `degenerate_relative * diagonal²` are degenerate, where
     /// `diagonal` is the bounding-box diagonal. The effective threshold is the larger of the two.
     pub degenerate_relative: f64,
-    /// Detect self-intersections. They are computed by `self_intersections` (MESH-19) on a
-    /// `MeshSpatial`; `analyze` takes no spatial index, so `true` is rejected with
-    /// [`MeshError::InvalidOption`] until the two are wired together.
+    /// Detect self-intersections with [`crate::self_intersections`] (MESH-19). This builds a
+    /// [`crate::MeshSpatial`] over a copy of the mesh; callers that already hold one should call
+    /// `self_intersections` on it directly instead.
     pub self_intersections: bool,
     /// Merge distance, relative to the bounding-box diagonal, for finding seams that only
     /// welding would close
@@ -352,15 +353,8 @@ fn process_vertex(
 ///
 /// # Errors
 /// [`MeshError::IndexOutOfRange`] for a face that references a missing vertex,
-/// [`MeshError::TooLarge`] beyond `u32` corner indices, [`MeshError::InvalidOption`] for
-/// `opts.self_intersections`, and [`MeshError::Cancelled`].
+/// [`MeshError::TooLarge`] beyond `u32` corner indices, and [`MeshError::Cancelled`].
 pub fn analyze(m: &IndexedMesh, opts: &AnalyzeOpts, ctx: &JobCtx) -> MeshResult<AnalysisReport> {
-    if opts.self_intersections {
-        return Err(MeshError::InvalidOption {
-            name: "self_intersections",
-            reason: "use `self_intersections` (MESH-19) on a MeshSpatial".into(),
-        });
-    }
     let (nv, nf) = (m.positions.len(), m.tris.len());
     if nf.checked_mul(3).is_none_or(|n| n > u32::MAX as usize) || nv > u32::MAX as usize {
         return Err(MeshError::TooLarge { count: nf.max(nv) });
@@ -611,6 +605,14 @@ pub fn analyze(m: &IndexedMesh, opts: &AnalyzeOpts, ctx: &JobCtx) -> MeshResult<
     let is_manifold = non_manifold_edges.is_empty() && non_manifold_vertices.is_empty();
     let is_oriented = orientation_conflicts == 0;
     let watertight = is_closed && is_manifold && is_oriented;
+    // Pass 1 has checked every index, so the spatial index can be built safely.
+    let self_intersecting_pairs = if opts.self_intersections {
+        let s = MeshSpatial::build(Arc::new(m.clone()), &BvhOpts::default(), ctx)?;
+        Some(self_intersections(&s, &SelfIntersectOpts::default(), ctx)?)
+    } else {
+        None
+    };
+
     Ok(AnalysisReport {
         vertices: nv,
         faces: nf,
@@ -625,7 +627,7 @@ pub fn analyze(m: &IndexedMesh, opts: &AnalyzeOpts, ctx: &JobCtx) -> MeshResult<
         orientation_conflicts,
         degenerate_faces,
         duplicate_faces,
-        self_intersecting_pairs: None,
+        self_intersecting_pairs,
         unwelded_boundary_edges,
         area,
         volume: watertight.then_some(total_volume),
