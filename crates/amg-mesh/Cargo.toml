@@ -60,5 +60,9 @@ harness = false
 name = "mesh_selfint"
 harness = false
 
+[[bench]]
+name = "mesh_analysis"
+harness = false
+
 [lints]
 workspace = true
