@@ -45,7 +45,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
 | tracing, tracing-subscriber | logging (S00), `amg-jobs::diag`, `amg-cli` | MIT | no | no | In use (tracing 0.1.44, tracing-subscriber 0.3.23 with `env-filter`) |
 | serde, serde_json | `.amg` file format (ADR-010) | MIT / Apache-2.0 | no | no | In use (serde 1.0.229; serde_json 1.0.154) |
-| zip (zip-rs/zip2) 9.0.x, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | Planned |
+| zip (zip-rs/zip2) 9.0.5, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | In use (9.0.5; `amg-doc` .amg container, DOC-07) |
 | quick-xml 0.42.0 | `amg-io` 3MF XML (S12) | MIT | no | no | Planned |
 | memchr 2.8.3 | `amg-io` parsers (S12; already transitive) | Unlicense / MIT | no | no | Planned |
 | image 0.25.10 (png + jpeg features) | `amg-io` canvas images (S12 IO-10) | MIT / Apache-2.0 | no | no | Planned |
@@ -63,7 +63,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | usvg | SVG import (S03) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
 | criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only) |
 | blake3 | cache keys and manifest hashes, `amg-doc` (S01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | In use (1.8.7) |
-| serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | Planned |
+| serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.1.20) |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.5.17) |
 | parking_lot | locks, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.12.5) |
 | bytemuck | GPU buffer casts, `amg-jobs::gpu` (S00); bulk FFI buffer casts, `amg-brep` (S02) | Zlib / MIT / Apache-2.0 | no | no | In use (1.25.2; `amg-jobs::gpu`, feature `gpu`) |

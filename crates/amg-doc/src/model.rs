@@ -491,6 +491,18 @@ impl Design {
         Ok(())
     }
 
+    /// Loader hook (DOC-07): attaches the geometry read from `bodies/` to a baked body without
+    /// counting as an authored change. No-op for an id that isn't baked.
+    pub(crate) fn fill_baked_geom(&mut self, id: BodyId, geom: BodyGeom) {
+        if let Some(b) = self.baked.get(&id) {
+            let filled = BakedBody {
+                blob: b.blob.clone(),
+                geom: Some(geom),
+            };
+            self.baked.insert(id, Arc::new(filled));
+        }
+    }
+
     /// Allocates a key for a new extension record of `kind`.
     pub fn new_ext_key(&mut self, kind: &str) -> Result<ExtKey, ModelError> {
         Ok(ExtKey {
