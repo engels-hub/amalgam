@@ -111,7 +111,7 @@ author = "cymon"
 title = "Empire State Recorder (instrument)"
 sha256 = "3fe3e56c18b712df7390d682e0b605f98fa33349c5e82a19952d7beb1bc804fd"
 faces = 1973
-defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections"]
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "non_manifold_vertices"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 41928"
 
@@ -181,7 +181,7 @@ author = "beekeeper"
 title = "New Museum Maracas"
 sha256 = "c842f50b7c0cb6efb411ef7443a18782b1b9d7e9c5fcf3d8d8ac22b327c48053"
 faces = 9376
-defects = ["holes", "non_manifold_edges", "degenerate", "self_intersections", "multiple_shells", "hopeless"]
+defects = ["holes", "non_manifold_edges", "degenerate", "self_intersections", "multiple_shells", "hopeless", "unwelded"]
 expect_repairable = false
 dataset_id = "Thingi10K file_id 42881"
 
@@ -237,7 +237,7 @@ author = "Lenbok"
 title = "SOTC Model Cleanup Test"
 sha256 = "d8dc394fa1a9f5b1655934ac58407a03be7acbd973cf25ced7dd0adb739a534c"
 faces = 7241
-defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "self_intersections", "multiple_shells", "hopeless"]
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "self_intersections", "multiple_shells", "hopeless", "non_manifold_vertices"]
 expect_repairable = false
 dataset_id = "Thingi10K file_id 47979"
 
@@ -265,7 +265,7 @@ author = "clintkc"
 title = "Cube in Sphere"
 sha256 = "d75acb5b18e54732a31917b49576f7b6be1f0df2e16e6659b3cd129df3cc231a"
 faces = 2464
-defects = ["holes", "non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+defects = ["holes", "non_manifold_edges", "duplicate", "self_intersections", "multiple_shells", "non_manifold_vertices"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 49333"
 
@@ -419,7 +419,7 @@ author = "Max"
 title = "The Convenient Typer"
 sha256 = "9ceb24fc2935584240e23532fd5ecb82fc7573f2b2bddfd65c9eca9ff10f4a2f"
 faces = 1394
-defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells", "hopeless"]
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells", "hopeless", "non_manifold_vertices", "unwelded"]
 expect_repairable = false
 dataset_id = "Thingi10K file_id 55558"
 
@@ -433,7 +433,7 @@ author = "Max"
 title = "The Convenient Typer"
 sha256 = "c75670da2a82b049760f36c64a4ea72c75854d492323bcbaa3c6fd63542c3e6a"
 faces = 610
-defects = ["holes", "non_manifold_vertices", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells"]
+defects = ["holes", "non_manifold_vertices", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells", "unwelded"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 55572"
 
@@ -643,7 +643,7 @@ author = "crazytiti"
 title = "1/20 Suzuki samurai body"
 sha256 = "f84bfda31ac43c68102d442f24f1da16546d0d4f9481d4861e47bb3b467a9a85"
 faces = 4016
-defects = ["non_manifold_edges", "duplicate", "self_intersections", "multiple_shells"]
+defects = ["non_manifold_edges", "duplicate", "self_intersections", "multiple_shells", "non_manifold_vertices"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 70368"
 
@@ -951,7 +951,7 @@ author = "MarcoMT"
 title = "The cube - The smallest game of mental activation for dogs"
 sha256 = "378e06d2d075eed63f82f936b2c82c8c3b9e673834484bffcf3bda836f1ea7da"
 faces = 5696
-defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "self_intersections", "multiple_shells", "hopeless"]
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "self_intersections", "multiple_shells", "hopeless", "non_manifold_vertices"]
 expect_repairable = false
 dataset_id = "Thingi10K file_id 89802"
 
@@ -1315,7 +1315,7 @@ author = "satoer"
 title = "Duplo hexagon railroad crossing"
 sha256 = "d33f4af93a69dca89d9ac7ce7be344825d73a91a6f8e22548e0ad8ba221befd1"
 faces = 25841
-defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections", "multiple_shells", "unwelded", "hopeless"]
+defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections", "multiple_shells", "unwelded", "hopeless", "non_manifold_vertices"]
 expect_repairable = false
 dataset_id = "Thingi10K file_id 111959"
 
@@ -1371,7 +1371,7 @@ author = "s_p_e_x"
 title = "cliff-therm"
 sha256 = "c2e2a520927ba368929b12757d6999018c62a00be1beebf6de4acaae0b514c1a"
 faces = 3997
-defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "duplicate", "self_intersections", "multiple_shells", "hopeless"]
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "duplicate", "self_intersections", "multiple_shells", "hopeless", "non_manifold_vertices"]
 expect_repairable = false
 dataset_id = "Thingi10K file_id 112855"
 
@@ -1455,7 +1455,7 @@ author = "kataze"
 title = "Snap Together Shutter Shades"
 sha256 = "51df0ebc4445ef7a2a6f2849c04e59db409957cbd9e32a22d25dfe160480b886"
 faces = 1840
-defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections"]
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "unwelded"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 124709"
 
@@ -1525,7 +1525,7 @@ author = "calebkraft"
 title = "Modular VW bus container"
 sha256 = "92ae51f91ccf261abb76f158ac71f2464766645a1f9e579e3cbfaea118053534"
 faces = 2496
-defects = ["holes", "self_intersections", "multiple_shells"]
+defects = ["holes", "self_intersections", "multiple_shells", "unwelded"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 130443"
 
@@ -1693,7 +1693,7 @@ author = "moriza"
 title = "NASA - Galileo Spacecraft"
 sha256 = "f6f8894033160f9bb3bc27591703c362e59f669e4b484b958b26548e08359f54"
 faces = 2204
-defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells", "hopeless"]
+defects = ["holes", "non_manifold_edges", "inconsistent_orientation", "degenerate", "self_intersections", "multiple_shells", "hopeless", "non_manifold_vertices"]
 expect_repairable = false
 dataset_id = "Thingi10K file_id 180690"
 
@@ -2071,7 +2071,7 @@ author = "Jmadden99"
 title = "Whisked"
 sha256 = "7a25c78081f88f2c9aaf9dd8ba35aca8d2c6fedbe3c1affdee15d24dac65343c"
 faces = 4898
-defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections", "non_manifold_vertices", "unwelded"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 503947"
 
@@ -2113,7 +2113,7 @@ author = "adafruit"
 title = "Adabot"
 sha256 = "3a70acbadd7699bffdd891214f7bfa94be7652090ec2071c5a08f5382b5efe0f"
 faces = 2024
-defects = ["holes", "unwelded"]
+defects = ["holes"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 656709"
 
@@ -2225,7 +2225,7 @@ author = "Herrigold"
 title = "Victorian House Construction Set"
 sha256 = "312d422f9e538c714f8773642986903349af414e41183a7df0f26bd2ddad6d3d"
 faces = 3532
-defects = ["holes", "non_manifold_edges", "duplicate", "self_intersections", "multiple_shells", "unwelded", "hopeless"]
+defects = ["holes", "non_manifold_edges", "duplicate", "self_intersections", "multiple_shells", "unwelded", "hopeless", "non_manifold_vertices"]
 expect_repairable = false
 dataset_id = "Thingi10K file_id 1017013"
 
@@ -2309,7 +2309,7 @@ author = "Mojoptix"
 title = "Digital Sundial"
 sha256 = "b3a3f01be69b71047168cc9a095889ab568e79767684dfbf1b29dcc877f3e617"
 faces = 3113
-defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections"]
+defects = ["holes", "non_manifold_edges", "degenerate", "duplicate", "self_intersections", "non_manifold_vertices"]
 expect_repairable = true
 dataset_id = "Thingi10K file_id 1681239"
 

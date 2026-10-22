@@ -141,7 +141,7 @@ Mesh bodies are first-class bodies in the design, and every operation is a timel
   - signed distance (closest point + winding-number sign).
 
 ### Analysis
-One parallel pass over sorted edge keys gives:
+One parallel pass over a vertex-to-corner table (no edge sort; see the MESH-02 log) gives:
 - boundary loops;
 - non-manifold edges and vertices;
 - orientation conflicts;
@@ -807,7 +807,7 @@ build, 8+ cores.
 |---|---|---|---|---|---|
 | MESH-01 | `IndexedMesh`, `MeshAttrs`, `FaceGroups`, `HalfEdgeMesh` (directed edges, split/collapse/flip, GC), conversions, weld, `MeshBody` binary encoding | FND-03 | P0 | Done | Round-trip Indexed→HalfEdge→Indexed preserves positions, faces (up to compaction), attributes and group ids (property test, 1 000 random meshes). Fins / bow-ties convert with `SplitVertices`, and the counts are reported. Topology-edit property test keeps all half-edge invariants. 1 M-tri half-edge build < 100 ms. Weld of 1 M-tri soup < 80 ms. `MeshBody` binary round-trip is bit-exact. |
 | MESH-28 | Broken-mesh corpus: `testdata/mesh/corpus.toml` manifest, LFS-committed redistributable set, `fetch.ps1/.sh` for fetch-only sets, seeded synthetic defect + benchmark generators, corpus test harness | FND-06, MESH-01 | P0 | Done | Manifest has ≥ 150 real models covering all 11 defect categories, each with SPDX licence, source URL and sha256. LFS total ≤ 300 MB. Generator reproduces each defect category from `(shape, defects, seed)`, plus 100 k / 1 M / 10 M benchmark meshes, bit-identically. The harness iterates the manifest under `cargo nextest` and skips fetch-only entries when they are absent. |
-| MESH-02 | Analysis: shells, boundary loops, non-manifold edges/vertices, orientation, degenerate/duplicate, area/volume, `AnalysisReport` | MESH-01, MESH-28 | P0 | Todo | Report matches the manifest's defect flags on 100 % of corpus entries and the synthetic generator's ground truth. 1 M-tri analysis < 100 ms; 10 M < 1.2 s. |
+| MESH-02 | Analysis: shells, boundary loops, non-manifold edges/vertices, orientation, degenerate/duplicate, area/volume, `AnalysisReport` | MESH-01, MESH-28 | P0 | Review | Report matches the manifest's defect flags on 100 % of corpus entries and the synthetic generator's ground truth. 1 M-tri analysis < 100 ms; 10 M < 1.2 s. |
 | MESH-03 | `Bvh` (binned SAH, parallel), `MeshSpatial`: ray cast, closest point, box query, fast winding number (Barill 2018), exact winding number, signed distance | MESH-01 | P0 | Done | 1 M-tri BVH build < 150 ms (and within 2× of `obvhs` PLOC in a dev-bench). Ray cast and closest point equal brute force on 10 k random queries (and agree with `parry3d-f64` in a dev-test). Fast winding number within 0.01 of exact at β = 2 for points ≥ 1 mean edge length off the surface. 1 M FWN queries on a 1 M mesh < 1.5 s. Results are identical across 1/4/16 rayon threads. |
 | MESH-19 | Self-intersection detection (BVH self-traversal + exact `robust` predicates) | MESH-03 | P0 | Todo | On 10 k-tri random soups, the pair set equals the O(n²) exact brute force. No false positives for edge/vertex-adjacent triangles on the corpus's clean models. Intersecting-spheres synthetic case is found. 1 M-tri check < 500 ms. |
 | MESH-20 | Hole filling (Liepa: DP triangulation, refinement, harmonic/bi-harmonic fairing; CDT for planar loops) | MESH-02 | P0 | Todo | All synthetic holes with boundary 3–2000 edges are filled; result is watertight with no new non-manifold elements. Patch mean edge length within 20 % of the surrounding edges. Fair-filled hole in a sphere (r = 20 mm) deviates < 2 % r. A 500-edge hole fills in < 200 ms. |
@@ -1037,6 +1037,50 @@ Already listed: Manifold (Apache-2.0), `faer`, `nalgebra`, `rayon`, `glam`, `thi
 - **Left for others:** MESH-02 must reproduce the manifest flags (including `unwelded`); the
   corpus tests need an LFS pull (CI `golden` job sets `AMG_REQUIRE_TESTDATA=1`).
 
+**2026-10-23 - MESH-02 implemented (lane C agent, branch `wp/MESH-02-analysis`).**
+- **Code:** `amg_mesh::analyze` / `AnalysisReport` in `src/analysis/` (own module). No sort of
+  edge keys: a CSR vertex-to-corner table (atomic counting and fill) is visited per vertex in
+  parallel; each edge `(v, w)` with `v < w` is classified at its smaller vertex (1 face boundary,
+  2 faces manifold plus a same-direction check, 3+ non-manifold), a vertex is non-manifold when
+  the link graph of its faces has more than one component, and duplicates are found at the
+  smallest vertex of the triple. Shells come from a lock-free union-find over vertices (root =
+  smallest member, so numbering is deterministic). Shell statistics use fixed 16 k-face chunks;
+  results are bit-identical for 1, 3 and 8 threads (test).
+- **Definitions (these match the manifest and `quick_stats`):** shells are vertex-connected
+  components; faces with a repeated vertex index are degenerate and outside the topology (their
+  `shell_of_face` is `INVALID`), but two of them with the same sorted triple count as duplicates,
+  as in the manifest; `is_inverted` = watertight and total volume < 0; `volume` is `Some` only
+  when watertight.
+- **Bench (release, 16 logical cores, shared machine):** displaced-sphere benchmark meshes,
+  `mesh_analysis/100k` 3.07 ms, `1m` 16.8 ms (budget 100 ms), `10m` 166 ms (budget 1.2 s).
+- **Manifest corrections (S07 asked for them; 165 committed entries were measured, all agree
+  now).** `non_manifold_vertices` added to 12 entries: 41928, 47979, 49333, 55558, 70368, 89802,
+  111959, 112855, 180690, 503947, 1017013, 1681239. The corpus builder only measured vertex
+  fans on edge-manifold meshes (the Rust harness skipped the others for the same reason); all
+  12 have non-manifold edges, and both `quick_stats` (MESH-28) and `analyze` find vertices
+  whose faces form several fans (1 to 64 per model), which is the generator's definition too.
+  `unwelded` added to 42881, 55558, 55572, 124709, 130443, 503947: each has 2 to 197 boundary
+  edges whose endpoints coincide with another boundary edge's within 1e-4 x diagonal (130443
+  already within 1e-6 x diagonal) while the vertices differ. The builder's grid snap test splits
+  such pairs across cell borders. `unwelded` removed from 656709: its 16 boundary edges are
+  3.6 to 5.4 micrometres long, all shorter than the 1e-4 x diagonal (9.7 micrometres) merge
+  distance, so welding only closes a pinhole and there is no seam (lengths and neighbours are
+  printed by the diagnostic test `dump_manifest_disagreements`). 74452 keeps its flag: its three
+  boundary edges (2 to 20 mm long) each face a two-face edge whose endpoints coincide to 2e-14 mm
+  with distinct vertex ids. `unwelded` is defined as: a boundary edge longer than the merge
+  distance has another boundary edge within the merge distance at both endpoints, or any other
+  edge at numerically coincident (merge distance / 1000) endpoints; the looser distance is not
+  applied to interior partners because 41928 and 180689 have boundary edges next to
+  two-face edges at 97 to 98 % of the merge distance (slivers), which are not seams. Every other flag (holes, non-manifold edges, orientation,
+  degenerate, duplicate, shells, inverted) matched without change, and all counts agree with
+  `quick_stats` (boundary edges, loop lengths, non-manifold edges and vertices, conflicts,
+  degenerate, duplicate, shells, volume, area). `self_intersections` and `hopeless` are not
+  measured here (MESH-19 / repair verdict).
+- **Left for others:** `AnalyzeOpts::self_intersections = true` returns
+  `InvalidOption` until MESH-19 can be called from `analyze` (it needs a `MeshSpatial`);
+  `MeshBody::analysis()` is not added (body.rs is shared with parallel WPs); a 10 M-triangle
+  soup with tens of millions of boundary edges is not optimised in the unwelded check.
+
 ## Interface changes
 ### 2026-10-20 — MESH-01 (`IndexedMesh`, `HalfEdgeMesh`, weld, `MeshBody`; lane C)
 Deviations from §Interfaces:
@@ -1261,3 +1305,16 @@ Landed in `crates/amg-mesh/src/spatial/` (`bvh.rs`, `tri.rs`, `winding.rs`, `mod
   2.12 s median [2.09, 2.16]. The input is 31 % larger than the Done-when's 1 M, and both setup
   and the number of collapses scale about linearly with it, so 1 M → 100 k is about 1.6 s, inside
   the 2 s budget, so MESH-07 is Done. A bench case at exactly 1 M input would remove the estimate.
+
+### 2026-10-23 - MESH-02 (analysis; lane C)
+Additive: `amg_mesh::{analyze, AnalyzeOpts, AnalysisReport, ShellInfo}` (module `analysis`) and
+one `[[bench]] mesh_analysis`. Deviations from §Interfaces:
+- `AnalyzeOpts` gains `degenerate_relative: f64` (default 1e-12; the threshold is
+  `max(degenerate_area, degenerate_relative * bbox_diagonal^2)`, which is what the corpus
+  manifest uses) and `unwelded_tolerance: f64` (default 1e-4 x diagonal, 0 disables).
+- `AnalysisReport` gains `boundary_edges: usize`, `unclosed_boundary_loops: usize` (loops that
+  cannot close, only on non-manifold or inconsistent input; such a chain lists edges + 1
+  vertices) and `unwelded_boundary_edges: usize`.
+- `analyze` rejects `self_intersections: true` with `MeshError::InvalidOption` until MESH-19
+  is wired in. `MeshBody::analysis()` / `try_analysis()` are not added yet (shared body.rs).
+- `testdata/mesh/corpus.toml` defect flags corrected as logged above (lane C owns the corpus).

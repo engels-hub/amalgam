@@ -53,3 +53,9 @@ failure but never a missing fetch-only file.
 non-manifold, orientation, degenerate, duplicate, components, signed volume), Thingi10K's
 self-intersection counts and a 1e-4 x diagonal weld test for `unwelded`. MESH-02 must report the
 same flags on 100 % of entries, and the entries where it disagrees get corrected here.
+
+MESH-02 (2026-10-23) reproduces every flag except `self_intersections` (MESH-19) and `hopeless`
+(a repair verdict) on all committed entries, after correcting `non_manifold_vertices` (added to
+12 entries that have non-manifold edges) and `unwelded` (added to 6, removed from 1). The
+evidence is in the S07 refinement log. `cargo nextest run -p amg-mesh --test analysis` keeps it
+true.

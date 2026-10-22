@@ -10,6 +10,7 @@
 
 #![warn(missing_docs)]
 
+mod analysis;
 mod attrs;
 mod body;
 mod decimate;
@@ -26,6 +27,7 @@ mod weld;
 #[cfg(feature = "corpus")]
 pub mod corpus;
 
+pub use analysis::{AnalysisReport, AnalyzeOpts, ShellInfo, analyze};
 pub use attrs::{MeshAttrs, Rgba8, TriProperty};
 pub use body::MeshBody;
 pub use decimate::{DecimateOpts, DecimateReport, DecimateTarget, decimate};
