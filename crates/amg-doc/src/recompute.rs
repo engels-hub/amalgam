@@ -181,13 +181,16 @@ impl<'a> Pass<'a> {
         for (i, node) in tl.nodes().enumerate() {
             self.job.checkpoint()?;
             #[allow(clippy::cast_precision_loss, reason = "progress fraction")]
-            self.job.progress(i as f32 / n.max(1) as f32);
+            let (lo, hi) = (i as f32 / n.max(1) as f32, (i + 1) as f32 / n.max(1) as f32);
+            let name = node.name.as_deref().unwrap_or_else(|| node.feature.kind());
+            self.job.progress_msg(lo, name);
             if i >= marker {
                 self.set(node.id, Health::RolledBack, None, Default::default());
             } else if node.suppressed {
                 self.set(node.id, Health::Suppressed, None, Default::default());
             } else {
-                self.node(node)?;
+                let sub = self.job.sub(lo, hi);
+                self.node(node, &sub)?;
             }
         }
         self.job.progress(1.0);
@@ -220,7 +223,7 @@ impl<'a> Pass<'a> {
     }
 
     /// Evaluates one live node: key, cache lookup or compute, apply.
-    fn node(&mut self, node: &FeatureNode) -> Result<(), Cancelled> {
+    fn node(&mut self, node: &FeatureNode, job: &JobCtx) -> Result<(), Cancelled> {
         let key = match self.node_key(node) {
             Ok(k) => k,
             Err(d) => {
@@ -235,7 +238,7 @@ impl<'a> Pass<'a> {
             let result = {
                 let mut ctx =
                     RecomputeCtx::new(self.design, &self.out, node.id, node.context, self.mode)
-                        .with_job(self.job);
+                        .with_job(job);
                 node.feature.compute(&mut ctx)
             };
             let duration = started.elapsed();

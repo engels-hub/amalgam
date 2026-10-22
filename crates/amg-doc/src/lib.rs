@@ -14,6 +14,7 @@
 
 pub mod cache;
 pub mod command;
+pub mod document;
 pub mod eval;
 pub mod expr;
 pub mod feature;
@@ -32,6 +33,9 @@ pub mod timeline;
 
 pub use cache::{CacheStats, GeomCache};
 pub use command::{Command, CommandError, CommandOutcome, CreatedId, apply_command};
+pub use document::{
+    DEFAULT_CACHE_BUDGET, Document, RecomputeError, RecomputeJob, RecomputeStatus, RecomputeSummary,
+};
 pub use eval::{
     BodyGeom, CacheKey, ConstructionGeom, Diagnostic, ErrorCause, EvalBody, Evaluated, Health,
     NodeEval,
