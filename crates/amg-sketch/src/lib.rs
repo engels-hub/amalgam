@@ -28,6 +28,7 @@ pub mod error;
 pub mod geom;
 pub mod ids;
 pub mod model;
+pub mod offset;
 pub mod profile;
 pub mod solve;
 pub mod transform;
@@ -42,6 +43,7 @@ pub use model::{
     EntityOrigin, HvTarget, ParamFlags, ParamStore, Quantity, RemoveReport, Side, Sketch,
     TangentKind,
 };
+pub use offset::{CornerStyle, OffsetOptions, OffsetResult};
 pub use profile::{
     Loop, Profile, ProfileEdge, ProfileFingerprint, ProfileId, ProfileIssue, ProfileMatch,
     ProfileOptions, ProfileSet, VertexKey, detect_profiles,
