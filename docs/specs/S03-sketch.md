@@ -706,7 +706,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Done | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
 | SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Todo | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
 | SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Todo | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
-| SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Todo | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
+| SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Review | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
 | SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Todo | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
 | SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Todo | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
 | SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Todo | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
@@ -1228,3 +1228,32 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   (`solve::proto`, `corpus::compare`). Lane D: CI's `clippy --all-features` job will build `slvs` and
   needs libclang ≤ 15 (or must exclude the feature) — see QUESTIONS #50.
 
+
+### 2026-10-22 — SK-07 (trim, extend, break, lane B)
+- **Landed:** `amg_sketch::edit` (`src/edit/{mod,cuts,rebuild}.rs`) with `trim`, `extend`,
+  `break_at` and `EditResult` (re-exported at the crate root), plus `trim_detailed` /
+  `extend_detailed` / `break_at_detailed` returning an `EditOutcome` with a `MigrationReport`
+  (`migrated` old→new constraint ids, `dropped` with kind and reason, `dropped_dimensions()`).
+  `edit/mod.rs` and `EditResult` are shared with SK-16..18; the coordinator resolves the merge.
+- **Model.** Editing replaces the curve by new entities (ids change) and re-creates the
+  constraints that still hold; the sketch is restored if anything fails. Trim removes the part
+  between the two intersections nearest the pick (everything if there are none; a circle needs
+  two and becomes one arc). Extend lengthens the end nearest the pick to the nearest curve in
+  the way (lines straight, arcs along the circle, never past their other end; circles are
+  `NotApplicable`). Break splits a line/arc into two pieces sharing the new point (circles are
+  `NotApplicable`, an end point is `Degenerate`). New points are pinned with `PointOnCurve`
+  on the cutter, or `Coincident` with a cutter end point lying exactly there.
+- **Migration rules** (table in `rebuild.rs`): curve-level constraints (H/V, parallel,
+  perpendicular, collinear, tangent to a circle, concentric, radius, diameter, distance,
+  angle, symmetric axis) go to the first piece; a second piece is tied to it with `Collinear`
+  (lines), `Equal` radius (arcs) or `Parallel` (break, shared joint), which keeps the DOF.
+  `AtEndpoint` tangents follow the piece that still owns that original end, else are dropped;
+  `PointOnCurve` goes to the piece containing the point; `Fix` goes to every piece. Dropped and
+  reported: Length, ArcLength, Midpoint, Equal-length, mirrored operands, anything on a point
+  removed with the curve.
+- **Solver path:** residual 0 via `build_system`/`max_abs_residual` (SK-02) and DOF via the
+  SK-02 `dof` rank helper; each fixture also runs `solve::proto::solve` (SK-13 prototype; SK-03
+  is not built) and requires `Converged` with no parameter movement.
+- **Tests:** `tests/edit_trim.rs`, 63 fixtures (trim 33, extend 15, break 10, errors 5).
+- **Choices:** tangent contacts count as cuts; overlapping (collinear/co-circular) curves are
+  ignored as cutters; construction curves do cut.
