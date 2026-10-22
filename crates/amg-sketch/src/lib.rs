@@ -10,6 +10,7 @@
 //! - [`profile`]: profile/region detection ([`detect_profiles`], [`ProfileSet`]).
 //! - [`error`]: the [`SketchError`] enum.
 //! - [`solve`]: residual equations with analytic Jacobians (SK-02); the solver from SK-03.
+//! - [`transform`]: mirror, patterns and move/copy/rotate/scale (SK-18).
 //! - [`corpus`]: the solver test corpus format, `.slvs`/ezpz importers, a reference checker
 //!   and the solver-agnostic runner (SK-14; test infrastructure).
 //!
@@ -28,6 +29,7 @@ pub mod ids;
 pub mod model;
 pub mod profile;
 pub mod solve;
+pub mod transform;
 
 pub use build::Built;
 pub use error::SketchError;

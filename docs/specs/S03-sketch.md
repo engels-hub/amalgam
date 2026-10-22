@@ -709,7 +709,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Todo | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
 | SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Todo | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
 | SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Todo | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
-| SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Todo | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
+| SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Review | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
 | SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Todo | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
 | SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Todo | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
 | SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
@@ -1227,4 +1227,31 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **Interface changes:** none to shared crates. Two one-line module declarations in `amg-sketch`
   (`solve::proto`, `corpus::compare`). Lane D: CI's `clippy --all-features` job will build `slvs` and
   needs libclang ≤ 15 (or must exclude the feature) — see QUESTIONS #50.
-
+### 2026-10-22 - SK-18 (mirror, patterns, move/copy/rotate/scale, lane B)
+- **Landed:** `amg_sketch::transform` (`src/transform.rs`): `mirror`, `pattern_rect`,
+  `pattern_circ`, `transform`, plus `translation`, `rotation_about`, `scale_about` constructors and
+  the module's own `EditResult` (same fields as the spec's; not re-exported at the crate root
+  because SK-07's `edit::EditResult` exists - unify at merge, and the functions can be re-exported
+  as `edit::{mirror, ..}`). Atomic: on error everything created is removed.
+- **Deviation:** `transform` takes `amg_core::Transform2` (a 2D affine), not the 3D `Transform`.
+  It must be rotation + translation + positive uniform scale; reflections (`NotApplicable`, use
+  `mirror`), shear and non-uniform scale are rejected, zero scale is `Degenerate`.
+- **Semantics.** Selection = items plus the points of selected curves. Pattern counts include the
+  source (`n_a * n_b - 1` copies; circular: full turn spaces by `total/n`, otherwise `total/(n-1)`).
+  A point whose image is itself (on the mirror axis, at the pattern centre) is shared, and a line or
+  circle that would map onto itself is not duplicated. A mirrored arc swaps start and end.
+- **Unconstrained copies** get copies of the internal constraints (all entities selected) that hold
+  on the copy (dimension lengths scaled; `Fix` never; orientation re-captured by
+  `orient_constraint`; residual checked). **In-place** move/rotate/scale scales internal length
+  dimensions and circle radii, and removes (and reports) internal constraints that held before and
+  no longer hold (H/V after a rotation). Constraints reaching outside the selection are kept.
+  Locked/fixed points give `Locked` before anything changes.
+- **Constrained results use existing constraint kinds** (no new kind): mirror = `Symmetric` per
+  point pair + `Equal` per circle (+ `PointOnCurve` for shared axis points); rect pattern = H/V
+  distance dimensions per point (Vertical/Horizontal where the offset is zero) + `Equal`; circular
+  pattern = construction lines centre-point with `Equal` + `Angle` dimension per point + `Equal`.
+  DOF of the whole sketch is unchanged by a constrained result (tests, SK-02 rank helper); the
+  prototype solver re-solve test moves the copies with the source.
+- **Leftovers:** pattern spacing is per-point dimensions (cluttered; a dedicated pattern
+  constraint/offset parameter would need an SK-01/02 kind). Axis points already implied on the axis
+  give a redundant `PointOnCurve`. No benchmark: the spec sets no budget for these ops.
