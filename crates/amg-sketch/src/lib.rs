@@ -23,6 +23,7 @@
 
 pub mod build;
 pub mod corpus;
+pub mod edit;
 pub mod error;
 pub mod geom;
 pub mod ids;
@@ -32,6 +33,7 @@ pub mod solve;
 pub mod transform;
 
 pub use build::Built;
+pub use edit::EditResult;
 pub use error::SketchError;
 pub use geom::{Arc2, Circle2, Curve2, CurveHit};
 pub use ids::{ConstraintId, EntityId, ExternalLinkId, ParamId};

@@ -46,18 +46,8 @@ use crate::solve::{Residual, characteristic_length, constraint_residual, fixed_p
 
 const TOL: Tolerance = Tolerance::DEFAULT;
 
-/// What an edit operation changed.
-#[derive(Clone, Debug, Default)]
-pub struct EditResult {
-    /// New entities (points included), in creation order.
-    pub created: Vec<EntityId>,
-    /// Removed entities.
-    pub removed: Vec<EntityId>,
-    /// New constraints and dimensions.
-    pub constraints_added: Vec<ConstraintId>,
-    /// Removed constraints and dimensions.
-    pub constraints_removed: Vec<ConstraintId>,
-}
+/// What an edit operation changed (shared with trim/extend/break).
+pub use crate::edit::EditResult;
 
 // ---- Transform constructors ---------------------------------------------------------------
 
