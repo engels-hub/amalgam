@@ -708,7 +708,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Todo | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
 | SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Todo | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
 | SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Todo | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
-| SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Todo | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
+| SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Review | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
 | SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Todo | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
 | SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Todo | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
 | SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Todo | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
@@ -1228,3 +1228,42 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   (`solve::proto`, `corpus::compare`). Lane D: CI's `clippy --all-features` job will build `slvs` and
   needs libclang ≤ 15 (or must exclude the feature) — see QUESTIONS #50.
 
+
+### 2026-10-23 - SK-17 (offset, lane B)
+- **Landed:** `amg_sketch::offset` (`src/offset.rs`): `offset`, `offset_with(.., &OffsetOptions)`,
+  `set_offset_distance`, `CornerStyle { Extend, Round }`, `OffsetOptions { corner, miter_limit }`,
+  `OffsetResult { created, removed, constraints_added, constraints_removed, copies, dimensions }`
+  (re-exported at the root except the functions). **Deviation:** the module is `offset`, not
+  `edit`, and the result is `OffsetResult`, not `EditResult`: `edit::EditResult` is introduced by
+  SK-07 in parallel. The merge should add `edit::offset` as a re-export and convert the result.
+- **Solve helpers used:** the SK-02 residual/rank helpers (`build_system`, `dof`,
+  `Sketch::add_constraint_oriented`) for chirality and in tests, and `solve::proto::solve`
+  (SK-13 prototype) for the dimension-edit tests. SK-03 is not built yet; swap when it lands.
+- **Semantics:** `chain` is any set of line/arc/circle entities; each connected simple chain
+  (open or closed, ordered by coincident end points, shared or not) or circle is offset on its own.
+  `side` picks the side of the chain's travel direction at the chain point nearest to it (a point
+  nearest to a vertex is ambiguous: pick one near the middle of an edge). Outer corners are closed
+  by extension (miter; falls back to a round arc when carriers miss or the miter exceeds
+  `miter_limit * distance`, default 10) or by an arc about the original corner (`Round`).
+- **Trimming:** raw offsets are split at all mutual intersections and a piece is kept only if every
+  sample is at least `distance` from the source chain; duplicates merge, end points weld (5e-7).
+  Result: self-intersecting loops (inner corners, vanished tabs, short steps) disappear. An empty
+  result is `Degenerate`. Collinear pieces produced by splitting are not re-merged.
+- **Constraints (`constrain = true`):** no "equal distance" constraint exists in the model, so each
+  copy piece gets its own driving `Distance` dimension, all with the same value, listed in
+  `OffsetResult::dimensions`; `set_offset_distance` edits them together (SK-19 should bind them to
+  one parameter). Per piece: line = Parallel + line-line Distance; arc = Concentric + Distance from
+  its start point to the source arc; circle = Concentric + a construction point (PointOnCurve,
+  Horizontal, Distance); round corner arc = centred on the source corner point, AtEndpoint tangents
+  to its neighbours. Open chain ends and smooth (tangent/collinear) junctions get a construction
+  line (perpendicular to a source line, or the radius line of a source arc with PointOnCurve).
+  With the source points fixed, the copy has DOF 0 and zero residual in every constrained fixture.
+- **Known redundancy:** round corners and smooth junctions add consistent but dependent rows (arc
+  internal equations, junction feet); SK-04 must tolerate them. Topology is fixed at creation: an
+  edit that makes a short element vanish or appear is not tracked.
+- **Tests** (`tests/offset.rs`, 29): closed rect (extend, round, inward, thin, collapsed), L-shape
+  areas, tab trimmed, stadium, sector, circle; open polyline outer/inner corner, step chain with
+  trimmed loop, tangent arc chain, arc collapse, round and miter-limit; two chains; errors;
+  determinism; constrained rect/inward/round/open/tangent-arc/trimmed/stadium/circle edits solved
+  with `solve::proto`; copy follows a moved source vs independent unconstrained copy. No budget in
+  the vision doc for offset, so no bench.
