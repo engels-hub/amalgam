@@ -864,7 +864,7 @@ inventory::collect!(ExtRegistration);
 | DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Done | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
 | DOC-12 | Recompute as a job: `Document::poll` (spawn, cancel-and-supersede, stale-result drop, atomic `Evaluated` swap), progress, `recompute_blocking`, preview recompute (`ComputeMode::Preview`), UI-thread debug assertion | DOC-03, FND-04 | P0 | Todo | Test: 50 rapid `SetParamExpr` commands during a slow (sleeping) recompute → only the last revision is swapped in, cancelled work leaves finished features cached, `poll` never blocks > 1 ms (measured). Preview results never enter the persistent cache or undo stack. |
 | DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Todo | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
-| DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Todo | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
+| DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Review | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
 | DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Todo | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
 | DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Done | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
 | DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous, plus unmerged, widened, class-changed (no ∞ arithmetic) and tombstone lookup by lineage. 2. 10 golden cases from the DOC-11 corpus (TNP-01/02/03/05/06/07/08/09/10/12) run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut, probe) and resolve to the intended entity (asserted by fingerprint); the other DOC-06-phase cases (TNP-04/11/24..28) meet their recorded `expect`. 3. Zero silent wrong resolutions (DOC-11 note §11.2 definition) over all DOC-06-phase cases. 4. Naming survives save/load (TNP-28). 5. The note §9 benches (`naming/finish-1000`, `naming/resolve`) run and their results are recorded in the note's §13. |
@@ -1464,3 +1464,51 @@ Synchronous engine in `amg-doc::recompute` and `amg-doc::cache`; DOC-12 wraps it
   parameter keeps cache, equal value via another unit hits, `-0 mm`), missing parameter,
   cancellation (finished features stay cached). Unit tests for the LRU in `cache.rs`.
 - **Bench** (`benches/recompute.rs`, 200 `test.counter` features, all cached, release, heavily loaded machine): `recompute/all_cached_chain_200` 355 µs (347-364), `recompute/all_cached_wide_200` 250 µs (242-260); target < 5 ms.
+
+### 2026-10-23 — DOC-07 (`.amg` container, lane E)
+Code in `amg-doc::io` (`io/mod.rs`, `io/write.rs`, `io/read.rs`); tests in `tests/format.rs`; fixtures in
+`tests/fixtures/format/{v0,v1}.amg`. The Interfaces shapes hold except as listed.
+- **Container.** `manifest.json` (`format: "amalgam"`, `format_version`, `app_version`, `created_by`, `entries: {name: blake3}`),
+  `design.json` (pretty, deterministic), `bodies/<…>` (baked bodies, via `BodyCodec`), `ext/<…>` (blobs of `ExtRecord`s,
+  from `SaveOptions::blobs` / `LoadedDocument::blobs`), optional `thumbnail.png` (stored). Fixed zip timestamps and entry order
+  make the whole archive byte-deterministic, not only `design.json`. `BlobRef` paths are validated (prefix `bodies/` or `ext/`,
+  no `..`, `\`, `:`, empty segments); a record's blob missing on save is `MissingBlob`, missing on load is `Corrupt`.
+- **Load order.** zip magic (`NotAmalgam`) → directory (`Corrupt{"zip directory"}` when truncated) → manifest (`NotAmalgam` if
+  absent or another format) → `TooNew` before anything else is trusted → CRC + blake3 per entry (`Corrupt{entry}`; any decoder
+  error counts as a CRC failure) → syntax (`Json{path: "."}`) → document migrations on the raw `Value` → typed deserialization
+  with `serde_path_to_error` (`Json{path, msg}`, e.g. `meta.default_units.length`). A bad *feature* node is reported at
+  `timeline` with `timeline node N: …` in the message, because `FeatureBox::from_parts` raises a custom error there (DOC-02).
+- **Migrations.** `DOC_MIGRATIONS: &[DocMigration]`, element `i` is `v i → i+1` (length = `FORMAT_VERSION`, tested);
+  `migrate_document(chain, from, to, raw)` is public so tests inject chains. `FORMAT_VERSION` = 1; **v0** (pre-freeze) kept
+  `meta.units`, renamed to `meta.default_units` by the first step. Per-feature migrations stay in the registry. Fixtures v0/v1
+  are generated by the `#[ignore]`d `regenerate_fixtures` test (refuses to overwrite) and are never edited.
+  **Policy for later fields:** the wire types use `deny_unknown_fields`, so an older build reading a file with a new field
+  fails with `Json`, not `TooNew`. Any WP that adds a field to `design.json` therefore bumps `FORMAT_VERSION` (and adds a
+  migration step plus fixture) unless old builds failing with `Json` is acceptable. Decide per field.
+- **Safe save.** `<name>.amg.tmp` → flush → `sync_all` → `.bak` copy of the old file (default on; a copy, not a rename, so the
+  target never disappears) → `rename` over the target (+ directory fsync on Unix). A failed or cancelled save deletes its
+  `.tmp`; a "killed" one leaves it, and the next save overwrites it. Test hook: `SaveOptions::stop_after:
+  Option<(SavePhase, StopAction)>` with phases `TmpWritten`, `TmpSynced`, `BackupMade`; `StopAction::Return` yields
+  `FormatError::Stopped`, `Abort` calls `process::abort()` (the test re-runs the test binary as a child, aborts mid-save,
+  and checks the original is byte-identical and still loads).
+- **Jobs.** `save_job(&JobSystem, path, snapshot, opts) -> JobHandle<(), FormatError>` and `load_job(…, codec)`; the synchronous
+  `save`/`load` and the `JobCtx` forms `save_in_job`/`load_in_job` are public. Progress is reported; cancellation is checked
+  between entries and before the rename, so a cancelled save leaves the previous file intact. `FormatError: From<Cancelled>`.
+- **Mesh bodies / seam.** `BodyGeom` still carries `amg-doc::stub` types, which have no data, so `StubBodyCodec` writes a kind
+  tag. The seam is `trait BodyCodec { encode, decode }` (`SaveOptions::codec`, `load_with_codec`). When MESH-02 lands, its
+  codec calls `amg_mesh::MeshBody::write_binary/read_binary`. The test `baked_bodies_blobs_and_thumbnail_round_trip` already
+  checks that a real `MeshBody` binary survives the container bit-exact (as an `ext/` blob).
+- **Interface changes (additive).**
+  - `amg-doc`: new `io` module and re-exports `FORMAT_VERSION, FormatError, LoadedDocument, SaveOptions, BodyCodec, save,
+    load, save_job, load_job`. `FormatError` is `#[non_exhaustive]` and adds `InvalidBlobPath`, `MissingBlob`, `Codec`,
+    `Cancelled`, `Stopped` to the Interfaces list; `Corrupt` also covers the truncated archive.
+  - `save` takes `(path, &DesignSnapshot, &SaveOptions)`, **not** `eval` and `cache`; `SaveOptions` has no `include_cache`.
+    Geometry-cache persistence and `LoadedDocument::cache_seed` are DOC-14. `SaveOptions` gains `blobs`, `codec`,
+    `app_version`, `stop_after`; `LoadedDocument` gains `blobs`, `thumbnail`, `file_version`.
+  - `Design::fill_baked_geom` (crate-private): the loader sets `BakedBody::geom` without bumping the revision.
+  - Workspace `Cargo.toml`: `zip = 9.0.5` (`default-features = false`, `deflate-flate2-zlib-rs`) and
+    `serde_path_to_error = 0.1.20`, used by `amg-doc` only; `THIRD_PARTY.md` rows updated, `cargo deny check` passes.
+    `amg-io` can reuse the `zip` workspace entry for 3MF.
+- **Not done / for others.** `ExtRegistration` and extension-record migration (§11) are not implemented: `ExtRecord::data` is
+  stored verbatim and `version` is not migrated. The journal hook, `cache/`, recovery and the lock are DOC-14. Calling
+  `History::mark_saved` after a successful save is the caller's job (the app, from the job result).

@@ -19,6 +19,7 @@ pub mod expr;
 pub mod feature;
 pub mod history;
 pub mod id;
+pub mod io;
 pub mod model;
 pub mod naming;
 pub mod param;
@@ -45,6 +46,10 @@ pub use history::{DEFAULT_UNDO_DEPTH, History, Transaction, UndoEntry, UndoStack
 pub use id::{
     BodyId, BodyRef, ComponentId, ConfigId, ConstructionId, ExtKey, FeatureId, GroupId, JointId,
     OccurrenceId, ParamId, Revision, SketchId,
+};
+pub use io::{
+    BodyCodec, FORMAT_VERSION, FormatError, LoadedDocument, SaveOptions, load, load_job, save,
+    save_job,
 };
 pub use model::{
     BakedBody, BlobRef, BodyProps, Component, Design, DesignMeta, DesignMode, DesignSnapshot,
