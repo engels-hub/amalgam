@@ -19,6 +19,7 @@ mod halfedge;
 mod hash;
 mod indexed;
 pub mod iso;
+mod selfint;
 mod smooth;
 mod spatial;
 mod weld;
@@ -36,6 +37,7 @@ pub use groups::{
 };
 pub use halfedge::{ConversionReport, HalfEdgeMesh, NonManifoldPolicy};
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
+pub use selfint::{SelfIntersectOpts, faces_intersect, self_intersections};
 pub use smooth::{LaplacianWeights, SmoothMethod, SmoothOpts, smooth};
 pub use spatial::{
     Bvh, BvhNode, BvhNodeKind, BvhOpts, ClosestPoint, DEFAULT_WINDING_BETA, MeshSpatial, RayHit,
