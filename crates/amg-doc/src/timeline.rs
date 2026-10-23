@@ -128,7 +128,7 @@ impl Timeline {
     pub fn dependents(&self, id: FeatureId) -> Vec<FeatureId> {
         self.nodes
             .iter()
-            .filter(|n| reads(n, id))
+            .filter(|n| self.reads(n, id))
             .map(|n| n.id)
             .collect()
     }
@@ -152,6 +152,7 @@ impl Timeline {
             .inputs()
             .iter()
             .filter_map(Dependency::producer)
+            .map(|p| self.effective_producer(p))
             .collect();
         let last_producer = self
             .nodes
@@ -166,7 +167,7 @@ impl Timeline {
             .iter()
             .enumerate()
             .skip(i + 1)
-            .find(|(_, n)| reads(n, node.id))
+            .find(|(_, n)| self.reads(n, node.id))
             .map(|(j, n)| (j, n.id));
         (last_producer, first_dependent)
     }
@@ -197,6 +198,32 @@ impl Timeline {
         }
     }
 
+    /// The timeline node that provides what `producer` (a body's `origin`, ...) names: the
+    /// node itself, or, for the origin of a body adopted by a base feature (DOC-08), that
+    /// base feature. Ids that are neither are returned unchanged.
+    pub(crate) fn effective_producer(&self, producer: FeatureId) -> FeatureId {
+        if self.ids.contains(&producer) {
+            return producer;
+        }
+        self.nodes
+            .iter()
+            .find(|n| {
+                n.feature
+                    .downcast_ref::<crate::direct::BaseFeature>()
+                    .is_some_and(|b| b.owns(producer))
+            })
+            .map_or(producer, |n| n.id)
+    }
+
+    /// True if node `n` reads an output of `id`.
+    fn reads(&self, n: &FeatureNode, id: FeatureId) -> bool {
+        n.feature
+            .inputs()
+            .iter()
+            .filter_map(Dependency::producer)
+            .any(|p| self.effective_producer(p) == id)
+    }
+
     fn index_of(&self, id: FeatureId) -> Result<usize, ModelError> {
         self.node(id).map(|(i, _)| i).ok_or(ModelError::NotFound {
             what: "feature",
@@ -209,11 +236,6 @@ impl Timeline {
             f(n);
         }
     }
-}
-
-/// True if node `n` reads an output of `id`.
-fn reads(n: &FeatureNode, id: FeatureId) -> bool {
-    n.feature.inputs().iter().any(|d| d.producer() == Some(id))
 }
 
 fn invalid(field: &'static str, msg: impl Into<String>) -> ModelError {
@@ -379,7 +401,14 @@ impl Design {
         for b in props {
             self.body_props.remove(&b);
         }
-        let baked: Vec<_> = self.baked.range(range).map(|(k, _)| *k).collect();
+        let mut baked: Vec<_> = self.baked.range(range).map(|(k, _)| *k).collect();
+        if let Some(base) = node.feature.downcast_ref::<crate::direct::BaseFeature>() {
+            // A base feature owns the bodies it adopted (DOC-08).
+            for b in &base.bodies {
+                baked.push(b.id);
+                self.body_props.remove(&b.id);
+            }
+        }
         for b in baked {
             self.baked.remove(&b);
         }
@@ -572,6 +601,17 @@ impl Design {
                 }
             }
             let Some(p) = dep.producer() else { continue };
+            let p = self.timeline.effective_producer(p);
+            // Baked bodies of direct mode exist from the start: no producer node to order after.
+            if self.timeline.node(p).is_none()
+                && self
+                    .baked
+                    .range(crate::model::origin_range(p))
+                    .next()
+                    .is_some()
+            {
+                continue;
+            }
             match self.timeline.node(p) {
                 Some((j, _)) if j < at && p != self_id => {}
                 Some(_) => {
@@ -656,6 +696,7 @@ impl Design {
                     }
                 }
                 let Some(p) = dep.producer() else { continue };
+                let p = tl.effective_producer(p);
                 match index.get(&p) {
                     Some(&j) if j < i => {}
                     Some(_) => return bad(format!("{id} reads {p}, which comes later")),

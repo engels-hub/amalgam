@@ -870,7 +870,7 @@ inventory::collect!(ExtRegistration);
 | DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous, plus unmerged, widened, class-changed (no ∞ arithmetic) and tombstone lookup by lineage. 2. 10 golden cases from the DOC-11 corpus (TNP-01/02/03/05/06/07/08/09/10/12) run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut, probe) and resolve to the intended entity (asserted by fingerprint); the other DOC-06-phase cases (TNP-04/11/24..28) meet their recorded `expect`. 3. Zero silent wrong resolutions (DOC-11 note §11.2 definition) over all DOC-06-phase cases. 4. Naming survives save/load (TNP-28). 5. The note §9 benches (`naming/finish-1000`, `naming/resolve`) run and their results are recorded in the note's §13. |
 | DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of the core corpus cases (DOC-11 note §11.4) meet their recorded `expect` (intended entity and quality, or the expected warning/error); the remainder fail with a feature error or warning; **0 silent wrong resolutions** (note §11.2 definition: a quiet `Ok` on a non-intended entity, or a quiet `Ok` where an error is expected). The harness measures the naive index baseline on every case and ≥ 5 cases are measured to break it (predictions in the corpus are corrected where the measurement differs). The held-out fuzz set (note §11.6) has 0 silent wrong resolutions. Runs in CI under 60 s (the fuzz set may run nightly if it doesn't fit). |
 
-| DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Todo | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
+| DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Review | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
 | DOC-10 | Configurations: `ConfigTable`, param/suppression overrides, `SetActiveConfig`, per-config cache keys, persistence | DOC-05, DOC-12 | P2 | Todo | Design with 3 configurations: switching recomputes to the expected per-config volumes; switching back is a full cache hit (0 computes); configurations survive save/load. |
 
 Phase notes (the roadmap is not edited here; see Refinement log): DOC-12 and DOC-14 are new
@@ -1578,3 +1578,38 @@ Code in `amg-doc::io` (`io/mod.rs`, `io/write.rs`, `io/read.rs`); tests in `test
   design (only the affected body), props-only edit (no geometry event), every timeline command, rollback, parameter,
   component/occurrence and extension commands, a transaction, rollback/failed command, undo/redo of both kinds, and a
   failing feature (`failed == 1`).
+
+### 2026-10-23 — DOC-08 (direct mode + bake, lane E)
+Code in `amg-doc::direct` (new); small additive edits in `command.rs`, `document.rs`, `history.rs`, `model.rs`, `recompute.rs`,
+`timeline.rs`, `io/mod.rs`, `lib.rs`. Tests in `tests/direct.rs`.
+- **History to Direct needs geometry, so it goes through `Document::apply`.** `Command::SetDesignMode { Direct }` bakes every
+  body of the current `Evaluated` into `Design::baked` (fresh blob each), removes the timeline (model parameters become user
+  parameters) and is one undo entry. The document must be evaluated and have no `Health::Error` node (a failed feature has no
+  effect, so baking would lose it silently); otherwise `Invalid`. Not baked: bodies after the marker, suppressed features,
+  sketches, construction geometry, and `BodyNaming` (DOC-06 will carry element maps into the baked record). `apply_command`
+  / `Transaction` refuse this direction (`Invalid`), since they have no geometry. `Design::enter_direct_mode(bodies)` is the
+  low-level edit.
+- **Direct to History is a pure design edit** (`apply_command`, so also in transactions and journal replay):
+  `Design::leave_direct_mode` adds one `BaseFeature` (`core.base`, v1, `bodies: [{id, blob}]`) at index 0 that adopts every baked
+  body with its original `BodyId`. Its `compute` reads `Design::baked`; the engine allows `Created` for baked ids whose origin is
+  not the node. It cannot be edited (`EditFeature` is `Invalid`); deleting it removes the adopted bodies and their props.
+- **Producer resolution.** `Timeline::effective_producer` maps the (dead) origin of an adopted body to the base feature, used by the
+  ordering rule, `move_bounds` and timeline validation. In direct mode a baked body of a dead origin has no producer node, so a
+  scratch feature may read it.
+- **`WrongMode`**: in direct mode `AddFeature, EditFeature, DeleteFeatures, MoveFeature, SetMarker, SetSuppressed, RenameFeature,
+  GroupFeatures, Ungroup, SetGroup` give `CommandError::WrongMode(Direct)`. Setting the current mode is a no-op.
+- **Features in direct mode**: `Document::bake_feature(&JobSystem, AddFeature) -> JobHandle<DirectBake, DirectError>` computes the
+  feature once on a scratch timeline seeded with the baked bodies (the engine seeds `Evaluated` from `baked` when
+  `mode == Direct`), drops the node and bakes new/changed bodies (changed = geometry pointer differs). `commit_bake` applies it as
+  one undo entry and refuses a stale result; `bake_feature_blocking` for CLI/tests. Journal replay of such an entry
+  (an `AddFeature` in direct mode) must call `bake_feature`, not `apply_command`: left to DOC-14.
+- **Blob names are unique per geometry**: `bodies/<origin>-<slot>-g<n>.<ext>` with `n` from the id allocator (`brep`, `mesh`, `sdf`,
+  `subd`). Cache keys of direct-mode features hash the blob path of their inputs, so a path must never name two geometries.
+- **Format change: `FORMAT_VERSION` 1 to 2.** `BakedBody` gains `component: ComponentId` (the body's component survives the switch).
+  `migrate_v1_to_v2` puts v1 baked bodies in the root component. The v1 fixture is unchanged and still loads/re-saves identically.
+- **Done-when evidence.** Geometry is still the stub, with no volume/area/bbox; the test asserts the stronger property that each
+  body's geometry handle is the same allocation (`BodyGeom::same_as`) after History to Direct to History, plus identical `BodyId`s,
+  components and props, for a solid, a mesh and a mixed design. Replace by real measures when BREP-02 / MESH-02 land.
+- **Interface changes (additive):** `amg_doc::direct::{BaseFeature, BaseBody, DirectBake, DirectError, BASE_FEATURE_KIND}`,
+  `Document::{bake_feature, commit_bake, bake_feature_blocking}`, `Design::{enter_direct_mode, leave_direct_mode}`,
+  `BakedBody::component` (breaking for struct-literal construction sites), `History::push_design` (crate-private).
