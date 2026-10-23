@@ -863,14 +863,14 @@ inventory::collect!(ExtRegistration);
 | DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Done | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
 | DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Done | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
 | DOC-12 | Recompute as a job: `Document::poll` (spawn, cancel-and-supersede, stale-result drop, atomic `Evaluated` swap), progress, `recompute_blocking`, preview recompute (`ComputeMode::Preview`), UI-thread debug assertion | DOC-03, FND-04 | P0 | Done | Test: 50 rapid `SetParamExpr` commands during a slow (sleeping) recompute → only the last revision is swapped in, cancelled work leaves finished features cached, `poll` never blocks > 1 ms (measured). Preview results never enter the persistent cache or undo stack. |
-| DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Review | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
+| DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Done | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
 | DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Done | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
-| DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Todo | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
+| DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Done | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
 | DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Done | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
 | DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous, plus unmerged, widened, class-changed (no ∞ arithmetic) and tombstone lookup by lineage. 2. 10 golden cases from the DOC-11 corpus (TNP-01/02/03/05/06/07/08/09/10/12) run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut, probe) and resolve to the intended entity (asserted by fingerprint); the other DOC-06-phase cases (TNP-04/11/24..28) meet their recorded `expect`. 3. Zero silent wrong resolutions (DOC-11 note §11.2 definition) over all DOC-06-phase cases. 4. Naming survives save/load (TNP-28). 5. The note §9 benches (`naming/finish-1000`, `naming/resolve`) run and their results are recorded in the note's §13. |
 | DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of the core corpus cases (DOC-11 note §11.4) meet their recorded `expect` (intended entity and quality, or the expected warning/error); the remainder fail with a feature error or warning; **0 silent wrong resolutions** (note §11.2 definition: a quiet `Ok` on a non-intended entity, or a quiet `Ok` where an error is expected). The harness measures the naive index baseline on every case and ≥ 5 cases are measured to break it (predictions in the corpus are corrected where the measurement differs). The held-out fuzz set (note §11.6) has 0 silent wrong resolutions. Runs in CI under 60 s (the fuzz set may run nightly if it doesn't fit). |
 
-| DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Review | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
+| DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Done | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
 | DOC-10 | Configurations: `ConfigTable`, param/suppression overrides, `SetActiveConfig`, per-config cache keys, persistence | DOC-05, DOC-12 | P2 | Todo | Design with 3 configurations: switching recomputes to the expected per-config volumes; switching back is a full cache hit (0 computes); configurations survive save/load. |
 
 Phase notes (the roadmap is not edited here; see Refinement log): DOC-12 and DOC-14 are new
@@ -1613,3 +1613,65 @@ Code in `amg-doc::direct` (new); small additive edits in `command.rs`, `document
 - **Interface changes (additive):** `amg_doc::direct::{BaseFeature, BaseBody, DirectBake, DirectError, BASE_FEATURE_KIND}`,
   `Document::{bake_feature, commit_bake, bake_feature_blocking}`, `Design::{enter_direct_mode, leave_direct_mode}`,
   `BakedBody::component` (breaking for struct-literal construction sites), `History::push_design` (crate-private).
+
+### 2026-10-23 — DOC-14 (cache persistence and autosave/recovery, lane E)
+Code in `amg-doc::io::cachefile` (cache), `amg-doc::recovery` (journal, snapshots, lock, recovery), small hooks in
+`cache.rs` and `history.rs`; tests `tests/cache_persist.rs`, `tests/recovery.rs`; bench `benches/persist.rs`.
+- **Cache in the container.** `cache/index.json` = `{version, engine_salt (hex), keys[]}` and one `cache/<key-hex>.out` per output,
+  deflated, covered by the manifest's blake3 list like every entry. Written: only outputs of the keys in the current
+  `Evaluated` (`Document::cache_export()` -> `SaveOptions::cache`), sorted by key, so saves stay byte-deterministic and stale LRU
+  leftovers are not stored. `cache: None` is "save compact". Entries come from `GeomCache::peek` (memory, else the backing store),
+  so a lazily opened file can be saved again without having loaded everything.
+- **Lazy seeding.** `load` verifies only `cache/index.json` (the full-integrity loop skips `cache/`) and returns
+  `LoadedDocument::cache_seed: CacheSeed`; `LoadedDocument::into_document()` builds the `Document` and calls
+  `CacheSeed::attach_to(&cache, &engine_salt(tolerance))`, which installs a `CacheBacking` on the `GeomCache` only if the stored
+  salt equals the running one. `GeomCache::get` asks the backing store on a miss (outside its map lock), checks the entry's
+  manifest hash, decodes and inserts it; any failure (damaged entry, missing file, codec error) is a plain miss and the feature
+  recomputes. A damaged or unparsable index gives an empty seed plus a warning; the load never fails because of the cache.
+  The archive handle opens on the first lazy read and stays open (std opens files with `FILE_SHARE_DELETE`, so a later save over the
+  same path works on Windows; entries of a replaced file fail their hash check and just miss).
+- **Salt.** A changed salt (kernel version, format version or tolerance) is double-covered: the keys themselves start from the salt,
+  and the stored salt refuses attachment outright. Tested with an altered salt (nothing attached, all 50 features recompute).
+- **Seam: `OutputCodec`.** Outputs contain stub geometry until BREP-02/MESH-02, so `trait OutputCodec { encode, decode }` is the
+  seam (like `BodyCodec`); `StubOutputCodec` stores structure and kind tags (bodies with ids, naming, construction geometry, sketch
+  presence, warnings without a structured cause). An output a codec cannot represent is left out of the file. `CacheSeed::with_codec`
+  swaps the decoder.
+- **Journal.** `RecoverySession::start(&RecoveryConfig, PersistentId) -> io::Result<Arc<Self>>` (the doc uuid is the existing
+  `DesignMeta::uuid`; no `uuid` dependency). `session.attach(&mut doc)` installs a `HistoryObserver` on the `History`; each commit
+  serializes `label + commands` on the UI thread and queues one JSON line `{seq, op: apply|undo|redo, ...}` for the writer thread
+  (append, no per-line fsync; `flush()` fsyncs and waits). Undo and redo are journaled too, otherwise replay would not reproduce the
+  pre-crash state.
+- **Snapshots.** `snapshot-<seq>.amg` (compact `.amg`, no cache), not `snapshot.amg`: the sequence number in the name says which
+  journal records the snapshot already contains, so a crash between "snapshot written" and "journal truncated" cannot replay a
+  record twice. `RecoverySession::tick(&doc, &JobSystem)` (per frame, next to `Document::poll`) spawns the `Autosave` job when
+  there is no snapshot yet, when `seq` advanced and `snapshot_interval` elapsed, or when forced. After a snapshot the older
+  snapshots are deleted and the writer rewrites the journal without records `<= seq` (tmp + rename). `snapshot_now` is the blocking
+  form. Forced snapshots: an undo/redo that reaches an entry older than the last snapshot cannot be replayed from a journal that
+  starts there, so it is not journaled and a snapshot is requested instead (until it finishes, a crash recovers the pre-undo state).
+- **Lock and discovery.** `<dir>/<uuid>/lock` is held with `File::try_lock` for the session's lifetime. `find_recoverable` returns
+  folders whose lock can be taken and that hold a snapshot, newest first; `recover(&candidate) -> Result<Document, FormatError>` loads
+  the newest snapshot and replays `seq > snapshot_seq` through `Document::apply/transaction/undo/redo`, then `mark_dirty()`.
+  `recover_with_report` also returns the replay count and why replay stopped (a torn last line, a failing command). `finish()` is the
+  clean close (deletes the folder); dropping the session without it leaves the folder, as a crash does. `RecoveryCandidate::discard`
+  deletes a folder it can lock. `start` discards leftovers of the same uuid: the app lists candidates first.
+- **FND-07.** `RecoverySession::register_panic_hook(name)` registers an `amg_jobs::diag` recovery hook that calls `flush()` (5 s cap,
+  uses only the channel to the writer thread) and returns the recovery folder as "the recovery file". The hook type is
+  `Fn() -> Option<PathBuf>`, not `RecoveryHook::flush()` as the spec text says.
+- **Interface changes (additive).** `History::{set_observer, mark_dirty}` and `trait HistoryObserver` (history.rs; DOC-09 may hook the
+  same call sites). `GeomCache::{set_backing, peek}` and `trait CacheBacking`. `SaveOptions::cache`, `LoadedDocument::cache_seed` and
+  `into_document`. New re-exports in `lib.rs`: `RecoveryConfig, RecoverySession, RecoveryCandidate, Recovered, find_recoverable,
+  recover, recover_with_report`; `io::{CacheExport, CacheSeed, OutputCodec, StubOutputCodec, CACHE_INDEX, CACHE_FORMAT}`. No new
+  dependency. `design.json` is unchanged, so `FORMAT_VERSION` stays 1.
+- **Not done / for others.** The app must call `session.attach`, `tick` every frame, `register_panic_hook`, `finish` on close, and on
+  save `History::mark_saved` with a fresh `cache_export`. `clear_history` is not journaled. The journal replays with the default undo
+  depth. Real geometry codecs (`OutputCodec`) come with BREP-02/MESH-02.
+
+### 2026-10-23 — DOC-08 / DOC-14 integration (merge review)
+- A DOC-08 bake (entering Direct mode, or a Direct-mode feature via `commit_bake`) records its
+  commands, but replaying them needs evaluated geometry the recovered document does not have.
+  `History` now reports such commits through `HistoryObserver::on_opaque_commit` (defaulting to
+  `on_commit`), and the crash journal answers with a forced snapshot instead of a journal line.
+  Undo/redo depth restarts at zero, so stepping back across a bake also snapshots. Test:
+  `entering_direct_mode_snapshots_instead_of_journaling`.
+- Recovery builds the document with `Document::from_design`, so the DOC-09 `DocumentReplaced`
+  event is queued on recovery as well.

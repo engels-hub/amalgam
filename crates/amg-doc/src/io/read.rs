@@ -8,6 +8,7 @@ use amg_jobs::JobCtx;
 use zip::ZipArchive;
 use zip::result::ZipError;
 
+use super::cachefile::read_seed;
 use super::{
     BlobStore, BodyCodec, DESIGN, DOC_MIGRATIONS, DocMigration, FORMAT_NAME, FORMAT_VERSION,
     FormatError, LoadedDocument, MANIFEST, Manifest, StubBodyCodec, THUMBNAIL, check_blob_path,
@@ -145,18 +146,21 @@ pub fn load_in_job(
         None
     };
 
-    // Entries we did not need still have to be intact.
+    // Entries we did not need still have to be intact (`cache/` is verified lazily, on use).
     for name in manifest.entries.keys() {
         if name != DESIGN
             && name != THUMBNAIL
             && !name.starts_with("bodies/")
             && !name.starts_with("ext/")
+            && !name.starts_with("cache/")
         {
             read_entry(&mut zip, name, Some(hash(name)))?;
         }
     }
 
-    let warnings = design
+    let mut cache_warnings = Vec::new();
+    let cache_seed = read_seed(&mut zip, path, &manifest.entries, &mut cache_warnings);
+    let mut warnings: Vec<String> = design
         .timeline()
         .nodes()
         .filter_map(|n| {
@@ -168,6 +172,7 @@ pub fn load_in_job(
             })
         })
         .collect();
+    warnings.extend(cache_warnings);
     ctx.progress_msg(1.0, "Opened");
     Ok(LoadedDocument {
         design,
@@ -175,12 +180,13 @@ pub fn load_in_job(
         thumbnail,
         file_version: manifest.format_version,
         warnings,
+        cache_seed,
     })
 }
 
 /// Reads and checks one entry. `expected` is `Some(manifest hash)` for entries the manifest
 /// covers (`Some(None)` = covered by nothing, which is itself corrupt for non-manifest entries).
-fn read_entry<R: Read + Seek>(
+pub(super) fn read_entry<R: Read + Seek>(
     zip: &mut ZipArchive<R>,
     name: &str,
     expected: Option<Option<&str>>,

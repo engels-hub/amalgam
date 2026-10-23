@@ -84,11 +84,20 @@ pub struct CacheStats {
     pub bytes: u64,
 }
 
+/// A second-level store the cache asks on a miss (the lazily read entries of an opened `.amg`
+/// file, DOC-14). Must be cheap to ask for an unknown key, and may be called from any thread.
+pub trait CacheBacking: Send + Sync {
+    /// The stored output for `key`, or `None` if there is none or it cannot be read (a damaged
+    /// entry is a miss: the feature just recomputes).
+    fn load(&self, key: &CacheKey) -> Option<Arc<FeatureOutput>>;
+}
+
 /// In-memory feature-output cache, LRU by estimated bytes.
 pub struct GeomCache {
     inner: Mutex<Inner>,
     hits: AtomicU64,
     misses: AtomicU64,
+    backing: Mutex<Option<Arc<dyn CacheBacking>>>,
 }
 
 impl std::fmt::Debug for GeomCache {
@@ -112,7 +121,21 @@ impl GeomCache {
             }),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
+            backing: Mutex::new(None),
         })
+    }
+
+    /// Sets (or clears) the store asked on a miss. A value it returns is inserted like any
+    /// other and counts as a hit.
+    pub fn set_backing(&self, backing: Option<Arc<dyn CacheBacking>>) {
+        *self.backing.lock().unwrap_or_else(PoisonError::into_inner) = backing;
+    }
+
+    fn backing(&self) -> Option<Arc<dyn CacheBacking>> {
+        self.backing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -140,10 +163,24 @@ impl GeomCache {
                 Some(value)
             }
             None => {
+                drop(g);
+                // Read the backing store without holding the map lock.
+                if let Some(value) = self.backing().and_then(|b| b.load(key)) {
+                    self.insert(*key, Arc::clone(&value));
+                    self.hits.fetch_add(1, Ordering::Relaxed);
+                    return Some(value);
+                }
                 self.misses.fetch_add(1, Ordering::Relaxed);
                 None
             }
         }
+    }
+
+    /// The output for `key` from memory or the backing store, without touching recency,
+    /// counters or what is resident (used when saving).
+    pub fn peek(&self, key: &CacheKey) -> Option<Arc<FeatureOutput>> {
+        let mem = self.lock().map.get(key).map(|e| Arc::clone(&e.value));
+        mem.or_else(|| self.backing().and_then(|b| b.load(key)))
     }
 
     /// True if `key` is cached (does not touch recency or counters).

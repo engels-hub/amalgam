@@ -219,5 +219,15 @@ fn collect_entries(
             method: CompressionMethod::Stored,
         });
     }
+
+    if let Some(export) = &opts.cache {
+        for (name, data) in super::cachefile::entries(design, export, ctx)? {
+            entries.push(Entry {
+                name,
+                data,
+                method: CompressionMethod::Deflated,
+            });
+        }
+    }
     Ok(entries)
 }

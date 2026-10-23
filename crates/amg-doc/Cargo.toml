@@ -62,5 +62,9 @@ harness = false
 name = "document"
 harness = false
 
+[[bench]]
+name = "persist"
+harness = false
+
 [lints]
 workspace = true

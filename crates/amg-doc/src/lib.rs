@@ -28,6 +28,7 @@ pub mod naming;
 pub mod param;
 mod pcoll;
 pub mod recompute;
+pub mod recovery;
 pub mod registry;
 pub mod stub;
 #[cfg(any(test, feature = "test-features"))]
@@ -69,6 +70,10 @@ pub use naming::{
 };
 pub use param::{Expr, ExprSrc, Param, ParamError, ParamKind, ParamTable, UnitSpec};
 pub use recompute::{ENGINE_FORMAT_VERSION, RecomputeResult, engine_salt, recompute};
+pub use recovery::{
+    Recovered, RecoveryCandidate, RecoveryConfig, RecoverySession, find_recoverable, recover,
+    recover_with_report,
+};
 pub use registry::{FeatureRegistration, FeatureRegistry, RegistryError, registry, try_registry};
 pub use timeline::{FeatureNode, Group, Timeline};
 
