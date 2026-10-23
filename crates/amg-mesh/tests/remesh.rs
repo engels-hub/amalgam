@@ -480,6 +480,10 @@ fn errors_and_cancel() {
     ));
 }
 
+fn require_testdata() -> bool {
+    std::env::var("AMG_REQUIRE_TESTDATA").is_ok_and(|v| v == "1")
+}
+
 /// Committed corpus models without topological defects (a model may have several shells).
 /// Prints the Done-when metrics for two sizings; topology must always be unchanged.
 #[test]
@@ -493,8 +497,17 @@ fn corpus_watertight_models() {
         {
             continue;
         }
-        let FileStatus::Ready(path) = e.locate(&root) else {
-            continue;
+        let path = match e.locate(&root) {
+            FileStatus::Ready(p) => p,
+            FileStatus::LfsPointer(p) => {
+                assert!(
+                    !require_testdata(),
+                    "{} is an un-fetched git-LFS pointer",
+                    p.display()
+                );
+                continue;
+            }
+            _ => continue,
         };
         let Ok(mut m) = read_mesh(&path) else {
             continue;
@@ -535,6 +548,10 @@ fn corpus_watertight_models() {
         }
     }
     eprintln!("corpus models remeshed: {tested}");
+    if tested == 0 && !require_testdata() {
+        // Clone without `git lfs pull` (the CI test job): nothing to check here.
+        return;
+    }
     assert!(tested >= 10, "only {tested} corpus models usable");
     // Models with features thinner than L or wedges sharper than 30 degrees cannot meet the
     // quality bars (see the MESH-06 refinement log).
