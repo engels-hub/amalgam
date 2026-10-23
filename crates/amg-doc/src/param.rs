@@ -477,6 +477,28 @@ impl ParamTable {
         Ok(())
     }
 
+    /// A copy with the expressions of `overrides` replaced and everything re-evaluated
+    /// (configurations, DOC-10). All overrides apply together, so they may reference each
+    /// other in any order. Fails if an override names a missing parameter or the result does
+    /// not evaluate (syntax, unknown name, units, cycle).
+    pub(crate) fn with_exprs(
+        &self,
+        overrides: &BTreeMap<ParamId, String>,
+        prefs: &UnitPrefs,
+    ) -> Result<ParamTable, ParamError> {
+        let mut t = self.clone();
+        for (&id, src) in overrides {
+            let p = self.get(id).ok_or(ParamError::NotFound(id))?;
+            let p = Param {
+                expr: ExprSrc(src.clone()),
+                ..p.clone()
+            };
+            t.params.insert(id, Arc::new(p));
+        }
+        t.rebuild(prefs)?;
+        Ok(t)
+    }
+
     /// Ids of all parameters.
     pub(crate) fn ids(&self) -> impl Iterator<Item = ParamId> + '_ {
         self.params.keys().copied()
@@ -495,7 +517,7 @@ fn check_valid_name(name: &str) -> Result<(), ExprError> {
 }
 
 /// Replaces the spans of references to `old` in `src` with `new`.
-fn rewrite(src: &str, ast: &Ast, old: &str, new: &str) -> String {
+pub(crate) fn rewrite(src: &str, ast: &Ast, old: &str, new: &str) -> String {
     let mut out = src.to_owned();
     let mut spans: Vec<Range<usize>> = expr::references(ast)
         .into_iter()

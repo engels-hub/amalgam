@@ -18,7 +18,13 @@ use crate::param::Expr;
 use crate::stub::{IndexedMesh, Shape};
 
 /// Kinds registered by this module.
-pub const KINDS: [&str; 4] = ["test.add_mesh", "test.box", "test.counter", "test.slow"];
+pub const KINDS: [&str; 5] = [
+    "test.add_mesh",
+    "test.box",
+    "test.counter",
+    "test.param_box",
+    "test.slow",
+];
 
 /// Forces these registrations to be linked (registry `link()` convention).
 pub fn link() {}
@@ -138,6 +144,54 @@ fn box_migrate(
 }
 
 crate::register_feature!(TestBox, "test.box", version = 2, migrate = box_migrate);
+
+/// A box whose edge lengths are parameter expressions (DOC-10). The stub geometry carries no
+/// data, so the box reports its volume (mm³) as a warning `volume=<v>`; warnings are cached
+/// with the output like geometry, so tests can read the volume of cached results too.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestParamBox {
+    /// Edge lengths.
+    pub size: [Expr; 3],
+}
+
+impl Feature for TestParamBox {
+    fn inputs(&self) -> Vec<Dependency> {
+        Vec::new()
+    }
+
+    fn exprs(&self) -> Vec<&Expr> {
+        self.size.iter().collect()
+    }
+
+    fn compute(&self, ctx: &mut RecomputeCtx<'_>) -> Result<FeatureOutput, FeatureError> {
+        if let Ok(mut m) = COUNTS.lock() {
+            *m.entry((ctx.design().meta().uuid, ctx.feature_id()))
+                .or_default() += 1;
+        }
+        let mut volume = 1.0;
+        for e in &self.size {
+            volume *= ctx.eval_length(e)?;
+        }
+        Ok(FeatureOutput {
+            bodies: vec![BodyChange {
+                id: ctx.new_body_id(0),
+                change: BodyChangeKind::Created {
+                    geom: BodyGeom::Solid(Shape::new()),
+                    naming: None,
+                },
+            }],
+            warnings: vec![crate::eval::Diagnostic {
+                message: format!("volume={volume}"),
+                cause: None,
+                entities: Vec::new(),
+            }],
+            ..FeatureOutput::default()
+        })
+    }
+}
+
+crate::register_feature!(TestParamBox, "test.param_box", version = 1);
 
 /// Adds `bodies` mesh bodies (slots `0..bodies`), like a mesh import.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

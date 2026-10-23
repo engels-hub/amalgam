@@ -191,6 +191,7 @@ impl Design {
             w.set_body_props(id, p)?;
         }
         w.meta.mode = DesignMode::Direct;
+        w.prune_configs();
         w.bump();
         *self = w;
         Ok(())

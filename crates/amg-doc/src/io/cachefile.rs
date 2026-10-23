@@ -230,15 +230,11 @@ impl CacheExport {
 }
 
 impl Document {
-    /// The persistent cache with the keys of the current evaluated timeline, for
+    /// The persistent cache with the keys of the current evaluated timeline (and of the other
+    /// configurations visited in this session, DOC-10), for
     /// [`SaveOptions::cache`](super::SaveOptions). Cheap (no serialization happens here).
     pub fn cache_export(&self) -> CacheExport {
-        let keys = self
-            .evaluated()
-            .nodes()
-            .filter_map(|(_, n)| n.key)
-            .collect();
-        CacheExport::new(Arc::clone(self.cache()), keys)
+        CacheExport::new(Arc::clone(self.cache()), self.retained_keys())
     }
 }
 

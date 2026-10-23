@@ -422,6 +422,9 @@ ident    = (letter | "_") , { letter | digit | "_" } ;
   expressions and suppression flags.
 - Activating a config is a command. The overrides apply to the snapshot fed to recompute, so
   each configuration has its own cache keys and switching back is a cache hit.
+- As built (DOC-10): `Config { name, params: BTreeMap<ParamId, String>, suppressed:
+  BTreeMap<FeatureId, bool> }`; `Design::effective()` applies the active config to a copy and
+  `recompute` runs on that copy. See the 2026-10-23 DOC-10 refinement-log entry.
 
 ### 11. Extension records
 - Studies (S13/S14), print setups (S16) and similar state live outside the timeline as
@@ -741,6 +744,9 @@ pub enum Command {
     SetDesignMode { mode: DesignMode },
     SetExt { key: ExtKey, record: Option<ExtRecord> },
     SetActiveConfig { config: Option<ConfigId> },                             // DOC-10
+    // DOC-10 additions: AddConfig { name }, RenameConfig { config, name }, DeleteConfig { config },
+    // SetConfigParam { config, param, expr: Option<String> },
+    // SetConfigSuppressed { config, feature, suppressed: Option<bool> }
 }
 pub struct CommandOutcome { pub created: Vec<CreatedId>, pub revision: Revision }
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -871,7 +877,7 @@ inventory::collect!(ExtRegistration);
 | DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of the core corpus cases (DOC-11 note §11.4) meet their recorded `expect` (intended entity and quality, or the expected warning/error); the remainder fail with a feature error or warning; **0 silent wrong resolutions** (note §11.2 definition: a quiet `Ok` on a non-intended entity, or a quiet `Ok` where an error is expected). The harness measures the naive index baseline on every case and ≥ 5 cases are measured to break it (predictions in the corpus are corrected where the measurement differs). The held-out fuzz set (note §11.6) has 0 silent wrong resolutions. Runs in CI under 60 s (the fuzz set may run nightly if it doesn't fit). |
 
 | DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Done | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
-| DOC-10 | Configurations: `ConfigTable`, param/suppression overrides, `SetActiveConfig`, per-config cache keys, persistence | DOC-05, DOC-12 | P2 | Todo | Design with 3 configurations: switching recomputes to the expected per-config volumes; switching back is a full cache hit (0 computes); configurations survive save/load. |
+| DOC-10 | Configurations: `ConfigTable`, param/suppression overrides, `SetActiveConfig`, per-config cache keys, persistence | DOC-05, DOC-12 | P2 | Review | Design with 3 configurations: switching recomputes to the expected per-config volumes; switching back is a full cache hit (0 computes); configurations survive save/load. |
 
 Phase notes (the roadmap is not edited here; see Refinement log): DOC-12 and DOC-14 are new
 and belong in Phase 1 lane E, since DOC-09 (Phase 1) now depends on DOC-12. DOC-13 belongs in
@@ -1675,3 +1681,62 @@ Code in `amg-doc::io::cachefile` (cache), `amg-doc::recovery` (journal, snapshot
   `entering_direct_mode_snapshots_instead_of_journaling`.
 - Recovery builds the document with `Document::from_design`, so the DOC-09 `DocumentReplaced`
   event is queued on recovery as well.
+
+### 2026-10-23 - DOC-10 configurations
+- **Model.** `config.rs`: `Config { name, params: BTreeMap<ParamId, String>, suppressed:
+  BTreeMap<FeatureId, bool> }` (overrides relative to the base design; a replacement expression
+  source per parameter, a forced suppression state per feature) and `ConfigTable { configs:
+  PMap<ConfigId, Arc<Config>>, active: Option<ConfigId> }` as `Design::configs`. Config ids come
+  from the same `next_id` counter (owner kind `"config"`). Names are non-empty and unique.
+  Accessors: `Design::{configs, active_config, active_config_data, effective, with_config}`;
+  re-exports `Config`, `ConfigTable`.
+- **Commands (all replayable on the design alone).** `SetActiveConfig` (spec), plus `AddConfig`
+  (returns `CreatedId::Config`), `RenameConfig`, `DeleteConfig` (deactivates if active),
+  `SetConfigParam { expr: Option<String> }`, `SetConfigSuppressed { suppressed: Option<bool> }`.
+  `CreatedId` gains `Config(ConfigId)`. They are allowed in both design modes. Because they
+  replay from the design alone they use the normal `on_commit` journal path; `Undo`/`Redo` of an
+  activation journals like any other step, and a recovery snapshot (compact `.amg`) carries the
+  table. Test: `config_commands_are_journaled_and_replayed_after_a_crash`.
+- **Evaluation.** `recompute()` calls `Design::effective()` (borrowed, free, when no config is
+  active) and runs the pass on the result: `ParamTable::with_exprs` replaces the overridden
+  expressions and rebuilds the table at once, so overrides may reference each other in any
+  order; suppression flags are forced on the copy (`Timeline::force_suppressed`, no revision
+  bump). The copy keeps the revision, so `Evaluated::revision` still means the authored revision.
+  Previews go through the same function and therefore see the active config.
+- **Per-config cache keys.** Keys already hash the *values* a feature reads and the keys of its
+  inputs, so a config gets its own keys exactly where its values differ and shares entries where
+  they agree (no config id in any key; the 3-config test shows 0 computes on every revisit, and
+  `configs_with_equal_values_share_cache_entries` that equal values share). A suppressed node
+  writes nothing, so downstream keys and health differ naturally. Persistence:
+  `Document::cache_export` now also lists the last keys of every other configuration visited in
+  the session (`Document::retained_keys`), so a saved file reopens with all of them cached
+  (`a_persisted_cache_serves_every_configuration_after_load`).
+- **Integrity.** An override edit is rejected unless the config still evaluates (syntax, unknown
+  name, units, cycle). Base edits that could break a config (`SetParamExpr`, `RenameParam`,
+  `DeleteParam`, `SetDesignMeta`, `AddParam`) are checked against every config and refused as a
+  whole (`CommandError::Invalid("would break configuration ...")`); `RenameParam` rewrites the
+  override expressions with the same token-span rewrite. Deleting a parameter or feature drops the
+  overrides that name it (also on entering Direct mode); undo restores them (snapshots). `validate`
+  checks a loaded table (ids exist, names, active exists, every config evaluates).
+- **Format: `FORMAT_VERSION` 2 to 3.** `design.json` gains `configs: { configs: [[id, config]...],
+  active }` (the field is `serde(default)` on load too). `migrate_v2_to_v3` inserts an empty table.
+  Fixture `tests/fixtures/format/v2.amg` was generated by the v2 build before the change
+  (`regenerate_v2_fixture`, ignored test) and is never edited; `v1_fixture_loads_and_resaves_...`
+  now compares the re-saved JSON minus the new empty `configs` key.
+- **Events (DOC-09).** New `DocEvent::ConfigsChanged` for any table difference. When the active
+  config changes or the active one is edited, `ParamsChanged` (effective expressions differ) and
+  `TimelineChanged` (effective suppression differs) are raised too; geometry and health events
+  follow from the recompute as usual. Editing an inactive config raises only `ConfigsChanged`.
+- **Tests.** `tests/configs.rs` (volumes 24/120/720 for 3 configs via the new `test.param_box`
+  test feature, revisit = 0 computes, suppression, equal-value sharing, base edits under an
+  active override, cycles, rename rewrite, prune, error atomicity, save/load byte-identical,
+  persisted cache, v2 migration, events, previews, crash recovery) and `tests/format.rs` v2 fixture.
+- **Interface changes (additive, amg-doc only).** `Command` and `CreatedId` gain variants
+  (`Command` is a closed enum: exhaustive matches elsewhere must add arms; none exist outside
+  amg-doc today), `DocEvent::ConfigsChanged`, `Design` accessors above, `testing::TestParamBox`
+  (`KINDS` grows to 5). No other crate changes, no new dependency.
+- **Not done / for others.** UI for configurations and the configuration table dialog (lane D);
+  configs of linked designs (ASM-08); configs that override feature fields other than parameters
+  (by design: features read parameters); feature-level "config only" features. Reading
+  `doc.design().params()` gives base values: UI code that shows the active values should use
+  `Design::effective()`.

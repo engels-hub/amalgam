@@ -16,6 +16,7 @@
 //! cache of their own, so they never reach the persistent cache or the undo stack.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use amg_core::Cancelled;
@@ -23,11 +24,11 @@ use amg_jobs::{Job, JobCtx, JobError, JobHandle, JobSystem, SpawnOptions, is_ui_
 
 use crate::cache::GeomCache;
 use crate::command::{Command, CommandError, CommandOutcome, apply_command};
-use crate::eval::Evaluated;
+use crate::eval::{CacheKey, Evaluated};
 use crate::event::{DocEvent, EventState};
 use crate::feature::ComputeMode;
 use crate::history::{History, Transaction};
-use crate::id::{FeatureId, Revision};
+use crate::id::{ConfigId, FeatureId, Revision};
 use crate::model::{Design, DesignMode, DesignSnapshot};
 use crate::recompute::{RecomputeResult, recompute};
 
@@ -140,6 +141,9 @@ pub struct Document {
     running: Option<Running>,
     failed: Option<(Revision, String)>,
     last_run: Option<RecomputeSummary>,
+    /// Cache keys of the last evaluated state of every configuration (`None`: the base
+    /// design) visited in this session, so the persisted cache covers all of them (DOC-10).
+    config_keys: BTreeMap<Option<ConfigId>, Vec<CacheKey>>,
     events: EventState,
 }
 
@@ -186,6 +190,7 @@ impl Document {
             running: None,
             failed: None,
             last_run: None,
+            config_keys: BTreeMap::new(),
             events,
         }
     }
@@ -285,6 +290,21 @@ impl Document {
     /// The scratch cache previews use; never persisted.
     pub fn preview_cache(&self) -> &Arc<GeomCache> {
         &self.preview_cache
+    }
+
+    /// Cache keys worth persisting: the current evaluated state plus the last state of every
+    /// other configuration visited in this session that still exists (DOC-10).
+    pub(crate) fn retained_keys(&self) -> Vec<CacheKey> {
+        let design = self.history.design();
+        let mut keys: Vec<CacheKey> = self.evaluated.nodes().filter_map(|(_, n)| n.key).collect();
+        for (cfg, ks) in &self.config_keys {
+            if cfg.is_none_or(|c| design.configs().get(c).is_some()) {
+                keys.extend(ks.iter().copied());
+            }
+        }
+        keys.sort_unstable();
+        keys.dedup();
+        keys
     }
 
     /// What the last swapped-in recompute computed and what it took from the cache.
@@ -438,6 +458,9 @@ impl Document {
         self.events.swap_evaluated(&self.evaluated, revision);
         self.evaluated_for = Some(revision);
         self.failed = None;
+        let active = self.history.design().active_config();
+        let keys = self.evaluated.nodes().filter_map(|(_, n)| n.key).collect();
+        self.config_keys.insert(active, keys);
         self.last_run = Some(RecomputeSummary {
             computed: result.computed,
             cached: result.cached,

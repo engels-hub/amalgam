@@ -231,6 +231,16 @@ impl Timeline {
         })
     }
 
+    /// Sets a node's suppression flag without touching any revision (configurations apply
+    /// their overrides to a scratch copy this way, DOC-10). Unknown ids are ignored.
+    pub(crate) fn force_suppressed(&mut self, id: FeatureId, suppressed: bool) {
+        if let Some((i, n)) = self.node(id)
+            && n.suppressed != suppressed
+        {
+            self.update(i, |n| n.suppressed = suppressed);
+        }
+    }
+
     fn update(&mut self, i: usize, f: impl FnOnce(&mut FeatureNode)) {
         if let Some(n) = self.nodes.get_mut(i) {
             f(n);

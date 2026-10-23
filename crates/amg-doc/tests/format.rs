@@ -540,10 +540,35 @@ fn v1_fixture_loads_and_resaves_identically() {
     let dir = TempDir::new();
     let p = dir.path("again.amg");
     save(&p, &snap(l.design), &SaveOptions::default()).unwrap();
+    // Same design; v3 only adds the (empty) configuration table (DOC-10).
+    let json = |p: &Path| -> serde_json::Value {
+        serde_json::from_slice(&entries_of(p)["design.json"]).unwrap()
+    };
+    let mut now = json(&p);
+    let configs = now.as_object_mut().unwrap().remove("configs").unwrap();
     assert_eq!(
-        entries_of(&p)["design.json"],
-        entries_of(&fixture("v1.amg"))["design.json"]
+        configs,
+        serde_json::json!({ "configs": [], "active": null })
     );
+    assert_eq!(now, json(&fixture("v1.amg")));
+}
+
+#[test]
+fn v2_fixture_loads_and_resaves_with_an_empty_config_table() {
+    let l = load(&fixture("v2.amg")).unwrap();
+    assert_eq!(l.file_version, 2);
+    assert_eq!(l.design.timeline().len(), 1);
+    assert_eq!(l.design.params().len(), 1);
+    assert!(l.design.configs().is_empty());
+    let dir = TempDir::new();
+    let p = dir.path("again.amg");
+    save(&p, &snap(l.design), &SaveOptions::default()).unwrap();
+    let json = |p: &Path| -> serde_json::Value {
+        serde_json::from_slice(&entries_of(p)["design.json"]).unwrap()
+    };
+    let mut now = json(&p);
+    assert!(now.as_object_mut().unwrap().remove("configs").is_some());
+    assert_eq!(now, json(&fixture("v2.amg")));
 }
 
 #[test]
@@ -783,4 +808,34 @@ fn v1_baked_bodies_migrate_into_the_root_component() {
     assert_eq!(l.file_version, 1);
     let (_, b) = l.design.baked_bodies().next().unwrap();
     assert_eq!(b.component, l.design.root());
+}
+
+/// Writes `tests/fixtures/format/v2.amg` with the v2 build (DOC-10). Like the others, it is
+/// never overwritten: `AMG_WRITE_FIXTURES=1 cargo test -p amg-doc --test format -- --ignored
+/// regenerate_v2`
+#[test]
+#[ignore = "documents how the fixture was generated"]
+fn regenerate_v2_fixture() {
+    if std::env::var_os("AMG_WRITE_FIXTURES").is_none() {
+        return;
+    }
+    amg_doc::testing::link();
+    let mut d = Design::new("Fixture");
+    let root = d.root();
+    d.add_param("width", "10 mm", None, "").unwrap();
+    d.add_feature(
+        None,
+        FeatureBox::new(TestBox {
+            size: [1.0, 2.0, 3.0],
+        }),
+        root,
+        None,
+    )
+    .unwrap();
+    let dir = TempDir::new();
+    let tmp = dir.path("v2.amg");
+    save(&tmp, &snap(d), &SaveOptions::default()).unwrap();
+    let v2 = fixture("v2.amg");
+    assert!(!v2.exists(), "fixtures are never overwritten");
+    fs::copy(&tmp, &v2).unwrap();
 }

@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::direct::BaseFeature;
 use crate::expr::ExprError;
 use crate::feature::FeatureBox;
-use crate::id::{BodyId, ComponentId, ExtKey, FeatureId, GroupId, OccurrenceId, ParamId, Revision};
+use crate::id::{
+    BodyId, ComponentId, ConfigId, ExtKey, FeatureId, GroupId, OccurrenceId, ParamId, Revision,
+};
 use crate::model::{BodyProps, Design, DesignMode, ExtRecord, ModelError, UnitPrefs};
 use crate::param::{Expr, ParamError, UnitSpec};
 
@@ -192,6 +194,47 @@ pub enum Command {
         /// The record; its `kind` selects the key's kind.
         record: ExtRecord,
     },
+    /// Adds an empty configuration (DOC-10, see [`crate::config`]).
+    AddConfig {
+        /// Unique, non-empty name.
+        name: String,
+    },
+    /// Renames a configuration.
+    RenameConfig {
+        /// The configuration.
+        config: ConfigId,
+        /// New unique name.
+        name: String,
+    },
+    /// Deletes a configuration; if it was active, the base design becomes active.
+    DeleteConfig {
+        /// The configuration.
+        config: ConfigId,
+    },
+    /// Overrides (`Some`) or restores (`None`) a parameter's expression in a configuration.
+    SetConfigParam {
+        /// The configuration.
+        config: ConfigId,
+        /// The parameter.
+        param: ParamId,
+        /// Replacement expression source.
+        expr: Option<String>,
+    },
+    /// Forces (`Some`) or stops forcing (`None`) a feature's suppression in a configuration.
+    SetConfigSuppressed {
+        /// The configuration.
+        config: ConfigId,
+        /// The feature.
+        feature: FeatureId,
+        /// Forced state.
+        suppressed: Option<bool>,
+    },
+    /// Activates a configuration (`None`: the base design). Recompute then evaluates the
+    /// design with that configuration's overrides.
+    SetActiveConfig {
+        /// The configuration.
+        config: Option<ConfigId>,
+    },
 }
 
 impl Command {
@@ -224,6 +267,13 @@ impl Command {
             Command::SetDesignMeta { .. } => "Design settings",
             Command::SetDesignMode { .. } => "Change design mode",
             Command::SetExt { .. } | Command::AddExt { .. } => "Edit extension data",
+            Command::AddConfig { .. } => "Add configuration",
+            Command::RenameConfig { .. } => "Rename configuration",
+            Command::DeleteConfig { .. } => "Delete configuration",
+            Command::SetConfigParam { .. } | Command::SetConfigSuppressed { .. } => {
+                "Edit configuration"
+            }
+            Command::SetActiveConfig { .. } => "Activate configuration",
         }
     }
 }
@@ -243,6 +293,8 @@ pub enum CreatedId {
     Group(GroupId),
     /// An extension record key.
     Ext(ExtKey),
+    /// A configuration.
+    Config(ConfigId),
 }
 
 /// What a command did.
@@ -373,9 +425,30 @@ pub(crate) fn apply_ungated(
     // Commands touch several structures (a delete converts parameters, a group edits nodes),
     // so run on a scratch copy and swap in on success. Copies are O(1) (persistent maps).
     let mut work = design.clone();
+    let check = affects_configs(&cmd);
     let created = run(&mut work, cmd)?;
+    if !work.configs().is_empty() {
+        // Deleted parameters and features take their overrides with them; edits that could
+        // leave a configuration unevaluable (DOC-10) are refused as a whole.
+        work.prune_configs();
+        if check && let Err(m) = work.check_configs() {
+            return Err(CommandError::Invalid(format!("would break {m}")));
+        }
+    }
     *design = work;
     Ok(created)
+}
+
+/// Commands after which every configuration must still evaluate.
+fn affects_configs(cmd: &Command) -> bool {
+    matches!(
+        cmd,
+        Command::SetParamExpr { .. }
+            | Command::RenameParam { .. }
+            | Command::DeleteParam { .. }
+            | Command::SetDesignMeta { .. }
+            | Command::AddParam { .. }
+    )
 }
 
 fn require_feature(d: &Design, id: FeatureId) -> Result<(), CommandError> {
@@ -490,7 +563,15 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
             created.push(CreatedId::Param(id));
         }
         Command::SetParamExpr { id, expr } => d.set_param_expr(id, &expr)?,
-        Command::RenameParam { id, name } => d.rename_param(id, &name)?,
+        Command::RenameParam { id, name } => {
+            let old = d.params().get(id).map(|p| p.name.clone());
+            d.rename_param(id, &name)?;
+            if let Some(old) = old
+                && old != name
+            {
+                d.rename_in_configs(&old, &name);
+            }
+        }
         Command::SetParamMeta {
             id,
             comment,
@@ -561,6 +642,31 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
             d.set_ext(key.clone(), Some(record))?;
             created.push(CreatedId::Ext(key));
         }
+        Command::AddConfig { name } => {
+            if d.configs().by_name(&name).is_some() {
+                return Err(CommandError::NameTaken(name));
+            }
+            let id = d.add_config(&name)?;
+            created.push(CreatedId::Config(id));
+        }
+        Command::RenameConfig { config, name } => {
+            if d.configs().by_name(&name).is_some_and(|c| c != config) {
+                return Err(CommandError::NameTaken(name));
+            }
+            d.rename_config(config, &name)?;
+        }
+        Command::DeleteConfig { config } => d.delete_config(config)?,
+        Command::SetConfigParam {
+            config,
+            param,
+            expr,
+        } => d.set_config_param(config, param, expr.as_deref())?,
+        Command::SetConfigSuppressed {
+            config,
+            feature,
+            suppressed,
+        } => d.set_config_suppressed(config, feature, suppressed)?,
+        Command::SetActiveConfig { config } => d.set_active_config(config)?,
     }
     Ok(created)
 }
