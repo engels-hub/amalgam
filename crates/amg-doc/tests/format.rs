@@ -122,6 +122,7 @@ fn sample() -> Design {
             slot: 3,
         },
         Some(BakedBody {
+            component: root,
             blob: blob("bodies/1-3.mesh"),
             geom: Some(BodyGeom::Mesh(Arc::default())),
         }),
@@ -486,9 +487,11 @@ fn invalid_and_missing_blobs_are_rejected_on_save() {
     // Path escapes.
     let mut d = sample();
     let f = d.timeline().nodes().next().unwrap().id;
+    let root = d.root();
     d.set_baked(
         BodyId { origin: f, slot: 9 },
         Some(BakedBody {
+            component: root,
             blob: blob("bodies/../evil"),
             geom: Some(BodyGeom::Mesh(Arc::default())),
         }),
@@ -756,4 +759,28 @@ fn cancelled_save_leaves_the_original_and_cancelled_load_stops() {
     assert!(!dir.path("a.amg.tmp").exists());
     let err = load_in_job(&p, &StubBodyCodec, &ctx).unwrap_err();
     assert!(matches!(err, FormatError::Cancelled), "{err:?}");
+}
+
+/// DOC-08: v1 baked bodies have no component; the v1 to v2 step puts them in the root.
+#[test]
+fn v1_baked_bodies_migrate_into_the_root_component() {
+    let dir = TempDir::new();
+    let src = dir.path("src.amg");
+    save(&src, &snap(sample()), &sample_opts()).unwrap();
+    let mut entries = entries_of(&src);
+    let mut v: serde_json::Value = serde_json::from_slice(&entries["design.json"]).unwrap();
+    let baked = v["baked"].as_array_mut().unwrap();
+    assert_eq!(baked.len(), 1);
+    baked[0][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("component")
+        .unwrap();
+    entries.insert("design.json".into(), serde_json::to_vec_pretty(&v).unwrap());
+    let old = dir.path("v1-baked.amg");
+    write_container(&old, 1, &entries, None);
+    let l = load(&old).unwrap();
+    assert_eq!(l.file_version, 1);
+    let (_, b) = l.design.baked_bodies().next().unwrap();
+    assert_eq!(b.component, l.design.root());
 }

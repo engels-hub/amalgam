@@ -35,7 +35,7 @@ use crate::feature::{
     BodyChangeKind, ComputeMode, Dependency, FeatureError, FeatureOutput, RecomputeCtx,
 };
 use crate::id::{BodyId, ConstructionId, FeatureId, SketchId};
-use crate::model::Design;
+use crate::model::{Design, DesignMode};
 use crate::naming::EntityRef;
 use crate::param::Expr;
 use crate::timeline::FeatureNode;
@@ -175,6 +175,7 @@ impl<'a> Pass<'a> {
     }
 
     fn run(mut self) -> Result<RecomputeResult, Cancelled> {
+        self.seed_direct();
         let tl = self.design.timeline();
         let n = tl.len();
         let marker = tl.marker();
@@ -199,6 +200,33 @@ impl<'a> Pass<'a> {
             computed: self.computed,
             cached: self.cached,
         })
+    }
+
+    /// In direct mode the baked bodies are the starting state (DOC-08): they are present before
+    /// any feature runs. Their producer key hashes the blob path, which is unique per baked
+    /// geometry (`Design::enter_direct_mode` allocates a fresh one for every change).
+    fn seed_direct(&mut self) {
+        if self.design.meta().mode != DesignMode::Direct {
+            return;
+        }
+        for (id, baked) in self.design.baked_bodies() {
+            let Some(geom) = &baked.geom else { continue };
+            self.out.set_body(
+                id,
+                Arc::new(EvalBody {
+                    component: baked.component,
+                    geom: geom.clone(),
+                    naming: None,
+                }),
+            );
+            let mut h = KeyHasher::new();
+            h.0.update(&self.salt);
+            h.bytes(b"baked");
+            h.u64(id.origin.0);
+            h.u64(u64::from(id.slot));
+            h.bytes(baked.blob.0.as_bytes());
+            self.body_key.insert(id, h.finish());
+        }
     }
 
     fn set(
@@ -279,7 +307,8 @@ impl<'a> Pass<'a> {
         for c in &out.bodies {
             match &c.change {
                 BodyChangeKind::Created { .. } => {
-                    if c.id.origin != node.id {
+                    // A base feature adopts baked bodies that keep their original ids.
+                    if c.id.origin != node.id && self.design.baked(c.id).is_none() {
                         return bad(format!(
                             "feature created {:?}, which belongs to another feature",
                             c.id
@@ -341,6 +370,7 @@ impl<'a> Pass<'a> {
         let component = keep_component
             .then(|| self.out.body(id).map(|b| b.component))
             .flatten()
+            .or_else(|| self.design.baked(id).map(|b| b.component))
             .unwrap_or(node.context);
         self.out.set_body(
             id,

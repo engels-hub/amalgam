@@ -15,3 +15,9 @@ fn expected_kinds_are_linked() {
     assert_eq!(reg.get("test.box").unwrap().version, 2);
     assert_eq!(reg.get("test.counter").unwrap().version, 1);
 }
+
+#[test]
+fn base_feature_kind_is_linked() {
+    let reg = amg_doc::try_registry().expect("registry is valid");
+    assert_eq!(reg.get(amg_doc::BASE_FEATURE_KIND).unwrap().version, 1);
+}

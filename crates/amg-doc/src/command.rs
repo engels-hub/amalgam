@@ -9,6 +9,7 @@
 use amg_core::Transform;
 use serde::{Deserialize, Serialize};
 
+use crate::direct::BaseFeature;
 use crate::expr::ExprError;
 use crate::feature::FeatureBox;
 use crate::id::{BodyId, ComponentId, ExtKey, FeatureId, GroupId, OccurrenceId, ParamId, Revision};
@@ -172,8 +173,9 @@ pub enum Command {
         /// New default units; parameters are re-evaluated.
         default_units: Option<UnitPrefs>,
     },
-    /// Switches between history and direct modelling. Switching to a different mode needs
-    /// the baking logic of DOC-08 and is refused until then.
+    /// Switches between history and direct modelling (DOC-08, see [`crate::direct`]). To
+    /// `Direct` it bakes the evaluated bodies, so only `Document::apply` can do that; to
+    /// `History` it adopts the baked bodies in a base feature.
     SetDesignMode {
         /// New mode.
         mode: DesignMode,
@@ -335,7 +337,39 @@ impl From<ParamError> for CommandError {
 type Created = Vec<CreatedId>;
 
 /// Applies `cmd` to `design` and returns the ids it created. On `Err` the design is unchanged.
+///
+/// In direct mode the timeline commands are refused with [`CommandError::WrongMode`]; switching
+/// from history to direct mode needs the evaluated bodies and goes through `Document::apply`.
 pub fn apply_command(design: &mut Design, cmd: Command) -> Result<Vec<CreatedId>, CommandError> {
+    if design.meta().mode == DesignMode::Direct && edits_timeline(&cmd) {
+        return Err(CommandError::WrongMode(DesignMode::Direct));
+    }
+    apply_ungated(design, cmd)
+}
+
+/// True for the commands that only make sense with a timeline.
+fn edits_timeline(cmd: &Command) -> bool {
+    matches!(
+        cmd,
+        Command::AddFeature { .. }
+            | Command::EditFeature { .. }
+            | Command::DeleteFeatures { .. }
+            | Command::MoveFeature { .. }
+            | Command::SetMarker { .. }
+            | Command::SetSuppressed { .. }
+            | Command::RenameFeature { .. }
+            | Command::GroupFeatures { .. }
+            | Command::Ungroup { .. }
+            | Command::SetGroup { .. }
+    )
+}
+
+/// [`apply_command`] without the design-mode check (direct-mode baking adds its scratch
+/// feature this way).
+pub(crate) fn apply_ungated(
+    design: &mut Design,
+    cmd: Command,
+) -> Result<Vec<CreatedId>, CommandError> {
     // Commands touch several structures (a delete converts parameters, a group edits nodes),
     // so run on a scratch copy and swap in on success. Copies are O(1) (persistent maps).
     let mut work = design.clone();
@@ -384,6 +418,14 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
             created.push(CreatedId::Feature(id));
         }
         Command::EditFeature { id, feature } => {
+            if d.timeline()
+                .node(id)
+                .is_some_and(|(_, n)| n.feature.downcast_ref::<BaseFeature>().is_some())
+            {
+                return Err(CommandError::Invalid(
+                    "the base feature can't be edited".to_owned(),
+                ));
+            }
             check_feature_params(d, &feature)?;
             d.replace_feature(id, feature)?;
         }
@@ -498,13 +540,21 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
                 d.set_name(&n);
             }
         }
-        Command::SetDesignMode { mode } => {
-            if d.meta().mode != mode {
-                return Err(CommandError::Invalid(format!(
-                    "switching to {mode:?} mode needs the direct-mode baking of DOC-08"
-                )));
+        Command::SetDesignMode { mode } => match (d.meta().mode, mode) {
+            (a, b) if a == b => {}
+            (DesignMode::Direct, _) => {
+                if let Some(f) = d.leave_direct_mode()? {
+                    created.push(CreatedId::Feature(f));
+                }
             }
-        }
+            (_, _) => {
+                return Err(CommandError::Invalid(
+                    "switching to direct mode bakes the evaluated bodies: apply it \
+                         through Document::apply"
+                        .to_owned(),
+                ));
+            }
+        },
         Command::SetExt { key, record } => d.set_ext(key, record)?,
         Command::AddExt { record } => {
             let key = d.new_ext_key(&record.kind)?;

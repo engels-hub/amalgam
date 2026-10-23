@@ -27,7 +27,7 @@ use crate::eval::Evaluated;
 use crate::feature::ComputeMode;
 use crate::history::{History, Transaction};
 use crate::id::{FeatureId, Revision};
-use crate::model::{Design, DesignSnapshot};
+use crate::model::{Design, DesignMode, DesignSnapshot};
 use crate::recompute::{RecomputeResult, recompute};
 
 /// Default budget of the persistent geometry cache (S01 §3: 2 GiB).
@@ -208,7 +208,19 @@ impl Document {
     }
 
     /// Applies one command as one undo entry. The next `poll` starts the recompute.
+    ///
+    /// `SetDesignMode { Direct }` bakes the evaluated bodies, so it needs the document to be
+    /// evaluated (see [`crate::direct`]); every other command only needs the design.
     pub fn apply(&mut self, cmd: Command) -> Result<CommandOutcome, CommandError> {
+        if matches!(
+            cmd,
+            Command::SetDesignMode {
+                mode: DesignMode::Direct
+            }
+        ) && self.design().meta().mode == DesignMode::History
+        {
+            return self.enter_direct(cmd);
+        }
         self.history.apply(cmd)
     }
 

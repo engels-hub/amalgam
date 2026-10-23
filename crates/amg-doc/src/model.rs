@@ -184,6 +184,8 @@ pub struct BlobRef(pub String);
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BakedBody {
+    /// Component the body belongs to (format v2; v1 files get the root component).
+    pub component: ComponentId,
     /// Container entry holding the serialized geometry.
     pub blob: BlobRef,
     /// The geometry, when loaded.
@@ -195,6 +197,7 @@ impl PartialEq for BakedBody {
     /// Same blob and the same geometry allocation (geometry is compared by identity).
     fn eq(&self, other: &BakedBody) -> bool {
         self.blob == other.blob
+            && self.component == other.component
             && match (&self.geom, &other.geom) {
                 (None, None) => true,
                 (Some(a), Some(b)) => a.same_as(b),
@@ -475,6 +478,9 @@ impl Design {
     /// a baked body whose origin is not a timeline feature also removes its properties.
     pub fn set_baked(&mut self, id: BodyId, baked: Option<BakedBody>) -> Result<(), ModelError> {
         self.check_body_id(id)?;
+        if let Some(b) = &baked {
+            self.require_component(b.component)?;
+        }
         if self.baked.get(&id).map(|b| &**b) == baked.as_ref() {
             return Ok(());
         }
@@ -496,6 +502,7 @@ impl Design {
     pub(crate) fn fill_baked_geom(&mut self, id: BodyId, geom: BodyGeom) {
         if let Some(b) = self.baked.get(&id) {
             let filled = BakedBody {
+                component: b.component,
                 blob: b.blob.clone(),
                 geom: Some(geom),
             };
@@ -813,6 +820,13 @@ impl Design {
                 "body props for {b:?}, whose origin is neither a timeline feature nor baked"
             ));
         }
+        if let Some((b, _)) = self
+            .baked
+            .iter()
+            .find(|(_, v)| !self.components.contains_key(&v.component))
+        {
+            return bad(format!("baked body {b:?} is in a missing component"));
+        }
         self.validate_timeline()?;
 
         for (cid, comp) in self.components() {
@@ -1039,6 +1053,7 @@ mod tests {
         d.set_baked(
             body(f2, 0),
             Some(BakedBody {
+                component: d.root(),
                 blob: BlobRef(format!("bodies/{f2}-0.mesh")),
                 geom: Some(BodyGeom::Mesh(Arc::new(IndexedMesh::default()))),
             }),
@@ -1191,6 +1206,7 @@ mod tests {
             })
         );
         let blob = BakedBody {
+            component: d.root(),
             blob: BlobRef("bodies/x".into()),
             geom: None,
         };

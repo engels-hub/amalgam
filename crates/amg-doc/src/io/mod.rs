@@ -39,7 +39,7 @@ pub use write::{save, save_in_job};
 
 /// Document format version written by this build. `design.json` of older versions is migrated
 /// by [`DOC_MIGRATIONS`]; newer ones are refused with [`FormatError::TooNew`].
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Value of `manifest.json`'s `format` field.
 pub const FORMAT_NAME: &str = "amalgam";
@@ -49,7 +49,7 @@ pub type DocMigration = fn(serde_json::Value) -> Result<serde_json::Value, Migra
 
 /// The document migration chain. Element `i` migrates version `i` to `i + 1`, so the length is
 /// [`FORMAT_VERSION`]. Every step has a never-edited fixture `tests/fixtures/format/v<i>.amg`.
-pub const DOC_MIGRATIONS: &[DocMigration] = &[migrate_v0_to_v1];
+pub const DOC_MIGRATIONS: &[DocMigration] = &[migrate_v0_to_v1, migrate_v1_to_v2];
 
 /// v0 (pre-freeze) kept the default units under `meta.units`; v1 calls them
 /// `meta.default_units`.
@@ -62,6 +62,27 @@ fn migrate_v0_to_v1(mut raw: serde_json::Value) -> Result<serde_json::Value, Mig
         .remove("units")
         .ok_or_else(|| MigrationError("v0 `meta` has no `units`".to_owned()))?;
     meta.insert("default_units".to_owned(), units);
+    Ok(raw)
+}
+
+/// v1 baked bodies had no owning component; v2 records one (DOC-08). Old entries belong to the
+/// root component, which is where v1 designs could place them.
+fn migrate_v1_to_v2(mut raw: serde_json::Value) -> Result<serde_json::Value, MigrationError> {
+    let root = raw
+        .get("root")
+        .cloned()
+        .ok_or_else(|| MigrationError("v1 design has no `root`".to_owned()))?;
+    let baked = raw
+        .get_mut("baked")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| MigrationError("v1 design has no `baked` array".to_owned()))?;
+    for (i, entry) in baked.iter_mut().enumerate() {
+        let body = entry
+            .get_mut(1)
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or_else(|| MigrationError(format!("v1 `baked[{i}]` is not a [key, body] pair")))?;
+        body.insert("component".to_owned(), root.clone());
+    }
     Ok(raw)
 }
 

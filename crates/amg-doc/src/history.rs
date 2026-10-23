@@ -140,6 +140,17 @@ impl History {
         Ok(CommandOutcome { created, revision })
     }
 
+    /// Publishes `work` (derived from the current state outside `apply_command`, e.g. by
+    /// direct-mode baking) as one undo entry. Returns the new revision.
+    pub(crate) fn push_design(
+        &mut self,
+        label: String,
+        work: Design,
+        commands: Vec<Command>,
+    ) -> Revision {
+        self.publish(label, work, commands)
+    }
+
     /// Starts a transaction: several commands, one undo entry.
     pub fn transaction(&mut self, label: &str) -> Transaction<'_> {
         Transaction {
