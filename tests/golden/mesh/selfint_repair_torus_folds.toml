@@ -1,0 +1,28 @@
+# Golden metrics for mesh/selfint_repair_torus_folds. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 1407.9752589628013
+area = 962.6344859644328
+vertices = 1796
+triangles = 3592
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 0
+
+[metrics.bbox]
+min = [
+    -11.0,
+    -11.0,
+    -4.365428995952498,
+]
+max = [
+    11.0,
+    11.0,
+    2.98356568610482,
+]

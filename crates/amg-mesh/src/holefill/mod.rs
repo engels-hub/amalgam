@@ -112,8 +112,23 @@ pub fn fill_holes(
     opts: &HoleFillOpts,
     ctx: &JobCtx,
 ) -> MeshResult<HoleFillReport> {
+    fill_holes_where(m, opts, ctx, &|_, _| true)
+}
+
+/// [`fill_holes`] restricted to the loops for which `pick` returns true (MESH-21 fills only
+/// the holes it cut itself and leaves pre-existing ones alone).
+pub(crate) fn fill_holes_where(
+    m: &mut HalfEdgeMesh,
+    opts: &HoleFillOpts,
+    ctx: &JobCtx,
+    pick: &dyn Fn(&HalfEdgeMesh, &[HalfEdgeId]) -> bool,
+) -> MeshResult<HoleFillReport> {
     validate(opts)?;
-    let loops = m.boundary_loops();
+    let loops: Vec<Vec<HalfEdgeId>> = m
+        .boundary_loops()
+        .into_iter()
+        .filter(|l| pick(m, l))
+        .collect();
     let mut report = HoleFillReport::default();
     let count = loops.len().max(1) as f32;
     for (i, lp) in loops.iter().enumerate() {
