@@ -88,6 +88,23 @@ impl State {
                 .is_none_or(|t| self.face_selected(self.he.face(t)))
     }
 
+    /// Squared split threshold (4/3 of the local target) of the edge `h`.
+    fn high2_of(&self, h: HalfEdgeId) -> f64 {
+        self.hi2(self.he.origin(h).0, self.he.target(h).0)
+    }
+
+    /// Squared split threshold of the edge between vertices `a` and `b`.
+    pub(super) fn hi2(&self, a: u32, b: u32) -> f64 {
+        let h = 4.0 / 3.0 * self.vs[a as usize].min(self.vs[b as usize]);
+        h * h
+    }
+
+    /// Squared collapse threshold (4/5 of the local target) of the edge between `a` and `b`.
+    fn lo2(&self, a: u32, b: u32) -> f64 {
+        let l = 0.8 * self.vs[a as usize].min(self.vs[b as usize]);
+        l * l
+    }
+
     fn edge_len2(&self, e: HalfEdgeId) -> f64 {
         (self.pos(self.he.target(e).0) - self.pos(self.he.origin(e).0)).length_squared()
     }
@@ -95,7 +112,7 @@ impl State {
     /// `e` is too long and will stay so: it borders the frozen part of the mesh, or (up to
     /// `depth` levels) a triangle whose longer edge is itself stuck.
     fn stuck(&self, e: HalfEdgeId, depth: u32) -> bool {
-        self.edge_len2(e) > self.high * self.high
+        self.edge_len2(e) > self.high2_of(e)
             && (!self.splittable(e) || (depth > 0 && self.split_blocked(e, depth - 1)))
     }
 
@@ -117,7 +134,6 @@ impl State {
     // ---- split ------------------------------------------------------------------------
 
     pub(super) fn split_pass(&mut self, ctx: &JobCtx) -> MeshResult<usize> {
-        let high2 = self.high * self.high;
         let he = &self.he;
         let cands: Vec<(u64, Reverse<u64>)> = (0..he.face_slots() as u32)
             .into_par_iter()
@@ -132,7 +148,7 @@ impl State {
                 }
                 let (a, b) = (he.origin(h), he.target(h));
                 let l2 = (he.position(b) - he.position(a)).length_squared();
-                (l2 > high2).then(|| (l2.to_bits(), Reverse(key(a.0, b.0))))
+                (l2 > self.hi2(a.0, b.0)).then(|| (l2.to_bits(), Reverse(key(a.0, b.0))))
             })
             .collect();
         let mut heap = BinaryHeap::from(cands);
@@ -154,7 +170,7 @@ impl State {
                 continue;
             }
             let (pa, pb) = (self.pos(a), self.pos(b));
-            if (pb - pa).length_squared() <= high2 {
+            if (pb - pa).length_squared() <= self.hi2(a, b) {
                 continue;
             }
             let slots_before = self.he.face_slots();
@@ -168,6 +184,8 @@ impl State {
             debug_assert!(self.he.face_slots() > slots_before);
             self.ncons.push(0);
             self.fixed.push(false);
+            self.vs
+                .push(0.5 * (self.vs[a as usize] + self.vs[b as usize]));
             if let Some(kind) = self.cons.remove(&k) {
                 self.cons.insert(key(a, m), kind);
                 self.cons.insert(key(m, b), kind);
@@ -176,7 +194,7 @@ impl State {
             let pm = self.pos(m);
             for w in self.he.neighbors(VertexId(m)) {
                 let l2 = (self.pos(w.0) - pm).length_squared();
-                if l2 > high2 {
+                if l2 > self.hi2(m, w.0) {
                     heap.push((l2.to_bits(), Reverse(key(m, w.0))));
                 }
             }
@@ -192,7 +210,6 @@ impl State {
     // ---- collapse ---------------------------------------------------------------------
 
     pub(super) fn collapse_pass(&mut self, ctx: &JobCtx) -> MeshResult<usize> {
-        let low2 = self.low * self.low;
         let he = &self.he;
         let mut cands: Vec<(u64, u64)> = (0..he.face_slots() as u32)
             .into_par_iter()
@@ -207,7 +224,7 @@ impl State {
                 }
                 let (a, b) = (he.origin(h), he.target(h));
                 let l2 = (he.position(b) - he.position(a)).length_squared();
-                (l2 < low2).then(|| (l2.to_bits(), key(a.0, b.0)))
+                (l2 < self.lo2(a.0, b.0)).then(|| (l2.to_bits(), key(a.0, b.0)))
             })
             .collect();
         cands.par_sort_unstable();
@@ -217,7 +234,7 @@ impl State {
             if !self.he.is_vertex_alive(VertexId(a)) || !self.he.is_vertex_alive(VertexId(b)) {
                 continue;
             }
-            if (self.pos(a) - self.pos(b)).length_squared() >= low2 {
+            if (self.pos(a) - self.pos(b)).length_squared() >= self.lo2(a, b) {
                 continue;
             }
             let hab = self.find(a, b);
@@ -271,9 +288,8 @@ impl State {
         if !self.he.can_collapse(h) {
             return false;
         }
-        let high2 = self.high * self.high;
         for w in self.he.neighbors(VertexId(x)) {
-            if w.0 != y && (self.pos(w.0) - p).length_squared() > high2 {
+            if w.0 != y && (self.pos(w.0) - p).length_squared() > self.hi2(w.0, y) {
                 return false;
             }
         }

@@ -444,7 +444,7 @@ fn errors_and_cancel() {
     }
     let adaptive = RemeshOpts {
         sizing: Sizing::Adaptive {
-            tolerance: 0.1,
+            tolerance: 0.0,
             min_length: 0.1,
             max_length: 2.0,
         },
