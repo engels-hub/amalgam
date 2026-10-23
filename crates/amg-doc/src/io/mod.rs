@@ -47,7 +47,7 @@ pub use write::{save, save_in_job};
 
 /// Document format version written by this build. `design.json` of older versions is migrated
 /// by [`DOC_MIGRATIONS`]; newer ones are refused with [`FormatError::TooNew`].
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// Value of `manifest.json`'s `format` field.
 pub const FORMAT_NAME: &str = "amalgam";
@@ -57,7 +57,7 @@ pub type DocMigration = fn(serde_json::Value) -> Result<serde_json::Value, Migra
 
 /// The document migration chain. Element `i` migrates version `i` to `i + 1`, so the length is
 /// [`FORMAT_VERSION`]. Every step has a never-edited fixture `tests/fixtures/format/v<i>.amg`.
-pub const DOC_MIGRATIONS: &[DocMigration] = &[migrate_v0_to_v1, migrate_v1_to_v2];
+pub const DOC_MIGRATIONS: &[DocMigration] = &[migrate_v0_to_v1, migrate_v1_to_v2, migrate_v2_to_v3];
 
 /// v0 (pre-freeze) kept the default units under `meta.units`; v1 calls them
 /// `meta.default_units`.
@@ -91,6 +91,19 @@ fn migrate_v1_to_v2(mut raw: serde_json::Value) -> Result<serde_json::Value, Mig
             .ok_or_else(|| MigrationError(format!("v1 `baked[{i}]` is not a [key, body] pair")))?;
         body.insert("component".to_owned(), root.clone());
     }
+    Ok(raw)
+}
+
+/// v2 had no configurations; v3 stores a `configs` table (DOC-10). Old designs get an empty
+/// one with the base design active.
+fn migrate_v2_to_v3(mut raw: serde_json::Value) -> Result<serde_json::Value, MigrationError> {
+    let design = raw
+        .as_object_mut()
+        .ok_or_else(|| MigrationError("v2 design is not an object".to_owned()))?;
+    design.insert(
+        "configs".to_owned(),
+        serde_json::json!({ "configs": [], "active": null }),
+    );
     Ok(raw)
 }
 

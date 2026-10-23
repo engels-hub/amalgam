@@ -14,6 +14,7 @@
 
 pub mod cache;
 pub mod command;
+pub mod config;
 pub mod direct;
 pub mod document;
 pub mod eval;
@@ -37,6 +38,7 @@ pub mod timeline;
 
 pub use cache::{CacheStats, GeomCache};
 pub use command::{Command, CommandError, CommandOutcome, CreatedId, apply_command};
+pub use config::{Config, ConfigTable};
 pub use direct::{BASE_FEATURE_KIND, BaseBody, BaseFeature, DirectBake, DirectError};
 pub use document::{
     DEFAULT_CACHE_BUDGET, Document, RecomputeError, RecomputeJob, RecomputeStatus, RecomputeSummary,

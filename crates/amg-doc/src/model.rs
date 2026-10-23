@@ -17,6 +17,7 @@ use std::sync::Arc;
 use amg_core::{PersistentId, Tolerance, Transform};
 use serde::{Deserialize, Serialize};
 
+use crate::config::ConfigTable;
 use crate::eval::BodyGeom;
 use crate::id::{BodyId, ComponentId, ExtKey, FeatureId, GroupId, JointId, OccurrenceId, Revision};
 use crate::param::ParamTable;
@@ -57,6 +58,8 @@ pub struct Design {
     pub(crate) timeline: Timeline,
     /// Parameters (DOC-04); edits in [`crate::param`].
     pub(crate) params: ParamTable,
+    /// Configurations and the active one (DOC-10); edits in [`crate::config`].
+    pub(crate) configs: ConfigTable,
     /// Runtime only: authored changes since the design was created or loaded.
     #[serde(skip)]
     revision: Revision,
@@ -320,6 +323,7 @@ impl Design {
             extensions: PMap::new(),
             timeline: Timeline::default(),
             params: ParamTable::default(),
+            configs: ConfigTable::default(),
             revision: Revision(0),
         }
     }
@@ -695,6 +699,8 @@ impl Design {
             Some("extension")
         } else if self.timeline.group(GroupId(id)).is_some() {
             Some("group")
+        } else if self.configs.get(crate::id::ConfigId(id)).is_some() {
+            Some("config")
         } else if self.params.get(crate::id::ParamId(id)).is_some() {
             Some("parameter")
         } else if self.timeline.contains(FeatureId(id))
@@ -789,6 +795,9 @@ impl Design {
         for (g, _) in self.timeline.groups() {
             claim(g.0, "group")?;
         }
+        for (c, _) in self.configs.iter() {
+            claim(c.0, "config")?;
+        }
         for n in self.timeline.nodes() {
             claim(n.id.0, "feature")?;
         }
@@ -828,6 +837,8 @@ impl Design {
             return bad(format!("baked body {b:?} is in a missing component"));
         }
         self.validate_timeline()?;
+        self.validate_configs().or_else(bad)?;
+        self.check_configs().or_else(bad)?;
 
         for (cid, comp) in self.components() {
             if let Some(j) = comp.joints.first() {
@@ -944,6 +955,9 @@ struct DesignRepr {
     /// Added by DOC-04; defaulted so files without it still load.
     #[serde(default)]
     params: ParamTable,
+    /// Added by DOC-10 (format v3; the migration writes an empty table).
+    #[serde(default)]
+    configs: ConfigTable,
 }
 
 impl TryFrom<DesignRepr> for Design {
@@ -960,6 +974,7 @@ impl TryFrom<DesignRepr> for Design {
             extensions: r.extensions,
             timeline: r.timeline,
             params,
+            configs: r.configs,
             revision: Revision(0),
         };
         d.validate()?;
@@ -1408,6 +1423,7 @@ mod tests {
                 "baked",
                 "body_props",
                 "components",
+                "configs",
                 "extensions",
                 "meta",
                 "occurrences",

@@ -82,7 +82,10 @@ pub fn recompute(
     mode: ComputeMode,
     job: &JobCtx,
 ) -> Result<RecomputeResult, Cancelled> {
-    Pass::new(design, cache, mode, job).run()
+    // The active configuration (DOC-10) is applied to a copy; everything below, including the
+    // cache keys, sees its parameter values and suppression flags.
+    let effective = design.effective();
+    Pass::new(&effective, cache, mode, job).run()
 }
 
 // ---- key hashing ------------------------------------------------------------------------

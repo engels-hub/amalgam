@@ -53,6 +53,12 @@ pub enum DocEvent {
     ParamsChanged,
     /// An extension record changed.
     ExtChanged(ExtKey),
+    /// The configuration table changed: a configuration was added, removed, renamed or
+    /// edited, or another one was activated (DOC-10). Activating a configuration, or editing
+    /// the active one, additionally raises `ParamsChanged` / `TimelineChanged` when the
+    /// effective parameter expressions / suppression flags differ, and the following
+    /// recompute raises the geometry and health events as usual.
+    ConfigsChanged,
     /// A recompute job started for this revision.
     RecomputeStarted(Revision),
     /// A recompute result was swapped in; `failed` nodes have an error.
@@ -151,10 +157,20 @@ fn authored_events(old: &Design, new: &Design, out: &mut Vec<DocEvent>) {
         || old.timeline().len() != new.timeline().len()
         || old.timeline().nodes().ne(new.timeline().nodes())
         || old.timeline().groups().ne(new.timeline().groups());
-    if timeline_changed {
+    // Configurations (DOC-10): the table itself, and what the active one changes for the
+    // consumers of parameters and the timeline.
+    let (oc, nc) = (old.configs(), new.configs());
+    if oc != nc {
+        out.push(DocEvent::ConfigsChanged);
+    }
+    let (oa, na) = (old.active_config_data(), new.active_config_data());
+    let eff_params = old.params != new.params || oa.map(|c| &c.params) != na.map(|c| &c.params);
+    let eff_supp = oa.map(|c| &c.suppressed) != na.map(|c| &c.suppressed);
+
+    if timeline_changed || eff_supp {
         out.push(DocEvent::TimelineChanged);
     }
-    if old.params != new.params {
+    if eff_params {
         out.push(DocEvent::ParamsChanged);
     }
 
