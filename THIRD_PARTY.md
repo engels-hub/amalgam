@@ -59,8 +59,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | imbl | persistent collections, `amg-doc` (S01; DOC-01 bench confirmed; `im` is unmaintained). Pulls in `imbl-sized-chunks` (MPL-2.0+), `archery` (MIT), `wide`/`safe_arch` (Zlib/Apache-2.0/MIT), `rand_xoshiro`, `rand_core` 0.9 (MIT/Apache-2.0) | MPL-2.0 (crates.io: `MPL-2.0+`) | weak | no | In use (7.0.2) |
 | rpds | fallback persistent collections; DOC-01 bench comparison, `amg-doc` dev-only (S01) | MIT (1.x; older releases MPL-2.0) | no | — | In use (1.2.1, dev-only) |
 | ttf-parser 0.25.1 (`default-features = false`, `std`) | `amg-sketch::text` glyph outlines (S03, SK-10) | MIT / Apache-2.0 | no | no | In use (0.25.1) |
-| dxf | DXF import (S03) | MIT | no | no | Planned |
-| usvg | SVG import (S03) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
+| dxf | DXF import, `amg-sketch::import` (S03 SK-11); pulls `image`, `chrono`, `uuid`, `num`, `encoding_rs` ((Apache-2.0 OR MIT) AND BSD-3-Clause), all permissive | MIT | no | no | In use (0.6.2) |
+| usvg | SVG import, `amg-sketch::import` (S03 SK-11); `default-features = false` (no text/font/raster stack); pulls `roxmltree`, `svgtypes`, `kurbo`, `simplecss`, `tiny-skia-path` (BSD-3-Clause), all permissive | MIT / Apache-2.0 (>= 0.38; older releases MPL-2.0) | no | no | In use (0.48.1) |
 | criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only) |
 | blake3 | cache keys and manifest hashes, `amg-doc` (S01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | In use (1.8.7) |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.1.20) |
