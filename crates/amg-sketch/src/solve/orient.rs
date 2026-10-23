@@ -109,7 +109,7 @@ pub fn orient_constraint(sketch: &Sketch, kind: ConstraintKind) -> ConstraintKin
     let lc = characteristic_length(sketch);
     let mut best: Option<(f64, ConstraintKind)> = None;
     for c in cands {
-        let Ok(Some(r)) = build(sketch, &c, lc, true) else {
+        let Ok(Some(r)) = build(sketch, &c, &[], lc, true) else {
             continue;
         };
         let mut f = vec![0.0; r.rows()];

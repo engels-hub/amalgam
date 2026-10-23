@@ -101,10 +101,18 @@ pub(crate) enum Func {
     /// `[c, s, e]` → `|s − c| · sweep`, `sweep` = CCW angle from `s − c` to `e − c` in
     /// (0, 2π] (the arc length of the CCW arc).
     ArcLen,
+    /// `[p, c, M, b, t]` (`px, py, cx, cy, Mx, My, b, t`) → component `k` (0 = x, 1 = y) of
+    /// `p − P(t)`, where `P(t) = c + m·cos t + perp(m)·(b/|m|)·sin t` and `m = M − c` (SK-22).
+    EllipseOn(usize),
+    /// `[A, B, c, M, b]` (`Ax, Ay, Bx, By, cx, cy, Mx, My, b`) → half-width `h` of the ellipse
+    /// with centre `c`, major end `M` and minor radius `b` in the direction normal to the line
+    /// `A → B`: `h² = b² + (1 − b²/a²)·q²`, `q = cross(B − A, M − c)/|B − A|`, `a = |M − c|`.
+    /// The line is tangent to the ellipse when the signed centre distance equals `±h`.
+    EllipseSupport,
 }
 
 /// Largest arity of any [`Func`].
-pub(crate) const MAX_ARITY: usize = 8;
+pub(crate) const MAX_ARITY: usize = 9;
 
 impl Func {
     pub(crate) fn arity(self) -> usize {
@@ -114,6 +122,8 @@ impl Func {
             Func::Dist => 4,
             Func::SignedDist | Func::ArcLen => 6,
             Func::MidSignedDist | Func::DirDot | Func::Sin | Func::Cos | Func::Angle(..) => 8,
+            Func::EllipseOn(_) => 8,
+            Func::EllipseSupport => 9,
         }
     }
 
@@ -161,8 +171,94 @@ impl Func {
             Func::Cos => sin_cos(v, g, false),
             Func::Angle(du, dw) => angle(du, dw, v, g),
             Func::ArcLen => arc_len(v, g),
+            Func::EllipseOn(k) => ellipse_on(k, v, g),
+            Func::EllipseSupport => ellipse_support(v, g),
         }
     }
+}
+
+/// Component `k` of `p − P(t)`; see [`Func::EllipseOn`].
+fn ellipse_on(k: usize, v: &[f64], g: &mut [f64]) -> f64 {
+    let (px, py, cx, cy, ex, ey, b, t) = (v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+    let (mx, my) = (ex - cx, ey - cy);
+    let a2 = mx * mx + my * my;
+    if a2 <= 0.0 {
+        g[..8].fill(0.0);
+        return 0.0;
+    }
+    let a = a2.sqrt();
+    let (cs, sn) = (t.cos(), t.sin());
+    let kk = b / a;
+    // w = perp(m)·k = (−my·k, mx·k)
+    let (f, gmx, gmy, gb, gt) = if k == 0 {
+        (
+            px - cx - mx * cs + my * kk * sn,
+            -cs - b * mx * my * sn / (a2 * a),
+            sn * (kk - b * my * my / (a2 * a)),
+            my * sn / a,
+            mx * sn + my * kk * cs,
+        )
+    } else {
+        (
+            py - cy - my * cs - mx * kk * sn,
+            -sn * (kk - b * mx * mx / (a2 * a)),
+            -cs + b * mx * my * sn / (a2 * a),
+            -mx * sn / a,
+            my * sn - mx * kk * cs,
+        )
+    };
+    let (dpx, dpy) = if k == 0 { (1.0, 0.0) } else { (0.0, 1.0) };
+    // c appears directly (−1) and through m = M − c.
+    g[0] = dpx;
+    g[1] = dpy;
+    g[2] = -dpx - gmx;
+    g[3] = -dpy - gmy;
+    g[4] = gmx;
+    g[5] = gmy;
+    g[6] = gb;
+    g[7] = gt;
+    f
+}
+
+/// See [`Func::EllipseSupport`].
+fn ellipse_support(v: &[f64], g: &mut [f64]) -> f64 {
+    let (dx, dy) = (v[2] - v[0], v[3] - v[1]);
+    let (mx, my) = (v[6] - v[4], v[7] - v[5]);
+    let b = v[8];
+    let l2 = dx * dx + dy * dy;
+    let a2 = mx * mx + my * my;
+    if l2 <= 0.0 || a2 <= 0.0 {
+        g[..9].fill(0.0);
+        return 0.0;
+    }
+    let l = l2.sqrt();
+    let q = (dx * my - dy * mx) / l;
+    let h2 = b * b + q * q * (1.0 - b * b / a2);
+    if h2 <= 0.0 {
+        g[..9].fill(0.0);
+        return 0.0;
+    }
+    let h = h2.sqrt();
+    let dh2_db = 2.0 * b * (1.0 - q * q / a2);
+    let dh2_dq = 2.0 * q * (1.0 - b * b / a2);
+    let dh2_da2 = q * q * b * b / (a2 * a2);
+    let (dq_ddx, dq_ddy) = (my / l - q * dx / l2, -mx / l - q * dy / l2);
+    let (dq_dmx, dq_dmy) = (-dy / l, dx / l);
+    let s = 0.5 / h;
+    let gdx = s * dh2_dq * dq_ddx;
+    let gdy = s * dh2_dq * dq_ddy;
+    let gmx = s * (dh2_dq * dq_dmx + dh2_da2 * 2.0 * mx);
+    let gmy = s * (dh2_dq * dq_dmy + dh2_da2 * 2.0 * my);
+    g[0] = -gdx;
+    g[1] = -gdy;
+    g[2] = gdx;
+    g[3] = gdy;
+    g[4] = -gmx;
+    g[5] = -gmy;
+    g[6] = gmx;
+    g[7] = gmy;
+    g[8] = s * dh2_db;
+    h
 }
 
 /// Wraps an angle to (−π, π].
@@ -308,7 +404,10 @@ fn arc_len(v: &[f64], g: &mut [f64]) -> f64 {
 mod tests {
     use super::*;
 
-    const ALL: [Func; 16] = [
+    const ALL: [Func; 19] = [
+        Func::EllipseOn(0),
+        Func::EllipseOn(1),
+        Func::EllipseSupport,
         Func::Coord,
         Func::AbsRadDiff(Rad::Param, Rad::Param),
         Func::AbsRadDiff(Rad::Param, Rad::Dist),
@@ -329,7 +428,7 @@ mod tests {
 
     #[test]
     fn gradients_match_central_differences() {
-        let base = [1.3, -0.7, 4.1, 2.2, -2.5, 3.9, 0.4, -3.3];
+        let base = [1.3, -0.7, 4.1, 2.2, -2.5, 3.9, 0.4, -3.3, 1.7];
         for f in ALL {
             let n = f.arity();
             let mut g = [0.0; MAX_ARITY];

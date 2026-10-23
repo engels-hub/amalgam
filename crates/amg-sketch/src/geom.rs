@@ -2,11 +2,14 @@
 //!
 //! `Segment2` and `Aabb2` are the `amg-core` types; circles and arcs are sketch-specific.
 //! Curve queries (`eval`, `closest`, `bbox`, ...) and [`intersect`] are in `query` (SK-06);
-//! ellipses arrive with SK-22 and B-splines with SK-08.
+//! ellipses and elliptical arcs (SK-22) are [`EllipseArc2`]; B-splines arrive with SK-08.
 
 use amg_core::{Point2, Segment2};
 
+mod ellipse;
 mod query;
+
+pub use ellipse::EllipseArc2;
 
 pub(crate) use query::intersect_detailed;
 pub use query::{CurveHit, intersect};
@@ -64,6 +67,8 @@ pub enum Curve2 {
     Circle(Circle2),
     /// CCW arc.
     Arc(Arc2),
+    /// Ellipse or elliptical arc (SK-22).
+    Ellipse(EllipseArc2),
 }
 
 #[cfg(test)]

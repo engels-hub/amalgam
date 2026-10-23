@@ -664,6 +664,12 @@ pub fn map_entities(kind: &ConstraintKind, f: &dyn Fn(EntityId) -> EntityId) -> 
                 D::Radius { curve } => D::Radius { curve: f(curve) },
                 D::Diameter { curve } => D::Diameter { curve: f(curve) },
                 D::ArcLength { arc } => D::ArcLength { arc: f(arc) },
+                D::EllipseMajor { ellipse } => D::EllipseMajor {
+                    ellipse: f(ellipse),
+                },
+                D::EllipseMinor { ellipse } => D::EllipseMinor {
+                    ellipse: f(ellipse),
+                },
             };
             C::Dimension(crate::model::Dimension {
                 kind,

@@ -5,6 +5,8 @@
 //! - `Circle`: `t ∈ [0, 2π]` is the polar angle, CCW from `+x`.
 //! - `Arc`: `t ∈ [0, |sweep|]` is the angle travelled from the start point along the arc's
 //!   direction, `eval(t) = c + r·(cos θ, sin θ)` with `θ = start_angle + sign(sweep)·t`.
+//! - `Ellipse`: `t ∈ [0, |t1 − t0|]` is the eccentric angle travelled from the start (see
+//!   [`EllipseArc2`]).
 //!
 //! The parameter therefore always increases in the curve's direction of travel.
 
@@ -14,7 +16,8 @@ use amg_core::intersect::{Seg2Intersection, segment2_segment2};
 use amg_core::{Aabb2, Point2, Segment2, Tolerance, Vec2};
 use smallvec::SmallVec;
 
-use super::{Arc2, Circle2, Curve2};
+use super::ellipse;
+use super::{Arc2, Circle2, Curve2, EllipseArc2};
 
 /// One intersection of two curves: `point ≈ a.eval(ta) ≈ b.eval(tb)`.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -145,7 +148,7 @@ fn overlap_angle(a: &Round, b: &Round) -> f64 {
 impl Curve2 {
     pub(crate) fn round(&self) -> Option<Round> {
         match *self {
-            Curve2::Line(_) => None,
+            Curve2::Line(_) | Curve2::Ellipse(_) => None,
             Curve2::Circle(Circle2 { center, radius }) => Some(Round {
                 c: center,
                 r: radius,
@@ -174,39 +177,50 @@ impl Curve2 {
             Curve2::Line(_) => (0.0, 1.0),
             Curve2::Circle(_) => (0.0, TAU),
             Curve2::Arc(a) => (0.0, a.sweep.abs()),
+            Curve2::Ellipse(e) => (0.0, e.span()),
         }
     }
 
     /// Point at parameter `t`.
     pub fn eval(&self, t: f64) -> Point2 {
-        match (self, self.round()) {
-            (Curve2::Line(s), _) => s.a + (s.b - s.a) * t,
-            (_, Some(r)) => r.eval(t),
-            _ => Point2::NAN,
+        match self {
+            Curve2::Line(s) => s.a + (s.b - s.a) * t,
+            Curve2::Circle(_) | Curve2::Arc(_) => self.round().map_or(Point2::NAN, |r| r.eval(t)),
+            Curve2::Ellipse(e) => e.eval(t),
         }
     }
 
     /// First derivative `d eval / dt` (direction of travel).
     pub fn derivative(&self, t: f64) -> Vec2 {
-        match (self, self.round()) {
-            (Curve2::Line(s), _) => s.b - s.a,
-            (_, Some(r)) => r.derivative(t),
-            _ => Vec2::NAN,
+        match self {
+            Curve2::Line(s) => s.b - s.a,
+            Curve2::Circle(_) | Curve2::Arc(_) => {
+                self.round().map_or(Vec2::NAN, |r| r.derivative(t))
+            }
+            Curve2::Ellipse(e) => e.derivative(t),
         }
     }
 
-    /// Signed curvature (positive = turning left / CCW), 1/mm.
+    /// Signed curvature (positive = turning left / CCW), 1/mm. Constant for lines and
+    /// circular arcs; for an ellipse it is the curvature **at the start** (use
+    /// [`curvature_at`](Curve2::curvature_at) for other parameters).
     pub fn curvature(&self) -> f64 {
-        match self.round() {
-            None => 0.0,
-            Some(r) => r.sign() / r.r,
+        self.curvature_at(0.0)
+    }
+
+    /// Signed curvature at parameter `t` (positive = turning left / CCW), 1/mm.
+    pub fn curvature_at(&self, t: f64) -> f64 {
+        match self {
+            Curve2::Line(_) => 0.0,
+            Curve2::Circle(_) | Curve2::Arc(_) => self.round().map_or(0.0, |r| r.sign() / r.r),
+            Curve2::Ellipse(e) => e.curvature_at(t),
         }
     }
 
     /// Closest point to `p`: `(t, point)`.
     pub fn closest(&self, p: Point2) -> (f64, Point2) {
-        match (self, self.round()) {
-            (Curve2::Line(s), _) => {
+        match self {
+            Curve2::Line(s) => {
                 let d = s.b - s.a;
                 let ll = d.length_squared();
                 let t = if ll > 0.0 {
@@ -216,17 +230,19 @@ impl Curve2 {
                 };
                 (t, s.a + d * t)
             }
-            (_, Some(r)) => r.closest(p),
-            _ => (0.0, Point2::NAN),
+            Curve2::Circle(_) | Curve2::Arc(_) => {
+                self.round().map_or((0.0, Point2::NAN), |r| r.closest(p))
+            }
+            Curve2::Ellipse(e) => e.closest(p),
         }
     }
 
     /// Tight axis-aligned bounding box.
     pub fn bbox(&self) -> Aabb2 {
-        match (self, self.round()) {
-            (Curve2::Line(s), _) => Aabb2::new(s.a, s.b),
-            (_, Some(r)) => r.bbox(),
-            _ => Aabb2::EMPTY,
+        match self {
+            Curve2::Line(s) => Aabb2::new(s.a, s.b),
+            Curve2::Circle(_) | Curve2::Arc(_) => self.round().map_or(Aabb2::EMPTY, |r| r.bbox()),
+            Curve2::Ellipse(e) => e.bbox(),
         }
     }
 
@@ -246,41 +262,55 @@ impl Curve2 {
                 sweep: -a.sweep,
                 ..a
             }),
+            Curve2::Ellipse(e) => Curve2::Ellipse(EllipseArc2 {
+                t0: e.t1,
+                t1: e.t0,
+                ..e
+            }),
         }
     }
 
-    /// The piece from `t0` to `t1` (reversed if `t1 < t0`). Circles and arcs give an `Arc`.
+    /// The piece from `t0` to `t1` (reversed if `t1 < t0`). Circles and arcs give an `Arc`;
+    /// ellipses and elliptical arcs give an elliptical arc.
     pub fn trimmed(&self, t0: f64, t1: f64) -> Curve2 {
-        match (self, self.round()) {
-            (Curve2::Line(_), _) => Curve2::Line(Segment2 {
+        match self {
+            Curve2::Line(_) => Curve2::Line(Segment2 {
                 a: self.eval(t0),
                 b: self.eval(t1),
             }),
-            (_, Some(r)) => Curve2::Arc(Arc2 {
-                center: r.c,
-                radius: r.r,
-                start_angle: r.angle(t0),
-                sweep: r.sign() * (t1 - t0),
+            Curve2::Circle(_) | Curve2::Arc(_) => match self.round() {
+                Some(r) => Curve2::Arc(Arc2 {
+                    center: r.c,
+                    radius: r.r,
+                    start_angle: r.angle(t0),
+                    sweep: r.sign() * (t1 - t0),
+                }),
+                None => self.clone(),
+            },
+            Curve2::Ellipse(e) => Curve2::Ellipse(EllipseArc2 {
+                t0: e.angle(t0),
+                t1: e.angle(t1),
+                ..*e
             }),
-            _ => self.clone(),
         }
     }
 
-    /// Circle, or arc with `|sweep| = 2π`.
+    /// Circle, arc with `|sweep| = 2π`, or full ellipse.
     pub fn is_closed(&self) -> bool {
         match self {
             Curve2::Line(_) => false,
             Curve2::Circle(_) => true,
             Curve2::Arc(a) => a.sweep.abs() >= TAU - 1e-12,
+            Curve2::Ellipse(e) => e.is_full(),
         }
     }
 
     /// Arc length, mm.
     pub fn length(&self) -> f64 {
-        match (self, self.round()) {
-            (Curve2::Line(s), _) => s.a.distance(s.b),
-            (_, Some(r)) => r.r * r.span(),
-            _ => f64::NAN,
+        match self {
+            Curve2::Line(s) => s.a.distance(s.b),
+            Curve2::Circle(_) | Curve2::Arc(_) => self.round().map_or(f64::NAN, |r| r.r * r.span()),
+            Curve2::Ellipse(e) => e.length(),
         }
     }
 }
@@ -298,6 +328,8 @@ pub fn intersect(a: &Curve2, b: &Curve2, tol: &Tolerance) -> SmallVec<[CurveHit;
 /// [`intersect`] plus the overlap flag.
 pub(crate) fn intersect_detailed(a: &Curve2, b: &Curve2, tol: &Tolerance) -> Intersection {
     let mut out = match (a, b, a.round(), b.round()) {
+        (Curve2::Ellipse(ea), _, _, _) => ellipse::intersect(ea, a, b, tol, false),
+        (_, Curve2::Ellipse(eb), _, _) => ellipse::intersect(eb, b, a, tol, true),
         (Curve2::Line(sa), Curve2::Line(sb), _, _) => line_line(sa, sb, tol),
         (Curve2::Line(s), _, _, Some(r)) => line_round(s, &r, tol, false),
         (_, Curve2::Line(s), Some(r), _) => line_round(s, &r, tol, true),

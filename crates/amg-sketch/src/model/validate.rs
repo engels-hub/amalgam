@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use amg_core::{Point2, Tolerance};
 
 use crate::error::SketchError;
+use crate::geom::EllipseArc2;
 use crate::ids::{ConstraintId, EntityId, ParamId};
 use crate::model::{
     Constraint, ConstraintKind, Dimension, DimensionKind, Entity, EntityKind, HvTarget, ParamStore,
@@ -32,8 +33,10 @@ const POINT: &str = "point";
 const LINE: &str = "line";
 const ARC: &str = "arc";
 const ROUND: &str = "circle or arc";
-const CURVE: &str = "line, circle or arc";
+const CURVE: &str = "line, circle, arc or ellipse";
 const LINE_OR_ARC: &str = "line or arc";
+const ELLIPSE: &str = "ellipse or elliptical arc";
+const CENTERED: &str = "circle, arc or ellipse";
 
 fn wrong(entity: EntityId, expected: &'static str, found: &EntityKind) -> SketchError {
     SketchError::WrongEntityKind {
@@ -129,7 +132,11 @@ impl View<'_> {
         for &p in &own {
             self.param(p)?;
         }
-        if own.len() == 2 && own[0] == own[1] {
+        if own
+            .iter()
+            .enumerate()
+            .any(|(i, p)| own[i + 1..].contains(p))
+        {
             return Err(SketchError::NotApplicable(
                 "the same parameter is used twice",
             ));
@@ -162,9 +169,59 @@ impl View<'_> {
                     ));
                 }
             }
+            EntityKind::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => {
+                self.ellipse(center, major, minor_radius)?;
+            }
+            EntityKind::EllipticArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+                t0,
+                t1,
+            } => {
+                let e = self.ellipse(center, major, minor_radius)?;
+                let tol = Tolerance::DEFAULT;
+                let reach = tol.linear * e.semi_major().max(e.minor_radius).max(1.0);
+                for (p, t, what) in [
+                    (start, t0, "elliptical arc start is not at t0"),
+                    (end, t1, "elliptical arc end is not at t1"),
+                ] {
+                    finite("elliptical arc parameter", self.params.get(t))?;
+                    if e.point_at(self.params.get(t)).distance(self.pos(p)) > reach {
+                        return Err(SketchError::Degenerate(what));
+                    }
+                }
+            }
             EntityKind::Line { .. } => {}
         }
         Ok(())
+    }
+
+    /// The full ellipse of an ellipse entity's centre, major end point and minor radius param;
+    /// `Degenerate` / `InvalidValue` unless the semi-major length and the minor radius are
+    /// positive.
+    fn ellipse(
+        &self,
+        center: EntityId,
+        major: EntityId,
+        minor_radius: ParamId,
+    ) -> Result<EllipseArc2, SketchError> {
+        let c = self.pos(center);
+        let m = self.pos(major) - c;
+        if Tolerance::DEFAULT.is_zero_len(m.length()) {
+            return Err(SketchError::Degenerate(
+                "ellipse major axis has zero length",
+            ));
+        }
+        let b = self.params.get(minor_radius);
+        positive("ellipse minor radius", b)?;
+        Ok(EllipseArc2::full(c, m, b))
     }
 
     /// True if points `a` and `b` are the same entity or joined by a chain of `Coincident`
@@ -195,6 +252,22 @@ impl View<'_> {
             }
         }
         false
+    }
+
+    /// Number of auxiliary params the constraint owns: one (the curve parameter) for a point
+    /// on an ellipse or elliptical arc, none otherwise.
+    pub fn aux_count(&self, kind: &ConstraintKind) -> usize {
+        match *kind {
+            ConstraintKind::PointOnCurve { curve, .. }
+                if self
+                    .entities
+                    .get(&curve)
+                    .is_some_and(|e| e.kind.is_ellipse()) =>
+            {
+                1
+            }
+            _ => 0,
+        }
     }
 
     /// Validates the entity kinds a constraint references, and values per `mode`.
@@ -240,8 +313,8 @@ impl View<'_> {
             }
             ConstraintKind::Tangent { a, b, kind } => self.tangent(a, b, kind, mode)?,
             ConstraintKind::Concentric { a, b } => {
-                self.round(a)?;
-                self.round(b)?;
+                self.expect(a, CENTERED, EntityKind::has_center)?;
+                self.expect(b, CENTERED, EntityKind::has_center)?;
             }
             ConstraintKind::Equal { a, b } => {
                 let ka = self.expect(a, CURVE, EntityKind::is_curve)?;
@@ -251,14 +324,17 @@ impl View<'_> {
                     EntityKind::Line { .. } => kb.is_line() || kb.is_arc(),
                     // circle/arc–circle/arc: equal radius
                     EntityKind::Circle { .. } => kb.is_round(),
-                    EntityKind::Arc { .. } => kb.is_curve(),
+                    EntityKind::Arc { .. } => kb.is_line() || kb.is_round(),
+                    // ellipse–ellipse: equal axes
+                    EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => kb.is_ellipse(),
                     EntityKind::Point { .. } => false,
                 };
                 if !ok {
                     let expected = match ka {
                         EntityKind::Line { .. } => LINE_OR_ARC,
                         EntityKind::Circle { .. } => ROUND,
-                        _ => CURVE,
+                        EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => ELLIPSE,
+                        _ => "line, circle or arc",
                     };
                     return Err(wrong(b, expected, kb));
                 }
@@ -268,6 +344,11 @@ impl View<'_> {
                 let kb = self.kind(b)?;
                 if std::mem::discriminant(ka) != std::mem::discriminant(kb) {
                     return Err(wrong(b, ka.name(), kb));
+                }
+                if matches!(ka, EntityKind::EllipticArc { .. }) {
+                    return Err(SketchError::NotApplicable(
+                        "symmetry of elliptical arcs is not supported; mirror the full ellipse",
+                    ));
                 }
                 self.line(axis)?;
             }
@@ -307,14 +388,37 @@ impl View<'_> {
                 }
             }
             TangentKind::External | TangentKind::Internal => {
-                if ka.is_line() {
+                // Line–ellipse is supported in either order; ellipse–circle/ellipse is not.
+                let (line_side, other) = if ka.is_line() {
+                    (true, kb)
+                } else if kb.is_line() && ka.is_ellipse() {
+                    (true, ka)
+                } else {
+                    (false, kb)
+                };
+                if line_side && other.is_ellipse() {
+                    // fine
+                } else if ka.is_line() {
                     self.round(b)?;
                 } else if ka.is_round() {
-                    if !kb.is_curve() {
-                        return Err(wrong(b, CURVE, kb));
+                    if !(kb.is_line() || kb.is_round()) {
+                        if kb.is_ellipse() {
+                            return Err(SketchError::NotApplicable(
+                                "tangency between a circle or arc and an ellipse is not supported",
+                            ));
+                        }
+                        return Err(wrong(b, "line, circle or arc", kb));
                     }
+                } else if ka.is_ellipse() {
+                    return Err(if kb.is_curve() {
+                        SketchError::NotApplicable(
+                            "an ellipse can only be tangent to a line (curve-curve tangency with ellipses is not supported)",
+                        )
+                    } else {
+                        wrong(b, "line", kb)
+                    });
                 } else {
-                    return Err(wrong(a, CURVE, ka));
+                    return Err(wrong(a, "line, circle, arc or ellipse", ka));
                 }
             }
         }
@@ -330,6 +434,13 @@ impl View<'_> {
                 let kb = self.kind(b)?;
                 if ka.is_round() && kb.is_round() {
                     return Err(wrong(b, "point or line", kb));
+                }
+                // Distances to an ellipse are not supported.
+                if ka.is_ellipse() {
+                    return Err(wrong(a, "point, line, circle or arc", ka));
+                }
+                if kb.is_ellipse() {
+                    return Err(wrong(b, "point, line, circle or arc", kb));
                 }
             }
             DimensionKind::HorizontalDistance { a, b, .. }
@@ -347,6 +458,9 @@ impl View<'_> {
             }
             DimensionKind::ArcLength { arc } => {
                 self.expect(arc, ARC, EntityKind::is_arc)?;
+            }
+            DimensionKind::EllipseMajor { ellipse } | DimensionKind::EllipseMinor { ellipse } => {
+                self.expect(ellipse, ELLIPSE, EntityKind::is_ellipse)?;
             }
         }
         finite_point("dimension label position", d.label_pos)?;
@@ -381,7 +495,9 @@ pub(super) fn check_dimension_value(kind: &DimensionKind, value: f64) -> Result<
         }
         DimensionKind::Radius { .. }
         | DimensionKind::Diameter { .. }
-        | DimensionKind::ArcLength { .. } => positive(what, value),
+        | DimensionKind::ArcLength { .. }
+        | DimensionKind::EllipseMajor { .. }
+        | DimensionKind::EllipseMinor { .. } => positive(what, value),
         DimensionKind::Angle { .. } => finite(what, value),
     }
 }
@@ -442,6 +558,11 @@ pub(super) fn whole(
     }
     for c in view.constraints.values() {
         view.constraint(&c.kind, Mode::Load)?;
+        if c.aux.len() != view.aux_count(&c.kind) {
+            return Err(SketchError::NotApplicable(
+                "a constraint has the wrong number of auxiliary parameters",
+            ));
+        }
         for &p in &c.aux {
             claim(p)?;
         }

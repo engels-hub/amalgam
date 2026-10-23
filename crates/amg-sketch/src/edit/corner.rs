@@ -24,7 +24,8 @@
 //!   `Length` on one; `TwoDistances`: a `Length` on each leg; `DistanceAngle(d, a)`: a `Length`
 //!   on the first leg plus an `Angle` between the chamfer line and that leg (the interior angle
 //!   at `Pa`, in `(0, pi)`). Net DOF is unchanged for a joined corner.
-//! - Circles and projected curves are rejected (`NotApplicable`, `Locked`).
+//! - Circles and projected curves are rejected (`NotApplicable`, `Locked`); ellipses and
+//!   elliptical arcs are `WrongEntityKind`, as for trim.
 
 use amg_core::{Point2, Vec2};
 
@@ -65,6 +66,9 @@ fn operand(s: &Sketch, id: EntityId) -> Result<Operand, SketchError> {
         Curve2::Circle(_) => Err(SketchError::NotApplicable(
             "a full circle has no ends to fillet or chamfer",
         )),
+        Curve2::Ellipse(_) => Err(SketchError::NotApplicable(
+            "fillet and chamfer of ellipses are not supported",
+        )),
         Curve2::Line(seg) if seg.a.distance(seg.b) <= MERGE => {
             Err(SketchError::Degenerate("zero-length line"))
         }
@@ -77,6 +81,7 @@ fn scale_of(c: &Curve2) -> f64 {
         Curve2::Line(seg) => seg.a.distance(seg.b),
         Curve2::Arc(a) => a.radius,
         Curve2::Circle(c) => c.radius,
+        Curve2::Ellipse(_) => unreachable!("`operand` rejects ellipses"),
     }
 }
 
@@ -115,6 +120,7 @@ fn carrier(c: &Curve2) -> Carrier {
             o: c.center,
             r: c.radius,
         },
+        Curve2::Ellipse(_) => unreachable!("`operand` rejects ellipses"),
     }
 }
 

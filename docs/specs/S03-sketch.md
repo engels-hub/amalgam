@@ -710,7 +710,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Done | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
 | SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Done | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
 | SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Done | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
-| SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Todo | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
+| SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Done | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
 | SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Todo | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
 | SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
 | SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Todo | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
@@ -1360,3 +1360,50 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **Interface changes:** none to other lanes. `edit/mod.rs` gains a `mod corner` and re-exports.
 - **Leftovers:** chamfer distances on arcs are chords, not arc lengths; a fillet between a curve
   and a circle (full) is rejected; no fillet-of-a-chain / multi-corner command (UI loops).
+
+### 2026-10-23 - SK-22 (ellipse and elliptical arc, lane B)
+- **Landed:** `EntityKind::{Ellipse, EllipticArc}` (as in Interfaces), `DimensionKind::{EllipseMajor,
+  EllipseMinor}`, `geom::EllipseArc2` + `Curve2::Ellipse` (re-exported at the root),
+  `Sketch::{add_ellipse, add_elliptic_arc}`, `solve::constraint_residual_aux`. `Curve2` gains
+  `curvature_at(t)`; `curvature()` of an ellipse is the curvature at the start.
+- **Conventions.** `P(t) = c + m cos t + perp(m)(b/|m|) sin t`, `m = major - center`, `t` the eccentric
+  angle; the elliptical arc runs CCW from `t0` to `t0 + ((t1 - t0) mod 2 pi)`. `b` may exceed `|m|`
+  (the "major" point only names the axis the dimension measures). Curve parameter of `Curve2::Ellipse`
+  is the angle travelled from the start, `[0, |t1 - t0|]`; `t1 < t0` is CW, span `2 pi` a full ellipse.
+- **Equations.** Elliptical arc: `s - P(t0)`, `e - P(t1)` (4 rows, `EquationOwner::Entity`). Point on
+  ellipse/elliptical arc (the full ellipse): `p - P(t)` (2 rows) with `t` the constraint's one aux param,
+  allocated by `Sketch::add_constraint` (start value: nearest ellipse point); load validation requires
+  exactly that aux count. Tangent line-ellipse: `s -/+ h`, `s` signed centre distance, `h` the half-width
+  of the ellipse normal to the line (`h^2 = b^2 + (1 - b^2/a^2) q^2`), either argument order, External /
+  Internal chosen by `orient`. Concentric accepts ellipses. `Equal` ellipse-ellipse (and arcs): both axes
+  (2 rows, `|M-c|` and `b`). `Symmetric` of full ellipses: centres, major ends, `b` (5 rows).
+  Axis dimensions `|M - c| - v` and `b - v` (values must be > 0).
+- **Not supported (clear errors, never silent):** tangent circle/arc-ellipse and ellipse-ellipse, tangent
+  `AtEndpoint` with elliptical arcs (`WrongEntityKind`), distance dimensions to ellipses, `Symmetric` of
+  elliptical arcs, `Radius`/`Diameter`/`ArcLength` on ellipses (`WrongEntityKind`). `circle_2_tangent`,
+  `offset` (offset of an ellipse is not an ellipse) and trim/extend/break *of* an ellipse return
+  `NotApplicable` / `WrongEntityKind`. An ellipse is a valid *cutter* and extension target for lines,
+  arcs and circles (tested). The corpus reference oracle and the slvs/ezpz adapters decline ellipses.
+- **Intersections** (`geom::ellipse`): ellipse vs line, circle/arc and ellipse by root finding of the
+  trigonometric polynomial `F(P(t))` on monotone pieces between the roots of its derivative; extrema within
+  tolerance are tangential hits; end-point touches as for the other curves; same-conic pairs report an
+  overlap and only their ends. Profile detection treats an ellipse like a `2 pi` arc (seam end-point
+  vertex); areas and moments are exact (affine image of the circle segment), containment bisects the
+  monotone pieces. Half-edge ordering uses the curvature at each end.
+- **Transform (SK-18):** ellipses and elliptical arcs mirror (a reflection reverses the eccentric angle:
+  image `t0 = -t1`, `t1 = -t0`), copy, pattern, rotate and scale (minor radius scaled); constrained results
+  use the existing kinds (`Symmetric` per point, `Equal` per ellipse). Known redundancy: the image's
+  `|M - c|` row and its end points are implied by the point symmetries; SK-04 must tolerate it.
+- **Tests:** `tests/ellipse.rs` (28) and `geom::ellipse::tests` (13): FD Jacobians of every ellipse row on
+  120 random configurations (~2500 rows), consistency of the equations, ellipse-in-rectangle (tangent x4)
+  solve and edit, axis dimensions and point-on-ellipse solve, profile fixtures (hole area, segment, lens,
+  inscribed ellipse, elliptical-arc D shapes, annulus; relative error 1e-9), validation and serde,
+  trim/extend/offset/mirror/pattern/transform ellipse paths.
+- **Leftovers:** trim/extend/break and offset of ellipses; ellipse tangent to circles or ellipses; tangent
+  `AtEndpoint` for elliptical arcs; symmetric elliptical arcs; distance to an ellipse; `Curve2::BSpline`
+  still with SK-08.
+
+### 2026-10-23 - SK-22 / SK-16 integration (merge review)
+- SK-22 branched before SK-16 landed; `edit::corner` gains `Curve2::Ellipse` arms. Fillet and chamfer
+  reject ellipses and elliptical arcs with `WrongEntityKind` (from the shared `edit::checked`, as trim
+  does); test `fillet_with_ellipse_is_wrong_kind`.

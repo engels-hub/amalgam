@@ -341,6 +341,9 @@ fn constrain(b: &mut B<'_>, kind: &ConstraintKind) -> Result<Mapped, BackendSkip
                     }
                     _ => return Err(skip("arc length of a non-arc")),
                 },
+                DimensionKind::EllipseMajor { .. } | DimensionKind::EllipseMinor { .. } => {
+                    return Err(skip("ellipse dimensions are not expressible"));
+                }
             };
             out.push(c);
         }
@@ -405,6 +408,9 @@ impl Contender for Ezpz {
                     reqs.push(top(Constraint::Arc(arc)));
                     owner.push(None);
                     Ent::Arc(arc)
+                }
+                EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+                    return Err(skip("ellipses are not expressible"));
                 }
             };
             b.ents.insert(id, e);

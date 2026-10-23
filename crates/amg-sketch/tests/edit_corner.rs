@@ -514,6 +514,18 @@ fn fillet_radius_too_large_is_not_applicable() {
 }
 
 #[test]
+fn fillet_with_ellipse_is_wrong_kind() {
+    let mut s = new();
+    let l = s.add_line(p(0.0, 0.0), p(10.0, 0.0)).unwrap();
+    let e = s.add_ellipse(p(5.0, 3.0), p(9.0, 3.0), 3.0).unwrap();
+    let err = unchanged_on_error(&mut s, |s| edit::fillet_detailed(s, l, e, p(5.0, 0.5), 1.0));
+    assert!(
+        matches!(err, SketchError::WrongEntityKind { .. }),
+        "{err:?}"
+    );
+}
+
+#[test]
 fn fillet_parallel_lines_is_not_applicable() {
     let mut s = new();
     let a = s.add_line(p(0.0, 0.0), p(10.0, 0.0)).unwrap();
