@@ -262,6 +262,7 @@ dependencies = [
  "amg-core",
  "amg-jobs",
  "criterion 0.8.2",
+ "faer",
  "kcl-ezpz",
  "proptest",
  "serde",

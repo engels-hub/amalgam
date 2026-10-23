@@ -16,7 +16,7 @@
 
 mod diagnose;
 mod drag;
-mod linalg;
+pub(crate) mod linalg;
 mod plan;
 
 use std::time::Instant;

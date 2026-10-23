@@ -1,8 +1,8 @@
 //! SK-07 acceptance: trim, extend and break fixtures.
 //!
 //! Every fixture checks the resulting entities and constraints, that the residual of the
-//! edited sketch is 0 (`build_system`, the SK-02 path), and that the SK-13 prototype solver
-//! (`solve::proto`, the only solver until SK-03) reports `Converged` without moving anything.
+//! edited sketch is 0 (`build_system`, the SK-02 path), and that the SK-03 production solver
+//! (`solve::NativeSolver`) reports `Converged` without moving anything.
 
 #![allow(
     clippy::unwrap_used,
@@ -17,7 +17,9 @@ use std::f64::consts::{FRAC_PI_2, TAU};
 use amg_core::{Plane, Point2};
 use amg_sketch::build;
 use amg_sketch::edit::{self, EditOutcome};
-use amg_sketch::solve::proto::{self, ProtoOptions, ProtoStatus};
+use amg_sketch::solve::{
+    DofAnalysis, NativeSolver, SolveOptions, SolveReport, SolveStatus, SolverBackend,
+};
 use amg_sketch::solve::{build_system, dof};
 use amg_sketch::{
     ConstraintId, ConstraintKind, Curve2, Dimension, DimensionKind, End, EntityId, EntityKind,
@@ -37,12 +39,12 @@ fn residual(s: &Sketch) -> f64 {
     sys.system.max_abs_residual(s.params().as_slice())
 }
 
-/// Residual 0 via the SK-02 path, and the prototype solver agrees without moving anything.
+/// Residual 0 via the SK-02 path, and the production solver agrees without moving anything.
 fn verify(s: &Sketch) {
     assert!(residual(s) < 1e-9, "residual {}", residual(s));
     let mut t = s.clone();
-    let rep = proto::solve(&mut t, &ProtoOptions::default()).unwrap();
-    assert_eq!(rep.status, ProtoStatus::Converged, "{rep:?}");
+    let rep = native_solve(&mut t);
+    assert_eq!(rep.status, SolveStatus::Converged, "{rep:?}");
     assert!(rep.max_residual < 1e-9);
     let moved = s
         .params()
@@ -1184,4 +1186,16 @@ fn constraint_ids_in_the_result_exist_or_are_gone() {
         assert!(s.entity(*e).is_none());
     }
     let _: Vec<ConstraintId> = o.constraints_added;
+}
+
+/// The SK-03 production solver with total DOF analysis.
+fn native_solve(s: &mut Sketch) -> SolveReport {
+    NativeSolver::new().solve(
+        s,
+        &SolveOptions {
+            dof: DofAnalysis::Total,
+            ..SolveOptions::default()
+        },
+        &|| false,
+    )
 }

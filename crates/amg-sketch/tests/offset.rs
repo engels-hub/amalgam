@@ -14,7 +14,9 @@ use std::f64::consts::{FRAC_PI_2, PI};
 
 use amg_core::{Plane, Point2};
 use amg_sketch::offset::{self, CornerStyle, OffsetOptions, OffsetResult};
-use amg_sketch::solve::proto::{ProtoOptions, ProtoStatus, solve};
+use amg_sketch::solve::{
+    DofAnalysis, NativeSolver, SolveOptions, SolveReport, SolveStatus, SolverBackend,
+};
 use amg_sketch::solve::{build_system, dof};
 use amg_sketch::{
     ConstraintKind, Curve2, EntityId, EntityKind, ProfileOptions, ProfileSet, Sketch, SketchError,
@@ -528,11 +530,11 @@ fn residual(s: &Sketch) -> f64 {
 }
 
 fn solved(s: &mut Sketch) {
-    let r = solve(s, &ProtoOptions::default()).unwrap();
+    let r = native_solve(s);
     assert!(
         matches!(
             r.status,
-            ProtoStatus::Converged | ProtoStatus::ConvergedRedundant
+            SolveStatus::Converged | SolveStatus::ConvergedRedundant
         ),
         "{:?}",
         r.status
@@ -727,7 +729,7 @@ fn constrained_copy_follows_its_source_but_unconstrained_does_not() {
             s.add_constraint(ConstraintKind::Fix { entity: pt })
                 .unwrap();
         }
-        let _ = solve(&mut s, &ProtoOptions::default()).unwrap();
+        let _ = native_solve(&mut s);
         let copy = curves(&s, &res.copies);
         let right_x = copy
             .iter()
@@ -753,4 +755,16 @@ fn constrain_false_adds_no_constraints() {
     let res = offset::offset(&mut s, &r, 2.0, p(-1.0, -1.0), false).unwrap();
     assert_eq!(s.constraints().count(), before);
     assert!(res.dimensions.is_empty() && res.constraints_added.is_empty());
+}
+
+/// The SK-03 production solver with total DOF analysis.
+fn native_solve(s: &mut Sketch) -> SolveReport {
+    NativeSolver::new().solve(
+        s,
+        &SolveOptions {
+            dof: DofAnalysis::Total,
+            ..SolveOptions::default()
+        },
+        &|| false,
+    )
 }

@@ -1153,15 +1153,33 @@ pub fn build_system_scaled(
     sketch: &Sketch,
     length_scale: f64,
 ) -> Result<SketchSystem, SketchError> {
+    build_system_polled(sketch, length_scale, &|| false)
+        .unwrap_or_else(|| Err(SketchError::Cancelled))
+}
+
+/// [`build_system_scaled`] that polls `cancel` every 64 blocks; `None` if it fired.
+pub(crate) fn build_system_polled(
+    sketch: &Sketch,
+    length_scale: f64,
+    cancel: &dyn Fn() -> bool,
+) -> Option<Result<SketchSystem, SketchError>> {
     let mut system = EquationSystem::new();
-    for (id, _) in sketch.entities() {
+    for (i, (id, _)) in sketch.entities().enumerate() {
+        if i % 64 == 63 && cancel() {
+            return None;
+        }
         if let Some(r) = entity_residual(sketch, id) {
             system.push(EquationOwner::Entity(id), Box::new(r));
         }
     }
-    for (id, c) in sketch.constraints() {
-        if let Some(r) = constraint_residual_aux(sketch, &c.kind, &c.aux, length_scale)? {
-            system.push(EquationOwner::Constraint(id), Box::new(r));
+    for (i, (id, c)) in sketch.constraints().enumerate() {
+        if i % 64 == 63 && cancel() {
+            return None;
+        }
+        match constraint_residual_aux(sketch, &c.kind, &c.aux, length_scale) {
+            Ok(Some(r)) => system.push(EquationOwner::Constraint(id), Box::new(r)),
+            Ok(None) => {}
+            Err(e) => return Some(Err(e)),
         }
     }
     let fixed = fixed_params(sketch);
@@ -1173,10 +1191,10 @@ pub fn build_system_scaled(
         .collect();
     free.sort_unstable();
     free.dedup();
-    Ok(SketchSystem {
+    Some(Ok(SketchSystem {
         system,
         fixed,
         free,
         length_scale,
-    })
+    }))
 }

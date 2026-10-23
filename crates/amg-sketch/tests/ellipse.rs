@@ -2,8 +2,8 @@
 //! axis dimensions, `Curve2::Ellipse` in profile detection, and the ellipse paths of the
 //! operations that match on entity or curve kinds.
 //!
-//! The production solver SK-03 is not built yet: solves use the SK-13 prototype
-//! (`solve::proto`), ranks and DOF the SK-02 helper.
+//! Solves use the SK-03 production solver (`solve::NativeSolver`); ranks and DOF of
+//! unsolved sketches the SK-02 helper.
 
 #![allow(
     clippy::unwrap_used,
@@ -15,7 +15,9 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use amg_core::{Plane, Point2, Transform2, Vec2};
 use amg_sketch::corpus::reference::RefSystem;
-use amg_sketch::solve::proto::{self, ProtoOptions, ProtoStatus};
+use amg_sketch::solve::{
+    DofAnalysis, NativeSolver, SolveOptions, SolveReport, SolveStatus, SolverBackend,
+};
 use amg_sketch::solve::{
     Residual, build_system, constraint_residual, constraint_residual_aux, dof, entity_residual,
 };
@@ -50,8 +52,8 @@ fn residual_max(s: &Sketch) -> f64 {
     sys.system.max_abs_residual(s.params().as_slice())
 }
 
-fn solve(s: &mut Sketch) -> ProtoStatus {
-    proto::solve(s, &ProtoOptions::default()).unwrap().status
+fn solve(s: &mut Sketch) -> SolveStatus {
+    native_solve(s).status
 }
 
 fn ellipse_curve(s: &Sketch, id: EntityId) -> amg_sketch::EllipseArc2 {
@@ -379,7 +381,7 @@ fn ellipse_in_rectangle_tangent_four_times_solves() {
         .unwrap();
     // The rectangle is rigid; the ellipse's 5 DOF meet 5 independent rows.
     assert_eq!(dof(&s).unwrap(), 0);
-    assert_eq!(solve(&mut s), ProtoStatus::Converged);
+    assert_eq!(solve(&mut s), SolveStatus::Converged);
     assert!(residual_max(&s) < 1e-9);
     let ell = ellipse_curve(&s, e);
     assert!(ell.center.distance(p(10.0, 5.0)) < 1e-7, "{:?}", ell.center);
@@ -405,7 +407,7 @@ fn ellipse_in_rectangle_follows_rectangle_edits() {
         kinds[0], kinds[1],
     )))
     .unwrap();
-    assert_eq!(solve(&mut s), ProtoStatus::Converged);
+    assert_eq!(solve(&mut s), SolveStatus::Converged);
     // Make the rectangle 30 x 16: the ellipse follows.
     let dims: Vec<_> = s
         .constraints()
@@ -414,7 +416,7 @@ fn ellipse_in_rectangle_follows_rectangle_edits() {
         .collect();
     s.set_dimension_value(dims[0], 30.0).unwrap();
     s.set_dimension_value(dims[1], 16.0).unwrap();
-    assert_eq!(solve(&mut s), ProtoStatus::Converged);
+    assert_eq!(solve(&mut s), SolveStatus::Converged);
     let ell = ellipse_curve(&s, e);
     assert!(ell.center.distance(p(15.0, 8.0)) < 1e-6);
     assert!((ell.semi_major() - 15.0).abs() < 1e-6);
@@ -449,7 +451,7 @@ fn axis_dimensions_and_point_on_ellipse_solve() {
     ))
     .unwrap();
     assert_eq!(dof(&s).unwrap(), 0);
-    assert_eq!(solve(&mut s), ProtoStatus::Converged);
+    assert_eq!(solve(&mut s), SolveStatus::Converged);
     let ell = ellipse_curve(&s, e);
     assert!((ell.semi_major() - 4.0).abs() < 1e-8 && (ell.minor_radius - 2.0).abs() < 1e-8);
     let qp = s.point(q).unwrap();
@@ -460,7 +462,7 @@ fn axis_dimensions_and_point_on_ellipse_solve() {
     // Editing the axis dimensions moves the ellipse and keeps the point on it.
     s.set_dimension_value(major, 5.0).unwrap();
     s.set_dimension_value(minor, 3.0).unwrap();
-    assert_eq!(solve(&mut s), ProtoStatus::Converged);
+    assert_eq!(solve(&mut s), SolveStatus::Converged);
     let qp = s.point(q).unwrap();
     let want = 1.0 + 3.0 * (1.0f64 - 0.16).sqrt();
     assert!((qp.y - want).abs() < 1e-7);
@@ -490,10 +492,7 @@ fn elliptic_arc_ends_follow_the_ellipse() {
         residual_max(&s) > 0.5,
         "the end points no longer lie on the ellipse"
     );
-    assert_eq!(
-        proto::solve(&mut s, &ProtoOptions::default()).unwrap().dof,
-        Some(2)
-    );
+    assert_eq!(native_solve(&mut s).dof.map(|d| d.dof), Some(2));
     let after = ellipse_curve(&s, a);
     assert!((after.minor_radius - 3.0).abs() < 1e-9);
     // The internal equations hold again: both end points lie on the new ellipse.
@@ -1142,7 +1141,7 @@ fn trim_and_extend_use_an_ellipse_as_the_cutter() {
     assert_eq!(s.constraint(pin).unwrap().aux.len(), 1);
     assert!(residual_max(&s) < 1e-9);
     let before = s.params().as_slice().to_vec();
-    assert_eq!(solve(&mut s), ProtoStatus::Converged);
+    assert_eq!(solve(&mut s), SolveStatus::Converged);
     for (a, b) in before.iter().zip(s.params().as_slice()) {
         assert!((a - b).abs() < 1e-8, "the solve moved a parameter");
     }
@@ -1345,11 +1344,11 @@ fn mirror_constrained_follows_the_source() {
     s.add_constraint(ConstraintKind::Fix { entity: a }).unwrap();
     s.add_constraint(ConstraintKind::Fix { entity: axis })
         .unwrap();
-    let report = proto::solve(&mut s, &ProtoOptions::default()).unwrap();
+    let report = native_solve(&mut s);
     assert!(
         matches!(
             report.status,
-            ProtoStatus::Converged | ProtoStatus::ConvergedRedundant
+            SolveStatus::Converged | SolveStatus::ConvergedRedundant
         ),
         "{:?}",
         report.status
@@ -1430,7 +1429,7 @@ fn patterns_and_transforms_carry_ellipses() {
         .unwrap();
     assert!(matches!(
         solve(&mut s),
-        ProtoStatus::Converged | ProtoStatus::ConvergedRedundant
+        SolveStatus::Converged | SolveStatus::ConvergedRedundant
     ));
     for id in &imgs {
         assert!((ellipse_curve(&s, *id).minor_radius - 1.7).abs() < 1e-7);
@@ -1485,4 +1484,16 @@ fn patterns_and_transforms_carry_ellipses() {
         None => panic!("dimension expected"),
     }
     assert!(residual_max(&s) < 1e-9);
+}
+
+/// The SK-03 production solver with total DOF analysis.
+fn native_solve(s: &mut Sketch) -> SolveReport {
+    NativeSolver::new().solve(
+        s,
+        &SolveOptions {
+            dof: DofAnalysis::Total,
+            ..SolveOptions::default()
+        },
+        &|| false,
+    )
 }

@@ -3,8 +3,8 @@
 //! constraints and solves, intersections, profile detection, the operations that match on
 //! entity or curve kinds, and the error paths of everything that does not support them.
 //!
-//! The production solver SK-03 is not built yet: solves use the SK-13 prototype
-//! (`solve::proto`), ranks and DOF the SK-02 helper.
+//! Solves use the SK-03 production solver (`solve::NativeSolver`); ranks and DOF of
+//! unsolved sketches the SK-02 helper.
 
 #![allow(
     clippy::unwrap_used,
@@ -16,7 +16,9 @@ use std::f64::consts::{FRAC_1_SQRT_2, PI, TAU};
 
 use amg_core::{Plane, Point2, Tolerance, Vec2};
 use amg_sketch::geom::intersect;
-use amg_sketch::solve::proto::{self, ProtoOptions, ProtoStatus};
+use amg_sketch::solve::{
+    DofAnalysis, NativeSolver, SolveOptions, SolveReport, SolveStatus, SolverBackend,
+};
 use amg_sketch::solve::{
     Residual, build_system, constraint_residual, constraint_residual_aux, dof, entity_residual,
 };
@@ -43,8 +45,8 @@ fn dim(kind: DimensionKind, value: f64) -> ConstraintKind {
     })
 }
 
-fn solve(s: &mut Sketch) -> ProtoStatus {
-    proto::solve(s, &ProtoOptions::default()).unwrap().status
+fn solve(s: &mut Sketch) -> SolveStatus {
+    native_solve(s).status
 }
 
 fn residual_max(s: &Sketch) -> f64 {
@@ -390,7 +392,7 @@ fn spline_tangent_to_a_line_solves() {
         assert!(
             matches!(
                 status,
-                ProtoStatus::Converged | ProtoStatus::ConvergedRedundant
+                SolveStatus::Converged | SolveStatus::ConvergedRedundant
             ),
             "{status:?}"
         );
@@ -462,7 +464,7 @@ fn spline_g2_to_an_arc_solves_and_dof_is_zero_when_fully_constrained() {
     assert!(
         matches!(
             status,
-            ProtoStatus::Converged | ProtoStatus::ConvergedRedundant
+            SolveStatus::Converged | SolveStatus::ConvergedRedundant
         ),
         "{status:?}"
     );
@@ -531,7 +533,7 @@ fn g2_with_reversed_ends_and_a_fit_spline_solves() {
     assert!(
         matches!(
             status,
-            ProtoStatus::Converged | ProtoStatus::ConvergedRedundant
+            SolveStatus::Converged | SolveStatus::ConvergedRedundant
         ),
         "{status:?}"
     );
@@ -595,7 +597,7 @@ fn conic_corner_blend_between_two_lines_solves() {
     .unwrap();
     assert_eq!(dof(&s).unwrap(), 0);
     let status = solve(&mut s);
-    assert_eq!(status, ProtoStatus::Converged);
+    assert_eq!(status, SolveStatus::Converged);
     let EntityKind::Conic { apex, rho, .. } = s.entity(c).unwrap().kind else {
         panic!()
     };
@@ -640,7 +642,7 @@ fn point_on_spline_and_weight_solves() {
     })
     .unwrap();
     let status = solve(&mut s);
-    assert_eq!(status, ProtoStatus::Converged);
+    assert_eq!(status, SolveStatus::Converged);
     assert!((s.params().get(w[1]) - FRAC_1_SQRT_2).abs() < 1e-8);
     let c = spline_curve(&s, spl);
     assert!((c.eval(0.5).length() - 1.0).abs() < 1e-8);
@@ -660,7 +662,7 @@ fn point_on_spline_and_weight_solves() {
         curve: fit,
     })
     .unwrap();
-    assert_eq!(solve(&mut s), ProtoStatus::Converged);
+    assert_eq!(solve(&mut s), SolveStatus::Converged);
     let c = spline_curve(&s, fit);
     let q = s.point(pt).unwrap();
     assert!(c.closest(q).1.distance(q) < 1e-8);
@@ -1378,4 +1380,16 @@ fn removing_and_compacting_keep_splines_valid() {
     let json = serde_json::to_string(&s).unwrap();
     let back: Sketch = serde_json::from_str(&json).unwrap();
     assert_eq!(back.curve(b).unwrap(), before);
+}
+
+/// The SK-03 production solver with total DOF analysis.
+fn native_solve(s: &mut Sketch) -> SolveReport {
+    NativeSolver::new().solve(
+        s,
+        &SolveOptions {
+            dof: DofAnalysis::Total,
+            ..SolveOptions::default()
+        },
+        &|| false,
+    )
 }

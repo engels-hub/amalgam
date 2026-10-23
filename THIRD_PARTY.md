@@ -35,7 +35,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | mach-dxcompiler-rs (via wgpu `static-dxc`) | DX12 shader compiler, only if RND-01 adopts StaticDxc (S10) | MIT wrapper; bundled DXC under University of Illinois/NCSA (verify in RND-01) | no | yes (`static-dxc`) | Planned (conditional) |
 | glam | geometry math (ADR-006) | MIT / Apache-2.0 | no | no | In use (0.34.1) |
 | nalgebra | small dense linear algebra, sketch solver (ADR-006); `amg-nurbs` internal dense solves (S20) | Apache-2.0 | no | no | Planned |
-| faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | In use (=0.23.2, `std` + `sparse-linalg`, `amg-mesh` hole-fill fairing, MESH-20) |
+| faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | In use (=0.23.2, `std` + `sparse-linalg`, `amg-mesh` hole-fill fairing, MESH-20; `amg-sketch` sparse solver blocks, SK-03) |
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
 | cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |

@@ -2,7 +2,7 @@
 //!
 //! Every fixture checks the new geometry, the constraint set, the whole-sketch DOF against a
 //! hand-computed value (SK-02 rank helper `dof`), residual 0 (`build_system`) and that the
-//! SK-13 prototype solver (`solve::proto`, the only solver until SK-03) reports `Converged`
+//! SK-03 production solver (`solve::NativeSolver`) reports `Converged`
 //! without moving anything.
 
 #![allow(
@@ -18,7 +18,9 @@ use std::f64::consts::{FRAC_PI_3, FRAC_PI_4, PI};
 use amg_core::{Plane, Point2};
 use amg_sketch::build;
 use amg_sketch::edit::{self, EditOutcome};
-use amg_sketch::solve::proto::{self, ProtoOptions, ProtoStatus};
+use amg_sketch::solve::{
+    DofAnalysis, NativeSolver, SolveOptions, SolveReport, SolveStatus, SolverBackend,
+};
 use amg_sketch::solve::{build_system, dof};
 use amg_sketch::{
     ChamferSpec, ConstraintId, ConstraintKind, Curve2, Dimension, DimensionKind, EntityId,
@@ -38,12 +40,12 @@ fn residual(s: &Sketch) -> f64 {
     sys.system.max_abs_residual(s.params().as_slice())
 }
 
-/// Residual 0 via the SK-02 path, and the prototype solver agrees without moving anything.
+/// Residual 0 via the SK-02 path, and the production solver agrees without moving anything.
 fn verify(s: &Sketch) {
     assert!(residual(s) < 1e-9, "residual {}", residual(s));
     let mut t = s.clone();
-    let rep = proto::solve(&mut t, &ProtoOptions::default()).unwrap();
-    assert_eq!(rep.status, ProtoStatus::Converged, "{rep:?}");
+    let rep = native_solve(&mut t);
+    assert_eq!(rep.status, SolveStatus::Converged, "{rep:?}");
     let moved = s
         .params()
         .as_slice()
@@ -348,8 +350,8 @@ fn fillet_determined_by_neighbours_and_radius() {
     // Changing the radius moves the arc and re-solves to a consistent sketch.
     let rid = dim_id(&s, "radius");
     s.set_dimension_value(rid, 4.0).unwrap();
-    let rep = proto::solve(&mut s, &ProtoOptions::default()).unwrap();
-    assert_eq!(rep.status, ProtoStatus::Converged, "{rep:?}");
+    let rep = native_solve(&mut s);
+    assert_eq!(rep.status, SolveStatus::Converged, "{rep:?}");
     assert!(residual(&s) < 1e-9);
     let radii: Vec<f64> = all_curves(&s)
         .iter()
@@ -725,8 +727,8 @@ fn chamfer_length_edit_resolves() {
     verify(&s);
     let lid = dim_id(&s, "length");
     s.set_dimension_value(lid, 3.0).unwrap();
-    let rep = proto::solve(&mut s, &ProtoOptions::default()).unwrap();
-    assert_eq!(rep.status, ProtoStatus::Converged, "{rep:?}");
+    let rep = native_solve(&mut s);
+    assert_eq!(rep.status, SolveStatus::Converged, "{rep:?}");
     assert!(residual(&s) < 1e-9);
     line(&all_curves(&s), (3.0, 0.0), (0.0, 3.0));
 }
@@ -869,4 +871,16 @@ fn edit_result_lists_created_and_removed() {
     for id in &r.constraints_added {
         assert!(s.constraint(*id).is_some());
     }
+}
+
+/// The SK-03 production solver with total DOF analysis.
+fn native_solve(s: &mut Sketch) -> SolveReport {
+    NativeSolver::new().solve(
+        s,
+        &SolveOptions {
+            dof: DofAnalysis::Total,
+            ..SolveOptions::default()
+        },
+        &|| false,
+    )
 }
