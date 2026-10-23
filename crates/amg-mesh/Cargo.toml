@@ -64,5 +64,9 @@ harness = false
 name = "mesh_analysis"
 harness = false
 
+[[bench]]
+name = "mesh_remesh"
+harness = false
+
 [lints]
 workspace = true

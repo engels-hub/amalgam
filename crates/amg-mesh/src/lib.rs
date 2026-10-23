@@ -20,6 +20,7 @@ mod halfedge;
 mod hash;
 mod indexed;
 pub mod iso;
+mod remesh;
 mod selfint;
 mod smooth;
 mod spatial;
@@ -39,6 +40,7 @@ pub use groups::{
 };
 pub use halfedge::{ConversionReport, HalfEdgeMesh, NonManifoldPolicy};
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
+pub use remesh::{EdgeLength, RemeshOpts, Sizing, remesh};
 pub use selfint::{SelfIntersectOpts, faces_intersect, self_intersections};
 pub use smooth::{LaplacianWeights, SmoothMethod, SmoothOpts, smooth};
 pub use spatial::{
