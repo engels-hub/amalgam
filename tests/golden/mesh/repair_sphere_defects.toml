@@ -1,0 +1,28 @@
+# Golden metrics for mesh/repair_sphere_defects. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 4179.72146930524
+area = 1255.1266070156157
+vertices = 2562
+triangles = 5120
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -10.0,
+    -10.0,
+    -10.0,
+]
+max = [
+    10.0,
+    10.0,
+    10.0,
+]

@@ -22,6 +22,7 @@ mod holefill;
 mod indexed;
 pub mod iso;
 mod remesh;
+mod repair;
 mod selfint;
 mod smooth;
 mod spatial;
@@ -43,6 +44,10 @@ pub use halfedge::{ConversionReport, HalfEdgeMesh, NonManifoldPolicy};
 pub use holefill::{Fairing, HoleFillOpts, HoleFillReport, fill_holes, fill_holes_indexed};
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
 pub use remesh::{EdgeLength, RemeshOpts, Sizing, remesh};
+pub use repair::{
+    RepairOpts, RepairReport, RepairStep, RepairStepKind, SmallShellFilter, UnresolvedIssue,
+    orient_consistently, repair,
+};
 pub use selfint::{
     RemoveSelfIntersectionsOpts, RemoveSelfIntersectionsReport, SelfIntersectOpts, faces_intersect,
     remove_self_intersections, remove_self_intersections_with, self_intersections,
