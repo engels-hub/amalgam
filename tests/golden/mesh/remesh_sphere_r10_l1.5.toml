@@ -1,0 +1,28 @@
+# Golden metrics for mesh/remesh_sphere_r10_l1.5. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 4139.664720403299
+area = 1248.2024139616897
+vertices = 589
+triangles = 1174
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -9.965900396908303,
+    -9.962480928192493,
+    -9.964344079072136,
+]
+max = [
+    9.965478568448068,
+    9.957498797904877,
+    9.96234072069581,
+]
