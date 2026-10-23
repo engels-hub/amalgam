@@ -30,7 +30,7 @@ module needs a framework change, that change is lane D's (see AGENTS.md §Interf
 | MESH-05, MESH-27 | ADR-003 (Manifold) accepted — **cleared 2026-10-20** |
 | RND-01, UI-01 | ADR-004 (wgpu) and ADR-005 (egui) accepted — **cleared 2026-10-20** |
 | FND-09 | ADR-004 (wgpu) accepted — **cleared 2026-10-20** |
-| SK-03 | ADR-007 (own sketch solver) decided — SK-13 prototypes and benchmarks both options (ungated) |
+| SK-03 | ADR-007 (own sketch solver) decided — SK-13 prototypes and benchmarks both options (ungated) — **cleared 2026-10-23** |
 
 FND-01..08 and FND-10 have no gate, so Phase 0 can start before these are settled. INS-01, INS-02,
 INS-03 (mesh mass properties), INS-05, INS-08, INS-09, CON-01, CON-02 (pure math), CON-04 (UI) and

@@ -78,18 +78,22 @@ systems (FEA).
 - On the CPU, f32 is allowed only for outward-rounded BVH node bounds and for rebased render
   upload buffers. Neither stores model geometry.
 
-## ADR-007 — Sketch constraint solver: own Rust solver primary; libslvs as test oracle (Proposed)
+## ADR-007 — Sketch constraint solver: own Rust solver; libslvs as test oracle (Accepted 2026-10-23)
 **Decision:**
-- A native Rust solver in `amg-sketch` is the only shipped solver. It uses substitution,
-  Dulmage–Mendelsohn decomposition, damped weighted min-norm Gauss–Newton/LM, and QR-based DOF
-  analysis and diagnosis, modelled on SolveSpace and FreeCAD's PlaneGCS.
-- SolveSpace `libslvs` (GPL-3.0) is available only behind cargo feature `slvs`, as a
-  differential-test oracle. ADR-012 forbids it being the sole solver. It stays test-only unless
-  SK-13 shows a > 2 % corpus gap.
-- ezpz (MIT) is a test-case source and fallback candidate.
+- The native Rust solver in `amg-sketch` is the only shipped solver: substitution, components +
+  Dulmage–Mendelsohn blocks, damped weighted min-norm Gauss–Newton/LM with `Algorithm::Auto` = LM,
+  rank-revealing DOF analysis and per-circuit dependency diagnosis.
+- SolveSpace `libslvs` (GPL-3.0) stays behind cargo feature `slvs` as a differential-test oracle
+  only (SK-13: 0 corpus cases where it beats the native solver, so no runtime fallback).
+- ezpz (MIT) stays a test-case source and benchmark reference behind `ezpz-bench`, not a
+  dependency.
+- Dragging near singular configurations uses a feasible-SQP fallback or default (SK-05 decides).
 
-**Status:** the decision rule in `docs/notes/sketch-solver.md` §5.4 was accepted on 2026-10-20.
-This ADR becomes Accepted when the SK-13 benchmark report meets that rule. SK-03 waits for it.
+**Status:** accepted by the owner on 2026-10-23 (QUESTIONS #50). The SK-13 report
+(`docs/notes/sketch-solver-benchmark.md`) met the §5.4 rule of `docs/notes/sketch-solver.md`:
+10/10 decision cases and 135/135 corpus cases, D9 warm solve 0.09 ms (budget 5 ms), drag p95
+≤ 0.03 ms, D7 jitter 0.63× libslvs. CI's all-features clippy job excludes `amg-sketch` (the `slvs`
+crate needs libclang ≤ 15) and lints `amg-sketch` with `ezpz-bench` separately.
 
 ## ADR-008 — Tet meshing: fTetWild via FFI (Accepted 2026-10-20)
 fTetWild (MPL-2.0) is robust to dirty input, which matters for meshes from scans/generative.
