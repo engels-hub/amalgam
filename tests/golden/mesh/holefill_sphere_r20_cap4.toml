@@ -1,0 +1,28 @@
+# Golden metrics for mesh/holefill_sphere_r20_cap4. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 33491.52869765102
+area = 5024.9914788717215
+vertices = 10227
+triangles = 20450
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -20.0,
+    -20.0,
+    -20.0,
+]
+max = [
+    20.0,
+    20.0,
+    19.946294415057142,
+]

@@ -1,0 +1,28 @@
+# Golden metrics for mesh/holefill_tube64_planar. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 977.4171312446855
+area = 844.3208845067525
+vertices = 840
+triangles = 1676
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -10.2292532379814,
+    -10.495708367254498,
+    0.0,
+]
+max = [
+    10.387645653396737,
+    10.04867581969306,
+    3.0,
+]

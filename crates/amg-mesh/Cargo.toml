@@ -15,6 +15,9 @@ serde.workspace = true
 thiserror.workspace = true
 # MESH-19 exact orientation predicates (ADR-012, THIRD_PARTY.md).
 robust = "=1.2.0"
+# MESH-20 hole filling: 2D CDT for planar loops, sparse Cholesky for fairing (ADR-012, THIRD_PARTY.md).
+spade = "=2.15.1"
+faer = { version = "=0.23.2", default-features = false, features = ["std", "sparse-linalg"] }
 # MESH-28 corpus (feature `corpus`): manifest, hashing, seeded generators.
 toml = { workspace = true, optional = true }
 sha2 = { version = "0.10.9", optional = true }
@@ -66,6 +69,10 @@ harness = false
 
 [[bench]]
 name = "mesh_remesh"
+harness = false
+
+[[bench]]
+name = "mesh_holefill"
 harness = false
 
 [lints]
