@@ -20,6 +20,7 @@
 //! - [`runner`] runs a [`CorpusBackend`] over cases and reports pass/fail per case.
 //! - [`compare`] is the SK-13 solver comparison (ADR-007): the native prototype, libslvs
 //!   (feature `slvs`) and ezpz (feature `ezpz-bench`) behind one interface, plus metrics.
+//! - [`solver`] adapts a production `SolverBackend` (SK-03 `NativeSolver`) to the runner.
 //!
 //! Sign conventions follow the S03 constraint table and SK-01's `TangentKind` notes:
 //! signed distances are positive on the **left** of an oriented line (`Side::Positive`), and
@@ -30,6 +31,7 @@ pub mod ezpz;
 pub mod reference;
 pub mod runner;
 pub mod slvs;
+pub mod solver;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -48,6 +50,7 @@ pub use runner::{
     BackendOutcome, BackendSkip, CaseResult, CorpusBackend, CorpusReport, Verdict, run_case,
     run_corpus,
 };
+pub use solver::SolverRunner;
 
 /// Version of the JSON case format written by this module.
 pub const FORMAT_VERSION: u32 = 1;

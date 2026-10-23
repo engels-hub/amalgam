@@ -1,7 +1,7 @@
 //! SK-18 acceptance: mirror, rectangular/circular pattern, move/copy/rotate/scale.
 //!
 //! 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test
-//!    with the SK-13 prototype solver; production solver SK-03 is not built yet).
+//!    with the SK-03 production solver).
 //! 2. An unconstrained copy is independent.
 //! 3. Scale about a point scales dimension values.
 //!
@@ -17,7 +17,9 @@ use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI, TAU};
 
 use amg_core::{Plane, Point2, Transform2, Vec2};
 use amg_sketch::build;
-use amg_sketch::solve::proto::{self, ProtoOptions, ProtoStatus};
+use amg_sketch::solve::{
+    DofAnalysis, NativeSolver, SolveOptions, SolveReport, SolveStatus, SolverBackend,
+};
 use amg_sketch::solve::{build_system, dof};
 use amg_sketch::transform::{
     EditResult, mirror, pattern_circ, pattern_rect, rotation_about, scale_about, transform,
@@ -60,11 +62,11 @@ fn dim(s: &mut Sketch, kind: DimensionKind, value: f64) -> ConstraintId {
 }
 
 fn solve(s: &mut Sketch) {
-    let r = proto::solve(s, &ProtoOptions::default()).unwrap();
+    let r = native_solve(s);
     assert!(
         matches!(
             r.status,
-            ProtoStatus::Converged | ProtoStatus::ConvergedRedundant
+            SolveStatus::Converged | SolveStatus::ConvergedRedundant
         ),
         "solver status {:?}, residual {}",
         r.status,
@@ -753,4 +755,16 @@ fn tangent_and_arcs_survive_a_rotated_copy() {
     // Still CCW with the same sweep.
     let (c, a, b) = (pos(&s, center), pos(&s, start), pos(&s, end));
     assert!((a - c).perp_dot(b - c) > 0.0);
+}
+
+/// The SK-03 production solver with total DOF analysis.
+fn native_solve(s: &mut Sketch) -> SolveReport {
+    NativeSolver::new().solve(
+        s,
+        &SolveOptions {
+            dof: DofAnalysis::Total,
+            ..SolveOptions::default()
+        },
+        &|| false,
+    )
 }

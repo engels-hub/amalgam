@@ -263,6 +263,7 @@ dependencies = [
  "amg-jobs",
  "criterion 0.8.2",
  "dxf",
+ "faer",
  "kcl-ezpz",
  "proptest",
  "serde",

@@ -17,6 +17,9 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 # Not in [workspace.dependencies] yet (SK-01 may only touch this crate); hoist when a second
 # crate (amg-mesh, S07) starts using it.
 smallvec = { version = "1.16.3", features = ["serde"] }
+# SK-03 sparse blocks (> 64 unknowns): sparse Cholesky of `J W⁻¹ Jᵀ + λI` with a cached
+# symbolic factorisation. MIT; same pinned version as amg-mesh (ADR-006).
+faer = { version = "=0.23.2", default-features = false, features = ["std", "sparse-linalg"] }
 thiserror.workspace = true
 # SK-10 glyph outlines. MIT OR Apache-2.0; pure safe Rust, no allocation in the parser.
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
@@ -47,6 +50,10 @@ harness = false
 
 [[bench]]
 name = "solver_compare"
+harness = false
+
+[[bench]]
+name = "solver"
 harness = false
 
 [lints]
