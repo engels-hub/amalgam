@@ -43,7 +43,10 @@ pub use halfedge::{ConversionReport, HalfEdgeMesh, NonManifoldPolicy};
 pub use holefill::{Fairing, HoleFillOpts, HoleFillReport, fill_holes, fill_holes_indexed};
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
 pub use remesh::{EdgeLength, RemeshOpts, Sizing, remesh};
-pub use selfint::{SelfIntersectOpts, faces_intersect, self_intersections};
+pub use selfint::{
+    RemoveSelfIntersectionsOpts, RemoveSelfIntersectionsReport, SelfIntersectOpts, faces_intersect,
+    remove_self_intersections, remove_self_intersections_with, self_intersections,
+};
 pub use smooth::{LaplacianWeights, SmoothMethod, SmoothOpts, smooth};
 pub use spatial::{
     Bvh, BvhNode, BvhNodeKind, BvhOpts, ClosestPoint, DEFAULT_WINDING_BETA, MeshSpatial, RayHit,

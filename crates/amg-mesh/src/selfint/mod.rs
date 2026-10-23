@@ -14,6 +14,12 @@
 //! - exactly degenerate (zero-area) faces are skipped; MESH-02 reports them separately.
 
 mod exact;
+mod repair;
+
+pub use repair::{
+    RemoveSelfIntersectionsOpts, RemoveSelfIntersectionsReport, remove_self_intersections,
+    remove_self_intersections_with,
+};
 
 use amg_core::Aabb3;
 use amg_jobs::JobCtx;
