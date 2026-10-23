@@ -1,9 +1,14 @@
-//! Fonts and glyph outlines (SK-10), parsed with `ttf-parser`.
+//! Fonts and glyph outlines (SK-10), read with `skrifa`.
 
 use std::sync::Arc;
 
 use amg_core::Point2;
-use ttf_parser::{Face, GlyphId, OutlineBuilder, name_id};
+use skrifa::attribute::Style;
+use skrifa::instance::{LocationRef, Size};
+use skrifa::metrics::GlyphMetrics;
+use skrifa::outline::{DrawSettings, OutlinePen};
+use skrifa::string::StringId;
+use skrifa::{FontRef, MetadataProvider};
 
 use super::TextError;
 
@@ -72,32 +77,32 @@ impl Font {
     /// Parses a TrueType/OpenType font (first face of a collection).
     pub fn from_bytes(data: impl Into<Arc<[u8]>>) -> Result<Font, TextError> {
         let data: Arc<[u8]> = data.into();
-        let face = Face::parse(&data, 0).map_err(|e| TextError::BadFont(e.to_string()))?;
-        let upem = f64::from(face.units_per_em());
-        let cap = face
-            .capital_height()
+        let face = FontRef::from_index(&data, 0).map_err(|e| TextError::BadFont(e.to_string()))?;
+        let m = face.metrics(Size::unscaled(), LocationRef::default());
+        let upem = f64::from(m.units_per_em);
+        let cap = m
+            .cap_height
             .map(f64::from)
             .filter(|&c| c > 0.0)
-            .unwrap_or_else(|| f64::from(face.ascender()));
+            .unwrap_or_else(|| f64::from(m.ascent));
         if !(upem > 0.0 && cap > 0.0) {
             return Err(TextError::BadFont(
                 "the font has no cap height or ascender".to_owned(),
             ));
         }
-        let line =
-            f64::from(face.ascender()) - f64::from(face.descender()) + f64::from(face.line_gap());
+        let line = f64::from(m.ascent) - f64::from(m.descent) + f64::from(m.leading);
         let family = face
-            .names()
-            .into_iter()
-            .find(|n| n.name_id == name_id::FAMILY && n.is_unicode())
-            .and_then(|n| n.to_string())
+            .localized_strings(StringId::FAMILY_NAME)
+            .next()
+            .map(|n| n.chars().collect::<String>())
             .unwrap_or_default();
+        let attrs = face.attributes();
         Ok(Font {
             units_per_em: upem,
             cap_height: cap / upem,
             line_height: line / upem,
-            bold: face.is_bold(),
-            italic: face.is_italic() || face.is_oblique(),
+            bold: attrs.weight.value() >= 600.0,
+            italic: attrs.style != Style::Normal,
             family,
             data,
         })
@@ -131,21 +136,24 @@ impl Font {
     /// The outline of `ch`; `None` if the font has no glyph for it. Whitespace has no
     /// contours, only an advance.
     pub fn glyph(&self, ch: char) -> Option<Glyph> {
-        let face = Face::parse(&self.data, 0).ok()?;
-        let id = face.glyph_index(ch)?;
-        let advance = f64::from(face.glyph_hor_advance(id)?) / self.units_per_em;
+        let face = FontRef::from_index(&self.data, 0).ok()?;
+        let id = face.charmap().map(ch)?;
+        let metrics: GlyphMetrics<'_> =
+            face.glyph_metrics(Size::unscaled(), LocationRef::default());
+        let advance = f64::from(metrics.advance_width(id)?) / self.units_per_em;
         let mut b = Builder::new(1.0 / self.units_per_em);
-        outline(&face, id, &mut b);
+        // No outline entry is an empty glyph (space).
+        if let Some(g) = face.outline_glyphs().get(id) {
+            let _ = g.draw(
+                DrawSettings::unhinted(Size::unscaled(), LocationRef::default()),
+                &mut b,
+            );
+        }
         Some(Glyph {
             contours: b.finish(),
             advance,
         })
     }
-}
-
-fn outline(face: &Face<'_>, id: GlyphId, b: &mut Builder) {
-    // `None` is an empty glyph (space).
-    let _ = face.outline_glyph(id, b);
 }
 
 /// Lines shorter than this (em) are zero-length and dropped, so the topology of a laid-out
@@ -212,7 +220,7 @@ impl Builder {
     }
 }
 
-impl OutlineBuilder for Builder {
+impl OutlinePen for Builder {
     fn move_to(&mut self, x: f32, y: f32) {
         self.flush();
         self.start = self.pt(x, y);

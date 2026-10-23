@@ -1621,3 +1621,12 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   building (preemption, not solver latency; 0.73 ms worst on rerun). The 1 ms Done-when bound is now
   asserted only with `AMG_STRICT_TIMING=1`; by default the test asserts 5 ms, so shared CI runners do
   not flake. The strict run passes on this machine.
+
+### 2026-10-24 - SK-10 follow-up: ttf-parser -> skrifa (lane B)
+- **Landed:** `text/font.rs` now reads fonts with `skrifa` 0.49.0 (pinned `=0.49.0`, `default-features = false`,
+  `std`; transitive `read-fonts` 0.46.0, `font-types` 0.12.7, all MIT OR Apache-2.0). `ttf-parser` is removed
+  (RUSTSEC-2026-0192, unmaintained; no `deny.toml` ignore). Outlines come from `OutlineGlyph::draw` with an
+  `OutlinePen` (move/line/quad/cubic/close, unhinted, unscaled), advances from `GlyphMetrics`, cap height /
+  ascent / descent / leading from `Metrics`, family from the `name` table, bold = OS/2 weight >= 600, italic =
+  style != normal. Public `amg_sketch::text` API unchanged; `tests/text.rs` unmodified.
+- **Deviations / leftovers:** `THIRD_PARTY.md` row updated. The SK-10 row stays at Review.
