@@ -16,8 +16,10 @@
 //! - Geometry is read and written through a [`BodyCodec`]. Until the stub geometry types are
 //!   replaced by the real ones, [`StubBodyCodec`] is used; see the trait for the seam.
 //!
-//! Not here: geometry-cache persistence and autosave/recovery (DOC-14).
+//! - The geometry cache is persisted in `cache/` and read lazily on open (see
+//!   `io::cachefile`); autosave and recovery live in [`crate::recovery`] (DOC-14).
 
+mod cachefile;
 mod read;
 mod write;
 
@@ -29,11 +31,17 @@ use std::sync::Arc;
 use amg_jobs::{Cancelled, JobHandle, JobSystem, SpawnOptions};
 use serde::{Deserialize, Serialize};
 
+use crate::cache::GeomCache;
+use crate::document::{DEFAULT_CACHE_BUDGET, Document};
 use crate::eval::BodyGeom;
 use crate::feature::MigrationError;
 use crate::model::{BlobRef, Design, DesignSnapshot};
 use crate::stub::{IndexedMesh, SdfGraph, Shape, SubdMesh};
 
+pub use cachefile::{
+    CACHE_FORMAT, CACHE_INDEX, CacheExport, CacheSeed, OutputCodec, OutputCodecError,
+    StubOutputCodec,
+};
 pub use read::{load, load_in_job, load_with_codec, migrate_document};
 pub use write::{save, save_in_job};
 
@@ -224,6 +232,8 @@ pub struct SaveOptions {
     pub app_version: String,
     /// Test hook: stop at this phase (see [`StopAction`]). `None` in production.
     pub stop_after: Option<(SavePhase, StopAction)>,
+    /// Geometry cache to persist (`Document::cache_export`); `None` is "save compact" (DOC-14).
+    pub cache: Option<CacheExport>,
 }
 
 impl Default for SaveOptions {
@@ -235,6 +245,7 @@ impl Default for SaveOptions {
             codec: Arc::new(StubBodyCodec),
             app_version: env!("CARGO_PKG_VERSION").to_owned(),
             stop_after: None,
+            cache: None,
         }
     }
 }
@@ -252,6 +263,19 @@ pub struct LoadedDocument {
     pub file_version: u32,
     /// Things that loaded but deserve the user's attention (unknown feature kinds).
     pub warnings: Vec<String>,
+    /// The persisted geometry cache, read lazily (DOC-14). Empty without a cache.
+    pub cache_seed: CacheSeed,
+}
+
+impl LoadedDocument {
+    /// A [`Document`] around the design whose cache reads this file's entries on demand when
+    /// the stored salt matches the running one: opening a fully cached design computes nothing.
+    pub fn into_document(self) -> Document {
+        let salt = crate::recompute::engine_salt(&self.design.meta().tolerance);
+        let cache = GeomCache::new(DEFAULT_CACHE_BUDGET);
+        self.cache_seed.attach_to(&cache, &salt);
+        Document::with_cache(self.design, cache)
+    }
 }
 
 /// `manifest.json`.

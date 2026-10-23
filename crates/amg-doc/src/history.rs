@@ -73,9 +73,35 @@ impl UndoStack {
     }
 }
 
+/// Observer of committed history changes (the crash journal, DOC-14). Called on the thread that
+/// mutates the [`History`] (the UI thread), after the change; implementations must not block.
+pub trait HistoryObserver: Send + Sync {
+    /// A new undo entry was committed with these commands and label.
+    fn on_commit(&self, label: &str, commands: &[Command]);
+    /// A step was undone.
+    fn on_undo(&self);
+    /// A step was redone.
+    fn on_redo(&self);
+}
+
+/// Holder of the optional observer (keeps `History: Debug`).
+#[derive(Clone, Default)]
+struct ObserverSlot(Option<Arc<dyn HistoryObserver>>);
+
+impl std::fmt::Debug for ObserverSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "Observer(set)"
+        } else {
+            "Observer(none)"
+        })
+    }
+}
+
 /// The current design plus its undo history.
 #[derive(Debug)]
 pub struct History {
+    observer: ObserverSlot,
     current: DesignSnapshot,
     stack: UndoStack,
     revision: Revision,
@@ -94,6 +120,7 @@ impl History {
     /// History with a custom depth limit (at least 1).
     pub fn with_limit(design: Design, limit: usize) -> History {
         History {
+            observer: ObserverSlot::default(),
             current: Arc::new(design),
             stack: UndoStack::new(limit),
             revision: Revision(0),
@@ -117,6 +144,11 @@ impl History {
     /// design (unlike `Design::revision`, which goes back with undo). Runtime only.
     pub fn revision(&self) -> Revision {
         self.revision
+    }
+
+    /// Installs (or removes) the observer told about commits, undo and redo.
+    pub fn set_observer(&mut self, observer: Option<Arc<dyn HistoryObserver>>) {
+        self.observer = ObserverSlot(observer);
     }
 
     /// The undo stack.
@@ -158,6 +190,9 @@ impl History {
         self.stack.cursor -= 1;
         self.current = Arc::clone(&self.stack.entries[self.stack.cursor].before);
         self.revision = self.revision.next();
+        if let Some(o) = &self.observer.0 {
+            o.on_undo();
+        }
         true
     }
 
@@ -169,6 +204,9 @@ impl History {
         self.current = Arc::clone(&e.after);
         self.stack.cursor += 1;
         self.revision = self.revision.next();
+        if let Some(o) = &self.observer.0 {
+            o.on_redo();
+        }
         true
     }
 
@@ -210,6 +248,11 @@ impl History {
         self.saved_seq = Some(self.current_seq());
     }
 
+    /// Forgets the saved marker, so the state counts as unsaved (a recovered document).
+    pub fn mark_dirty(&mut self) {
+        self.saved_seq = None;
+    }
+
     /// True if the current state differs from the last saved one (or none was saved).
     pub fn is_dirty(&self) -> bool {
         self.saved_seq != Some(self.current_seq())
@@ -229,6 +272,9 @@ impl History {
         }
         let before = Arc::clone(&self.current);
         let after = Arc::new(work);
+        if let Some(o) = &self.observer.0 {
+            o.on_commit(&label, &commands);
+        }
         let st = &mut self.stack;
         st.entries.truncate(st.cursor);
         st.entries.push_back(UndoEntry {
