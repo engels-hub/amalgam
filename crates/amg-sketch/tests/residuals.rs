@@ -162,7 +162,9 @@ fn round_radius(s: &Sketch, e: EntityId) -> f64 {
     match s.curve(e).unwrap() {
         amg_sketch::Curve2::Circle(c) => c.radius,
         amg_sketch::Curve2::Arc(a) => a.radius,
-        amg_sketch::Curve2::Line(_) | amg_sketch::Curve2::Ellipse(_) => unreachable!(),
+        amg_sketch::Curve2::Line(_)
+        | amg_sketch::Curve2::Ellipse(_)
+        | amg_sketch::Curve2::BSpline(_) => unreachable!(),
     }
 }
 
@@ -170,7 +172,9 @@ fn round_center(s: &Sketch, e: EntityId) -> Point2 {
     match s.curve(e).unwrap() {
         amg_sketch::Curve2::Circle(c) => c.center,
         amg_sketch::Curve2::Arc(a) => a.center,
-        amg_sketch::Curve2::Line(_) | amg_sketch::Curve2::Ellipse(_) => unreachable!(),
+        amg_sketch::Curve2::Line(_)
+        | amg_sketch::Curve2::Ellipse(_)
+        | amg_sketch::Curve2::BSpline(_) => unreachable!(),
     }
 }
 

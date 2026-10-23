@@ -448,9 +448,15 @@ fn constraint_rows(ctx: &Ctx<'_>, kind: &ConstraintKind, out: &mut Vec<D>) -> R<
                 EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
                     return Err("ellipses are not modelled by the reference".into());
                 }
+                EntityKind::Spline(_) | EntityKind::Conic { .. } => {
+                    return Err("splines and conics are not modelled by the reference".into());
+                }
             }
         }
         C::Fix { .. } => {}
+        C::Curvature { .. } => {
+            return Err("curvature continuity is not modelled by the reference".into());
+        }
         C::Dimension(ref dim) => {
             if !dim.driving {
                 return Ok(());
@@ -591,6 +597,9 @@ impl RefSystem {
                 }
                 EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
                     return Err("ellipses are not modelled by the reference".into());
+                }
+                EntityKind::Spline(_) | EntityKind::Conic { .. } => {
+                    return Err("splines and conics are not modelled by the reference".into());
                 }
                 EntityKind::Point { .. } | EntityKind::Line { .. } | EntityKind::Circle { .. } => {}
             }

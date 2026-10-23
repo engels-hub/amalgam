@@ -36,12 +36,12 @@ pub mod transform;
 pub use build::Built;
 pub use edit::{ChamferSpec, EditResult};
 pub use error::SketchError;
-pub use geom::{Arc2, Circle2, Curve2, CurveHit, EllipseArc2};
+pub use geom::{Arc2, BSpline2, Circle2, Curve2, CurveHit, EllipseArc2};
 pub use ids::{ConstraintId, EntityId, ExternalLinkId, ParamId};
 pub use model::{
     AngleBranch, Constraint, ConstraintKind, Dimension, DimensionKind, End, Entity, EntityKind,
     EntityOrigin, HvTarget, ParamFlags, ParamStore, Quantity, RemoveReport, Side, Sketch,
-    TangentKind,
+    SplineDef, TangentKind,
 };
 pub use offset::{CornerStyle, OffsetOptions, OffsetResult};
 pub use profile::{

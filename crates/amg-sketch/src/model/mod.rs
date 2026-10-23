@@ -196,10 +196,109 @@ pub enum EntityKind {
         /// Eccentric angle of the end point, rad.
         t1: ParamId,
     },
+    /// B-spline or NURBS (SK-08); see [`SplineDef`].
+    Spline(SplineDef),
+    /// Conic (SK-08, 7 DOF): the quadratic rational Bézier from `start` to `end` with the
+    /// shoulder (control) point `apex` and weights `(1, ρ/(1 − ρ), 1)`. The curve passes through
+    /// `S + ρ (apex − S)` with `S = (start + end)/2`; `ρ = ½` is a parabola, smaller an
+    /// ellipse, larger a hyperbola. Its parameter range is `[0, 1]`.
+    Conic {
+        /// Start point entity.
+        start: EntityId,
+        /// End point entity.
+        end: EntityId,
+        /// Apex (control) point entity.
+        apex: EntityId,
+        /// Shape param `ρ ∈ (0, 1)`.
+        rho: ParamId,
+    },
+}
+
+/// Definition of a B-spline entity (SK-08). Only clamped, non-periodic splines are supported:
+/// `periodic` must be `false` (a closed curve is made by making the end points coincident).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SplineDef {
+    /// Control-point form: the poles are point entities (2 DOF each), optional weights are
+    /// params (one DOF each, must stay positive), the knot vector is fixed data.
+    Control {
+        /// Degree, `1..=10`.
+        degree: u8,
+        /// Pole point entities, at least `degree + 1`.
+        poles: Vec<EntityId>,
+        /// One weight param per pole (a rational spline), or `None` for a non-rational one.
+        weights: Option<Vec<ParamId>>,
+        /// Clamped knot vector with `poles + degree + 1` entries.
+        knots: Vec<f64>,
+        /// Reserved; must be `false`.
+        periodic: bool,
+    },
+    /// Fit-point form: the cubic B-spline interpolating the fit points at frozen chord-length
+    /// parameters. Its poles are a linear map of the fit points and tangent handles, so only
+    /// the points (and handles) are unknowns. A tangent handle `H` for the start fixes the end
+    /// derivative `(H − Q₀)/Δū`; without one the end is natural (`C'' = 0`).
+    Fit {
+        /// Fit point entities, at least two.
+        points: Vec<EntityId>,
+        /// Start tangent handle point entity.
+        start_tangent: Option<EntityId>,
+        /// End tangent handle point entity.
+        end_tangent: Option<EntityId>,
+        /// Fit parameters in `[0, 1]`, strictly increasing, one per fit point (chord length at
+        /// creation; frozen so the pole map stays linear).
+        params: Vec<f64>,
+        /// Reserved; must be `false`.
+        periodic: bool,
+    },
+}
+
+impl SplineDef {
+    /// Point entities the spline is built on, in declaration order (fit points, then the
+    /// start and end tangent handles).
+    pub fn points(&self) -> SmallVec<[EntityId; 3]> {
+        match self {
+            SplineDef::Control { poles, .. } => poles.iter().copied().collect(),
+            SplineDef::Fit {
+                points,
+                start_tangent,
+                end_tangent,
+                ..
+            } => points
+                .iter()
+                .copied()
+                .chain(*start_tangent)
+                .chain(*end_tangent)
+                .collect(),
+        }
+    }
+
+    /// First and last point of the curve (pole or fit point).
+    pub fn ends(&self) -> Option<(EntityId, EntityId)> {
+        let list = match self {
+            SplineDef::Control { poles, .. } => poles,
+            SplineDef::Fit { points, .. } => points,
+        };
+        Some((*list.first()?, *list.last()?))
+    }
+
+    /// Degree of the curve (3 for fit-point splines).
+    pub fn degree(&self) -> usize {
+        match self {
+            SplineDef::Control { degree, .. } => usize::from(*degree),
+            SplineDef::Fit { .. } => 3,
+        }
+    }
+
+    /// True if `periodic` is set.
+    pub fn is_periodic(&self) -> bool {
+        match self {
+            SplineDef::Control { periodic, .. } | SplineDef::Fit { periodic, .. } => *periodic,
+        }
+    }
 }
 
 impl EntityKind {
-    /// Short lowercase name ("point", "line", "circle", "arc", "ellipse", "elliptical arc").
+    /// Short lowercase name ("point", "line", "circle", "arc", "ellipse", "elliptical arc",
+    /// "spline", "conic").
     pub fn name(&self) -> &'static str {
         match self {
             EntityKind::Point { .. } => "point",
@@ -208,12 +307,18 @@ impl EntityKind {
             EntityKind::Arc { .. } => "arc",
             EntityKind::Ellipse { .. } => "ellipse",
             EntityKind::EllipticArc { .. } => "elliptical arc",
+            EntityKind::Spline(_) => "spline",
+            EntityKind::Conic { .. } => "conic",
         }
     }
 
     /// Entities this one is built on (its points), in declaration order.
     pub fn children(&self) -> SmallVec<[EntityId; 3]> {
         match *self {
+            EntityKind::Spline(ref d) => d.points(),
+            EntityKind::Conic {
+                start, end, apex, ..
+            } => [start, end, apex].into_iter().collect(),
             EntityKind::Point { .. } => SmallVec::new(),
             EntityKind::Line { start, end } => [start, end].into_iter().collect(),
             EntityKind::Circle { center, .. } => [center].into_iter().collect(),
@@ -232,6 +337,12 @@ impl EntityKind {
     /// Parameters this entity owns directly (not those of its child points).
     pub fn own_params(&self) -> SmallVec<[ParamId; 2]> {
         match *self {
+            EntityKind::Spline(SplineDef::Control {
+                weights: Some(ref w),
+                ..
+            }) => w.iter().copied().collect(),
+            EntityKind::Spline(_) => SmallVec::new(),
+            EntityKind::Conic { rho, .. } => [rho].into_iter().collect(),
             EntityKind::Point { x, y } => [x, y].into_iter().collect(),
             EntityKind::Circle { radius, .. } => [radius].into_iter().collect(),
             EntityKind::Ellipse { minor_radius, .. } => [minor_radius].into_iter().collect(),
@@ -245,10 +356,16 @@ impl EntityKind {
         }
     }
 
-    /// The point entity at end `end` of a line, arc or elliptical arc; `None` for points,
-    /// circles and full ellipses.
+    /// The point entity at end `end` of a line, arc, elliptical arc, spline or conic; `None`
+    /// for points, circles and full ellipses.
     pub fn endpoint(&self, end: End) -> Option<EntityId> {
         match (self, end) {
+            (EntityKind::Spline(d), _) => {
+                let (s, e) = d.ends()?;
+                Some(if end == End::Start { s } else { e })
+            }
+            (EntityKind::Conic { start, .. }, End::Start) => Some(*start),
+            (EntityKind::Conic { end, .. }, End::End) => Some(*end),
             (
                 EntityKind::Line { start, .. }
                 | EntityKind::Arc { start, .. }
@@ -283,7 +400,11 @@ impl EntityKind {
                 f(t0);
                 f(t1);
             }
-            EntityKind::Line { .. } | EntityKind::Arc { .. } => {}
+            EntityKind::Spline(SplineDef::Control {
+                weights: Some(w), ..
+            }) => w.iter_mut().for_each(f),
+            EntityKind::Conic { rho, .. } => f(rho),
+            EntityKind::Spline(_) | EntityKind::Line { .. } | EntityKind::Arc { .. } => {}
         }
     }
 
@@ -311,7 +432,11 @@ impl EntityKind {
     pub(crate) fn has_center(&self) -> bool {
         self.is_round() || self.is_ellipse()
     }
-    /// Any curve (line, circle, arc, ellipse, elliptical arc).
+    /// Spline or conic.
+    pub(crate) fn is_bspline(&self) -> bool {
+        matches!(self, EntityKind::Spline(_) | EntityKind::Conic { .. })
+    }
+    /// Any curve (line, circle, arc, ellipse, elliptical arc, spline, conic).
     pub(crate) fn is_curve(&self) -> bool {
         !self.is_point()
     }
@@ -359,10 +484,11 @@ pub enum End {
 /// **Circle/arc–circle/arc:** `External` is `|c1 − c2| = r1 + r2`, `Internal` is
 /// `|c1 − c2| = |r1 − r2|`.
 ///
-/// **`AtEndpoint`:** line/arc–line/arc (at least one arc), tangent at end `a_end` of `a` and
+/// **`AtEndpoint`:** line/arc/spline/conic pairs (not line–line, which is collinearity), tangent at end `a_end` of `a` and
 /// end `b_end` of `b`. When the constraint is added, those two points must be the same point
 /// entity or be joined by a chain of `Coincident` constraints. With `t_a`, `t_b` the curves'
-/// directions of travel there (line: `end − start`; arc: CCW tangent), the residual is
+/// directions of travel there (line: `end − start`; arc: CCW tangent; spline or conic: `P₁ − P₀`
+/// at the start, `Pₙ − Pₙ₋₁` at the end), the residual is
 /// `cross(t_a, t_b)`, and `reversed == false` means `dot(t_a, t_b) > 0`. The stored ends keep
 /// the residual well defined even if a joining `Coincident` is removed later.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -400,7 +526,7 @@ pub struct AngleBranch {
     pub reverse_b: bool,
 }
 
-/// Geometric constraint or dimension. The curvature (G2) constraint arrives with SK-08.
+/// Geometric constraint or dimension.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConstraintKind {
     /// Point–point coincidence.
@@ -410,9 +536,9 @@ pub enum ConstraintKind {
         /// Second point.
         b: EntityId,
     },
-    /// Point on a line, circle, arc, ellipse or elliptical arc (the full ellipse). On an
-    /// ellipse the constraint owns one auxiliary param, the curve parameter `t` of the point
-    /// ([`Constraint::aux`]).
+    /// Point on a line, circle, arc, ellipse, elliptical arc, spline or conic. On an ellipse,
+    /// spline or conic the constraint owns one auxiliary param, the curve parameter `t` of the
+    /// point ([`Constraint::aux`]).
     PointOnCurve {
         /// The point.
         point: EntityId,
@@ -452,7 +578,8 @@ pub enum ConstraintKind {
         b: EntityId,
     },
     /// Tangency: line–circle/arc, circle/arc–circle/arc, line–ellipse/elliptical arc (the
-    /// full ellipse), or line/arc–line/arc at a shared endpoint (`TangentKind::AtEndpoint`).
+    /// full ellipse), or line/arc/spline/conic pairs at a shared endpoint
+    /// (`TangentKind::AtEndpoint`).
     Tangent {
         /// First curve.
         a: EntityId,
@@ -460,6 +587,25 @@ pub enum ConstraintKind {
         b: EntityId,
         /// Which tangency.
         kind: TangentKind,
+    },
+    /// Curvature continuity (G2) at a shared end point of two curves, at least one of them a
+    /// spline or conic (SK-08): tangent (as [`TangentKind::AtEndpoint`]) **and** equal signed
+    /// curvature. With `κ` the signed curvature in the direction of travel (positive = turning
+    /// left; line 0, CCW arc `+1/r`), the rows are the tangent row and `κ_a − σ κ_b` with
+    /// `σ = −1` if `reversed` (the directions of travel are opposite) and `+1` otherwise. The
+    /// named ends must be the same point entity or be joined by `Coincident` constraints when
+    /// the constraint is added.
+    Curvature {
+        /// First curve (line, arc, spline or conic).
+        a: EntityId,
+        /// Second curve.
+        b: EntityId,
+        /// Which end of `a` is shared.
+        a_end: End,
+        /// Which end of `b` is shared.
+        b_end: End,
+        /// The directions of travel are opposite at the shared point.
+        reversed: bool,
     },
     /// Circle/arc/ellipse pair with coincident centres.
     Concentric {
@@ -508,6 +654,7 @@ impl ConstraintKind {
             ConstraintKind::Perpendicular { .. } => "perpendicular",
             ConstraintKind::Collinear { .. } => "collinear",
             ConstraintKind::Tangent { .. } => "tangent",
+            ConstraintKind::Curvature { .. } => "curvature",
             ConstraintKind::Concentric { .. } => "concentric",
             ConstraintKind::Equal { .. } => "equal",
             ConstraintKind::Symmetric { .. } => "symmetric",
@@ -524,6 +671,7 @@ impl ConstraintKind {
             | ConstraintKind::Perpendicular { a, b }
             | ConstraintKind::Collinear { a, b }
             | ConstraintKind::Tangent { a, b, .. }
+            | ConstraintKind::Curvature { a, b, .. }
             | ConstraintKind::Concentric { a, b }
             | ConstraintKind::Equal { a, b } => &[*a, *b],
             ConstraintKind::PointOnCurve {
@@ -692,7 +840,8 @@ pub struct Dimension {
 pub struct Constraint {
     /// What it constrains.
     pub kind: ConstraintKind,
-    /// Auxiliary params owned by the constraint: the curve parameter `t` of a point-on-ellipse
-    /// constraint (`Sketch::add_constraint` allocates it). Empty for every other constraint.
+    /// Auxiliary params owned by the constraint: the curve parameter `t` of a point on an
+    /// ellipse, spline or conic (`Sketch::add_constraint` allocates it). Empty for every other
+    /// constraint.
     pub aux: SmallVec<[ParamId; 1]>,
 }

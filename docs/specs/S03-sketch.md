@@ -245,6 +245,8 @@ pub enum EntityKind {
     EllipticArc { center: EntityId, major: EntityId, minor_radius: ParamId,
                   start: EntityId, end: EntityId, t0: ParamId, t1: ParamId },        // SK-22
     Spline(SplineDef),                                                              // SK-08
+    /// Quadratic rational Bezier start->end, shoulder point `apex`, weights (1, rho/(1-rho), 1);
+    /// passes through S + rho (apex - S), S = (start + end)/2; parameter range [0, 1].
     Conic { start: EntityId, end: EntityId, apex: EntityId, rho: ParamId },          // SK-08
 }
 
@@ -252,8 +254,9 @@ pub enum EntityKind {
 pub enum SplineDef {
     Control { degree: u8, poles: Vec<EntityId>, weights: Option<Vec<ParamId>>,
               knots: Vec<f64>, periodic: bool },
+    /// Cubic interpolation at frozen chord-length parameters `params` (one per point, 0..1).
     Fit { points: Vec<EntityId>, start_tangent: Option<EntityId>,
-          end_tangent: Option<EntityId>, periodic: bool },
+          end_tangent: Option<EntityId>, params: Vec<f64>, periodic: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -279,7 +282,8 @@ pub enum ConstraintKind {
     Perpendicular { a: EntityId, b: EntityId },
     Collinear { a: EntityId, b: EntityId },
     Tangent { a: EntityId, b: EntityId, kind: TangentKind },
-    Curvature { a: EntityId, b: EntityId },                                         // SK-08
+    /// Tangent + equal signed curvature at the named shared ends (SK-08).
+    Curvature { a: EntityId, b: EntityId, a_end: End, b_end: End, reversed: bool },
     Concentric { a: EntityId, b: EntityId },
     Equal { a: EntityId, b: EntityId },
     Symmetric { a: EntityId, b: EntityId, axis: EntityId },
@@ -711,7 +715,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Done | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
 | SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Done | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
 | SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Done | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
-| SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Todo | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
+| SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Review | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
 | SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
 | SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Todo | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
 | SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Todo | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
@@ -1402,6 +1406,49 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **Leftovers:** trim/extend/break and offset of ellipses; ellipse tangent to circles or ellipses; tangent
   `AtEndpoint` for elliptical arcs; symmetric elliptical arcs; distance to an ellipse; `Curve2::BSpline`
   still with SK-08.
+
+### 2026-10-23 - SK-08 (splines and conics, lane B)
+- **Landed:** `EntityKind::{Spline(SplineDef), Conic}`, `SplineDef::{Control, Fit}`, `ConstraintKind::Curvature`
+  (model), `geom::BSpline2` + `Curve2::BSpline`, `Sketch::{add_spline, add_spline_fit, add_conic}`,
+  `geom::{fit_spline, FitMap, clamped_uniform_knots, check_knots, chord_params, conic_weight}`,
+  `offset::OffsetOptions::spline_tol`, `solve/spline.rs` (rows with variable arity; `SketchResidual`
+  wraps them), `geom/spline_x.rs` (intersectors). `BSpline2` is a clamped rational B-spline of degree
+  1..=10, domain shifted to `[0, L]`; every conic is the same type.
+- **Interface changes (additive, all in `amg-sketch`):** `SplineDef::Fit` gains `params` (frozen chord-length
+  parameters, so the pole map stays linear); `Curvature` carries `a_end, b_end, reversed` like
+  `TangentKind::AtEndpoint` (a bare `{a, b}` cannot name the shared ends); `Tangent AtEndpoint` accepts
+  line/arc/spline/conic pairs (line-line is still rejected); `PointOnCurve` accepts splines and conics with
+  one aux param (curve parameter); `Equal` accepts conic-conic (`rho`) and rational control spline pairs of
+  equal pole count (weights); `Curve2` gains a variant, so downstream exhaustive matches need an arm.
+- **Equations.** Poles are a linear map of point params (identity for control splines/conics, the interpolation
+  map of `FitMap` for fit splines); weights are params, `rho/(1-rho)` for a conic, or 1. Point on spline:
+  `p - C(t)` (2 rows, `t` aux; the curve continues polynomially beyond `[0, L]` so Newton can recover).
+  Tangent: `L_c * wrap(angle(t_a, s t_b))` with direction `P1 - P0` at a start and `Pn - Pn-1` at an end.
+  G2: that row plus `0.5 L_c^2 (k_a - s k_b)` (`s = -1` if reversed; the scale is the deviation at distance
+  `L_c` of two curves whose curvatures differ). The end curvature depends only on the first three homogeneous
+  poles; its gradient is exact (forward-mode dual numbers in `geom::spline`), then the pole map.
+  Natural fit-spline ends have `C'' = 0`, i.e. zero curvature there: G2 with a fit spline needs a tangent handle.
+- **Intersections** (deviation from "Bezier clipping"): spline vs line/circle/arc/ellipse by the implicit
+  function along the knot spans (sample grid, bisection of `(F o C)'` and `F o C`); spline vs spline by
+  control-polygon box subdivision of the Bezier pieces (hull property) and a Levenberg-Marquardt polish on the
+  exact curves, grazing contacts accepted within the tolerance. Overlap = a run of samples on the other curve;
+  only the run ends are reported. Self-intersection: 12 pieces per span intersected pairwise (a loop shorter
+  than 1/12 of a span is missed); the closing point of a closed curve is not reported. Profile detection
+  turns a self-crossing into a vertex and the loop into an edge, with `ProfileIssue::SelfIntersection`.
+- **Profiles.** Area and first moment use the exact segment between curve and chord (Gauss-Legendre, 4 panels
+  per span for rational curves); containment finds y-monotone pieces and bisects.
+- **Not supported (clear errors, tested):** periodic splines (`NotApplicable`, also on load), tangent
+  External/Internal with splines, curvature without a spline/conic, `Concentric`, `Symmetric`, `Midpoint`,
+  `Parallel`, distance/radius/length dimensions on splines or conics, `Equal` of other combinations, trim /
+  extend / break / fillet / chamfer *of* a spline (`WrongEntityKind`; a spline is a valid cutter), `circle_2_tangent`
+  to a spline, corpus reference/ezpz/slvs adapters (skip). **Offset:** a selection of splines/conics only; each becomes
+  a new unconstrained fit spline within `spline_tol` (default 1e-4 mm, measured against the source), refused when
+  the distance reaches the radius of curvature; mixing with lines/arcs or `constrain = true` is `NotApplicable`.
+  **Transform:** copy/move/rotate/scale/mirror/patterns work; constrained results use point constraints plus
+  `Equal` for weights/`rho`.
+- **Tests:** `src/geom/spline_tests.rs` (8), `tests/spline.rs` (16), `tests/spline_ops.rs` (4).
+- **Leftovers:** periodic splines; spline trim/extend/break and constrained/chain offset with corner closing;
+  rho/weight dimensions; G2 helper for fit splines with natural ends; slvs adapter untested (cannot build here).
 
 ### 2026-10-23 - SK-22 / SK-16 integration (merge review)
 - SK-22 branched before SK-16 landed; `edit::corner` gains `Curve2::Ellipse` arms. Fillet and chamfer

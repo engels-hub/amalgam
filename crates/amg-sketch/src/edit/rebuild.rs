@@ -157,9 +157,12 @@ fn apply_inner(s: &mut Sketch, e: EntityId, plan: &Plan) -> Result<EditOutcome, 
                 EntityKind::Arc { center, start, end }
             }
             EntityKind::Point { .. } => return Err(SketchError::NotApplicable("a point")),
-            EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+            EntityKind::Ellipse { .. }
+            | EntityKind::EllipticArc { .. }
+            | EntityKind::Spline(_)
+            | EntityKind::Conic { .. } => {
                 return Err(SketchError::NotApplicable(
-                    "ellipses cannot be replaced by pieces yet",
+                    "ellipses, splines and conics cannot be replaced by pieces yet",
                 ));
             }
         };
@@ -251,6 +254,7 @@ fn subst(kind: &ConstraintKind, from: EntityId, to: EntityId) -> ConstraintKind 
         | ConstraintKind::Perpendicular { a, b }
         | ConstraintKind::Collinear { a, b }
         | ConstraintKind::Tangent { a, b, .. }
+        | ConstraintKind::Curvature { a, b, .. }
         | ConstraintKind::Concentric { a, b }
         | ConstraintKind::Equal { a, b } => {
             *a = r(*a);
@@ -301,12 +305,13 @@ fn piece_containing(ctx: &Ctx<'_>, t: f64) -> Option<usize> {
         Curve2::Circle(c) => c.radius,
         Curve2::Arc(a) => a.radius,
         Curve2::Ellipse(e) => e.semi_major().min(e.minor_radius),
+        Curve2::BSpline(b) => b.length(),
     };
     let eps = MERGE / scale.max(1e-9);
     ctx.plan.pieces.iter().position(|p| {
         let inside = |t: f64| t >= p.t0 - eps && t <= p.t0 + p.len + eps;
         match ctx.curve {
-            Curve2::Line(_) => inside(t),
+            Curve2::Line(_) | Curve2::BSpline(_) => inside(t),
             Curve2::Arc(_) | Curve2::Ellipse(_) => inside(t) || inside(t - TAU),
             Curve2::Circle(_) => {
                 let u = (t - p.t0).rem_euclid(TAU);
@@ -348,17 +353,20 @@ fn migrate(
         | ConstraintKind::Concentric { .. } => one(first),
         ConstraintKind::Tangent { a, kind: tk, .. } => match *tk {
             TangentKind::AtEndpoint { a_end, b_end, .. } => {
-                let end = if *a == ctx.e { a_end } else { b_end };
-                let slot = usize::from(end == End::End);
-                let want = ctx.orig[slot];
-                let hit = ctx.plan.pieces.iter().position(|p| {
-                    let bnd = if end == End::Start { p.start } else { p.end };
-                    matches!((bnd, want), (Bnd::Keep(k), Some(w)) if k == w)
-                });
-                hit.map_or(Err("the tangent end was cut off"), |i| one(ctx.ids[i]))
+                at_end(ctx, *a, a_end, b_end, "the tangent end was cut off", one)
             }
             _ => one(first),
         },
+        ConstraintKind::Curvature {
+            a, a_end, b_end, ..
+        } => at_end(
+            ctx,
+            *a,
+            *a_end,
+            *b_end,
+            "the curvature end was cut off",
+            one,
+        ),
         ConstraintKind::Equal { a, b } => {
             let other = if *a == ctx.e { *b } else { *a };
             let other_is_line = matches!(
@@ -398,6 +406,26 @@ fn migrate(
             }
         },
     }
+}
+
+/// Migration of an end-point constraint (tangent, curvature): it follows the piece that still
+/// has the edited curve's original end.
+fn at_end(
+    ctx: &Ctx<'_>,
+    a: EntityId,
+    a_end: End,
+    b_end: End,
+    cut_off: &'static str,
+    one: impl Fn(EntityId) -> Result<Vec<ConstraintKind>, &'static str>,
+) -> Result<Vec<ConstraintKind>, &'static str> {
+    let end = if a == ctx.e { a_end } else { b_end };
+    let slot = usize::from(end == End::End);
+    let want = ctx.orig[slot];
+    let hit = ctx.plan.pieces.iter().position(|p| {
+        let bnd = if end == End::Start { p.start } else { p.end };
+        matches!((bnd, want), (Bnd::Keep(k), Some(w)) if k == w)
+    });
+    hit.map_or(Err(cut_off), |i| one(ctx.ids[i]))
 }
 
 /// Convenience for the origin check shared by all operations.

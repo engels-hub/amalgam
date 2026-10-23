@@ -186,7 +186,11 @@ pub fn trim_detailed(
             }
         }
         // `checked()` rejects these kinds before this point.
-        EntityKind::Point { .. } | EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+        EntityKind::Point { .. }
+        | EntityKind::Ellipse { .. }
+        | EntityKind::EllipticArc { .. }
+        | EntityKind::Spline(_)
+        | EntityKind::Conic { .. } => {
             return Err(SketchError::NotApplicable(
                 "only lines, circles and arcs can be trimmed",
             ));
@@ -289,7 +293,7 @@ pub fn break_at_detailed(
         crate::geom::Curve2::Line(seg) => seg.a.distance(seg.b),
         crate::geom::Curve2::Arc(a) => a.radius,
         crate::geom::Curve2::Circle(c) => c.radius,
-        crate::geom::Curve2::Ellipse(_) => {
+        crate::geom::Curve2::Ellipse(_) | crate::geom::Curve2::BSpline(_) => {
             return Err(SketchError::NotApplicable(
                 "only lines and arcs can be broken",
             ));

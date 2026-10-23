@@ -17,6 +17,7 @@ use amg_core::{Aabb2, Point2, Segment2, Tolerance, Vec2};
 use smallvec::SmallVec;
 
 use super::ellipse;
+use super::spline_x;
 use super::{Arc2, Circle2, Curve2, EllipseArc2};
 
 /// One intersection of two curves: `point ≈ a.eval(ta) ≈ b.eval(tb)`.
@@ -148,7 +149,7 @@ fn overlap_angle(a: &Round, b: &Round) -> f64 {
 impl Curve2 {
     pub(crate) fn round(&self) -> Option<Round> {
         match *self {
-            Curve2::Line(_) | Curve2::Ellipse(_) => None,
+            Curve2::Line(_) | Curve2::Ellipse(_) | Curve2::BSpline(_) => None,
             Curve2::Circle(Circle2 { center, radius }) => Some(Round {
                 c: center,
                 r: radius,
@@ -178,6 +179,7 @@ impl Curve2 {
             Curve2::Circle(_) => (0.0, TAU),
             Curve2::Arc(a) => (0.0, a.sweep.abs()),
             Curve2::Ellipse(e) => (0.0, e.span()),
+            Curve2::BSpline(b) => (0.0, b.span()),
         }
     }
 
@@ -187,6 +189,7 @@ impl Curve2 {
             Curve2::Line(s) => s.a + (s.b - s.a) * t,
             Curve2::Circle(_) | Curve2::Arc(_) => self.round().map_or(Point2::NAN, |r| r.eval(t)),
             Curve2::Ellipse(e) => e.eval(t),
+            Curve2::BSpline(b) => b.eval(t),
         }
     }
 
@@ -198,6 +201,7 @@ impl Curve2 {
                 self.round().map_or(Vec2::NAN, |r| r.derivative(t))
             }
             Curve2::Ellipse(e) => e.derivative(t),
+            Curve2::BSpline(b) => b.derivative(t),
         }
     }
 
@@ -214,6 +218,7 @@ impl Curve2 {
             Curve2::Line(_) => 0.0,
             Curve2::Circle(_) | Curve2::Arc(_) => self.round().map_or(0.0, |r| r.sign() / r.r),
             Curve2::Ellipse(e) => e.curvature_at(t),
+            Curve2::BSpline(b) => b.curvature_at(t),
         }
     }
 
@@ -234,6 +239,7 @@ impl Curve2 {
                 self.round().map_or((0.0, Point2::NAN), |r| r.closest(p))
             }
             Curve2::Ellipse(e) => e.closest(p),
+            Curve2::BSpline(b) => b.closest(p),
         }
     }
 
@@ -243,6 +249,7 @@ impl Curve2 {
             Curve2::Line(s) => Aabb2::new(s.a, s.b),
             Curve2::Circle(_) | Curve2::Arc(_) => self.round().map_or(Aabb2::EMPTY, |r| r.bbox()),
             Curve2::Ellipse(e) => e.bbox(),
+            Curve2::BSpline(b) => b.bbox(),
         }
     }
 
@@ -267,6 +274,7 @@ impl Curve2 {
                 t1: e.t0,
                 ..e
             }),
+            Curve2::BSpline(ref b) => Curve2::BSpline(b.reversed()),
         }
     }
 
@@ -292,6 +300,7 @@ impl Curve2 {
                 t1: e.angle(t1),
                 ..*e
             }),
+            Curve2::BSpline(b) => Curve2::BSpline(b.trimmed(t0, t1)),
         }
     }
 
@@ -302,6 +311,7 @@ impl Curve2 {
             Curve2::Circle(_) => true,
             Curve2::Arc(a) => a.sweep.abs() >= TAU - 1e-12,
             Curve2::Ellipse(e) => e.is_full(),
+            Curve2::BSpline(_) => false,
         }
     }
 
@@ -311,6 +321,7 @@ impl Curve2 {
             Curve2::Line(s) => s.a.distance(s.b),
             Curve2::Circle(_) | Curve2::Arc(_) => self.round().map_or(f64::NAN, |r| r.r * r.span()),
             Curve2::Ellipse(e) => e.length(),
+            Curve2::BSpline(b) => b.length(),
         }
     }
 }
@@ -328,6 +339,8 @@ pub fn intersect(a: &Curve2, b: &Curve2, tol: &Tolerance) -> SmallVec<[CurveHit;
 /// [`intersect`] plus the overlap flag.
 pub(crate) fn intersect_detailed(a: &Curve2, b: &Curve2, tol: &Tolerance) -> Intersection {
     let mut out = match (a, b, a.round(), b.round()) {
+        (Curve2::BSpline(sa), _, _, _) => spline_x::intersect(sa, a, b, tol, false),
+        (_, Curve2::BSpline(sb), _, _) => spline_x::intersect(sb, b, a, tol, true),
         (Curve2::Ellipse(ea), _, _, _) => ellipse::intersect(ea, a, b, tol, false),
         (_, Curve2::Ellipse(eb), _, _) => ellipse::intersect(eb, b, a, tol, true),
         (Curve2::Line(sa), Curve2::Line(sb), _, _) => line_line(sa, sb, tol),

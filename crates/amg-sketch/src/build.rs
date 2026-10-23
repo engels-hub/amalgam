@@ -632,6 +632,10 @@ fn loci(s: &Sketch, e: EntityId, r: f64) -> Result<Vec<Locus>, SketchError> {
         EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => Err(
             SketchError::NotApplicable("a circle tangent to an ellipse is not supported"),
         ),
+        // Likewise an offset curve of the spline.
+        EntityKind::Spline(_) | EntityKind::Conic { .. } => Err(SketchError::NotApplicable(
+            "a circle tangent to a spline or conic is not supported",
+        )),
     }
 }
 

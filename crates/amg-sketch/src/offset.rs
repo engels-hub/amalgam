@@ -41,10 +41,20 @@
 //! the same value, returned in [`OffsetResult::dimensions`]. Change them together with
 //! [`set_offset_distance`] (SK-19 binds them to one model parameter).
 //!
+//! # Splines and conics
+//!
+//! A selection of splines and conics (and nothing else) is offset curve by curve into new
+//! fit-point splines that approximate the exact offset within
+//! [`OffsetOptions::spline_tol`] (see the `spline` submodule). There is no corner closing,
+//! trimming or constraint for them: `constrain = true`, a selection that mixes splines with
+//! lines and arcs, and a distance at or beyond the local radius of curvature are errors.
+//!
 //! The geometry helpers in this module are private to it.
 
 use std::collections::HashMap;
 use std::f64::consts::TAU;
+
+mod spline;
 
 use amg_core::{Point2, Segment2, Tolerance, Vec2};
 
@@ -80,6 +90,10 @@ pub struct OffsetOptions {
     /// An extended corner reaching further than `miter_limit * distance` from the original
     /// corner is rounded instead.
     pub miter_limit: f64,
+    /// Largest deviation (mm) of the approximating spline from the exact offset of a spline or
+    /// conic (the distance of the copy from its source differs from the offset distance by at
+    /// most this). Default `1e-4`.
+    pub spline_tol: f64,
 }
 
 impl Default for OffsetOptions {
@@ -87,6 +101,7 @@ impl Default for OffsetOptions {
         OffsetOptions {
             corner: CornerStyle::Extend,
             miter_limit: 10.0,
+            spline_tol: 1e-4,
         }
     }
 }
@@ -164,6 +179,12 @@ pub fn offset_with(
     }
     if chain.is_empty() {
         return Err(SketchError::NotApplicable("nothing to offset"));
+    }
+    if chain.iter().any(|&id| {
+        s.entity(id)
+            .is_some_and(|e| matches!(e.kind, EntityKind::Spline(_) | EntityKind::Conic { .. }))
+    }) {
+        return spline::offset_splines(s, chain, distance, side, constrain, opts);
     }
     let elems = read_elems(s, chain)?;
     let chains = order_chains(&elems)?;
@@ -247,6 +268,12 @@ fn read_elems(s: &Sketch, ids: &[EntityId]) -> Result<Vec<Elem>, SketchError> {
                 // The offset of an ellipse is not an ellipse (it is an eighth-degree curve).
                 return Err(SketchError::NotApplicable(
                     "an ellipse cannot be offset (its offset curve is not an ellipse)",
+                ));
+            }
+            // `offset_with` sends selections with splines elsewhere.
+            EntityKind::Spline(_) | EntityKind::Conic { .. } => {
+                return Err(SketchError::NotApplicable(
+                    "a spline or conic cannot be offset together with other curves",
                 ));
             }
         };
@@ -441,7 +468,7 @@ fn curve_ends(c: &Curve2) -> Option<(Point2, Point2)> {
         Curve2::Line(l) => Some((l.a, l.b)),
         Curve2::Arc(_) => Some((c.eval(0.0), c.eval(c.param_range().1))),
         Curve2::Ellipse(e) if !e.is_full() => Some((c.eval(0.0), c.eval(c.param_range().1))),
-        Curve2::Circle(_) | Curve2::Ellipse(_) => None,
+        Curve2::Circle(_) | Curve2::Ellipse(_) | Curve2::BSpline(_) => None,
     }
 }
 
@@ -508,9 +535,9 @@ impl Tg {
                     }
                 }
             }
-            // Circles are offset separately, and `read_elems` rejects ellipses, so neither
-            // reaches a chain; the placeholder is never used.
-            Curve2::Circle(_) | Curve2::Ellipse(_) => Tg::Line {
+            // Circles are offset separately, and `read_elems` rejects ellipses and splines, so
+            // none reaches a chain; the placeholder is never used.
+            Curve2::Circle(_) | Curve2::Ellipse(_) | Curve2::BSpline(_) => Tg::Line {
                 a: Point2::ZERO,
                 b: Point2::X,
             },
@@ -914,6 +941,7 @@ fn trim(raws: &[Raw], origs: &[Curve2], d: f64) -> Vec<Piece> {
         Curve2::Arc(a) => a.radius,
         Curve2::Circle(c) => c.radius,
         Curve2::Ellipse(e) => e.semi_major().min(e.minor_radius),
+        Curve2::BSpline(b) => b.length(),
     };
     let mut splits: Vec<Vec<f64>> = vec![Vec::new(); raws.len()];
     for i in 0..raws.len() {
@@ -1176,8 +1204,10 @@ fn build_chain(
                 )
             }
             Curve2::Circle(_) => continue,
-            Curve2::Ellipse(_) => {
-                return Err(SketchError::NotApplicable("an ellipse cannot be offset"));
+            Curve2::Ellipse(_) | Curve2::BSpline(_) => {
+                return Err(SketchError::NotApplicable(
+                    "an ellipse, spline or conic cannot be offset together with lines and arcs",
+                ));
             }
         };
         s.set_construction(id, el.construction)?;

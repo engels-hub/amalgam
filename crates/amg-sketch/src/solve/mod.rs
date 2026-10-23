@@ -15,6 +15,7 @@ mod orient;
 pub mod proto;
 mod rank;
 mod residual;
+mod spline;
 pub mod system;
 
 pub use orient::orient_constraint;

@@ -4,14 +4,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::TAU;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use amg_core::{Plane, Point2, Segment2, Tolerance};
+use amg_core::{Plane, Point2, Segment2, Tolerance, Vec2};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use super::validate::{self, Mode, View, finite_point};
-use super::{Constraint, ConstraintKind, Entity, EntityKind, EntityOrigin, ParamFlags, ParamStore};
+use super::{
+    Constraint, ConstraintKind, Entity, EntityKind, EntityOrigin, ParamFlags, ParamStore, SplineDef,
+};
 use crate::error::SketchError;
-use crate::geom::{Arc2, Circle2, Curve2, EllipseArc2};
+use crate::geom::{
+    Arc2, BSpline2, Circle2, Curve2, EllipseArc2, FitMap, check_knots, chord_params,
+    clamped_uniform_knots, conic_weight,
+};
 use crate::ids::{ConstraintId, EntityId, ParamId};
 
 /// Process-wide revision counter: every bump of any sketch gets a fresh number, so a revision
@@ -344,6 +349,128 @@ impl Sketch {
         ))
     }
 
+    /// Adds a control-point B-spline of degree `degree` through the control polygon `poles`
+    /// (SK-08), creating the pole points. `weights` makes it rational (one positive weight per
+    /// pole, each a solver unknown); `knots` is a clamped knot vector with
+    /// `poles.len() + degree + 1` entries (default: clamped uniform).
+    ///
+    /// `Err(NotApplicable)` for a bad degree or knot vector, `Err(Degenerate)` for fewer than
+    /// `degree + 1` poles, `Err(InvalidValue)` for non-finite input or a non-positive weight.
+    pub fn add_spline(
+        &mut self,
+        degree: usize,
+        poles: &[Point2],
+        weights: Option<&[f64]>,
+        knots: Option<Vec<f64>>,
+    ) -> Result<EntityId, SketchError> {
+        for &p in poles {
+            finite_point("spline pole", p)?;
+        }
+        let knots = knots.unwrap_or_else(|| clamped_uniform_knots(poles.len(), degree));
+        check_knots(degree, poles.len(), &knots)?;
+        if let Some(w) = weights {
+            if w.len() != poles.len() {
+                return Err(SketchError::NotApplicable("one weight per pole is needed"));
+            }
+            if let Some(&bad) = w.iter().find(|&&v| !(v.is_finite() && v > 0.0)) {
+                return Err(SketchError::InvalidValue {
+                    what: "spline weight",
+                    value: bad,
+                });
+            }
+        }
+        let ids: Vec<EntityId> = poles.iter().map(|&p| self.push_point(p)).collect();
+        let weights = weights.map(|w| {
+            w.iter()
+                .map(|&v| self.params.push(v, ParamFlags::default()))
+                .collect()
+        });
+        Ok(self.insert_entity(
+            EntityKind::Spline(SplineDef::Control {
+                // `check_knots` limits the degree to 1..=10.
+                degree: u8::try_from(degree).unwrap_or(u8::MAX),
+                poles: ids,
+                weights,
+                knots,
+                periodic: false,
+            }),
+            false,
+            EntityOrigin::User,
+        ))
+    }
+
+    /// Adds a fit-point (interpolating cubic) spline through `points` (SK-08), creating the
+    /// fit points. The optional tangent vectors fix the end derivative: the handle point is the
+    /// end fit point plus the vector (a vector about as long as the first chord gives a
+    /// parametric speed of about the total length, like the natural end). Without them the ends
+    /// are natural (`C'' = 0`). The fit parameters are the chord lengths of `points` now.
+    ///
+    /// `Err(Degenerate)` for fewer than two points or two coinciding consecutive points,
+    /// `Err(InvalidValue)` for non-finite input or a zero tangent vector.
+    pub fn add_spline_fit(
+        &mut self,
+        points: &[Point2],
+        start_tangent: Option<Vec2>,
+        end_tangent: Option<Vec2>,
+    ) -> Result<EntityId, SketchError> {
+        for &p in points {
+            finite_point("fit point", p)?;
+        }
+        for t in [start_tangent, end_tangent].into_iter().flatten() {
+            finite_point("tangent vector", t)?;
+            if Tolerance::DEFAULT.is_zero_len(t.length()) {
+                return Err(SketchError::Degenerate("tangent vector has zero length"));
+            }
+        }
+        let params = chord_params(points)?;
+        let ids: Vec<EntityId> = points.iter().map(|&p| self.push_point(p)).collect();
+        let start = start_tangent.map(|t| self.push_point(points[0] + t));
+        let end = end_tangent.map(|t| self.push_point(points[points.len() - 1] + t));
+        Ok(self.insert_entity(
+            EntityKind::Spline(SplineDef::Fit {
+                points: ids,
+                start_tangent: start,
+                end_tangent: end,
+                params,
+                periodic: false,
+            }),
+            false,
+            EntityOrigin::User,
+        ))
+    }
+
+    /// Adds a conic from `start` to `end` with shoulder point `apex` and shape `rho` in
+    /// `(0, 1)` (SK-08), creating its three points. The curve passes through
+    /// `(start + end)/2 + rho (apex − (start + end)/2)`; `rho = ½` is a parabola.
+    ///
+    /// `Err(InvalidValue)` for non-finite input or `rho` outside `(0, 1)`.
+    pub fn add_conic(
+        &mut self,
+        start: Point2,
+        apex: Point2,
+        end: Point2,
+        rho: f64,
+    ) -> Result<EntityId, SketchError> {
+        for p in [start, apex, end] {
+            finite_point("point coordinate", p)?;
+        }
+        conic_weight(rho)?;
+        let s = self.push_point(start);
+        let e = self.push_point(end);
+        let a = self.push_point(apex);
+        let rho = self.params.push(rho, ParamFlags::default());
+        Ok(self.insert_entity(
+            EntityKind::Conic {
+                start: s,
+                end: e,
+                apex: a,
+                rho,
+            },
+            false,
+            EntityOrigin::User,
+        ))
+    }
+
     fn check_ellipse_input(
         &self,
         center: Point2,
@@ -512,13 +639,15 @@ impl Sketch {
         if let ConstraintKind::PointOnCurve { point, curve } = kind
             && self.view().aux_count(&kind) == 1
         {
-            // The curve parameter of the point on the (full) ellipse, as the starting value.
+            // The curve parameter of the point on the (full) ellipse or on the spline, as the
+            // starting value.
             let t = match (self.point(point), self.curve(curve)) {
                 (Some(p), Some(Curve2::Ellipse(e))) => {
                     EllipseArc2::full(e.center, e.major, e.minor_radius)
                         .closest(p)
                         .0
                 }
+                (Some(p), Some(Curve2::BSpline(b))) => b.closest(p).0,
                 _ => 0.0,
             };
             aux.push(self.params.push(t, ParamFlags::default()));
@@ -610,6 +739,50 @@ impl Sketch {
                     t0,
                     t1: t0 + sweep,
                 }))
+            }
+            EntityKind::Spline(ref d) => self.spline_curve(d).map(Curve2::BSpline),
+            EntityKind::Conic {
+                start,
+                end,
+                apex,
+                rho,
+            } => BSpline2::conic(pt(start)?, pt(apex)?, pt(end)?, self.params.get(rho))
+                .ok()
+                .map(Curve2::BSpline),
+        }
+    }
+
+    /// The evaluated spline of a definition at the current parameter values; `None` if it is
+    /// not evaluable (a weight is not positive, two consecutive fit points coincide, ...).
+    fn spline_curve(&self, d: &SplineDef) -> Option<BSpline2> {
+        match d {
+            SplineDef::Control {
+                degree,
+                poles,
+                weights,
+                knots,
+                ..
+            } => {
+                let pts: Option<Vec<Point2>> = poles.iter().map(|&p| self.point(p)).collect();
+                let w = match weights {
+                    Some(ws) => ws.iter().map(|&p| self.params.get(p)).collect(),
+                    None => vec![1.0; poles.len()],
+                };
+                BSpline2::new(usize::from(*degree), knots.clone(), pts?, w).ok()
+            }
+            SplineDef::Fit {
+                start_tangent,
+                end_tangent,
+                params,
+                ..
+            } => {
+                let inputs: Option<Vec<Point2>> =
+                    d.points().iter().map(|&p| self.point(p)).collect();
+                let map =
+                    FitMap::new(params, start_tangent.is_some(), end_tangent.is_some()).ok()?;
+                let poles = map.poles(&inputs?);
+                let n = poles.len();
+                BSpline2::new(3, map.knots, poles, vec![1.0; n]).ok()
             }
         }
     }

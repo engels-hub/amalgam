@@ -1,7 +1,8 @@
 //! Sketch transform operations (SK-18): mirror, rectangular and circular pattern, and
 //! move / copy / rotate / scale.
 //!
-//! All operations take a selection of entities (points, lines, circles, arcs). A selected
+//! All operations take a selection of entities (points, lines, circles, arcs, ellipses, splines
+//! and conics). A selected
 //! curve brings its points along, so `items` may list only the curves. They report what they
 //! changed in an [`EditResult`] and are atomic: on an error the entities and constraints
 //! created so far are removed again, so a failed call leaves the sketch's geometry unchanged
@@ -39,7 +40,7 @@ use crate::error::SketchError;
 use crate::ids::{ConstraintId, EntityId};
 use crate::model::{
     AngleBranch, ConstraintKind, Dimension, DimensionKind, End, EntityKind, EntityOrigin, HvTarget,
-    ParamFlags, Quantity, Side, Sketch,
+    ParamFlags, Quantity, Side, Sketch, SplineDef,
 };
 use crate::solve::orient_constraint;
 use crate::solve::{candidate_max_residual, characteristic_length, fixed_params};
@@ -201,6 +202,19 @@ fn remap(
                 kind,
             }
         }
+        K::Curvature {
+            a,
+            b,
+            a_end,
+            b_end,
+            reversed,
+        } => K::Curvature {
+            a: f(*a)?,
+            b: f(*b)?,
+            a_end: if flip_end(*a) { flip(*a_end) } else { *a_end },
+            b_end: if flip_end(*b) { flip(*b_end) } else { *b_end },
+            reversed: *reversed,
+        },
         K::Concentric { a, b } => K::Concentric {
             a: f(*a)?,
             b: f(*b)?,
@@ -435,6 +449,74 @@ fn duplicate(
                     })
                 }
             }
+            EntityKind::Spline(def) => {
+                let ids = def.points();
+                let mapped: Vec<EntityId> = ids.iter().map(|p| map[p]).collect();
+                if mapped.iter().zip(&ids).all(|(m, p)| m == p) {
+                    None
+                } else {
+                    let m = |p: &EntityId| map[p];
+                    Some(EntityKind::Spline(match def {
+                        SplineDef::Control {
+                            degree,
+                            poles,
+                            weights,
+                            knots,
+                            periodic,
+                        } => {
+                            let weights = match weights {
+                                Some(ws) => Some(
+                                    ws.iter()
+                                        .map(|&w| {
+                                            s.alloc_param(s.params().get(w), ParamFlags::default())
+                                        })
+                                        .collect::<Result<Vec<_>, _>>()?,
+                                ),
+                                None => None,
+                            };
+                            SplineDef::Control {
+                                degree,
+                                poles: poles.iter().map(m).collect(),
+                                weights,
+                                knots,
+                                periodic,
+                            }
+                        }
+                        SplineDef::Fit {
+                            points,
+                            start_tangent,
+                            end_tangent,
+                            params,
+                            periodic,
+                        } => SplineDef::Fit {
+                            points: points.iter().map(m).collect(),
+                            start_tangent: start_tangent.as_ref().map(m),
+                            end_tangent: end_tangent.as_ref().map(m),
+                            params,
+                            periodic,
+                        },
+                    }))
+                }
+            }
+            EntityKind::Conic {
+                start,
+                end,
+                apex,
+                rho,
+            } => {
+                let (a, e, c) = (map[&start], map[&end], map[&apex]);
+                if (a, e, c) == (start, end, apex) {
+                    None
+                } else {
+                    let rho = s.alloc_param(s.params().get(rho), ParamFlags::default())?;
+                    Some(EntityKind::Conic {
+                        start: a,
+                        end: e,
+                        apex: c,
+                        rho,
+                    })
+                }
+            }
             EntityKind::Point { .. } => None,
         };
         match image {
@@ -521,6 +603,11 @@ fn equal_circles(
                     EntityKind::Circle { .. }
                         | EntityKind::Ellipse { .. }
                         | EntityKind::EllipticArc { .. }
+                        | EntityKind::Conic { .. }
+                        | EntityKind::Spline(SplineDef::Control {
+                            weights: Some(_),
+                            ..
+                        })
                 )
             )
         {

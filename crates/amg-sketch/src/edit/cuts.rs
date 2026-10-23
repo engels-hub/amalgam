@@ -201,9 +201,9 @@ pub(crate) fn extension_target(s: &Sketch, e: EntityId, curve: &Curve2, end: End
                 }
             }
         }
-        // Circles have no end; ellipses are not editable (`is_cuttable`), so extension of
-        // one is never requested.
-        Curve2::Circle(_) | Curve2::Ellipse(_) => return None,
+        // Circles have no end; ellipses, splines and conics are not editable (`is_cuttable`),
+        // so extension of one is never requested.
+        Curve2::Circle(_) | Curve2::Ellipse(_) | Curve2::BSpline(_) => return None,
     }
     best.map(|(_, c)| c)
 }
@@ -225,11 +225,13 @@ pub(crate) fn raw_param(curve: &Curve2, p: Point2) -> f64 {
             (v.y.atan2(v.x) - a.start_angle).rem_euclid(TAU)
         }
         Curve2::Ellipse(e) => (e.sign() * (e.angle_of(p) - e.t0)).rem_euclid(TAU),
+        Curve2::BSpline(b) => b.closest(p).0,
     }
 }
 
-/// Entity kinds that trim, extend and break accept. Ellipses and elliptical arcs are cut *by*
-/// these operations (they are valid cutters) but cannot be edited themselves yet.
+/// Entity kinds that trim, extend and break accept. Ellipses, elliptical arcs, splines and
+/// conics are cut *by* these operations (they are valid cutters) but cannot be edited
+/// themselves yet.
 pub(crate) fn is_cuttable(kind: &EntityKind) -> bool {
     matches!(
         kind,
