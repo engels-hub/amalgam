@@ -10,6 +10,10 @@
 //!   it would meet.
 //! - [`break_at`]: splits a line/arc at a point into two pieces that share the new point.
 //!
+//! - [`fillet`] / [`chamfer`] (SK-16, in `corner`): round or cut the corner of two curves,
+//!   trimming both with the same machinery and adding tangent/coincident constraints and a
+//!   radius or length dimension.
+//!
 //! The `*_detailed` variants also return the [`MigrationReport`].
 
 use std::f64::consts::TAU;
@@ -20,8 +24,11 @@ use crate::error::SketchError;
 use crate::ids::{ConstraintId, EntityId};
 use crate::model::{ConstraintKind, End, EntityKind, Sketch};
 
+mod corner;
 mod cuts;
 mod rebuild;
+
+pub use corner::{ChamferSpec, chamfer, chamfer_detailed, fillet, fillet_detailed};
 
 use cuts::{MERGE, cuts as find_cuts, extension_target, is_cuttable, place};
 use rebuild::{Bnd, Link, NewPt, PieceSpec, Plan, apply, editable};
