@@ -14,8 +14,8 @@ use amg_jobs::{CancelToken, JobCtx};
 use amg_mesh::corpus::{Defect, FileStatus, Manifest, corpus_root, read_mesh};
 use amg_mesh::{
     AnalyzeOpts, BvhOpts, FaceId, IndexedMesh, MeshError, MeshSpatial, RemoveSelfIntersectionsOpts,
-    SelfIntersectOpts, WeldOpts, analyze, remove_self_intersections,
-    remove_self_intersections_with, self_intersections,
+    RepairOpts, SelfIntersectOpts, analyze, remove_self_intersections,
+    remove_self_intersections_with, repair, self_intersections,
 };
 use amg_testkit::{TriSoup, shapes};
 use proptest::prelude::*;
@@ -392,70 +392,16 @@ fn golden_folded_torus() {
 
 // ------------------------------------------------------------------------------- corpus
 
-/// Makes the orientation consistent per edge-connected component (edges shared by more than
-/// two faces are not crossed); a stand-in for the repair pipeline's orient step.
-fn orient(m: &mut IndexedMesh) {
-    use std::collections::HashMap;
-    let mut edge: HashMap<(u32, u32), Vec<u32>> = HashMap::new();
-    for (f, t) in m.tris.iter().enumerate() {
-        for c in 0..3 {
-            let (a, b) = (t[c], t[(c + 1) % 3]);
-            edge.entry((a.min(b), a.max(b))).or_default().push(f as u32);
-        }
-    }
-    let mut seen = vec![false; m.tris.len()];
-    for seed in 0..m.tris.len() {
-        if seen[seed] {
-            continue;
-        }
-        seen[seed] = true;
-        let mut stack = vec![seed];
-        while let Some(f) = stack.pop() {
-            let t = m.tris[f];
-            for c in 0..3 {
-                let (a, b) = (t[c], t[(c + 1) % 3]);
-                let nb = &edge[&(a.min(b), a.max(b))];
-                if nb.len() != 2 {
-                    continue;
-                }
-                let g = if nb[0] as usize == f { nb[1] } else { nb[0] } as usize;
-                if seen[g] {
-                    continue;
-                }
-                seen[g] = true;
-                let u = m.tris[g];
-                // Consistent when g runs b -> a.
-                let same = (0..3).any(|k| u[k] == a && u[(k + 1) % 3] == b);
-                if same {
-                    m.tris[g].swap(1, 2);
-                }
-                stack.push(g);
-            }
-        }
-    }
-}
-
-/// What `repair` will do before this step: weld, then drop degenerate and duplicate faces.
-fn pre_clean(mut m: IndexedMesh) -> IndexedMesh {
-    m.weld(WeldOpts::default()).unwrap();
-    for _ in 0..2 {
-        let r = analyze(&m, &AnalyzeOpts::default(), &ctx()).unwrap();
-        let mut drop = vec![false; m.tris.len()];
-        for f in r.degenerate_faces.iter().chain(&r.duplicate_faces) {
-            drop[f.0 as usize] = true;
-        }
-        m.tris = m
-            .tris
-            .iter()
-            .zip(&drop)
-            .filter(|(_, d)| !**d)
-            .map(|(t, _)| *t)
-            .collect();
-        m.groups = amg_mesh::FaceGroups::new(m.tris.len());
-        m.attrs = amg_mesh::MeshAttrs::default();
-    }
-    orient(&mut m);
-    m
+/// The repair pipeline (MESH-04) up to, but not including, hole filling and the
+/// self-intersection removal under test: weld, degenerate and duplicate faces, non-manifold
+/// elements, debris shells and orientation.
+fn pre_clean(m: IndexedMesh) -> IndexedMesh {
+    let opts = RepairOpts {
+        fill_holes: None,
+        remove_self_intersections: false,
+        ..RepairOpts::default()
+    };
+    repair(&m, &opts, &ctx()).unwrap().0
 }
 
 /// At least 85 % of the corpus models flagged `self_intersections` and `expect_repairable` become

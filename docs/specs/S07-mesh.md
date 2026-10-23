@@ -549,6 +549,8 @@ pub struct HoleFillReport { pub filled: usize, pub skipped_too_large: usize, pub
 /// Same on an `IndexedMesh` (splits non-manifold vertices first). Added by MESH-20.
 pub fn fill_holes_indexed(m: &IndexedMesh, opts: &HoleFillOpts, ctx: &JobCtx) -> MeshResult<(IndexedMesh, HoleFillReport)>;
 
+/// A shell is removed if it has <= max_faces faces and its extent (abs. signed volume if closed, else AABB volume)
+/// is <= max_volume_fraction x the largest shell's; the largest shell always stays.
 #[derive(Clone, Debug)]
 pub struct SmallShellFilter { pub max_faces: usize, pub max_volume_fraction: f64 }
 
@@ -564,6 +566,8 @@ pub struct RepairOpts {
     pub remove_self_intersections: bool,
     pub max_rounds: u32,                  // default 3
 }
+/// Default (MESH-04): weld at Tolerance::mesh(), degenerate / duplicates / non-manifold on, small shells
+/// { 12 faces, 1e-3 }, orient, hole fill with HoleFillOpts::default(), SI removal on, max_rounds 3.
 impl Default for RepairOpts { fn default() -> Self; }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -815,7 +819,7 @@ build, 8+ cores.
 | MESH-19 | Self-intersection detection (BVH self-traversal + exact `robust` predicates) | MESH-03 | P0 | Done | On 10 k-tri random soups, the pair set equals the O(n²) exact brute force. No false positives for edge/vertex-adjacent triangles on the corpus's clean models. Intersecting-spheres synthetic case is found. 1 M-tri check < 500 ms. |
 | MESH-20 | Hole filling (Liepa: DP triangulation, refinement, harmonic/bi-harmonic fairing; CDT for planar loops) | MESH-02 | P0 | Done | All synthetic holes with boundary 3–2000 edges are filled; result is watertight with no new non-manifold elements. Patch mean edge length within 20 % of the surrounding edges. Fair-filled hole in a sphere (r = 20 mm) deviates < 2 % r. A 500-edge hole fills in < 200 ms. |
 | MESH-21 | Self-intersection removal (local delete + k-ring + refill, iterative) | MESH-19, MESH-20 | P0 | Done | ≥ 85 % of corpus models flagged `self_intersections` and `expect_repairable` become SI-free. Median Hausdorff distance (output → input) over the repaired models ≤ 1 mean input edge length, per-model values reported (owner, 2026-10-23, QUESTIONS #51; was ≤ 1 % of bbox diagonal). A watertight input never becomes non-watertight. Remaining pairs are reported. |
-| MESH-04 | Repair pipeline (weld, degenerate, duplicate, non-manifold, small shells, orient, holes, SI) + `RepairReport` | MESH-02, MESH-03, MESH-20, MESH-21 | P0 | Todo | ≥ 95 % of `expect_repairable` corpus models become watertight (closed + manifold + oriented, outward), and ≥ 85 % are also SI-free. Repair is idempotent (second run changes nothing). No step increases any defect count. 1 M-tri typical repair < 3 s. |
+| MESH-04 | Repair pipeline (weld, degenerate, duplicate, non-manifold, small shells, orient, holes, SI) + `RepairReport` | MESH-02, MESH-03, MESH-20, MESH-21 | P0 | Review | ≥ 95 % of `expect_repairable` corpus models become watertight (closed + manifold + oriented, outward), and ≥ 85 % are also SI-free. Repair is idempotent (second run changes nothing). No step increases any defect count. 1 M-tri typical repair < 3 s. |
 | MESH-05 | Booleans via Manifold: `amg-manifold-sys` (vcpkg + overlay port, TBB), `boolean`/`boolean_n`, group mapping, input auto-repair, `manifold` feature flag. **Gate: ADR-003 (cleared 2026-10-20)** | MESH-01, MESH-04 | P0 | Todo | Builds on Windows MSVC via vcpkg (Linux best-effort). Two 1 M-tri offset spheres union < 1 s end-to-end including conversion. Volume identity vol(A∪B)+vol(A∩B) = vol(A)+vol(B) within 1e-6 relative (property test, 200 random pairs). Output always watertight. Group ids survive (A kept, B re-allocated). 10 runs with TBB are bit-identical (or canonical sort documented). Without the feature: compiles, and `boolean` returns `BackendUnavailable`. |
 | MESH-06 | Isotropic remesh (Botsch–Kobbelt) with feature-edge, boundary and group-border preservation, projection to input | MESH-01, MESH-03 | P0 | Done | On corpus watertight models and synthetic shapes: ≥ 95 % of triangles have min angle ≥ 30°; ≥ 90 % of edges within [0.8 L, 1.33 L]; Hausdorff to input ≤ 0.5 L. Cube feature edges stay within 1e-3 mm. Topology (genus, shells) unchanged. 1 M → ~1 M tris, 5 iterations, < 10 s. |
 | MESH-22 | Adaptive remesh (curvature sizing field, tolerance ε) | MESH-06 | P1 | Done | Max deviation from input ≤ ε on synthetic surfaces (sphere, torus, displaced sphere). Triangle count ≤ 60 % of uniform remesh at the same max deviation. |
@@ -1083,6 +1087,34 @@ Already listed: Manifold (Apache-2.0), `faer`, `nalgebra`, `rayon`, `glam`, `thi
   `InvalidOption` until MESH-19 can be called from `analyze` (it needs a `MeshSpatial`);
   `MeshBody::analysis()` is not added (body.rs is shared with parallel WPs); a 10 M-triangle
   soup with tens of millions of boundary edges is not optimised in the unwelded check.
+
+### 2026-10-23 - MESH-04 implemented (repair pipeline; lane C agent, branch `wp-MESH-04-repair`)
+Code: `crates/amg-mesh/src/repair/` (`mod.rs` driver, opts and report; `clean.rs` weld / degenerate / duplicates / small shells; `nonmanifold.rs`; `orient.rs`; `edges.rs`), tests `tests/repair.rs`, bench `benches/mesh_repair.rs`, goldens `tests/golden/mesh/repair_{sphere,torus}_defects.toml`. `lib.rs` gained one `mod` and one `pub use`, `Cargo.toml` one `[[bench]]`; no new dependency. API as in Interfaces: `repair`, `RepairOpts` (+ `Default`), `SmallShellFilter`, `RepairReport`, `RepairStep(Kind)`, `UnresolvedIssue`, `orient_consistently`. MESH-21's corpus test no longer carries its own weld / orient stand-in: `pre_clean` calls `repair` with hole filling and SI removal switched off.
+- **Steps (in order, each does nothing when the analysis shows nothing for it, so a clean mesh comes back bit-identical):**
+  - *Weld:* merges vertices that lie on a boundary edge, round 0 only (see Deviations).
+  - *Degenerate:* a face with a repeated index goes. A zero-area face with three distinct vertices is removed by collapsing its shortest edge that passes the link condition and flips no neighbour, so a closed mesh stays closed. If no edge qualifies it is dropped only when that opens no 3-edge hole; an interior face that cannot be collapsed stays and shows in `after.degenerate_faces` (dropping it, then hole filling, recreates the same face every run).
+  - *Duplicates:* per vertex set, opposite-winding pairs cancel and at most one face of the remaining winding stays.
+  - *Non-manifold:* "unzip": faces are paired across every edge, vertex corners are grouped into fans along the pairs, each fan gets its own vertex. Edges with more than two faces are sorted by angle around the edge, faces oriented outward, and a face is paired with its neighbour on the material side, so two solids touching along an edge become two sheets again and a zero-thickness fin becomes a 2-face shell (then removed as debris). Unpairable faces become boundary. Copies are moved 1e-3 of the distance to their fan's neighbours into the fan: copies on top of each other would count as intersecting in MESH-19 ("touching counts").
+  - *Small shells:* `SmallShellFilter { max_faces, max_volume_fraction }` against the largest shell (closed: |signed volume|, open: AABB volume); the largest always stays.
+  - *Orient:* BFS over manifold edges per component, then per component outward by signed volume. A closed component inside another closed component (winding number of 8 sample vertices, at most 32 closed components) is a cavity and is pointed inward, so a hollow part keeps its volume. Runs again after hole filling when it filled something.
+  - *Holes:* `fill_holes` (MESH-20) directly on a half-edge copy.
+  - *Self-intersections:* `remove_self_intersections_with` defaults (MESH-21); `RepairOpts::max_rounds` is the number of pipeline rounds, not MESH-21's rounds.
+  - Rounds repeat until one changes nothing (a fixed point) or `max_rounds`; a later round that makes the total defect count worse is discarded.
+- **Deviations / choices:**
+  - The weld only merges boundary vertices and only in round 0. A seam is two boundary chains; interior coincident copies are made by the non-manifold step and merging them back would undo it (and make the second run non-idempotent). Consequence: coincident interior duplicates are not merged. Default tolerance stays 1e-5 mm (`Tolerance::mesh()`); the corpus' 1e-4 x diagonal "unwelded" seams are generated with jitter below it.
+  - Non-manifold edges are never resolved by deleting faces (no geometry lost); the price is the 1e-3 edge nudge of vertex copies.
+  - `UnresolvedIssue::HoleTooLarge` is reported for every boundary loop left in `after` (too large, fill refused or filling off).
+  - `RepairReport::before` / `after` include the self-intersection pairs only if `remove_self_intersections` is set; `before` is measured on the raw, unwelded input, so seams count there.
+- **Measured (Done-when; `tests/repair.rs::corpus_repairable_models`, all 153 fetched / committed `expect_repairable` Thingi10K models, default `RepairOpts`, debug-ish test profile, loaded machine):**
+  - Watertight (closed + manifold + oriented, outward, `volume > 0`): **153 / 153 = 100 %** (bar 95 %).
+  - Watertight and SI-free: **144 / 153 = 94.1 %** (bar 85 %). Of the 104 models flagged `self_intersections`, 95 end watertight and SI-free. The 9 that keep intersections (not examined one by one) are expected to be the overlapping-solid cases MESH-29 is for.
+  - Idempotent: second `repair` returns the same content hash and every step has `changed == 0` on **153 / 153**.
+  - No defect count grows: boundary loops, non-manifold edges / vertices, orientation conflicts, degenerate and duplicate faces never grow on any of the 153. The SI pair count ends above the raw input's on 3 models (thingi10k-49162, -68434, -82177), all with hundreds of holes or pinch points in the input: the closing patches cross the neighbouring solids and MESH-21 reduces but does not clear them; the test holds the SI count to models without holes or non-manifold elements. On synthetic meshes `no_single_step_makes_any_count_worse` applies the steps one after another and checks that the total never grows and that the count each step is for never grows, plus watertight at the end.
+  - Time on the corpus: 9.9 s for 153 models (about 65 ms each, slowest thingi10k-111399 with 958 ms).
+  - Bench (`benches/mesh_repair.rs`, release, displaced sphere with holes, an unwelded seam, flipped / duplicate / zero-area / needle faces, fins and debris, default options including SI removal): **100 k tris (100 588) 144 ms** [138, 158] (budget 0.3 s), **1 M tris (1 003 288) 1.08 s** [1.06, 1.09] (budget 3 s). Step times at 1 M: weld 3 ms, degenerate 59, duplicates 61, non-manifold 53, small shells 3, orient 83, holes 102, orient 83, SI 230 (the rest is the analysis passes).
+- **MESH-21 corpus test with the real pipeline** (`pre_clean` = `repair` without holes and SI): 96 / 104 flagged models SI-free (59 of 67 repaired by MESH-21, 37 already clean after cleaning), against 90 / 104 with the old local stand-in; the 85 % bar still holds.
+- **Synthetic checks** (`tests/repair.rs`): each MESH-28 defect class alone and all together on a sphere and a torus end watertight, outward and SI-free with the volume within 3 % of the clean body; clean input is bit-identical; cavity orientation (hollow body keeps outer minus inner volume); fins and bow ties; small-shell filter edge cases; unresolved holes are reported; cancel and option errors; identical hash for 1 / 4 / 13 threads; goldens.
+- **Leftovers:** vertex normals are not re-oriented or recomputed after a flip or a split (recompute them); corner UVs and colours of split vertices are copies, patches from hole filling have none (MESH-20); the non-manifold step leaves faces it cannot pair as boundary (an odd number of sheets) and the hole filler decides what to do with them; nesting is only tested for up to 32 closed components; an uncollapsible interior degenerate face stays (reported in `after`); MESH-18 Wrap is not part of this WP (hopeless soups are excluded from the corpus targets); the SI step cannot repair overlapping solids (MESH-29).
 
 ## Interface changes
 ### 2026-10-20 — MESH-01 (`IndexedMesh`, `HalfEdgeMesh`, weld, `MeshBody`; lane C)
