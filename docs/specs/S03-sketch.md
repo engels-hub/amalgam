@@ -707,7 +707,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Todo | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
 | SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Todo | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
 | SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Done | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
-| SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Todo | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
+| SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Review | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
 | SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Done | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
 | SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Done | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
 | SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Todo | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
@@ -1324,3 +1324,39 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   determinism; constrained rect/inward/round/open/tangent-arc/trimmed/stadium/circle edits solved
   with `solve::proto`; copy follows a moved source vs independent unconstrained copy. No budget in
   the vision doc for offset, so no bench.
+
+### 2026-10-23 - SK-16 (fillet and chamfer, lane B)
+- **Landed:** `amg_sketch::edit::{fillet, chamfer}` and `fillet_detailed` / `chamfer_detailed`
+  (return SK-07's `EditOutcome`) in `src/edit/corner.rs`; `ChamferSpec` (`Equal`, `TwoDistances`,
+  `DistanceAngle`) is re-exported at the crate root with `EditResult`. Signatures are the spec's.
+  Atomic: on error the sketch is restored exactly (tests compare serialised sketches).
+- **Trimming** reuses SK-07's `rebuild::apply` (so the migration table there applies): each curve
+  is replaced by one piece whose cut boundary is the new fillet/chamfer point itself (`Bnd::Keep`),
+  so the pieces and the new arc/line **share** points and no `Coincident` is needed. Created and
+  removed ids are the sketch diff; the migration report chains the two edits (old -> new).
+- **Fillet:** centres come from the intersections of the offset curves (line: two parallels; arc:
+  circles of radius R+r and |R-r|); tangent points must lie on the actual curves and each curve
+  must keep a part of positive length, else `NotApplicable` (radius too large, parallel curves,
+  curves that do not reach). `near` selects the candidate arc nearest to it. Constraints: two
+  `Tangent` `AtEndpoint` (chirality via `add_constraint_oriented`) and a driving `Radius`.
+- **Chamfer:** corner = intersection of the carriers (nearest chord to `near` wins). Distances are
+  straight-line distances from the corner. Constraints: a construction point at the old corner,
+  `PointOnCurve` on both pieces, construction legs corner->cut points; `Equal(d)` = `Equal` legs +
+  one `Length`; `TwoDistances` = a `Length` per leg; `DistanceAngle(d, a)` = `Length` on leg A +
+  an `Angle` (chamfer line vs leg A, the interior angle at the cut point, `(0, pi)`).
+- **DOF (SK-02 `dof`, whole sketch):** a joined corner keeps its DOF for every variant: 2 lines
+  6 -> 6, rectangle corner 4 -> 4 (all four corners too), line-arc 7 -> 7, arc-arc 8 -> 8. Curves
+  that were not joined lose the two DOF of their free ends: disjoint lines 8 -> 6, separate arcs
+  10 -> 8. With the far ends fixed and H/V on the lines, DOF is 0 before and after, and editing the
+  radius/length dimension re-solves (`solve::proto`) to the new geometry.
+- **Choices:** circles are `NotApplicable`; the kept side is the one away from the corner, so for
+  a T or X junction the part of a through curve on the corner side of the cut is removed
+  (documented in the module). Dimensions on the trimmed curves that depend on length are dropped
+  and reported (SK-07 rules). The corner point of a chamfer survives as a construction point.
+- **Tests:** `tests/edit_corner.rs`, 32 fixtures (fillet 17, chamfer 13, result lists 1,
+  incl. line-line/line-arc/arc-arc, shared and disjoint corners, X junction, rectangle corners,
+  `NotApplicable` and input errors with the sketch unchanged). Each runs the residual check and
+  the SK-13 prototype solver (no movement). SK-03 is not built; swap when it lands.
+- **Interface changes:** none to other lanes. `edit/mod.rs` gains a `mod corner` and re-exports.
+- **Leftovers:** chamfer distances on arcs are chords, not arc lengths; a fillet between a curve
+  and a circle (full) is rejected; no fillet-of-a-chain / multi-corner command (UI loops).
