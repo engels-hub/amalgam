@@ -24,7 +24,10 @@
 //! | Tangent round–round | `|c1 − c2| − (r1 + r2)` / `|c1 − c2| − |r1 − r2|` |
 //! | Tangent line–ellipse | `s − h` (External) / `s + h` (Internal), `s` = signed centre distance, `h` = half-width of the ellipse normal to the line |
 //! | Ellipse major / minor (dimension) | `|M − c| − v` / `b − v` |
-//! | Tangent AtEndpoint | `L_c · wrap(angle(t_a, σ t_b))`, `σ = −1` if `reversed` |
+//! | Tangent AtEndpoint | `L_c · wrap(angle(t_a, σ t_b))`, `σ = −1` if `reversed` (line, arc, spline or conic ends; see [`spline`](super::spline)) |
+//! | Curvature (G2) | the tangent row and `½ L_c² (κ_a − σ κ_b)`, `κ` the signed curvature at the shared end |
+//! | PointOnCurve spline / conic | `p − C(t)` (x, y; `t` = the constraint's aux param) |
+//! | Equal conic–conic / rational spline–spline | `ρ_a − ρ_b` / `w_a,i − w_b,i` |
 //! | Concentric | `c1 − c2` (x, y) |
 //! | Equal | `|d1| − |d2|`; line–arc `|d| − r·sweep`; round–round `r1 − r2`; ellipse–ellipse `|M1 − c1| − |M2 − c2|` and `b1 − b2` |
 //! | Symmetric | see [`constraint_residual`] |
@@ -38,9 +41,10 @@ use std::f64::consts::PI;
 use smallvec::SmallVec;
 
 use super::func::{Dir, Func, MAX_ARITY, Rad, wrap_pi};
+use super::spline::{Side as EndSide, Spl, SplineRes, WSrc};
 use super::system::{EquationOwner, EquationSystem, Residual};
 use crate::error::SketchError;
-use crate::geom::{Curve2, EllipseArc2};
+use crate::geom::{Curve2, EllipseArc2, FitMap};
 use crate::ids::{EntityId, ParamId};
 use crate::model::{
     ConstraintKind, DimensionKind, EntityKind, HvTarget, Side, Sketch, TangentKind,
@@ -76,9 +80,21 @@ pub struct SketchResidual {
     /// Column of each slot in `params`.
     cols: SmallVec<[u16; 16]>,
     rows: SmallVec<[Row; 2]>,
+    /// Spline and conic blocks (variable arity) replace the term rows.
+    custom: Option<SplineRes>,
 }
 
 impl SketchResidual {
+    fn custom(r: SplineRes) -> SketchResidual {
+        SketchResidual {
+            params: SmallVec::new(),
+            slots: SmallVec::new(),
+            cols: SmallVec::new(),
+            rows: SmallVec::new(),
+            custom: Some(r),
+        }
+    }
+
     fn gather(&self, x: &[f64], t: &Term, buf: &mut [f64; MAX_ARITY]) {
         let first = usize::from(t.first);
         for (k, slot) in self.slots[first..first + t.func.arity()].iter().enumerate() {
@@ -103,20 +119,31 @@ impl SketchResidual {
 
 impl Residual for SketchResidual {
     fn rows(&self) -> usize {
-        self.rows.len()
+        self.custom.as_ref().map_or(self.rows.len(), Residual::rows)
     }
 
     fn params(&self) -> &[ParamId] {
-        &self.params
+        match &self.custom {
+            Some(c) => c.params(),
+            None => &self.params,
+        }
     }
 
     fn eval(&self, x: &[f64], out: &mut [f64]) {
+        if let Some(c) = &self.custom {
+            c.eval(x, out);
+            return;
+        }
         for (o, row) in out.iter_mut().zip(&self.rows) {
             *o = self.row_value(x, row);
         }
     }
 
     fn jacobian(&self, x: &[f64], out: &mut [f64]) {
+        if let Some(c) = &self.custom {
+            c.jacobian(x, out);
+            return;
+        }
         let n = self.params.len();
         out[..self.rows.len() * n].fill(0.0);
         let mut buf = [0.0; MAX_ARITY];
@@ -189,6 +216,7 @@ impl Builder {
             slots: self.slots,
             cols,
             rows: self.rows,
+            custom: None,
         }
     }
 }
@@ -272,6 +300,7 @@ enum Geo {
     Line(Seg),
     Round(Round),
     Ellipse(Ell),
+    Spline(Spl),
 }
 
 struct Ctx<'a> {
@@ -346,7 +375,83 @@ impl Ctx<'_> {
                     t1,
                 }),
             }),
+            EntityKind::Spline(ref d) => Geo::Spline(self.spline(d)?),
+            EntityKind::Conic {
+                start,
+                end,
+                apex,
+                rho,
+            } => Geo::Spline(Spl::new(
+                2,
+                vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                vec![self.point(start)?, self.point(apex)?, self.point(end)?],
+                vec![
+                    vec![1.0, 0.0, 0.0],
+                    vec![0.0, 1.0, 0.0],
+                    vec![0.0, 0.0, 1.0],
+                ],
+                WSrc::Rho(rho),
+            )),
         })
+    }
+
+    /// A spline definition as the solver sees it: input points, pole map, weights.
+    fn spline(&self, d: &crate::model::SplineDef) -> Result<Spl, SketchError> {
+        use crate::model::SplineDef;
+        match d {
+            SplineDef::Control {
+                degree,
+                poles,
+                weights,
+                knots,
+                ..
+            } => {
+                let pts = poles
+                    .iter()
+                    .map(|&p| self.point(p))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let n = pts.len();
+                let m = (0..n)
+                    .map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect())
+                    .collect();
+                let w = match weights {
+                    Some(ws) => WSrc::Params(ws.clone()),
+                    None => WSrc::Ones,
+                };
+                Ok(Spl::new(usize::from(*degree), knots.clone(), pts, m, w))
+            }
+            SplineDef::Fit {
+                start_tangent,
+                end_tangent,
+                params,
+                ..
+            } => {
+                let pts = d
+                    .points()
+                    .iter()
+                    .map(|&p| self.point(p))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let map = FitMap::new(params, start_tangent.is_some(), end_tangent.is_some())?;
+                Ok(Spl::new(3, map.knots, pts, map.m, WSrc::Ones))
+            }
+        }
+    }
+
+    fn is_spline(&self, id: EntityId) -> Result<bool, SketchError> {
+        Ok(self.kind(id)?.is_bspline())
+    }
+
+    /// One side of an end-point tangent / curvature constraint.
+    fn end_side(&self, id: EntityId, end: crate::End) -> Result<EndSide, SketchError> {
+        match self.geo(id)? {
+            Geo::Line([a, b]) => Ok(EndSide::Line { a, b }),
+            Geo::Round(Round::Arc { c, s, e }) => Ok(EndSide::Arc {
+                c,
+                p: if end == crate::End::Start { s } else { e },
+            }),
+            Geo::Spline(spl) => Ok(EndSide::Spline { spl, end }),
+            _ => Err(self.wrong(id, "line, arc, spline or conic")),
+        }
     }
 
     /// Centre point params of a circle, arc, ellipse or elliptical arc.
@@ -504,14 +609,22 @@ pub(crate) fn candidate_max_residual(
     let mut x = std::borrow::Cow::Borrowed(sketch.params().as_slice());
     let mut aux: SmallVec<[ParamId; 1]> = SmallVec::new();
     if let ConstraintKind::PointOnCurve { point, curve } = *kind
-        && let (Some(p), Some(Curve2::Ellipse(e))) = (sketch.point(point), sketch.curve(curve))
+        && let Some(p) = sketch.point(point)
     {
-        let t = EllipseArc2::full(e.center, e.major, e.minor_radius)
-            .closest(p)
-            .0;
-        let id = ParamId(u32::try_from(x.len()).unwrap_or(u32::MAX));
-        x.to_mut().push(t);
-        aux.push(id);
+        let t = match sketch.curve(curve) {
+            Some(Curve2::Ellipse(e)) => Some(
+                EllipseArc2::full(e.center, e.major, e.minor_radius)
+                    .closest(p)
+                    .0,
+            ),
+            Some(Curve2::BSpline(b)) => Some(b.closest(p).0),
+            _ => None,
+        };
+        if let Some(t) = t {
+            let id = ParamId(u32::try_from(x.len()).unwrap_or(u32::MAX));
+            x.to_mut().push(t);
+            aux.push(id);
+        }
     }
     Ok(match build(sketch, kind, &aux, lc, false)? {
         Some(r) => {
@@ -559,8 +672,16 @@ pub(crate) fn build(
                             .mm(0.0);
                     }
                 }
+                Geo::Spline(spl) => {
+                    let &[t] = aux else {
+                        return Err(SketchError::NotApplicable(
+                            "a point on a spline needs its curve parameter (use constraint_residual_aux)",
+                        ));
+                    };
+                    return Ok(Some(SketchResidual::custom(SplineRes::point_on(spl, p, t))));
+                }
                 Geo::Point(_) => {
-                    return Err(ctx.wrong(curve, "line, circle, arc or ellipse"));
+                    return Err(ctx.wrong(curve, "line, circle, arc, ellipse, spline or conic"));
                 }
             }
         }
@@ -604,6 +725,33 @@ pub(crate) fn build(
                 b.mm(0.0);
             }
         }
+        ConstraintKind::Tangent {
+            a,
+            b: q,
+            kind:
+                TangentKind::AtEndpoint {
+                    a_end,
+                    b_end,
+                    reversed,
+                },
+        } if ctx.is_spline(a)? || ctx.is_spline(q)? => {
+            let (sa, sb) = (ctx.end_side(a, a_end)?, ctx.end_side(q, b_end)?);
+            return Ok(Some(SketchResidual::custom(SplineRes::ends(
+                sa, sb, reversed, false, lc,
+            ))));
+        }
+        ConstraintKind::Curvature {
+            a,
+            b: q,
+            a_end,
+            b_end,
+            reversed,
+        } => {
+            let (sa, sb) = (ctx.end_side(a, a_end)?, ctx.end_side(q, b_end)?);
+            return Ok(Some(SketchResidual::custom(SplineRes::ends(
+                sa, sb, reversed, true, lc,
+            ))));
+        }
         ConstraintKind::Tangent { a, b: q, kind: tk } => tangent(&ctx, &mut b, a, q, tk, lc)?,
         ConstraintKind::Concentric { a, b: q } => {
             coincide(&mut b, ctx.center(a)?, ctx.center(q)?);
@@ -638,6 +786,30 @@ pub(crate) fn build(
                     b.term(Func::Coord, 1.0, &[ea.b])
                         .term(Func::Coord, -1.0, &[eb.b])
                         .mm(0.0);
+                }
+                (Geo::Spline(sa), Geo::Spline(sb)) => match (&sa.w, &sb.w) {
+                    (WSrc::Params(wa), WSrc::Params(wb)) if wa.len() == wb.len() => {
+                        for (&u, &v) in wa.iter().zip(wb) {
+                            b.term(Func::Coord, 1.0, &[u])
+                                .term(Func::Coord, -1.0, &[v])
+                                .mm(0.0);
+                        }
+                    }
+                    (WSrc::Rho(u), WSrc::Rho(v)) => {
+                        b.term(Func::Coord, 1.0, &[*u])
+                            .term(Func::Coord, -1.0, &[*v])
+                            .mm(0.0);
+                    }
+                    _ => {
+                        return Err(SketchError::NotApplicable(
+                            "equal needs two conics or two rational control-point splines with the same pole count",
+                        ));
+                    }
+                },
+                (Geo::Spline(_), _) | (_, Geo::Spline(_)) => {
+                    return Err(SketchError::NotApplicable(
+                        "equal does not apply between a spline or conic and another kind",
+                    ));
                 }
                 _ => return Err(ctx.wrong(q, "line or arc")),
             }
@@ -683,6 +855,11 @@ pub(crate) fn build(
                 (Geo::Ellipse(_), Geo::Ellipse(_)) => {
                     return Err(SketchError::NotApplicable(
                         "symmetry of elliptical arcs is not supported",
+                    ));
+                }
+                (Geo::Spline(_), _) | (_, Geo::Spline(_)) => {
+                    return Err(SketchError::NotApplicable(
+                        "symmetry of splines and conics is not supported; make their points symmetric",
                     ));
                 }
                 _ => return Err(ctx.wrong(q, "entity of the same kind")),
@@ -753,6 +930,11 @@ fn tangent(
                     b.mm(0.0);
                 }
                 (Geo::Point(_), _) => return Err(ctx.wrong(a, "line, circle or arc")),
+                (Geo::Spline(_), _) | (_, Geo::Spline(_)) => {
+                    return Err(SketchError::NotApplicable(
+                        "splines and conics are tangent only at a shared end point",
+                    ));
+                }
                 (Geo::Ellipse(_), _) | (_, Geo::Ellipse(_)) => {
                     return Err(SketchError::NotApplicable(
                         "an ellipse can only be tangent to a line",
@@ -809,6 +991,11 @@ fn dimension(
                 (Geo::Ellipse(_), _) | (_, Geo::Ellipse(_)) => {
                     return Err(SketchError::NotApplicable(
                         "distances to an ellipse are not supported",
+                    ));
+                }
+                (Geo::Spline(_), _) | (_, Geo::Spline(_)) => {
+                    return Err(SketchError::NotApplicable(
+                        "distances to a spline or conic are not supported",
                     ));
                 }
             }
@@ -909,7 +1096,7 @@ pub fn characteristic_length(sketch: &Sketch) -> f64 {
                     grow(c.x, c.y, r);
                 }
             }
-            EntityKind::Line { .. } => {}
+            EntityKind::Line { .. } | EntityKind::Spline(_) | EntityKind::Conic { .. } => {}
         }
     }
     let diag = (hi[0] - lo[0]).hypot(hi[1] - lo[1]);

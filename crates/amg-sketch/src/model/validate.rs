@@ -5,11 +5,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use amg_core::{Point2, Tolerance};
 
 use crate::error::SketchError;
-use crate::geom::EllipseArc2;
+use crate::geom::{EllipseArc2, check_knots, conic_weight};
 use crate::ids::{ConstraintId, EntityId, ParamId};
 use crate::model::{
-    Constraint, ConstraintKind, Dimension, DimensionKind, Entity, EntityKind, HvTarget, ParamStore,
-    TangentKind,
+    Constraint, ConstraintKind, Dimension, DimensionKind, End, Entity, EntityKind, HvTarget,
+    ParamStore, SplineDef, TangentKind,
 };
 
 /// Read-only view used by validation.
@@ -33,7 +33,8 @@ const POINT: &str = "point";
 const LINE: &str = "line";
 const ARC: &str = "arc";
 const ROUND: &str = "circle or arc";
-const CURVE: &str = "line, circle, arc or ellipse";
+const CURVE: &str = "line, circle, arc, ellipse, spline or conic";
+const ENDED: &str = "line, arc, spline or conic";
 const LINE_OR_ARC: &str = "line or arc";
 const ELLIPSE: &str = "ellipse or elliptical arc";
 const CENTERED: &str = "circle, arc or ellipse";
@@ -198,7 +199,58 @@ impl View<'_> {
                     }
                 }
             }
+            EntityKind::Spline(ref d) => self.spline(d)?,
+            EntityKind::Conic { rho, .. } => {
+                conic_weight(self.params.get(rho))?;
+            }
             EntityKind::Line { .. } => {}
+        }
+        Ok(())
+    }
+
+    /// Spline definition checks (same rules on add and on load): not periodic, a valid clamped
+    /// knot vector, positive weights, increasing fit parameters.
+    fn spline(&self, d: &SplineDef) -> Result<(), SketchError> {
+        if d.is_periodic() {
+            return Err(SketchError::NotApplicable(
+                "periodic splines are not supported (make the end points coincident)",
+            ));
+        }
+        match d {
+            SplineDef::Control {
+                degree,
+                poles,
+                weights,
+                knots,
+                ..
+            } => {
+                check_knots(usize::from(*degree), poles.len(), knots)?;
+                if let Some(w) = weights {
+                    if w.len() != poles.len() {
+                        return Err(SketchError::NotApplicable("one weight per pole is needed"));
+                    }
+                    for &p in w {
+                        positive("spline weight", self.params.get(p))?;
+                    }
+                }
+            }
+            SplineDef::Fit { points, params, .. } => {
+                if points.len() < 2 {
+                    return Err(SketchError::Degenerate(
+                        "a fit-point spline needs at least two points",
+                    ));
+                }
+                let ok = params.len() == points.len()
+                    && params.iter().all(|v| v.is_finite())
+                    && params[0].abs() <= 1e-9
+                    && (params[params.len() - 1] - 1.0).abs() <= 1e-9
+                    && params.windows(2).all(|w| w[1] > w[0]);
+                if !ok {
+                    return Err(SketchError::NotApplicable(
+                        "fit parameters must increase strictly from 0 to 1, one per fit point",
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -255,14 +307,14 @@ impl View<'_> {
     }
 
     /// Number of auxiliary params the constraint owns: one (the curve parameter) for a point
-    /// on an ellipse or elliptical arc, none otherwise.
+    /// on an ellipse, elliptical arc, spline or conic, none otherwise.
     pub fn aux_count(&self, kind: &ConstraintKind) -> usize {
         match *kind {
             ConstraintKind::PointOnCurve { curve, .. }
                 if self
                     .entities
                     .get(&curve)
-                    .is_some_and(|e| e.kind.is_ellipse()) =>
+                    .is_some_and(|e| e.kind.is_ellipse() || e.kind.is_bspline()) =>
             {
                 1
             }
@@ -312,6 +364,9 @@ impl View<'_> {
                 self.line(b)?;
             }
             ConstraintKind::Tangent { a, b, kind } => self.tangent(a, b, kind, mode)?,
+            ConstraintKind::Curvature {
+                a, b, a_end, b_end, ..
+            } => self.at_endpoint(a, b, a_end, b_end, mode, true)?,
             ConstraintKind::Concentric { a, b } => {
                 self.expect(a, CENTERED, EntityKind::has_center)?;
                 self.expect(b, CENTERED, EntityKind::has_center)?;
@@ -319,6 +374,27 @@ impl View<'_> {
             ConstraintKind::Equal { a, b } => {
                 let ka = self.expect(a, CURVE, EntityKind::is_curve)?;
                 let kb = self.kind(b)?;
+                if ka.is_bspline() {
+                    return match (ka, kb) {
+                        (
+                            EntityKind::Spline(SplineDef::Control {
+                                poles: pa,
+                                weights: Some(_),
+                                ..
+                            }),
+                            EntityKind::Spline(SplineDef::Control {
+                                poles: pb,
+                                weights: Some(_),
+                                ..
+                            }),
+                        ) if pa.len() == pb.len() => distinct(&[a, b]),
+                        (EntityKind::Conic { .. }, EntityKind::Conic { .. }) => distinct(&[a, b]),
+                        (_, kb) if kb.is_bspline() => Err(SketchError::NotApplicable(
+                            "equal needs two conics or two rational control-point splines with the same pole count",
+                        )),
+                        (_, kb) => Err(wrong(b, "spline or conic", kb)),
+                    };
+                }
                 let ok = match ka {
                     // line–line, line–arc: equal length
                     EntityKind::Line { .. } => kb.is_line() || kb.is_arc(),
@@ -327,7 +403,9 @@ impl View<'_> {
                     EntityKind::Arc { .. } => kb.is_line() || kb.is_round(),
                     // ellipse–ellipse: equal axes
                     EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => kb.is_ellipse(),
-                    EntityKind::Point { .. } => false,
+                    EntityKind::Point { .. } | EntityKind::Spline(_) | EntityKind::Conic { .. } => {
+                        false
+                    }
                 };
                 if !ok {
                     let expected = match ka {
@@ -350,6 +428,11 @@ impl View<'_> {
                         "symmetry of elliptical arcs is not supported; mirror the full ellipse",
                     ));
                 }
+                if ka.is_bspline() {
+                    return Err(SketchError::NotApplicable(
+                        "symmetry of splines and conics is not supported; make their points symmetric",
+                    ));
+                }
                 self.line(axis)?;
             }
             ConstraintKind::Fix { .. } => {}
@@ -369,25 +452,14 @@ impl View<'_> {
         let kb = self.kind(b)?;
         match kind {
             TangentKind::AtEndpoint { a_end, b_end, .. } => {
-                let ka = self.expect(a, LINE_OR_ARC, |k| k.is_line() || k.is_arc())?;
-                if ka.is_line() {
-                    // line–line tangency at an endpoint is collinearity; needs an arc.
-                    self.expect(b, ARC, EntityKind::is_arc)?;
-                } else {
-                    self.expect(b, LINE_OR_ARC, |k| k.is_line() || k.is_arc())?;
-                }
-                if mode == Mode::Add {
-                    let pa = ka.endpoint(a_end);
-                    let pb = kb.endpoint(b_end);
-                    let touch = matches!((pa, pb), (Some(pa), Some(pb)) if self.joined(pa, pb));
-                    if !touch {
-                        return Err(SketchError::NotApplicable(
-                            "the chosen endpoints are neither the same point nor coincident",
-                        ));
-                    }
-                }
+                self.at_endpoint(a, b, a_end, b_end, mode, false)?;
             }
             TangentKind::External | TangentKind::Internal => {
+                if ka.is_bspline() || kb.is_bspline() {
+                    return Err(SketchError::NotApplicable(
+                        "splines and conics are tangent only at a shared end point (TangentKind::AtEndpoint)",
+                    ));
+                }
                 // Line–ellipse is supported in either order; ellipse–circle/ellipse is not.
                 let (line_side, other) = if ka.is_line() {
                     (true, kb)
@@ -425,6 +497,45 @@ impl View<'_> {
         Ok(())
     }
 
+    /// Shared checks of `Tangent::AtEndpoint` and `Curvature`: line, arc, spline or conic pairs
+    /// (line–line is collinearity, so at least one arc, spline or conic; `Curvature` needs a
+    /// spline or conic), and on add the named ends must be joined.
+    fn at_endpoint(
+        &self,
+        a: EntityId,
+        b: EntityId,
+        a_end: End,
+        b_end: End,
+        mode: Mode,
+        curvature: bool,
+    ) -> Result<(), SketchError> {
+        let ended = |k: &EntityKind| k.is_line() || k.is_arc() || k.is_bspline();
+        let ka = self.expect(a, ENDED, ended)?;
+        let kb = self.expect(b, ENDED, ended)?;
+        if curvature {
+            if !(ka.is_bspline() || kb.is_bspline()) {
+                return Err(SketchError::NotApplicable(
+                    "curvature continuity needs a spline or conic",
+                ));
+            }
+        } else if ka.is_line() && kb.is_line() {
+            // line–line tangency at an endpoint is collinearity; needs a curved partner.
+            return Err(wrong(b, "arc, spline or conic", kb));
+        }
+        if mode == Mode::Add {
+            let touch = matches!(
+                (ka.endpoint(a_end), kb.endpoint(b_end)),
+                (Some(pa), Some(pb)) if self.joined(pa, pb)
+            );
+            if !touch {
+                return Err(SketchError::NotApplicable(
+                    "the chosen endpoints are neither the same point nor coincident",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn dimension(&self, d: &Dimension, mode: Mode) -> Result<(), SketchError> {
         match d.kind {
             DimensionKind::Distance { a, b, .. } => {
@@ -435,11 +546,11 @@ impl View<'_> {
                 if ka.is_round() && kb.is_round() {
                     return Err(wrong(b, "point or line", kb));
                 }
-                // Distances to an ellipse are not supported.
-                if ka.is_ellipse() {
+                // Distances to an ellipse, spline or conic are not supported.
+                if ka.is_ellipse() || ka.is_bspline() {
                     return Err(wrong(a, "point, line, circle or arc", ka));
                 }
-                if kb.is_ellipse() {
+                if kb.is_ellipse() || kb.is_bspline() {
                     return Err(wrong(b, "point, line, circle or arc", kb));
                 }
             }

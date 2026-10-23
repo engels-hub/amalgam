@@ -216,6 +216,9 @@ impl Builder<'_> {
                 EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
                     return Err(skip("ellipses are not expressible"));
                 }
+                EntityKind::Spline(_) | EntityKind::Conic { .. } => {
+                    return Err(skip("splines and conics are not expressible"));
+                }
             };
             self.ents.insert(id, h);
         }
@@ -329,6 +332,9 @@ fn constrain(
                 }
                 _ => return Err(skip("endpoint tangency between these curves")),
             }
+        }
+        ConstraintKind::Curvature { .. } => {
+            return Err(skip("curvature continuity is not expressible"));
         }
         ConstraintKind::Concentric { a, b: q } => {
             let centre = |id: EntityId| match b.sketch.entity(id).map(|e| &e.kind) {

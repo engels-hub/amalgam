@@ -38,6 +38,19 @@ fn candidates(kind: &ConstraintKind) -> Vec<ConstraintKind> {
                 kind: other,
             });
         }
+        ConstraintKind::Curvature {
+            a,
+            b,
+            a_end,
+            b_end,
+            reversed,
+        } => out.push(ConstraintKind::Curvature {
+            a: *a,
+            b: *b,
+            a_end: *a_end,
+            b_end: *b_end,
+            reversed: !reversed,
+        }),
         ConstraintKind::Dimension(d) => {
             let mut with = |k: DimensionKind| {
                 let mut nd = d.clone();
@@ -94,8 +107,8 @@ fn candidates(kind: &ConstraintKind) -> Vec<ConstraintKind> {
 /// whose residual has the smallest max-abs value (the given variant wins ties).
 ///
 /// - `Side` of distance dimensions (point–point distance has no side; it stays as given).
-/// - `TangentKind::External` vs `Internal`; for `AtEndpoint`, `reversed` (the named ends are
-///   kept).
+/// - `TangentKind::External` vs `Internal`; for `AtEndpoint` (and `Curvature`), `reversed` (the
+///   named ends are kept).
 /// - `AngleBranch` of an angle dimension. The four branches give only `θ` and `θ + π`, so to
 ///   match an unsigned value the lines `a` and `b` may also be **swapped** (`−θ`, `π − θ`).
 ///

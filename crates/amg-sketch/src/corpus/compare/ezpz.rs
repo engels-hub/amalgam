@@ -243,6 +243,9 @@ fn constrain(b: &mut B<'_>, kind: &ConstraintKind) -> Result<Mapped, BackendSkip
                 }
             }
         },
+        ConstraintKind::Curvature { .. } => {
+            return Err(skip("curvature continuity is not expressible"));
+        }
         ConstraintKind::Concentric { a, b: q } => {
             out.push(Constraint::PointsCoincident(b.centre(*a)?, b.centre(*q)?))
         }
@@ -411,6 +414,9 @@ impl Contender for Ezpz {
                 }
                 EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
                     return Err(skip("ellipses are not expressible"));
+                }
+                EntityKind::Spline(_) | EntityKind::Conic { .. } => {
+                    return Err(skip("splines and conics are not expressible"));
                 }
             };
             b.ents.insert(id, e);

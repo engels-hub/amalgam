@@ -280,7 +280,7 @@ pub(crate) fn integrate(f: impl Fn(f64) -> f64, lo: f64, hi: f64, panels: usize)
 
 /// The other curve as an implicit function `F(p)` with a gradient, such that `|F|/|∇F|` is
 /// (to first order) the distance from the curve.
-enum Implicit {
+pub(super) enum Implicit {
     Line {
         a: Point2,
         u: Vec2,
@@ -299,7 +299,7 @@ enum Implicit {
 }
 
 impl Implicit {
-    fn of(curve: &Curve2) -> Option<Implicit> {
+    pub(super) fn of(curve: &Curve2) -> Option<Implicit> {
         match curve {
             Curve2::Line(s) => {
                 let d = s.b - s.a;
@@ -327,10 +327,11 @@ impl Implicit {
                     }
                 })
             }
+            Curve2::BSpline(_) => None,
         }
     }
 
-    fn value(&self, p: Point2) -> (f64, Vec2) {
+    pub(super) fn value(&self, p: Point2) -> (f64, Vec2) {
         match *self {
             Implicit::Line { a, u } => (u.perp_dot(p - a), u.perp()),
             Implicit::Circle { c, r } => {
@@ -353,7 +354,7 @@ impl Implicit {
 
 /// Parameter of the point `p` (on the curve's carrier) on `curve`, if it lies within the
 /// curve's range up to the tolerance `lin`.
-fn param_on(curve: &Curve2, p: Point2, lin: f64) -> Option<f64> {
+pub(super) fn param_on(curve: &Curve2, p: Point2, lin: f64) -> Option<f64> {
     match curve {
         Curve2::Line(s) => {
             let d = s.b - s.a;

@@ -629,6 +629,19 @@ pub fn map_entities(kind: &ConstraintKind, f: &dyn Fn(EntityId) -> EntityId) -> 
             b: f(*b),
             kind: *kind,
         },
+        C::Curvature {
+            a,
+            b,
+            a_end,
+            b_end,
+            reversed,
+        } => C::Curvature {
+            a: f(*a),
+            b: f(*b),
+            a_end: *a_end,
+            b_end: *b_end,
+            reversed: *reversed,
+        },
         C::Concentric { a, b } => C::Concentric { a: f(*a), b: f(*b) },
         C::Equal { a, b } => C::Equal { a: f(*a), b: f(*b) },
         C::Symmetric { a, b, axis } => C::Symmetric {

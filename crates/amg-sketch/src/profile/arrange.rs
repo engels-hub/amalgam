@@ -11,7 +11,7 @@ use super::{
     Loop, Profile, ProfileEdge, ProfileFingerprint, ProfileId, ProfileIssue, ProfileOptions,
     ProfileSet, VertexKey,
 };
-use crate::geom::{Curve2, intersect_detailed};
+use crate::geom::{BSpline2, Curve2, intersect_detailed};
 use crate::ids::EntityId;
 use crate::model::{End, EntityOrigin, Sketch};
 
@@ -174,6 +174,40 @@ pub(crate) fn detect(sketch: &Sketch, opts: &ProfileOptions) -> (ProfileSet, Sta
             joins.push((r, r + 1));
             has_hit[i as usize] = true;
             has_hit[j as usize] = true;
+        }
+    }
+    // Splines may cross themselves: the crossing is a vertex, the loop between the two
+    // parameters an edge.
+    for (i, s) in srcs.iter().enumerate() {
+        let Curve2::BSpline(b) = &s.curve else {
+            continue;
+        };
+        let hits = b.self_intersections(weld);
+        if hits.is_empty() {
+            continue;
+        }
+        issues.push(ProfileIssue::SelfIntersection(s.id));
+        for (k, &(t1, t2, pos)) in hits.iter().enumerate() {
+            let key = VertexKey::Intersection {
+                a: s.id,
+                b: s.id,
+                ordinal: u16::try_from(k).unwrap_or(u16::MAX),
+            };
+            let r = idx(recs.len());
+            recs.push(PRec {
+                src: idx(i),
+                t: t1,
+                pos,
+                key,
+            });
+            recs.push(PRec {
+                src: idx(i),
+                t: t2,
+                pos,
+                key,
+            });
+            joins.push((r, r + 1));
+            has_hit[i] = true;
         }
     }
     for (i, s) in srcs.iter().enumerate() {
@@ -845,10 +879,18 @@ fn area_moment(curves: &[&Curve2], starts: &[Point2]) -> (f64, Vec2) {
         let cr = q0.perp_dot(q1);
         area += 0.5 * cr;
         m += (q0 + q1) * (cr / 6.0);
-        let arc = match *curves[i] {
+        let arc = match curves[i] {
             Curve2::Arc(a) => Some((a.center, a.radius, a.start_angle, a.sweep)),
             Curve2::Circle(c) => Some((c.center, c.radius, 0.0, TAU)),
             Curve2::Line(_) => None,
+            Curve2::BSpline(b) => {
+                // Region between the spline and its chord (exact for polynomial splines,
+                // Gauss–Legendre otherwise).
+                let (seg, mom) = b.segment_area_moment();
+                area += seg;
+                m += mom - o * seg;
+                continue;
+            }
             Curve2::Ellipse(e) => {
                 // Segment between the chord and the arc: the affine image of a unit-circle
                 // segment (centre `c`, axes `m` and `w`, area scale `a·b`).
@@ -929,6 +971,36 @@ fn ellipse_crossings(
     }
 }
 
+/// Toggles `inside` for every crossing of the ray from `p` to `+x` with the spline `b` that runs
+/// from `q_start` to `q_end` (the loop's vertices). The spline is cut where `y` has an extremum;
+/// every piece that straddles the ray's height is solved by bisection.
+fn spline_crossings(b: &BSpline2, q_start: Point2, q_end: Point2, p: Point2, inside: &mut bool) {
+    let cuts = b.monotone_y();
+    let y_of = |t: f64| b.eval(t).y;
+    let last = cuts.len() - 1;
+    let (mut q0, mut a0) = (q_start, cuts[0]);
+    for (k, &a1) in cuts.iter().enumerate().skip(1) {
+        let q1 = if k == last { q_end } else { b.eval(a1) };
+        if (q0.y > p.y) != (q1.y > p.y) {
+            let above = q0.y > p.y;
+            let (mut l, mut h) = (a0, a1);
+            for _ in 0..80 {
+                let mid = 0.5 * (l + h);
+                if (y_of(mid) > p.y) == above {
+                    l = mid;
+                } else {
+                    h = mid;
+                }
+            }
+            if b.eval(0.5 * (l + h)).x > p.x {
+                *inside = !*inside;
+            }
+        }
+        q0 = q1;
+        a0 = a1;
+    }
+}
+
 /// Crossing parity of a horizontal ray from `p` to `+x` with a closed loop. Each edge starts at
 /// the previous edge's end point, so shared vertices are counted consistently (half-open
 /// rule).
@@ -949,12 +1021,17 @@ pub(crate) fn loop_contains<'a>(curves: impl Iterator<Item = &'a Curve2>, p: Poi
     };
     for c in curves {
         let end = end_point(c);
-        let arc = match *c {
+        let arc = match c {
             Curve2::Arc(a) => Some((a.center, a.radius, a.start_angle, a.sweep)),
             Curve2::Circle(k) => Some((k.center, k.radius, 0.0, TAU)),
             Curve2::Line(_) => None,
             Curve2::Ellipse(e) => {
-                ellipse_crossings(&e, prev, end, p, &mut inside);
+                ellipse_crossings(e, prev, end, p, &mut inside);
+                prev = end;
+                continue;
+            }
+            Curve2::BSpline(b) => {
+                spline_crossings(b, prev, end, p, &mut inside);
                 prev = end;
                 continue;
             }
