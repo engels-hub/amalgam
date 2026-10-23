@@ -11,6 +11,7 @@
 //! - [`error`]: the [`SketchError`] enum.
 //! - [`solve`]: residual equations with analytic Jacobians (SK-02); the solver from SK-03.
 //! - [`transform`]: mirror, patterns and move/copy/rotate/scale (SK-18).
+//! - [`import`]: DXF/SVG import into entities (SK-11).
 //! - [`corpus`]: the solver test corpus format, `.slvs`/ezpz importers, a reference checker
 //!   and the solver-agnostic runner (SK-14; test infrastructure).
 //!
@@ -27,6 +28,7 @@ pub mod edit;
 pub mod error;
 pub mod geom;
 pub mod ids;
+pub mod import;
 pub mod model;
 pub mod offset;
 pub mod profile;

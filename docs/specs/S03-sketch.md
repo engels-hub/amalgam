@@ -718,7 +718,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Done | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
 | SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
 | SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Todo | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
-| SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Todo | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
+| SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Review | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
 | SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Todo | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
 
 ## Testing
@@ -1459,3 +1459,39 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - The owner accepted the SK-13 result: ADR-007 is Accepted (own Rust solver; libslvs as test oracle
   behind `slvs`; ezpz as benchmark reference behind `ezpz-bench`). SK-13 is Done and the SK-03 gate is
   cleared.
+
+### 2026-10-23 - SK-11 (DXF/SVG import, lane B)
+- **Landed:** `amg_sketch::import` (`src/import/{mod,dxf_in,svg_in}.rs`): `import_dxf(sketch, bytes, &ImportOptions)`,
+  `import_dxf_file`, `import_svg(sketch, &str, &ImportOptions)`, `import_svg_file`, each returning an `ImportReport`
+  (`entities`, `constraints`, `layers`, `unit: UnitInfo {source, declared_code, scale_to_mm}`, `bbox` in mm, `merged`,
+  `snapped`, `skipped` counts by kind, `warnings`). Errors: `ImportError` (`Dxf`, `Svg`, `Io`, `Options`, `Sketch`).
+  Every curve gets `EntityOrigin::Imported`. Parsers: `dxf` 0.6.2 (MIT) and `usvg` 0.48.1 (`default-features = false`,
+  Apache-2.0 OR MIT); transitive crates are permissive (ADR-012; THIRD_PARTY.md updated).
+- **Units/scale.** DXF: `$INSUNITS` through the IO-08 table (codes 1-24 as mm factors); 0/unknown = mm
+  (`UnitSource::AssumedMm`); `ImportOptions::unit` overrides, `scale` multiplies on top. SVG: usvg resolves
+  `width/height/viewBox`/units to CSS px; px to mm is `25.4 / svg_dpi` (96); an override reads px as the given unit.
+  Nothing is scaled silently; the choice is reported. SVG y is flipped as `H - y` (document height).
+- **Layers.** DXF layer names / SVG outermost named `<g id>`. `construction_layers` (ASCII case-insensitive) set
+  `construction`, `skip_layers` drop geometry, DXF layers that are off or have a negative colour become construction
+  (`hidden_layers_construction`, default on).
+- **Endpoint merge.** Free ends within `merge_tol` (default 1e-4 mm) are clustered (single linkage, grid hash), snapped
+  to a representative before the entities are built (an elliptical-arc end if present, else the first) and tied with
+  `Coincident` constraints, so profiles close at once. Bigger gaps stay (QUESTIONS #17: warn only); opt-in heal is
+  `merge_tol = 1e-2`. Lines shorter than the tolerance are dropped (`skipped["degenerate"]`).
+- **DXF mapping.** LINE, CIRCLE, ARC (a -Z extrusion mirrors x and flips the sense), ELLIPSE (full: `Ellipse`; partial:
+  `EllipticArc`), LWPOLYLINE and POLYLINE/VERTEX (bulge to `Arc`, closed flag), SPLINE (clamped control-point form:
+  `SplineDef::Control` with weights and knots; fit-point form: `SplineDef::Fit` with tangent handles; unclamped or
+  periodic: sampled by de Boor into a fit spline, with a warning). TEXT, HATCH, DIMENSION, INSERT and tilted extrusions
+  are skipped and counted.
+- **SVG mapping.** usvg flattens transforms, shapes and arcs to lines, quadratics and cubics. Closed four-cubic rings
+  that are affine circles become `Circle` or `Ellipse` (exact for rotated/skewed circles); a cubic that is a circular
+  arc (3.5e-4 r / 5e-4 chord deviation) becomes `Arc`; other cubics and quadratics become degree 3/2 `Control` splines.
+- **Tests:** `tests/import.rs` (16) with 10 fixtures in `tests/fixtures/import/` (5 DXF: R12, R2000 x3, R2010; 5 SVG, 3
+  with group/matrix/rotate transforms) and `src/import/tests.rs` (4). Done-when 1: every fixture's bbox is within 1e-6
+  relative of the analytic value. Done-when 2: profile counts and areas match (1e-9 DXF, 1e-5 SVG, whose coordinates pass
+  through f32 in usvg).
+- **Deviations / leftovers:** `INSERT` blocks, HATCH, text and dimensions are not imported; POLYLINE spline-fit flags
+  import the control polygon; SVG arcs wider than 90 deg arrive as several `Arc` entities, SVG partial ellipses become
+  splines, consecutive Beziers are not merged into one spline; no progress/cancel hook; the import dialog (unit
+  suggestion) is S11/S12 work on top of `ImportReport`. The fixtures are small hand-sized ASCII files written with a
+  throw-away generator script; redistributable.

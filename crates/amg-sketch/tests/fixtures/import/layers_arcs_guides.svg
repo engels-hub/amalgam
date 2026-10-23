@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="50mm" height="50mm" viewBox="0 0 50 50">
+  <g id="outline">
+    <path d="M 10 10 H 40 A 10 10 0 0 1 40 30 H 10 Z" fill="none" stroke="black"/>
+  </g>
+  <g id="guides">
+    <line x1="10" y1="20" x2="50" y2="20" stroke="red"/>
+  </g>
+</svg>

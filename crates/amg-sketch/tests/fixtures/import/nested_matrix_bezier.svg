@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 40 30">
+  <g transform="matrix(0 1 -1 0 30 0)">
+    <polygon points="2,2 12,2 7,10" fill="none" stroke="black"/>
+  </g>
+  <g transform="scale(1.5)">
+    <circle cx="10" cy="12" r="4" fill="none" stroke="black"/>
+  </g>
+  <path d="M 25 20 C 28 14, 33 26, 36 20" fill="none" stroke="black"/>
+</svg>
