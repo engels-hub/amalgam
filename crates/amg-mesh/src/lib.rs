@@ -18,6 +18,7 @@ mod error;
 mod groups;
 mod halfedge;
 mod hash;
+mod holefill;
 mod indexed;
 pub mod iso;
 mod remesh;
@@ -39,6 +40,7 @@ pub use groups::{
     Primitive, PrimitiveKind, ShellSide,
 };
 pub use halfedge::{ConversionReport, HalfEdgeMesh, NonManifoldPolicy};
+pub use holefill::{Fairing, HoleFillOpts, HoleFillReport, fill_holes, fill_holes_indexed};
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
 pub use remesh::{EdgeLength, RemeshOpts, Sizing, remesh};
 pub use selfint::{SelfIntersectOpts, faces_intersect, self_intersections};

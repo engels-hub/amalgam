@@ -211,6 +211,7 @@ dependencies = [
  "amg-mesh",
  "amg-testkit",
  "criterion 0.8.2",
+ "faer",
  "obvhs",
  "parry3d-f64",
  "proptest",
@@ -220,6 +221,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "spade",
  "thiserror 2.0.21",
  "toml",
 ]

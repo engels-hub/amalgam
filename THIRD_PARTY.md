@@ -35,7 +35,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | mach-dxcompiler-rs (via wgpu `static-dxc`) | DX12 shader compiler, only if RND-01 adopts StaticDxc (S10) | MIT wrapper; bundled DXC under University of Illinois/NCSA (verify in RND-01) | no | yes (`static-dxc`) | Planned (conditional) |
 | glam | geometry math (ADR-006) | MIT / Apache-2.0 | no | no | In use (0.34.1) |
 | nalgebra | small dense linear algebra, sketch solver (ADR-006); `amg-nurbs` internal dense solves (S20) | Apache-2.0 | no | no | Planned |
-| faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | Planned |
+| faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | In use (=0.23.2, `std` + `sparse-linalg`, `amg-mesh` hole-fill fairing, MESH-20) |
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
 | cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |
@@ -78,7 +78,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | fontdb | system font discovery for sketch text (S03, SK-10) | MIT | no | no | Planned |
 | kcl-ezpz (+ faer 0.23, winnow, indexmap, libm, mutants: MIT / Apache-2.0) | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | In use (0.2.18, dev-only, feature `ezpz-bench`) |
 | robust =1.2.0 | exact orientation predicates (`orient2d`, `orient3d`), `amg-mesh::selfint` (S07, MESH-19) | MIT / Apache-2.0 | no | no | In use (1.2.0) |
-| spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07); section caps, `amg-features::inspect` (S05) | MIT / Apache-2.0 | no | no | Planned |
+| spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07); section caps, `amg-features::inspect` (S05) | MIT / Apache-2.0 | no | no | In use (=2.15.1, `amg-mesh` planar hole fill, MESH-20) |
 | rand, rand_chacha | seeded RANSAC and corpus generators, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | `rand_chacha` 0.9.0 In use (MESH-28 generators, `amg-mesh` feature `corpus`; `rand_core` only, no `rand`); `rand` Planned |
 | sha2 | sha256 of corpus models, `amg-mesh` feature `corpus` (S07, MESH-28) | MIT / Apache-2.0 | no | yes (`corpus`, test support) | In use (0.10.9) |
 | Thingi10K models (Zhou & Jacobson, arXiv:1605.04797), 165 unmodified STL files from `raw_meshes/` | **test data only**: `testdata/mesh/real/thingi10k/`, git-LFS (S07, MESH-28); only models licensed CC0 / public domain / CC-BY / CC-BY-SA, per-model licence, author, title and Thingiverse URL in `corpus.toml` and `real/thingi10k/NOTICE`; never compiled, linked or shipped | CC0-1.0, LicenseRef-PublicDomain, CC-BY-3.0, CC-BY-SA-3.0 (versions assumed, see the folder README) | share-alike (data) | no (not a dependency) | In use (test data) |
