@@ -863,7 +863,7 @@ inventory::collect!(ExtRegistration);
 | DOC-04 | Parameters & expressions: lexer + Pratt parser per §5 grammar, `Dim`/`Quantity`, unit literals via amg-core unit table, functions/constants, bare-number default-unit rule, `ParamTable`, model-param creation from `exprs_mut`, cycle detection, rename rewriting via spans, formatting | FND-10 | P0 | Done | Test suite of ≥ 150 cases covers: every grammar rule, every function, `1/4 in`, `N/mm^2`, unit mismatch with correct spans, cycle (`a=b`, `b=a`) rejected with path, rename updates all referencing sources, reserved unit names rejected, round-trip parse→format→parse. Eval of 1 000 chained params < 2 ms. |
 | DOC-05 | Commands + snapshot undo/redo + transactions: full `Command` enum handlers (except DOC-10/ASM extensions), `CommandError`, `UndoStack` with depth limit, `Transaction` commit/rollback, model-param conversion on feature delete | DOC-02, DOC-04 | P0 | Done | Property test (proptest): random sequence of ≤ 200 valid commands → undo all → design equals the initial one (`==` on serialized JSON); redo all → equals the final one. Transaction rollback restores `before`. `apply` + undo each < 1 ms on a 200-feature design. Commands round-trip through serde. |
 | DOC-12 | Recompute as a job: `Document::poll` (spawn, cancel-and-supersede, stale-result drop, atomic `Evaluated` swap), progress, `recompute_blocking`, preview recompute (`ComputeMode::Preview`), UI-thread debug assertion | DOC-03, FND-04 | P0 | Done | Test: 50 rapid `SetParamExpr` commands during a slow (sleeping) recompute → only the last revision is swapped in, cancelled work leaves finished features cached, `poll` never blocks > 1 ms (measured). Preview results never enter the persistent cache or undo stack. |
-| DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Todo | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
+| DOC-09 | Change events: `DocEvent` from authored diff (`OrdMap::diff`) and evaluated swap (`Arc::ptr_eq`), `drain_events` | DOC-12 | P0 | Review | Scripted tests assert exact event sets for each command type and for undo/redo. Editing one feature in a 3-body design emits `BodyGeometryChanged` only for the affected body. A props-only change emits no geometry event. |
 | DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Done | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
 | DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Todo | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
 | DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Done | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
@@ -1546,3 +1546,35 @@ Code in `amg-doc::io` (`io/mod.rs`, `io/write.rs`, `io/read.rs`); tests in `test
 - **Not done / for others.** `ExtRegistration` and extension-record migration (§11) are not implemented: `ExtRecord::data` is
   stored verbatim and `version` is not migrated. The journal hook, `cache/`, recovery and the lock are DOC-14. Calling
   `History::mark_saved` after a successful save is the caller's job (the app, from the job result).
+
+### 2026-10-23 — DOC-09 (change events, lane E)
+
+- **Design.** New module `amg-doc::event` (`DocEvent`, crate-private `EventState`); `Document` holds one
+  `EventState` and exposes `drain_events(&mut self) -> Vec<DocEvent>`.
+  - **Authored diff is lazy.** `History` owns `apply`/transactions/undo/redo, so instead of hooking each path the
+    document keeps the last *seen* `DesignSnapshot` and `drain_events` diffs it against the current one
+    (`Arc::ptr_eq` shortcut, then `OrdMap::diff` per map, equal-valued `Update`s filtered out). One mechanism covers
+    commands, committed transactions, undo and redo, and coalesces edits between two drains into their net effect
+    (an edit undone before the next drain emits nothing; a rolled-back transaction or rejected command emits nothing).
+    The diff is also taken before a recompute starts and before one is swapped in, so authored events always precede
+    the recompute's.
+  - **Evaluated swap** (`swap_in`): bodies by `Arc<EvalBody>::ptr_eq`, then `BodyGeom::same_as` (added, removed,
+    geometry changed); sketches by `Arc::ptr_eq`; construction by value; `HealthChanged` by `Health` equality per node.
+    `RecomputeFinished.failed` counts `Health::Error` nodes. `RecomputeStarted` is queued in `spawn`.
+  - **Mapping.** timeline (nodes, order, marker, groups) -> `TimelineChanged`; `ParamTable` inequality ->
+    `ParamsChanged`; added/removed/changed components or non-transform/visibility occurrence fields ->
+    one `ComponentTreeChanged`; occurrence transform / visibility -> their own events; `body_props` diff ->
+    `BodyPropsChanged`; `extensions` diff -> `ExtChanged`. `BodyAdded/Removed` come from the evaluated state
+    only (bodies exist only there). A baked-body change is reported through the geometry it produces.
+  - **Order** within a drain is fixed: Timeline, Params, ComponentTree, occurrence events, BodyProps, Ext (authored,
+    id order within a kind); then RecomputeStarted, bodies, sketches, construction, health, RecomputeFinished.
+  - `Document::new/from_design/with_cache` start with `DocumentReplaced` queued (consumers build everything once).
+- **Quirks.** `SetDesignMeta { name }` renames the root component, so it emits `ComponentTreeChanged`. A body moving to
+  another component with unchanged geometry emits `ComponentTreeChanged`.
+- **Interface changes (additive).** `Evaluated::sketches()` and `constructions()` iterators; `Design`'s `components`,
+  `occurrences`, `extensions` fields are `pub(crate)`; `pcoll::PDiff` alias; re-export `DocEvent`.
+  `DocEvent::{DocumentReplaced}` for open/recover is for DOC-14 to queue when it replaces a document.
+- **Tests.** `tests/events.rs` (13 scripted tests): exact event vectors for first recompute, feature edit in a 3-body
+  design (only the affected body), props-only edit (no geometry event), every timeline command, rollback, parameter,
+  component/occurrence and extension commands, a transaction, rollback/failed command, undo/redo of both kinds, and a
+  failing feature (`failed == 1`).

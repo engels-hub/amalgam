@@ -24,6 +24,7 @@ use amg_jobs::{Job, JobCtx, JobError, JobHandle, JobSystem, SpawnOptions, is_ui_
 use crate::cache::GeomCache;
 use crate::command::{Command, CommandError, CommandOutcome, apply_command};
 use crate::eval::Evaluated;
+use crate::event::{DocEvent, EventState};
 use crate::feature::ComputeMode;
 use crate::history::{History, Transaction};
 use crate::id::{FeatureId, Revision};
@@ -139,6 +140,7 @@ pub struct Document {
     running: Option<Running>,
     failed: Option<(Revision, String)>,
     last_run: Option<RecomputeSummary>,
+    events: EventState,
 }
 
 impl std::fmt::Debug for Document {
@@ -173,8 +175,10 @@ impl Document {
     /// Like [`Document::from_design`] with a given (e.g. seeded) cache.
     pub fn with_cache(design: Design, cache: Arc<GeomCache>) -> Document {
         let evaluated = Arc::new(Evaluated::new(design.revision()));
+        let history = History::new(design);
+        let events = EventState::new(history.snapshot(), Arc::clone(&evaluated));
         Document {
-            history: History::new(design),
+            history,
             cache,
             preview_cache: GeomCache::new(PREVIEW_CACHE_BUDGET),
             evaluated,
@@ -182,7 +186,18 @@ impl Document {
             running: None,
             failed: None,
             last_run: None,
+            events,
         }
+    }
+
+    // ---- change events (DOC-09) -----------------------------------------------------------
+
+    /// Takes the change events since the last call (once per UI frame). Authored changes are
+    /// diffed against what the previous call saw, so several edits between two calls yield
+    /// their net effect. Events carry ids only; read the state from `design()`/`evaluated()`.
+    pub fn drain_events(&mut self) -> Vec<DocEvent> {
+        self.events.sync_authored(&self.history.snapshot());
+        self.events.take()
     }
 
     // ---- authored state (delegates to History) ----------------------------------------
@@ -369,6 +384,8 @@ impl Document {
     }
 
     fn spawn(&mut self, jobs: &JobSystem, revision: Revision) {
+        self.events.sync_authored(&self.history.snapshot());
+        self.events.recompute_started(revision);
         let job = RecomputeJob {
             snapshot: self.history.snapshot(),
             revision,
@@ -405,6 +422,8 @@ impl Document {
 
     fn swap_in(&mut self, result: RecomputeResult, revision: Revision) {
         self.evaluated = Arc::new(result.evaluated);
+        self.events.sync_authored(&self.history.snapshot());
+        self.events.swap_evaluated(&self.evaluated, revision);
         self.evaluated_for = Some(revision);
         self.failed = None;
         self.last_run = Some(RecomputeSummary {

@@ -51,6 +51,16 @@ impl Evaluated {
         self.sketches.get(&id)
     }
 
+    /// All solved sketches in id order.
+    pub fn sketches(&self) -> impl Iterator<Item = (SketchId, &Arc<SketchGeom>)> + '_ {
+        self.sketches.iter().map(|(k, v)| (*k, v))
+    }
+
+    /// All construction geometry in id order.
+    pub fn constructions(&self) -> impl Iterator<Item = (ConstructionId, &ConstructionGeom)> + '_ {
+        self.construction.iter().map(|(k, v)| (*k, v))
+    }
+
     /// A construction plane/axis/point.
     pub fn construction(&self, id: ConstructionId) -> Option<&ConstructionGeom> {
         self.construction.get(&id)

@@ -23,6 +23,9 @@ pub(crate) type PVec<T> = imbl::Vector<T>;
 /// Persistent ordered set.
 pub(crate) type PSet<T> = imbl::OrdSet<T>;
 
+/// One difference between two [`PMap`]s (`PMap::diff`).
+pub(crate) type PDiff<'a, 'b, K, V> = imbl::ordmap::DiffItem<'a, 'b, K, V>;
+
 /// Serde for `PMap<K, Arc<V>>` as a JSON array of `[key, value]` pairs in key order.
 ///
 /// An array (not a JSON object) because most keys are structs (`BodyId`, `ExtKey`) and JSON

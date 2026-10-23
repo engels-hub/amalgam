@@ -43,16 +43,16 @@ pub struct Design {
     pub(crate) meta: DesignMeta,
     root: ComponentId,
     #[serde(serialize_with = "entries::serialize")]
-    components: PMap<ComponentId, Arc<Component>>,
+    pub(crate) components: PMap<ComponentId, Arc<Component>>,
     #[serde(serialize_with = "entries::serialize")]
-    occurrences: PMap<OccurrenceId, Arc<Occurrence>>,
+    pub(crate) occurrences: PMap<OccurrenceId, Arc<Occurrence>>,
     #[serde(serialize_with = "entries::serialize")]
     pub(crate) body_props: PMap<BodyId, Arc<BodyProps>>,
     /// Baked bodies: direct mode, base feature, imports (DOC-08, S12).
     #[serde(serialize_with = "entries::serialize")]
     pub(crate) baked: PMap<BodyId, Arc<BakedBody>>,
     #[serde(serialize_with = "entries::serialize")]
-    extensions: PMap<ExtKey, Arc<ExtRecord>>,
+    pub(crate) extensions: PMap<ExtKey, Arc<ExtRecord>>,
     /// The parametric timeline (DOC-02; edits in `timeline.rs`).
     pub(crate) timeline: Timeline,
     /// Parameters (DOC-04); edits in [`crate::param`].

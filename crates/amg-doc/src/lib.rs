@@ -16,6 +16,7 @@ pub mod cache;
 pub mod command;
 pub mod document;
 pub mod eval;
+pub mod event;
 pub mod expr;
 pub mod feature;
 pub mod history;
@@ -41,6 +42,7 @@ pub use eval::{
     BodyGeom, CacheKey, ConstructionGeom, Diagnostic, ErrorCause, EvalBody, Evaluated, Health,
     NodeEval,
 };
+pub use event::DocEvent;
 pub use expr::{Dim, ExprError};
 pub use feature::{
     BodyChange, BodyChangeKind, ComputeMode, Dependency, Feature, FeatureBox, FeatureDataError,
