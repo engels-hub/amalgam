@@ -18,8 +18,8 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 # crate (amg-mesh, S07) starts using it.
 smallvec = { version = "1.16.3", features = ["serde"] }
 thiserror.workspace = true
-# SK-10 glyph outlines. MIT OR Apache-2.0; pure safe Rust, no allocation in the parser.
-ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
+# SK-10 glyph outlines (Google Fonts "fontations"). MIT OR Apache-2.0; pure safe Rust.
+skrifa = { version = "=0.49.0", default-features = false, features = ["std"] }
 # SK-11 import. `dxf` MIT, `usvg` MPL-free since 0.38 (Apache-2.0 OR MIT); no text/raster
 # features (paths only), so no font or image stack is pulled in.
 dxf = "0.6.2"
