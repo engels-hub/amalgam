@@ -15,7 +15,12 @@ const MIN_NORMAL_COS: f64 = 0.1;
 
 impl State {
     /// New position of `v`, or `None` to leave it.
-    fn relaxed(&self, v: u32, spatial: Option<&MeshSpatial>, snapper: &Snapper) -> Option<Point3> {
+    fn relaxed(
+        &self,
+        v: u32,
+        spatial: Option<&MeshSpatial>,
+        snapper: &Snapper,
+    ) -> Option<(Point3, f64)> {
         if self.fixed[v as usize] {
             return None;
         }
@@ -39,8 +44,8 @@ impl State {
             let n = nsum.normalize_or_zero();
             let d = csum / asum - p;
             let mut q = p + (d - n * d.dot(n)) * LAMBDA;
-            if let Some(sp) = spatial {
-                let cp = sp.closest_point(q, 2.0 * self.target)?;
+            if let (true, Some(sp)) = (self.project, spatial) {
+                let cp = sp.closest_point(q, 2.0 * self.vs[v as usize])?;
                 q = cp.point;
             }
             q
@@ -53,7 +58,7 @@ impl State {
                 .get(&super::key(v, a))
                 .is_some_and(|&k| k & HARD != 0);
             if hard {
-                q = snapper.snap(q, self.target)?;
+                q = snapper.snap(q, self.vs[v as usize])?;
             }
             q
         };
@@ -67,7 +72,13 @@ impl State {
                 return None;
             }
         }
-        Some(target)
+        let size = match (&self.field, spatial) {
+            (Some(f), Some(sp)) => f
+                .at(sp, target, 2.0 * self.vs[v as usize])
+                .unwrap_or(self.vs[v as usize]),
+            _ => self.vs[v as usize],
+        };
+        Some((target, size))
     }
 
     pub(super) fn relax_pass(
@@ -77,14 +88,15 @@ impl State {
         ctx: &JobCtx,
     ) -> MeshResult<()> {
         let verts: Vec<u32> = self.he.vertices().map(|v| v.0).collect();
-        let moves: Vec<Option<Point3>> = verts
+        let moves: Vec<Option<(Point3, f64)>> = verts
             .par_iter()
             .map(|&v| self.relaxed(v, spatial, snapper))
             .collect();
         ctx.checkpoint()?;
         for (&v, m) in verts.iter().zip(moves) {
-            if let Some(q) = m {
+            if let Some((q, size)) = m {
                 self.he.set_position(VertexId(v), q);
+                self.vs[v as usize] = size;
             }
         }
         Ok(())

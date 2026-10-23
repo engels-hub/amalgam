@@ -16,6 +16,7 @@
 //! scans and sorts, relaxation, projection) are pure per-vertex computations that are applied
 //! afterwards. The result is therefore bit-identical across rayon thread counts.
 
+mod adaptive;
 mod features;
 mod ops;
 mod relax;
@@ -29,7 +30,7 @@ use rayon::prelude::*;
 
 use crate::{
     BvhOpts, FaceId, HalfEdgeMesh, IndexedMesh, MeshError, MeshResult, MeshSpatial,
-    NonManifoldPolicy,
+    NonManifoldPolicy, VertexId,
 };
 use features::Snapper;
 
@@ -47,9 +48,11 @@ pub enum EdgeLength {
 pub enum Sizing {
     /// One target edge length everywhere.
     Uniform(EdgeLength),
-    /// Curvature-adaptive sizing (MESH-22). Not implemented yet: [`remesh`] rejects it.
+    /// Curvature-adaptive sizing (MESH-22): edge length `L = sqrt(6 eps / kappa - 3 eps^2)`
+    /// (Dunyach et al. 2013) from the input's discrete curvature `kappa`, clamped to
+    /// `[min_length, max_length]` and graded smoothly.
     Adaptive {
-        /// Maximum deviation from the input, mm.
+        /// Maximum deviation `eps` from the input, mm.
         tolerance: f64,
         /// Shortest edge, mm.
         min_length: f64,
@@ -161,10 +164,12 @@ pub(crate) struct State {
     pub(crate) fixed: Vec<bool>,
     /// Selected faces per face slot; `None` = all.
     pub(crate) sel: Option<Vec<bool>>,
-    /// Target length L.
-    pub(crate) target: f64,
-    pub(crate) low: f64,
-    pub(crate) high: f64,
+    /// Target edge length at each vertex slot (an edge uses the smaller of its two ends).
+    pub(crate) vs: Vec<f64>,
+    /// Curvature size field of the input (adaptive sizing only).
+    pub(crate) field: Option<adaptive::SizeField>,
+    /// Project relaxed vertices back onto the input.
+    pub(crate) project: bool,
 }
 
 impl State {
@@ -181,7 +186,7 @@ impl State {
 ///
 /// # Errors
 /// [`MeshError::Empty`] without faces, [`MeshError::NonManifold`] for non-manifold input,
-/// [`MeshError::InvalidOption`] for a bad option (including [`Sizing::Adaptive`]),
+/// [`MeshError::InvalidOption`] for a bad option,
 /// [`MeshError::Cancelled`] when `ctx` is cancelled.
 #[allow(clippy::too_many_lines)]
 pub fn remesh(m: &IndexedMesh, opts: &RemeshOpts, ctx: &JobCtx) -> MeshResult<IndexedMesh> {
@@ -200,11 +205,21 @@ pub fn remesh(m: &IndexedMesh, opts: &RemeshOpts, ctx: &JobCtx) -> MeshResult<In
     let (rel, abs) = match opts.sizing {
         Sizing::Uniform(EdgeLength::Absolute(l)) => (None, Some(l)),
         Sizing::Uniform(EdgeLength::RelativeToMean(f)) => (Some(f), None),
-        Sizing::Adaptive { .. } => {
-            return Err(bad(
-                "sizing",
-                "adaptive sizing is MESH-22, not available yet",
-            ));
+        Sizing::Adaptive {
+            tolerance,
+            min_length,
+            max_length,
+        } => {
+            if !(tolerance.is_finite() && tolerance > 0.0) {
+                return Err(bad("tolerance", "must be finite and > 0"));
+            }
+            if !(min_length.is_finite() && min_length > 0.0) {
+                return Err(bad("min_length", "must be finite and > 0"));
+            }
+            if !(max_length.is_finite() && max_length >= min_length) {
+                return Err(bad("max_length", "must be finite and >= min_length"));
+            }
+            (None, None)
         }
     };
     if let Some(v) = rel.or(abs)
@@ -222,7 +237,11 @@ pub fn remesh(m: &IndexedMesh, opts: &RemeshOpts, ctx: &JobCtx) -> MeshResult<In
     let target = match (rel, abs) {
         (Some(f), _) => f * mean_edge_length(&he),
         (_, Some(l)) => l,
-        _ => unreachable!("one of the two sizings is set"),
+        // Adaptive: per-vertex sizes below; the longest bound stands in as the scalar.
+        _ => match opts.sizing {
+            Sizing::Adaptive { max_length, .. } => max_length,
+            Sizing::Uniform(_) => unreachable!("uniform sizing sets rel or abs"),
+        },
     };
     if !(target.is_finite() && target > 0.0) {
         return Err(bad(
@@ -267,14 +286,47 @@ pub fn remesh(m: &IndexedMesh, opts: &RemeshOpts, ctx: &JobCtx) -> MeshResult<In
         }
     };
 
-    let spatial = if opts.project_to_input {
+    let adaptive_sizing = matches!(opts.sizing, Sizing::Adaptive { .. });
+    let input = Arc::new(m.clone());
+    let spatial = if opts.project_to_input || adaptive_sizing {
         Some(MeshSpatial::build(
-            Arc::new(m.clone()),
+            Arc::clone(&input),
             &BvhOpts::default(),
             &ctx.sub(0.0, 0.05),
         )?)
     } else {
         None
+    };
+    let (vs, field) = match opts.sizing {
+        Sizing::Adaptive {
+            tolerance,
+            min_length,
+            max_length,
+        } => {
+            let sizes = adaptive::sizes(m, tolerance, min_length, max_length, opts.feature_angle);
+            let field = adaptive::SizeField {
+                mesh: Arc::clone(&input),
+                sizes,
+            };
+            let sp = spatial
+                .as_ref()
+                .ok_or_else(|| bad("sizing", "no spatial index for the size field"))?;
+            let mut vs = vec![target; nv];
+            let ids: Vec<u32> = he.vertices().map(|v| v.0).collect();
+            let found: Vec<f64> = ids
+                .par_iter()
+                .map(|&v| {
+                    field
+                        .at(sp, he.position(VertexId(v)), 1e-6 * target.max(1.0))
+                        .unwrap_or(max_length)
+                })
+                .collect();
+            for (&v, s) in ids.iter().zip(found) {
+                vs[v as usize] = s;
+            }
+            (vs, Some(field))
+        }
+        Sizing::Uniform(_) => (vec![target; nv], None),
     };
     let (cons, segs) = features::classify(&he, opts);
     let snapper = Snapper::build(&segs, ctx)?;
@@ -289,9 +341,9 @@ pub fn remesh(m: &IndexedMesh, opts: &RemeshOpts, ctx: &JobCtx) -> MeshResult<In
         ncons,
         fixed,
         sel,
-        target,
-        low: 0.8 * target,
-        high: 4.0 / 3.0 * target,
+        vs,
+        field,
+        project: opts.project_to_input,
     };
 
     for it in 0..opts.iterations {
