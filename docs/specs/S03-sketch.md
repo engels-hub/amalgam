@@ -717,7 +717,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Done | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
 | SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Done | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
 | SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
-| SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Todo | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
+| SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Review | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
 | SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Todo | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
 | SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Todo | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
 
@@ -1459,3 +1459,37 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - The owner accepted the SK-13 result: ADR-007 is Accepted (own Rust solver; libslvs as test oracle
   behind `slvs`; ezpz as benchmark reference behind `ezpz-bench`). SK-13 is Done and the SK-03 gate is
   cleared.
+
+### 2026-10-23 - SK-10 (sketch text, lane B)
+- **Landed:** `amg_sketch::text` (`text.rs`, `text/font.rs`): `Font`/`FontSet` (ttf-parser 0.25.1, parsed from
+  bytes), `TextSpec`, `Placement::{Free, AlongPath}`, `TextBlock::{create, update, remove, regions}`,
+  `GlyphRegions`, `TextError`. A block is the anchor point and the direction point (ordinary free points) plus
+  the outline: every glyph contour is a closed chain of `Line` and degree-2/3 `SplineDef::Control` entities
+  (TrueType quads, CFF cubics) of `EntityOrigin::Imported` whose point params are **locked**, so the solver
+  never moves them and they add no DOF. `update` rewrites the outline points in place (entity ids stable) after
+  the solver moved the anchor/direction point, the path or the height changed; `create` is all-or-nothing.
+  Style: bold/italic pick the face of the `FontSet`; a missing italic is sheared by tan 12 degrees; a missing
+  bold is `StyleUnavailable`. `height` is the cap height (ascender if the font has none). Multi-line text
+  (`
+`, `line_spacing`). Along a path every glyph is placed rigidly at its centre's arc-length position and
+  rotated to the tangent (up is left of the path direction; `reversed` flips it); `PathTooShort` if it does not fit.
+- **Holes:** the arrangement reports the inside of a counter as a face of its own, so "AgB" gives 7 profiles:
+  `TextBlock::regions` splits them into 3 `solid` faces (the profiles to extrude, carrying the 4 holes: A 1,
+  g 1, B 2) and 4 `counters` (nesting-depth parity, so an island inside a counter is solid again).
+- **Interface changes:** none to other crates or lanes. `lib.rs`: `pub mod text;` and a doc line.
+  `amg-sketch` gains the dependency `ttf-parser`. `Sketch` has no text-block storage; the document layer keeps the
+  `Vec<TextBlock>` (serde) next to the sketch and the `FontSet` that `TextSpec::font` names, and calls `update`
+  after each solve. A later `EntityKind::Text` is not needed for this.
+- **Evidence (`tests/text.rs`, 12 tests, fixtures `tests/fixtures/fonts/`, Noto Sans ASCII subsets, OFL, plain
+  files):** Done-when 1: "AgB" -> 3 solid profiles, 4 holes, 4 counter faces, no issues, 74 curves / 119 points,
+  net area 97.654143357 mm2 at 10 mm cap height; also I 1/0, O 1/1, 8 1/2, i 2/0, "Hello" 5/2, "A B" 2/3 (solid/holes),
+  "0123456789" 10/6. Height: bbox top-bottom = cap height within 1e-9. Rigid move/rotate and rescale keep ids,
+  areas within 1e-9 relative. Bold is more than 10 % heavier; sheared italic keeps the area within 1e-9. Text on a
+  circle (r 40, 3 glyphs) lies at radius 29-31 (caps) and up to 44.5 (descender), the anchor at arc length 5, and
+  follows the circle when its radius changes; "H" along a vertical line equals free text at 90 degrees within 1e-9.
+- **Done-when 2 (extrude via SOL-02) is open:** SOL-02 is not Done, so the extrude golden is a leftover.
+  The solid faces carry `Profile::outer`/`holes` loops ready for it.
+- **Leftovers:** extrude golden test when SOL-02 lands (use `regions().solid`); kerning/GPOS shaping and complex
+  scripts; synthetic bold; per-glyph bending along strongly curved paths (glyphs are rigid, so wide glyphs on a
+  tight radius open wedge gaps); text alignment (centre/right) and font discovery (`fontdb`, UI layer); contours of
+  one segment (never seen in real fonts) are dropped; overlapping contours in variable fonts are not unioned.

@@ -11,6 +11,7 @@
 //! - [`error`]: the [`SketchError`] enum.
 //! - [`solve`]: residual equations with analytic Jacobians (SK-02); the solver from SK-03.
 //! - [`transform`]: mirror, patterns and move/copy/rotate/scale (SK-18).
+//! - [`text`]: text blocks of locked spline outlines (SK-10).
 //! - [`corpus`]: the solver test corpus format, `.slvs`/ezpz importers, a reference checker
 //!   and the solver-agnostic runner (SK-14; test infrastructure).
 //!
@@ -31,6 +32,7 @@ pub mod model;
 pub mod offset;
 pub mod profile;
 pub mod solve;
+pub mod text;
 pub mod transform;
 
 pub use build::Built;
