@@ -1,6 +1,7 @@
 //! The [`Sketch`] container.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::f64::consts::TAU;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use amg_core::{Plane, Point2, Segment2, Tolerance};
@@ -10,7 +11,7 @@ use smallvec::SmallVec;
 use super::validate::{self, Mode, View, finite_point};
 use super::{Constraint, ConstraintKind, Entity, EntityKind, EntityOrigin, ParamFlags, ParamStore};
 use crate::error::SketchError;
-use crate::geom::{Arc2, Circle2, Curve2};
+use crate::geom::{Arc2, Circle2, Curve2, EllipseArc2};
 use crate::ids::{ConstraintId, EntityId, ParamId};
 
 /// Process-wide revision counter: every bump of any sketch gets a fresh number, so a revision
@@ -263,6 +264,108 @@ impl Sketch {
         ))
     }
 
+    /// Adds an ellipse with centre `center`, the end of its semi-major axis at `major_end` and
+    /// minor radius `minor_radius` (SK-22). Creates the two points.
+    ///
+    /// `Err(Degenerate)` if `major_end` coincides with `center`; `Err(InvalidValue)` unless the
+    /// minor radius is positive and finite, or for non-finite input. The minor radius may
+    /// exceed the semi-major length.
+    pub fn add_ellipse(
+        &mut self,
+        center: Point2,
+        major_end: Point2,
+        minor_radius: f64,
+    ) -> Result<EntityId, SketchError> {
+        self.check_ellipse_input(center, major_end, minor_radius)?;
+        let c = self.push_point(center);
+        let m = self.push_point(major_end);
+        let minor_radius = self.params.push(minor_radius, ParamFlags::default());
+        Ok(self.insert_entity(
+            EntityKind::Ellipse {
+                center: c,
+                major: m,
+                minor_radius,
+            },
+            false,
+            EntityOrigin::User,
+        ))
+    }
+
+    /// Adds an elliptical arc on the ellipse of [`add_ellipse`](Sketch::add_ellipse), running
+    /// CCW from eccentric angle `t0` to `t1` (rad), creating its start point `P(t0)` and end
+    /// point `P(t1)` (SK-22).
+    ///
+    /// `Err(Degenerate)` if the sweep `(t1 − t0) mod 2π` is within `Tolerance::DEFAULT.angular`
+    /// of 0 or 2π (use a full ellipse), plus the errors of `add_ellipse`.
+    pub fn add_elliptic_arc(
+        &mut self,
+        center: Point2,
+        major_end: Point2,
+        minor_radius: f64,
+        t0: f64,
+        t1: f64,
+    ) -> Result<EntityId, SketchError> {
+        self.check_ellipse_input(center, major_end, minor_radius)?;
+        for t in [t0, t1] {
+            if !t.is_finite() {
+                return Err(SketchError::InvalidValue {
+                    what: "elliptical arc parameter",
+                    value: t,
+                });
+            }
+        }
+        let sweep = (t1 - t0).rem_euclid(TAU);
+        let tol = Tolerance::DEFAULT.angular;
+        if sweep <= tol || sweep >= TAU - tol {
+            return Err(SketchError::Degenerate(
+                "elliptical arc start and end coincide",
+            ));
+        }
+        let e = EllipseArc2::full(center, major_end - center, minor_radius);
+        let c = self.push_point(center);
+        let m = self.push_point(major_end);
+        let s = self.push_point(e.point_at(t0));
+        let en = self.push_point(e.point_at(t1));
+        let minor_radius = self.params.push(minor_radius, ParamFlags::default());
+        let t0 = self.params.push(t0, ParamFlags::default());
+        let t1 = self.params.push(t1, ParamFlags::default());
+        Ok(self.insert_entity(
+            EntityKind::EllipticArc {
+                center: c,
+                major: m,
+                minor_radius,
+                start: s,
+                end: en,
+                t0,
+                t1,
+            },
+            false,
+            EntityOrigin::User,
+        ))
+    }
+
+    fn check_ellipse_input(
+        &self,
+        center: Point2,
+        major_end: Point2,
+        minor_radius: f64,
+    ) -> Result<(), SketchError> {
+        finite_point("point coordinate", center)?;
+        finite_point("point coordinate", major_end)?;
+        if !(minor_radius.is_finite() && minor_radius > 0.0) {
+            return Err(SketchError::InvalidValue {
+                what: "ellipse minor radius",
+                value: minor_radius,
+            });
+        }
+        if Tolerance::DEFAULT.is_zero_len(major_end.distance(center)) {
+            return Err(SketchError::Degenerate(
+                "ellipse major axis has zero length",
+            ));
+        }
+        Ok(())
+    }
+
     /// Adds an entity of any kind referencing existing params and points.
     ///
     /// Validates that the params exist, were issued by [`alloc_param`](Sketch::alloc_param)
@@ -405,15 +508,24 @@ impl Sketch {
     /// its domain: distances ≥ 0, radius/diameter/arc length > 0, angles finite).
     pub fn add_constraint(&mut self, kind: ConstraintKind) -> Result<ConstraintId, SketchError> {
         self.view().constraint(&kind, Mode::Add)?;
+        let mut aux = SmallVec::new();
+        if let ConstraintKind::PointOnCurve { point, curve } = kind
+            && self.view().aux_count(&kind) == 1
+        {
+            // The curve parameter of the point on the (full) ellipse, as the starting value.
+            let t = match (self.point(point), self.curve(curve)) {
+                (Some(p), Some(Curve2::Ellipse(e))) => {
+                    EllipseArc2::full(e.center, e.major, e.minor_radius)
+                        .closest(p)
+                        .0
+                }
+                _ => 0.0,
+            };
+            aux.push(self.params.push(t, ParamFlags::default()));
+        }
         let id = ConstraintId(self.next_constraint);
         self.next_constraint += 1;
-        self.constraints.insert(
-            id,
-            Constraint {
-                kind,
-                aux: SmallVec::new(),
-            },
-        );
+        self.constraints.insert(id, Constraint { kind, aux });
         self.touch_structure();
         Ok(id)
     }
@@ -465,6 +577,40 @@ impl Sketch {
             EntityKind::Arc { center, start, end } => Some(Curve2::Arc(
                 Arc2::from_center_start_end(pt(center)?, pt(start)?, pt(end)?),
             )),
+            EntityKind::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => {
+                let c = pt(center)?;
+                Some(Curve2::Ellipse(EllipseArc2::full(
+                    c,
+                    pt(major)? - c,
+                    self.params.get(minor_radius),
+                )))
+            }
+            EntityKind::EllipticArc {
+                center,
+                major,
+                minor_radius,
+                t0,
+                t1,
+                ..
+            } => {
+                let c = pt(center)?;
+                let (t0, t1) = (self.params.get(t0), self.params.get(t1));
+                let mut sweep = (t1 - t0).rem_euclid(TAU);
+                if sweep <= 0.0 {
+                    sweep = TAU;
+                }
+                Some(Curve2::Ellipse(EllipseArc2 {
+                    center: c,
+                    major: pt(major)? - c,
+                    minor_radius: self.params.get(minor_radius),
+                    t0,
+                    t1: t0 + sweep,
+                }))
+            }
         }
     }
 

@@ -13,17 +13,20 @@
 //! | Constraint | Rows |
 //! |---|---|
 //! | Arc (internal) | `|s − c| − |e − c|` |
+//! | Elliptical arc (internal) | `s − P(t0)`, `e − P(t1)` (x, y each) |
 //! | Coincident | `a − b` (x, y) |
-//! | PointOnCurve | line: signed distance; circle: `|p − c| − r`; arc: `|p − c| − |s − c|` |
+//! | PointOnCurve | line: signed distance; circle: `|p − c| − r`; arc: `|p − c| − |s − c|`; ellipse: `p − P(t)` (x, y; `t` = the constraint's aux param) |
 //! | Midpoint | `2p − a − b` (x, y) |
 //! | Horizontal / Vertical | `a_y − b_y` / `a_x − b_x` (line: start, end) |
 //! | Parallel / Perpendicular | `L_c · cross(d1, d2)/(|d1||d2|)` / `L_c · dot(..)/(..)` |
 //! | Collinear | signed distance of line 2's start and end from line 1 |
 //! | Tangent line–round | `s − r` (External) / `s + r` (Internal), `s` = signed centre distance |
 //! | Tangent round–round | `|c1 − c2| − (r1 + r2)` / `|c1 − c2| − |r1 − r2|` |
+//! | Tangent line–ellipse | `s − h` (External) / `s + h` (Internal), `s` = signed centre distance, `h` = half-width of the ellipse normal to the line |
+//! | Ellipse major / minor (dimension) | `|M − c| − v` / `b − v` |
 //! | Tangent AtEndpoint | `L_c · wrap(angle(t_a, σ t_b))`, `σ = −1` if `reversed` |
 //! | Concentric | `c1 − c2` (x, y) |
-//! | Equal | `|d1| − |d2|`; line–arc `|d| − r·sweep`; round–round `r1 − r2` |
+//! | Equal | `|d1| − |d2|`; line–arc `|d| − r·sweep`; round–round `r1 − r2`; ellipse–ellipse `|M1 − c1| − |M2 − c2|` and `b1 − b2` |
 //! | Symmetric | see [`constraint_residual`] |
 //! | Fix | no rows (params locked, [`fixed_params`]) |
 //!
@@ -37,6 +40,7 @@ use smallvec::SmallVec;
 use super::func::{Dir, Func, MAX_ARITY, Rad, wrap_pi};
 use super::system::{EquationOwner, EquationSystem, Residual};
 use crate::error::SketchError;
+use crate::geom::{Curve2, EllipseArc2};
 use crate::ids::{EntityId, ParamId};
 use crate::model::{
     ConstraintKind, DimensionKind, EntityKind, HvTarget, Side, Sketch, TangentKind,
@@ -240,10 +244,34 @@ impl Round {
 /// Endpoints of a line: `[start, end]`.
 type Seg = [P2; 2];
 
+/// An ellipse: centre, major-axis end point and minor radius param. An elliptical arc also
+/// carries its end points and eccentric angle params.
+#[derive(Copy, Clone)]
+struct Ell {
+    c: P2,
+    m: P2,
+    b: ParamId,
+    arc: Option<EllArc>,
+}
+
+#[derive(Copy, Clone)]
+struct EllArc {
+    s: P2,
+    e: P2,
+    t0: ParamId,
+    t1: ParamId,
+}
+
+/// Slots of `Func::EllipseOn`: `[p, c, M, b, t]`.
+fn ellipse_slots(p: P2, ell: &Ell, t: ParamId) -> [ParamId; 8] {
+    cat::<8>(&[&p, &ell.c, &ell.m, &[ell.b], &[t]])
+}
+
 enum Geo {
     Point(P2),
     Line(Seg),
     Round(Round),
+    Ellipse(Ell),
 }
 
 struct Ctx<'a> {
@@ -289,7 +317,52 @@ impl Ctx<'_> {
                 s: self.point(start)?,
                 e: self.point(end)?,
             }),
+            EntityKind::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => Geo::Ellipse(Ell {
+                c: self.point(center)?,
+                m: self.point(major)?,
+                b: minor_radius,
+                arc: None,
+            }),
+            EntityKind::EllipticArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+                t0,
+                t1,
+            } => Geo::Ellipse(Ell {
+                c: self.point(center)?,
+                m: self.point(major)?,
+                b: minor_radius,
+                arc: Some(EllArc {
+                    s: self.point(start)?,
+                    e: self.point(end)?,
+                    t0,
+                    t1,
+                }),
+            }),
         })
+    }
+
+    /// Centre point params of a circle, arc, ellipse or elliptical arc.
+    fn center(&self, id: EntityId) -> Result<P2, SketchError> {
+        match self.geo(id)? {
+            Geo::Round(r) => Ok(r.center()),
+            Geo::Ellipse(e) => Ok(e.c),
+            _ => Err(self.wrong(id, "circle, arc or ellipse")),
+        }
+    }
+
+    fn ellipse(&self, id: EntityId) -> Result<Ell, SketchError> {
+        match self.geo(id)? {
+            Geo::Ellipse(e) => Ok(e),
+            _ => Err(self.wrong(id, "ellipse or elliptical arc")),
+        }
     }
 
     fn line(&self, id: EntityId) -> Result<Seg, SketchError> {
@@ -343,7 +416,8 @@ fn mirror_points(b: &mut Builder, ax: Seg, p: P2, q: P2) {
     b.term(Func::DirDot, 1.0, &s).mm(0.0);
 }
 
-/// Internal equation of an entity (`Some` only for arcs: `|s − c| − |e − c|`).
+/// Internal equations of an entity: `Some` for arcs (`|s − c| − |e − c|`, 1 row) and elliptical
+/// arcs (`s − P(t0)` and `e − P(t1)`, 4 rows), `None` for the other kinds.
 pub fn entity_residual(sketch: &Sketch, id: EntityId) -> Option<SketchResidual> {
     let ctx = Ctx { s: sketch };
     match ctx.geo(id).ok()? {
@@ -352,6 +426,17 @@ pub fn entity_residual(sketch: &Sketch, id: EntityId) -> Option<SketchResidual> 
             b.term(Func::Dist, 1.0, &cat::<4>(&[&s, &c]))
                 .term(Func::Dist, -1.0, &cat::<4>(&[&e, &c]))
                 .mm(0.0);
+            Some(b.finish())
+        }
+        Geo::Ellipse(ell) => {
+            let arc = ell.arc?;
+            let mut b = Builder::default();
+            for (p, t) in [(arc.s, arc.t0), (arc.e, arc.t1)] {
+                for k in 0..2 {
+                    b.term(Func::EllipseOn(k), 1.0, &ellipse_slots(p, &ell, t))
+                        .mm(0.0);
+                }
+            }
             Some(b.finish())
         }
         _ => None,
@@ -379,19 +464,71 @@ pub fn entity_residual(sketch: &Sketch, id: EntityId) -> Option<SketchResidual> 
 /// - **Length** `|d| − v`; **Angle** `L_c · wrap(angle(u, w) − v)` with `u`, `w` the line
 ///   directions, each reversed per `AngleBranch`; **Radius** `r − v`; **Diameter** `2r − v`;
 ///   **ArcLength** `r·sweep − v` (sweep ∈ (0, 2π], CCW).
+///
+/// **Ellipses (SK-22).** Point on ellipse needs the constraint's auxiliary curve parameter, so
+/// this function returns `NotApplicable` for it; use [`constraint_residual_aux`] with the
+/// stored [`Constraint::aux`](crate::Constraint::aux). Rows: point on ellipse or elliptical
+/// arc `p − P(t)` (2); tangent line–ellipse `s ∓ h` with `s` the signed distance of the centre
+/// from the line and `h` the half-width of the ellipse normal to it (1); `Concentric` centres
+/// (2); `Equal` ellipse–ellipse `|M₁ − c₁| − |M₂ − c₂|`, `b₁ − b₂` (2); `Symmetric` ellipses
+/// centres (2), major end points (2), `b₁ − b₂` (5); `EllipseMajor` `|M − c| − v`,
+/// `EllipseMinor` `b − v` (1).
 pub fn constraint_residual(
     sketch: &Sketch,
     kind: &ConstraintKind,
     length_scale: f64,
 ) -> Result<Option<SketchResidual>, SketchError> {
-    build(sketch, kind, length_scale, false)
+    build(sketch, kind, &[], length_scale, false)
 }
 
-/// Like [`constraint_residual`], but also builds driven dimensions (orientation capture and
+/// [`constraint_residual`] for a constraint with auxiliary params (`aux` is
+/// [`Constraint::aux`](crate::Constraint::aux): the curve parameter of a point on an ellipse).
+pub fn constraint_residual_aux(
+    sketch: &Sketch,
+    kind: &ConstraintKind,
+    aux: &[ParamId],
+    length_scale: f64,
+) -> Result<Option<SketchResidual>, SketchError> {
+    build(sketch, kind, aux, length_scale, false)
+}
+
+/// Largest absolute residual of `kind` at the sketch's current values, for a constraint that
+/// need not be in the sketch (candidate checks). A point on an ellipse is measured with the
+/// curve parameter of the point's nearest ellipse point. `Ok(0)` for `Fix` and driven
+/// dimensions.
+pub(crate) fn candidate_max_residual(
+    sketch: &Sketch,
+    kind: &ConstraintKind,
+    lc: f64,
+) -> Result<f64, SketchError> {
+    let mut x = std::borrow::Cow::Borrowed(sketch.params().as_slice());
+    let mut aux: SmallVec<[ParamId; 1]> = SmallVec::new();
+    if let ConstraintKind::PointOnCurve { point, curve } = *kind
+        && let (Some(p), Some(Curve2::Ellipse(e))) = (sketch.point(point), sketch.curve(curve))
+    {
+        let t = EllipseArc2::full(e.center, e.major, e.minor_radius)
+            .closest(p)
+            .0;
+        let id = ParamId(u32::try_from(x.len()).unwrap_or(u32::MAX));
+        x.to_mut().push(t);
+        aux.push(id);
+    }
+    Ok(match build(sketch, kind, &aux, lc, false)? {
+        Some(r) => {
+            let mut out = vec![0.0; r.rows()];
+            r.eval(&x, &mut out);
+            out.iter().fold(0.0_f64, |m, v| m.max(v.abs()))
+        }
+        None => 0.0,
+    })
+}
+
+/// Like [`constraint_residual_aux`], but also builds driven dimensions (orientation capture and
 /// driven-value measurement use it).
 pub(crate) fn build(
     sketch: &Sketch,
     kind: &ConstraintKind,
+    aux: &[ParamId],
     lc: f64,
     include_driven: bool,
 ) -> Result<Option<SketchResidual>, SketchError> {
@@ -411,7 +548,20 @@ pub(crate) fn build(
                     r.radius(&mut b, -1.0);
                     b.mm(0.0);
                 }
-                Geo::Point(_) => return Err(ctx.wrong(curve, "line, circle or arc")),
+                Geo::Ellipse(ell) => {
+                    let &[t] = aux else {
+                        return Err(SketchError::NotApplicable(
+                            "a point on an ellipse needs its curve parameter (use constraint_residual_aux)",
+                        ));
+                    };
+                    for k in 0..2 {
+                        b.term(Func::EllipseOn(k), 1.0, &ellipse_slots(p, &ell, t))
+                            .mm(0.0);
+                    }
+                }
+                Geo::Point(_) => {
+                    return Err(ctx.wrong(curve, "line, circle, arc or ellipse"));
+                }
             }
         }
         ConstraintKind::Midpoint { point, line } => {
@@ -456,7 +606,7 @@ pub(crate) fn build(
         }
         ConstraintKind::Tangent { a, b: q, kind: tk } => tangent(&ctx, &mut b, a, q, tk, lc)?,
         ConstraintKind::Concentric { a, b: q } => {
-            coincide(&mut b, ctx.round(a)?.center(), ctx.round(q)?.center());
+            coincide(&mut b, ctx.center(a)?, ctx.center(q)?);
         }
         ConstraintKind::Equal { a, b: q } => {
             let (ga, gb) = (ctx.geo(a)?, ctx.geo(q)?);
@@ -480,6 +630,14 @@ pub(crate) fn build(
                     ra.radius(&mut b, 1.0);
                     rb.radius(&mut b, -1.0);
                     b.mm(0.0);
+                }
+                (Geo::Ellipse(ea), Geo::Ellipse(eb)) => {
+                    b.term(Func::Dist, 1.0, &cat::<4>(&[&ea.m, &ea.c]))
+                        .term(Func::Dist, -1.0, &cat::<4>(&[&eb.m, &eb.c]))
+                        .mm(0.0);
+                    b.term(Func::Coord, 1.0, &[ea.b])
+                        .term(Func::Coord, -1.0, &[eb.b])
+                        .mm(0.0);
                 }
                 _ => return Err(ctx.wrong(q, "line or arc")),
             }
@@ -514,6 +672,18 @@ pub(crate) fn build(
                     mirror_points(&mut b, ax, sa, eb);
                     b.term(Func::DirDot, 1.0, &cat::<8>(&[&ax[0], &ax[1], &ea, &sb]))
                         .mm(0.0);
+                }
+                (Geo::Ellipse(ea), Geo::Ellipse(eb)) if ea.arc.is_none() && eb.arc.is_none() => {
+                    mirror_points(&mut b, ax, ea.c, eb.c);
+                    mirror_points(&mut b, ax, ea.m, eb.m);
+                    b.term(Func::Coord, 1.0, &[ea.b])
+                        .term(Func::Coord, -1.0, &[eb.b])
+                        .mm(0.0);
+                }
+                (Geo::Ellipse(_), Geo::Ellipse(_)) => {
+                    return Err(SketchError::NotApplicable(
+                        "symmetry of elliptical arcs is not supported",
+                    ));
                 }
                 _ => return Err(ctx.wrong(q, "entity of the same kind")),
             }
@@ -571,7 +741,23 @@ fn tangent(
                     }
                     b.mm(0.0);
                 }
+                (Geo::Line(l), Geo::Ellipse(e)) | (Geo::Ellipse(e), Geo::Line(l)) => {
+                    // Signed centre distance minus (External) / plus (Internal) the ellipse's
+                    // half-width normal to the line.
+                    signed(b, l, e.c, 1.0);
+                    b.term(
+                        Func::EllipseSupport,
+                        if ext { -1.0 } else { 1.0 },
+                        &cat::<9>(&[&l[0], &l[1], &e.c, &e.m, &[e.b]]),
+                    );
+                    b.mm(0.0);
+                }
                 (Geo::Point(_), _) => return Err(ctx.wrong(a, "line, circle or arc")),
+                (Geo::Ellipse(_), _) | (_, Geo::Ellipse(_)) => {
+                    return Err(SketchError::NotApplicable(
+                        "an ellipse can only be tangent to a line",
+                    ));
+                }
                 _ => return Err(ctx.wrong(q, "circle or arc")),
             }
         }
@@ -620,6 +806,11 @@ fn dimension(
                     r.radius(b, -1.0);
                 }
                 (Geo::Round(_), Geo::Round(_)) => return Err(ctx.wrong(q, "point or line")),
+                (Geo::Ellipse(_), _) | (_, Geo::Ellipse(_)) => {
+                    return Err(SketchError::NotApplicable(
+                        "distances to an ellipse are not supported",
+                    ));
+                }
             }
             b.mm(-v);
         }
@@ -663,6 +854,14 @@ fn dimension(
             }
             Round::Circle { .. } => return Err(ctx.wrong(arc, "arc")),
         },
+        DimensionKind::EllipseMajor { ellipse } => {
+            let e = ctx.ellipse(ellipse)?;
+            b.term(Func::Dist, 1.0, &cat::<4>(&[&e.m, &e.c])).mm(-v);
+        }
+        DimensionKind::EllipseMinor { ellipse } => {
+            let e = ctx.ellipse(ellipse)?;
+            b.term(Func::Coord, 1.0, &[e.b]).mm(-v);
+        }
     }
     Ok(())
 }
@@ -692,6 +891,22 @@ pub fn characteristic_length(sketch: &Sketch) -> f64 {
             EntityKind::Arc { center, start, .. } => {
                 if let (Some(c), Some(s)) = (sketch.point(center), sketch.point(start)) {
                     grow(c.x, c.y, c.distance(s));
+                }
+            }
+            EntityKind::Ellipse {
+                center,
+                major,
+                minor_radius,
+            }
+            | EntityKind::EllipticArc {
+                center,
+                major,
+                minor_radius,
+                ..
+            } => {
+                if let (Some(c), Some(m)) = (sketch.point(center), sketch.point(major)) {
+                    let r = c.distance(m).max(sketch.params().get(minor_radius).abs());
+                    grow(c.x, c.y, r);
                 }
             }
             EntityKind::Line { .. } => {}
@@ -758,7 +973,7 @@ pub fn build_system_scaled(
         }
     }
     for (id, c) in sketch.constraints() {
-        if let Some(r) = constraint_residual(sketch, &c.kind, length_scale)? {
+        if let Some(r) = constraint_residual_aux(sketch, &c.kind, &c.aux, length_scale)? {
             system.push(EquationOwner::Constraint(id), Box::new(r));
         }
     }

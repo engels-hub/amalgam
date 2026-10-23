@@ -262,9 +262,9 @@ pub(crate) fn detect(sketch: &Sketch, opts: &ProfileOptions) -> (ProfileSet, Sta
         let s = &srcs[e.src as usize];
         origin[2 * k] = e.v0;
         origin[2 * k + 1] = e.v1;
-        let kappa = c.curvature();
-        dirs[2 * k] = (c.derivative(e.t0), kappa);
-        dirs[2 * k + 1] = (-c.derivative(e.t1), -kappa);
+        // Curvature at each end (it varies along an ellipse).
+        dirs[2 * k] = (c.derivative(e.t0), c.curvature_at(e.t0));
+        dirs[2 * k + 1] = (-c.derivative(e.t1), -c.curvature_at(e.t1));
         let len = (e.t1 - e.t0) * s.scale;
         for v in [e.v0, e.v1] {
             min_len[v as usize] = min_len[v as usize].min(len);
@@ -849,6 +849,20 @@ fn area_moment(curves: &[&Curve2], starts: &[Point2]) -> (f64, Vec2) {
             Curve2::Arc(a) => Some((a.center, a.radius, a.start_angle, a.sweep)),
             Curve2::Circle(c) => Some((c.center, c.radius, 0.0, TAU)),
             Curve2::Line(_) => None,
+            Curve2::Ellipse(e) => {
+                // Segment between the chord and the arc: the affine image of a unit-circle
+                // segment (centre `c`, axes `m` and `w`, area scale `a·b`).
+                let sweep = e.sweep();
+                let alpha = sweep.abs();
+                let (a, b) = (e.semi_major(), e.minor_radius);
+                let seg = 0.5 * a * b * (sweep - sweep.sin());
+                area += seg;
+                let mid = e.t0 + 0.5 * sweep;
+                let axis = e.major * mid.cos() + e.minor() * mid.sin();
+                m += (e.center - o) * seg
+                    + axis * (sweep.signum() * (2.0 / 3.0) * a * b * (0.5 * alpha).sin().powi(3));
+                continue;
+            }
         };
         if let Some((c, r, s, sweep)) = arc {
             let alpha = sweep.abs();
@@ -861,6 +875,58 @@ fn area_moment(curves: &[&Curve2], starts: &[Point2]) -> (f64, Vec2) {
         }
     }
     (area, m + o * area)
+}
+
+/// Toggles `inside` for every crossing of the ray from `p` to `+x` with the elliptical arc `e`
+/// that runs from `q_start` to `q_end` (the loop's vertices, which the arc ends may miss by up
+/// to the weld tolerance). The arc is split at the extrema of `y(θ)`, where it is monotone, and
+/// each monotone piece that straddles the ray's height is solved by bisection.
+fn ellipse_crossings(
+    e: &crate::geom::EllipseArc2,
+    q_start: Point2,
+    q_end: Point2,
+    p: Point2,
+    inside: &mut bool,
+) {
+    let (lo, hi) = (e.t0.min(e.t1), e.t0.max(e.t1));
+    let base = e.minor().y.atan2(e.major.y);
+    let mut cuts: SmallVec<[f64; 4]> = SmallVec::new();
+    let mut phi = ((lo - base) / PI).ceil() * PI + base;
+    while phi < hi && cuts.len() < 4 {
+        if phi > lo {
+            cuts.push(phi);
+        }
+        phi += PI;
+    }
+    if e.t1 < e.t0 {
+        cuts.reverse();
+    }
+    let y_of = |th: f64| e.point_at(th).y;
+    let (mut q0, mut a0) = (q_start, e.t0);
+    for a1 in cuts.into_iter().chain(std::iter::once(e.t1)) {
+        let q1 = if a1.to_bits() == e.t1.to_bits() {
+            q_end
+        } else {
+            e.point_at(a1)
+        };
+        if (q0.y > p.y) != (q1.y > p.y) {
+            let above = q0.y > p.y;
+            let (mut l, mut h) = (a0, a1);
+            for _ in 0..80 {
+                let mid = 0.5 * (l + h);
+                if (y_of(mid) > p.y) == above {
+                    l = mid;
+                } else {
+                    h = mid;
+                }
+            }
+            if e.point_at(0.5 * (l + h)).x > p.x {
+                *inside = !*inside;
+            }
+        }
+        q0 = q1;
+        a0 = a1;
+    }
 }
 
 /// Crossing parity of a horizontal ray from `p` to `+x` with a closed loop. Each edge starts at
@@ -887,6 +953,11 @@ pub(crate) fn loop_contains<'a>(curves: impl Iterator<Item = &'a Curve2>, p: Poi
             Curve2::Arc(a) => Some((a.center, a.radius, a.start_angle, a.sweep)),
             Curve2::Circle(k) => Some((k.center, k.radius, 0.0, TAU)),
             Curve2::Line(_) => None,
+            Curve2::Ellipse(e) => {
+                ellipse_crossings(&e, prev, end, p, &mut inside);
+                prev = end;
+                continue;
+            }
         };
         match arc {
             None => toggle_line(prev, end, &mut inside),

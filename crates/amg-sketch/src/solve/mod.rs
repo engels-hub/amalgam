@@ -19,8 +19,9 @@ pub mod system;
 
 pub use orient::orient_constraint;
 pub use rank::{dof, numeric_rank};
+pub(crate) use residual::candidate_max_residual;
 pub use residual::{
     SketchResidual, SketchSystem, build_system, build_system_scaled, characteristic_length,
-    constraint_residual, entity_residual, fixed_params,
+    constraint_residual, constraint_residual_aux, entity_residual, fixed_params,
 };
 pub use system::{EquationOwner, EquationSystem, Residual};

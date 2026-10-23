@@ -178,7 +178,12 @@ pub fn trim_detailed(
                 link: Some(link),
             }
         }
-        EntityKind::Point { .. } => unreachable!("checked() rejects points"),
+        // `checked()` rejects these kinds before this point.
+        EntityKind::Point { .. } | EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+            return Err(SketchError::NotApplicable(
+                "only lines, circles and arcs can be trimmed",
+            ));
+        }
     };
     apply(s, entity, &plan)
 }
@@ -277,6 +282,11 @@ pub fn break_at_detailed(
         crate::geom::Curve2::Line(seg) => seg.a.distance(seg.b),
         crate::geom::Curve2::Arc(a) => a.radius,
         crate::geom::Curve2::Circle(c) => c.radius,
+        crate::geom::Curve2::Ellipse(_) => {
+            return Err(SketchError::NotApplicable(
+                "only lines and arcs can be broken",
+            ));
+        }
     };
     let eps = MERGE / scale.max(1e-9);
     if t <= eps || t >= t_end - eps {

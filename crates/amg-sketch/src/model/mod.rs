@@ -132,8 +132,7 @@ pub enum EntityOrigin {
     Imported,
 }
 
-/// Geometry of an entity. Ellipses (SK-22), splines and conics (SK-08) are added by their
-/// work packages.
+/// Geometry of an entity. Splines and conics (SK-08) are added by their work package.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum EntityKind {
     /// Point with its own `x, y` params (2 DOF).
@@ -167,16 +166,48 @@ pub enum EntityKind {
         /// End point entity.
         end: EntityId,
     },
+    /// Ellipse (5 DOF): centre, the end point of the semi-major axis, and the minor radius.
+    ///
+    /// The curve is `P(t) = c + m·cos t + w·sin t` with `m = major − center` and
+    /// `w = perp(m)·(b / |m|)` (CCW from `m`). `b` may exceed `|m|`.
+    Ellipse {
+        /// Centre point entity.
+        center: EntityId,
+        /// Major-axis end point entity (`|major − center|` is the semi-major radius).
+        major: EntityId,
+        /// Minor radius param `b`, mm.
+        minor_radius: ParamId,
+    },
+    /// Elliptical arc from eccentric angle `t0` to `t1` (CCW, sweep `(t1 − t0) mod 2π` in
+    /// `(0, 2π]`). `start = P(t0)` and `end = P(t1)` are internal equations (7 DOF).
+    EllipticArc {
+        /// Centre point entity.
+        center: EntityId,
+        /// Major-axis end point entity.
+        major: EntityId,
+        /// Minor radius param `b`, mm.
+        minor_radius: ParamId,
+        /// Start point entity.
+        start: EntityId,
+        /// End point entity.
+        end: EntityId,
+        /// Eccentric angle of the start point, rad.
+        t0: ParamId,
+        /// Eccentric angle of the end point, rad.
+        t1: ParamId,
+    },
 }
 
 impl EntityKind {
-    /// Short lowercase name ("point", "line", "circle", "arc").
+    /// Short lowercase name ("point", "line", "circle", "arc", "ellipse", "elliptical arc").
     pub fn name(&self) -> &'static str {
         match self {
             EntityKind::Point { .. } => "point",
             EntityKind::Line { .. } => "line",
             EntityKind::Circle { .. } => "circle",
             EntityKind::Arc { .. } => "arc",
+            EntityKind::Ellipse { .. } => "ellipse",
+            EntityKind::EllipticArc { .. } => "elliptical arc",
         }
     }
 
@@ -187,6 +218,14 @@ impl EntityKind {
             EntityKind::Line { start, end } => [start, end].into_iter().collect(),
             EntityKind::Circle { center, .. } => [center].into_iter().collect(),
             EntityKind::Arc { center, start, end } => [center, start, end].into_iter().collect(),
+            EntityKind::Ellipse { center, major, .. } => [center, major].into_iter().collect(),
+            EntityKind::EllipticArc {
+                center,
+                major,
+                start,
+                end,
+                ..
+            } => [center, major, start, end].into_iter().collect(),
         }
     }
 
@@ -195,17 +234,33 @@ impl EntityKind {
         match *self {
             EntityKind::Point { x, y } => [x, y].into_iter().collect(),
             EntityKind::Circle { radius, .. } => [radius].into_iter().collect(),
+            EntityKind::Ellipse { minor_radius, .. } => [minor_radius].into_iter().collect(),
+            EntityKind::EllipticArc {
+                minor_radius,
+                t0,
+                t1,
+                ..
+            } => [minor_radius, t0, t1].into_iter().collect(),
             EntityKind::Line { .. } | EntityKind::Arc { .. } => SmallVec::new(),
         }
     }
 
-    /// The point entity at end `end` of a line or arc; `None` for points and circles.
+    /// The point entity at end `end` of a line, arc or elliptical arc; `None` for points,
+    /// circles and full ellipses.
     pub fn endpoint(&self, end: End) -> Option<EntityId> {
         match (self, end) {
-            (EntityKind::Line { start, .. } | EntityKind::Arc { start, .. }, End::Start) => {
-                Some(*start)
-            }
-            (EntityKind::Line { end, .. } | EntityKind::Arc { end, .. }, End::End) => Some(*end),
+            (
+                EntityKind::Line { start, .. }
+                | EntityKind::Arc { start, .. }
+                | EntityKind::EllipticArc { start, .. },
+                End::Start,
+            ) => Some(*start),
+            (
+                EntityKind::Line { end, .. }
+                | EntityKind::Arc { end, .. }
+                | EntityKind::EllipticArc { end, .. },
+                End::End,
+            ) => Some(*end),
             _ => None,
         }
     }
@@ -217,6 +272,17 @@ impl EntityKind {
                 f(y);
             }
             EntityKind::Circle { radius, .. } => f(radius),
+            EntityKind::Ellipse { minor_radius, .. } => f(minor_radius),
+            EntityKind::EllipticArc {
+                minor_radius,
+                t0,
+                t1,
+                ..
+            } => {
+                f(minor_radius);
+                f(t0);
+                f(t1);
+            }
             EntityKind::Line { .. } | EntityKind::Arc { .. } => {}
         }
     }
@@ -234,7 +300,18 @@ impl EntityKind {
     pub(crate) fn is_round(&self) -> bool {
         matches!(self, EntityKind::Circle { .. } | EntityKind::Arc { .. })
     }
-    /// Any curve (line, circle, arc).
+    /// Ellipse or elliptical arc.
+    pub(crate) fn is_ellipse(&self) -> bool {
+        matches!(
+            self,
+            EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. }
+        )
+    }
+    /// Circle, arc, ellipse or elliptical arc: curves with a centre point.
+    pub(crate) fn has_center(&self) -> bool {
+        self.is_round() || self.is_ellipse()
+    }
+    /// Any curve (line, circle, arc, ellipse, elliptical arc).
     pub(crate) fn is_curve(&self) -> bool {
         !self.is_point()
     }
@@ -333,11 +410,13 @@ pub enum ConstraintKind {
         /// Second point.
         b: EntityId,
     },
-    /// Point on a line, circle or arc.
+    /// Point on a line, circle, arc, ellipse or elliptical arc (the full ellipse). On an
+    /// ellipse the constraint owns one auxiliary param, the curve parameter `t` of the point
+    /// ([`Constraint::aux`]).
     PointOnCurve {
         /// The point.
         point: EntityId,
-        /// The curve (line, circle or arc).
+        /// The curve (line, circle, arc, ellipse or elliptical arc).
         curve: EntityId,
     },
     /// Point at the midpoint of a line.
@@ -372,8 +451,8 @@ pub enum ConstraintKind {
         /// Second line.
         b: EntityId,
     },
-    /// Tangency: line–circle/arc, circle/arc–circle/arc, or line/arc–line/arc at a shared
-    /// endpoint (`TangentKind::AtEndpoint`).
+    /// Tangency: line–circle/arc, circle/arc–circle/arc, line–ellipse/elliptical arc (the
+    /// full ellipse), or line/arc–line/arc at a shared endpoint (`TangentKind::AtEndpoint`).
     Tangent {
         /// First curve.
         a: EntityId,
@@ -382,21 +461,23 @@ pub enum ConstraintKind {
         /// Which tangency.
         kind: TangentKind,
     },
-    /// Circle/arc pair with coincident centres.
+    /// Circle/arc/ellipse pair with coincident centres.
     Concentric {
         /// First circle or arc.
         a: EntityId,
         /// Second circle or arc.
         b: EntityId,
     },
-    /// Equal length (line–line, line–arc) or radius (circle/arc–circle/arc).
+    /// Equal length (line–line, line–arc), radius (circle/arc–circle/arc) or both axes
+    /// (ellipse/elliptical arc–ellipse/elliptical arc).
     Equal {
         /// First entity.
         a: EntityId,
         /// Second entity.
         b: EntityId,
     },
-    /// `a` and `b` (two points, or two curves of the same kind) mirror about line `axis`.
+    /// `a` and `b` (two points, or two curves of the same kind; not elliptical arcs) mirror
+    /// about line `axis`.
     Symmetric {
         /// First entity.
         a: EntityId,
@@ -470,7 +551,7 @@ impl ConstraintKind {
     }
 }
 
-/// Dimension kinds. Ellipse axis dimensions arrive with SK-22.
+/// Dimension kinds.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum DimensionKind {
     /// Distance: point–point, point–line, line–line (parallel), or point/line to a circle or
@@ -530,6 +611,16 @@ pub enum DimensionKind {
         /// The arc.
         arc: EntityId,
     },
+    /// Semi-major radius `|major − center|` of an ellipse or elliptical arc (SK-22).
+    EllipseMajor {
+        /// The ellipse or elliptical arc.
+        ellipse: EntityId,
+    },
+    /// Minor radius `b` of an ellipse or elliptical arc (SK-22).
+    EllipseMinor {
+        /// The ellipse or elliptical arc.
+        ellipse: EntityId,
+    },
 }
 
 /// What a dimension's `value` measures.
@@ -561,6 +652,8 @@ impl DimensionKind {
             DimensionKind::Radius { .. } => "radius",
             DimensionKind::Diameter { .. } => "diameter",
             DimensionKind::ArcLength { .. } => "arc length",
+            DimensionKind::EllipseMajor { .. } => "ellipse major radius",
+            DimensionKind::EllipseMinor { .. } => "ellipse minor radius",
         }
     }
 
@@ -574,7 +667,9 @@ impl DimensionKind {
             DimensionKind::Length { line: e }
             | DimensionKind::Radius { curve: e }
             | DimensionKind::Diameter { curve: e }
-            | DimensionKind::ArcLength { arc: e } => [e].into_iter().collect(),
+            | DimensionKind::ArcLength { arc: e }
+            | DimensionKind::EllipseMajor { ellipse: e }
+            | DimensionKind::EllipseMinor { ellipse: e } => [e].into_iter().collect(),
         }
     }
 }
@@ -597,7 +692,7 @@ pub struct Dimension {
 pub struct Constraint {
     /// What it constrains.
     pub kind: ConstraintKind,
-    /// Auxiliary params owned by the constraint (curve parameter `t` of point-on-ellipse or
-    /// spline). Empty for every P0 constraint.
+    /// Auxiliary params owned by the constraint: the curve parameter `t` of a point-on-ellipse
+    /// constraint (`Sketch::add_constraint` allocates it). Empty for every other constraint.
     pub aux: SmallVec<[ParamId; 1]>,
 }

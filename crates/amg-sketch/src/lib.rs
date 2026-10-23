@@ -36,7 +36,7 @@ pub mod transform;
 pub use build::Built;
 pub use edit::EditResult;
 pub use error::SketchError;
-pub use geom::{Arc2, Circle2, Curve2, CurveHit};
+pub use geom::{Arc2, Circle2, Curve2, CurveHit, EllipseArc2};
 pub use ids::{ConstraintId, EntityId, ExternalLinkId, ParamId};
 pub use model::{
     AngleBranch, Constraint, ConstraintKind, Dimension, DimensionKind, End, Entity, EntityKind,

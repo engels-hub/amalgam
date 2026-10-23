@@ -213,6 +213,9 @@ impl Builder<'_> {
                     let g = if all { self.g1 } else { self.g2 };
                     Ent::Arc(e(self.sys.sketch(ArcOfCircle::new(g, self.wp, c, s, t)))?)
                 }
+                EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+                    return Err(skip("ellipses are not expressible"));
+                }
             };
             self.ents.insert(id, h);
         }
@@ -447,6 +450,9 @@ fn constrain(
                     });
                 }
                 DimensionKind::ArcLength { .. } => return Err(skip("arc length dimension")),
+                DimensionKind::EllipseMajor { .. } | DimensionKind::EllipseMinor { .. } => {
+                    return Err(skip("ellipse dimensions are not expressible"));
+                }
             }
         }
     }

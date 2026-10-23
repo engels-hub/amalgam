@@ -445,6 +445,9 @@ fn constraint_rows(ctx: &Ctx<'_>, kind: &ConstraintKind, out: &mut Vec<D>) -> R<
                 EntityKind::Arc { .. } => {
                     return Err("symmetric arcs are not supported by the reference".into());
                 }
+                EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+                    return Err("ellipses are not modelled by the reference".into());
+                }
             }
         }
         C::Fix { .. } => {}
@@ -500,6 +503,9 @@ fn constraint_rows(ctx: &Ctx<'_>, kind: &ConstraintKind, out: &mut Vec<D>) -> R<
                 Dk::ArcLength { arc } => {
                     let (c0, s, e) = ctx.arc(arc)?;
                     (s - c0).len() * sweep(c0, s, e) - v
+                }
+                Dk::EllipseMajor { .. } | Dk::EllipseMinor { .. } => {
+                    return Err("ellipse dimensions are not modelled by the reference".into());
                 }
             };
             out.push(row);
@@ -577,10 +583,16 @@ impl RefSystem {
             lc: self.lc,
         };
         for (id, e) in sketch.entities() {
-            if let EntityKind::Arc { .. } = e.kind {
-                let (c0, s, en) = ctx.arc(id)?;
-                out.push((s - c0).len() - (en - c0).len());
-                owners.push(RowOwner::Arc(id));
+            match e.kind {
+                EntityKind::Arc { .. } => {
+                    let (c0, s, en) = ctx.arc(id)?;
+                    out.push((s - c0).len() - (en - c0).len());
+                    owners.push(RowOwner::Arc(id));
+                }
+                EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+                    return Err("ellipses are not modelled by the reference".into());
+                }
+                EntityKind::Point { .. } | EntityKind::Line { .. } | EntityKind::Circle { .. } => {}
             }
         }
         for (id, con) in sketch.constraints() {

@@ -243,6 +243,12 @@ fn read_elems(s: &Sketch, ids: &[EntityId]) -> Result<Vec<Elem>, SketchError> {
                     found: "point",
                 });
             }
+            EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+                // The offset of an ellipse is not an ellipse (it is an eighth-degree curve).
+                return Err(SketchError::NotApplicable(
+                    "an ellipse cannot be offset (its offset curve is not an ellipse)",
+                ));
+            }
         };
         match &curve {
             Curve2::Line(l) if l.a.distance(l.b) <= MIN_LEN => {
@@ -434,7 +440,8 @@ fn curve_ends(c: &Curve2) -> Option<(Point2, Point2)> {
     match c {
         Curve2::Line(l) => Some((l.a, l.b)),
         Curve2::Arc(_) => Some((c.eval(0.0), c.eval(c.param_range().1))),
-        Curve2::Circle(_) => None,
+        Curve2::Ellipse(e) if !e.is_full() => Some((c.eval(0.0), c.eval(c.param_range().1))),
+        Curve2::Circle(_) | Curve2::Ellipse(_) => None,
     }
 }
 
@@ -501,7 +508,9 @@ impl Tg {
                     }
                 }
             }
-            Curve2::Circle(_) => Tg::Line {
+            // Circles are offset separately, and `read_elems` rejects ellipses, so neither
+            // reaches a chain; the placeholder is never used.
+            Curve2::Circle(_) | Curve2::Ellipse(_) => Tg::Line {
                 a: Point2::ZERO,
                 b: Point2::X,
             },
@@ -904,6 +913,7 @@ fn trim(raws: &[Raw], origs: &[Curve2], d: f64) -> Vec<Piece> {
         Curve2::Line(l) => l.a.distance(l.b),
         Curve2::Arc(a) => a.radius,
         Curve2::Circle(c) => c.radius,
+        Curve2::Ellipse(e) => e.semi_major().min(e.minor_radius),
     };
     let mut splits: Vec<Vec<f64>> = vec![Vec::new(); raws.len()];
     for i in 0..raws.len() {
@@ -1166,6 +1176,9 @@ fn build_chain(
                 )
             }
             Curve2::Circle(_) => continue,
+            Curve2::Ellipse(_) => {
+                return Err(SketchError::NotApplicable("an ellipse cannot be offset"));
+            }
         };
         s.set_construction(id, el.construction)?;
         out.created.push(id);

@@ -78,6 +78,7 @@ fn copy_sketch(s: &Sketch, res: &OffsetResult) -> Sketch {
             Curve2::Circle(k) => {
                 c.add_circle(k.center, k.radius).unwrap();
             }
+            Curve2::Ellipse(_) => unreachable!("offsets of lines, arcs and circles only"),
         }
     }
     c

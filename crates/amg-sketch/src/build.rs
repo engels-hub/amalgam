@@ -627,6 +627,11 @@ fn loci(s: &Sketch, e: EntityId, r: f64) -> Result<Vec<Locus>, SketchError> {
             expected: "line, circle or arc",
             found: k.name(),
         }),
+        // The locus of circle centres at distance `r` from an ellipse is an offset curve,
+        // not a line or circle.
+        EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => Err(
+            SketchError::NotApplicable("a circle tangent to an ellipse is not supported"),
+        ),
     }
 }
 

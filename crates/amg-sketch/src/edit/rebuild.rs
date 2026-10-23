@@ -157,6 +157,11 @@ fn apply_inner(s: &mut Sketch, e: EntityId, plan: &Plan) -> Result<EditOutcome, 
                 EntityKind::Arc { center, start, end }
             }
             EntityKind::Point { .. } => return Err(SketchError::NotApplicable("a point")),
+            EntityKind::Ellipse { .. } | EntityKind::EllipticArc { .. } => {
+                return Err(SketchError::NotApplicable(
+                    "ellipses cannot be replaced by pieces yet",
+                ));
+            }
         };
         let id = s.add_entity(kind, ent.construction, ent.origin)?;
         res.created.push(id);
@@ -281,7 +286,9 @@ fn subst(kind: &ConstraintKind, from: EntityId, to: EntityId) -> ConstraintKind 
             DimensionKind::Length { line: x }
             | DimensionKind::Radius { curve: x }
             | DimensionKind::Diameter { curve: x }
-            | DimensionKind::ArcLength { arc: x } => *x = r(*x),
+            | DimensionKind::ArcLength { arc: x }
+            | DimensionKind::EllipseMajor { ellipse: x }
+            | DimensionKind::EllipseMinor { ellipse: x } => *x = r(*x),
         },
     }
     k
@@ -293,13 +300,14 @@ fn piece_containing(ctx: &Ctx<'_>, t: f64) -> Option<usize> {
         Curve2::Line(seg) => seg.a.distance(seg.b),
         Curve2::Circle(c) => c.radius,
         Curve2::Arc(a) => a.radius,
+        Curve2::Ellipse(e) => e.semi_major().min(e.minor_radius),
     };
     let eps = MERGE / scale.max(1e-9);
     ctx.plan.pieces.iter().position(|p| {
         let inside = |t: f64| t >= p.t0 - eps && t <= p.t0 + p.len + eps;
         match ctx.curve {
             Curve2::Line(_) => inside(t),
-            Curve2::Arc(_) => inside(t) || inside(t - TAU),
+            Curve2::Arc(_) | Curve2::Ellipse(_) => inside(t) || inside(t - TAU),
             Curve2::Circle(_) => {
                 let u = (t - p.t0).rem_euclid(TAU);
                 u <= p.len + eps || u >= TAU - eps
@@ -383,6 +391,10 @@ fn migrate(
             | DimensionKind::Angle { .. } => one(first),
             DimensionKind::HorizontalDistance { .. } | DimensionKind::VerticalDistance { .. } => {
                 Err("not a curve dimension")
+            }
+            // Ellipse axes belong to an ellipse, which is never the curve being replaced.
+            DimensionKind::EllipseMajor { .. } | DimensionKind::EllipseMinor { .. } => {
+                Err("an ellipse dimension cannot move to a line or arc piece")
             }
         },
     }

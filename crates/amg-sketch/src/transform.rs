@@ -42,7 +42,7 @@ use crate::model::{
     ParamFlags, Quantity, Side, Sketch,
 };
 use crate::solve::orient_constraint;
-use crate::solve::{Residual, characteristic_length, constraint_residual, fixed_params};
+use crate::solve::{candidate_max_residual, characteristic_length, fixed_params};
 
 const TOL: Tolerance = Tolerance::DEFAULT;
 
@@ -125,15 +125,7 @@ fn internal_constraints(s: &Sketch, sel: &Selection) -> Vec<ConstraintId> {
 
 /// Largest residual of `kind` at the sketch's current values; `None` if it cannot be built.
 fn residual_of(s: &Sketch, kind: &ConstraintKind, lc: f64) -> Option<f64> {
-    match constraint_residual(s, kind, lc) {
-        Ok(Some(r)) => {
-            let mut out = vec![0.0; r.rows()];
-            r.eval(s.params().as_slice(), &mut out);
-            Some(out.iter().fold(0.0_f64, |m, v| m.max(v.abs())))
-        }
-        Ok(None) => Some(0.0),
-        Err(_) => None,
-    }
+    candidate_max_residual(s, kind, lc).ok()
 }
 
 /// Residual tolerance for "this constraint holds" (mm).
@@ -250,6 +242,12 @@ fn remap(
                 D::Radius { curve } => D::Radius { curve: f(*curve)? },
                 D::Diameter { curve } => D::Diameter { curve: f(*curve)? },
                 D::ArcLength { arc } => D::ArcLength { arc: f(*arc)? },
+                D::EllipseMajor { ellipse } => D::EllipseMajor {
+                    ellipse: f(*ellipse)?,
+                },
+                D::EllipseMinor { ellipse } => D::EllipseMinor {
+                    ellipse: f(*ellipse)?,
+                },
             };
             K::Dimension(Dimension { kind, ..d.clone() })
         }
@@ -380,6 +378,63 @@ fn duplicate(
                     })
                 }
             }
+            EntityKind::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => {
+                let (c, m) = (map[&center], map[&major]);
+                let b = s.params().get(minor_radius);
+                if (c, m) == (center, major) && (b * rscale - b).abs() <= TOL.linear {
+                    None
+                } else {
+                    let minor_radius = s.alloc_param(b * rscale, ParamFlags::default())?;
+                    Some(EntityKind::Ellipse {
+                        center: c,
+                        major: m,
+                        minor_radius,
+                    })
+                }
+            }
+            EntityKind::EllipticArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+                t0,
+                t1,
+            } => {
+                let (st, en) = if flip_arcs {
+                    (end, start)
+                } else {
+                    (start, end)
+                };
+                let (c, m, a, e) = (map[&center], map[&major], map[&st], map[&en]);
+                let b = s.params().get(minor_radius);
+                if (c, m, a, e) == (center, major, start, end)
+                    && (b * rscale - b).abs() <= TOL.linear
+                {
+                    None
+                } else {
+                    let (v0, v1) = (s.params().get(t0), s.params().get(t1));
+                    // A reflection reverses the sense of the eccentric angle: the image of
+                    // the point at `t` is the image ellipse's point at `-t`.
+                    let (n0, n1) = if flip_arcs { (-v1, -v0) } else { (v0, v1) };
+                    let minor_radius = s.alloc_param(b * rscale, ParamFlags::default())?;
+                    let t0 = s.alloc_param(n0, ParamFlags::default())?;
+                    let t1 = s.alloc_param(n1, ParamFlags::default())?;
+                    Some(EntityKind::EllipticArc {
+                        center: c,
+                        major: m,
+                        minor_radius,
+                        start: a,
+                        end: e,
+                        t0,
+                        t1,
+                    })
+                }
+            }
             EntityKind::Point { .. } => None,
         };
         match image {
@@ -462,7 +517,11 @@ fn equal_circles(
         if img != c
             && matches!(
                 s.entity(c).map(|e| &e.kind),
-                Some(EntityKind::Circle { .. })
+                Some(
+                    EntityKind::Circle { .. }
+                        | EntityKind::Ellipse { .. }
+                        | EntityKind::EllipticArc { .. }
+                )
             )
         {
             tx.constraint(s, ConstraintKind::Equal { a: c, b: img })?;
@@ -721,11 +780,14 @@ pub fn pattern_circ(
     let ce = s.entity(center).ok_or(SketchError::UnknownEntity(center))?;
     let center_pt = match ce.kind {
         EntityKind::Point { .. } => center,
-        EntityKind::Circle { center: c, .. } | EntityKind::Arc { center: c, .. } => c,
+        EntityKind::Circle { center: c, .. }
+        | EntityKind::Arc { center: c, .. }
+        | EntityKind::Ellipse { center: c, .. }
+        | EntityKind::EllipticArc { center: c, .. } => c,
         ref k => {
             return Err(SketchError::WrongEntityKind {
                 entity: center,
-                expected: "point, circle or arc",
+                expected: "point, circle, arc or ellipse",
                 found: k.name(),
             });
         }
@@ -880,7 +942,18 @@ pub fn transform(
     }
     let mut radii: Vec<(crate::ids::ParamId, f64)> = Vec::new();
     for &cid in &sel.curves {
-        if let Some(EntityKind::Circle { radius, .. }) = s.entity(cid).map(|e| &e.kind) {
+        if let Some(
+            EntityKind::Circle { radius, .. }
+            | EntityKind::Ellipse {
+                minor_radius: radius,
+                ..
+            }
+            | EntityKind::EllipticArc {
+                minor_radius: radius,
+                ..
+            },
+        ) = s.entity(cid).map(|e| &e.kind)
+        {
             if fixed.contains(radius) {
                 return Err(SketchError::Locked(cid));
             }
