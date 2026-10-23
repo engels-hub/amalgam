@@ -18,6 +18,8 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 # crate (amg-mesh, S07) starts using it.
 smallvec = { version = "1.16.3", features = ["serde"] }
 thiserror.workspace = true
+# SK-10 glyph outlines. MIT OR Apache-2.0; pure safe Rust, no allocation in the parser.
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
 # SK-13 / ADR-007 comparison backends (corpus::compare). Optional and never default.
 # GPL-3.0 (ADR-012): libslvs is a dev/test oracle only; see THIRD_PARTY.md.
 slvs = { version = "0.6.0", optional = true }

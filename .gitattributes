@@ -18,3 +18,4 @@
 # Small format fixtures that unit tests read directly: plain binary, not LFS, so the test job
 # (which does not fetch LFS objects) sees real files.
 crates/amg-doc/tests/fixtures/**/*.amg -filter -diff -merge -text
+*.ttf binary

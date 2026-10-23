@@ -58,7 +58,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.3.25) |
 | imbl | persistent collections, `amg-doc` (S01; DOC-01 bench confirmed; `im` is unmaintained). Pulls in `imbl-sized-chunks` (MPL-2.0+), `archery` (MIT), `wide`/`safe_arch` (Zlib/Apache-2.0/MIT), `rand_xoshiro`, `rand_core` 0.9 (MIT/Apache-2.0) | MPL-2.0 (crates.io: `MPL-2.0+`) | weak | no | In use (7.0.2) |
 | rpds | fallback persistent collections; DOC-01 bench comparison, `amg-doc` dev-only (S01) | MIT (1.x; older releases MPL-2.0) | no | — | In use (1.2.1, dev-only) |
-| ttf-parser | sketch text (S03) | MIT / Apache-2.0 | no | no | Planned |
+| ttf-parser 0.25.1 (`default-features = false`, `std`) | `amg-sketch::text` glyph outlines (S03, SK-10) | MIT / Apache-2.0 | no | no | In use (0.25.1) |
 | dxf | DXF import (S03) | MIT | no | no | Planned |
 | usvg | SVG import (S03) | MIT / Apache-2.0 (≥ 0.38; older releases MPL-2.0) | no | no | Planned |
 | criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only) |
@@ -75,7 +75,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07); machine library files, `amg-am` runtime (S16); material libraries, `amg-materials` (S17) | MIT / Apache-2.0 | no | no | In use (1.1.8; `amg-testkit` golden files) |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |
 | smallvec | small inline vectors, `amg-sketch`, `amg-mesh`, `amg-brep` history, `amg-nurbs` (S03, S07, S02, S20) | MIT / Apache-2.0 | no | no | In use (1.16.3, `amg-sketch`) |
-| fontdb | system font discovery for sketch text (S03, SK-10) | MIT | no | no | Planned |
+| fontdb | system font discovery for sketch text (S03, SK-10); not added in SK-10, which takes parsed font bytes; the UI/document layer resolves families | MIT | no | no | Planned |
 | kcl-ezpz (+ faer 0.23, winnow, indexmap, libm, mutants: MIT / Apache-2.0) | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | In use (0.2.18, dev-only, feature `ezpz-bench`) |
 | robust =1.2.0 | exact orientation predicates (`orient2d`, `orient3d`), `amg-mesh::selfint` (S07, MESH-19) | MIT / Apache-2.0 | no | no | In use (1.2.0) |
 | spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07); section caps, `amg-features::inspect` (S05) | MIT / Apache-2.0 | no | no | In use (=2.15.1, `amg-mesh` planar hole fill, MESH-20) |
@@ -91,3 +91,4 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | curvo =0.3.3 | `amg-nurbs` differential test oracle, dev-only (S20 KH-07/12/13) | MIT | no | n/a (dev-only) | Planned (dev-only) |
 | TiGL `tests/TestData/CurveNetworks` (data only, no code) | Gordon corpus under `testdata/kernel/loft/tigl/` with attribution (S20 KH-15/16) | Apache-2.0 | no | n/a (data) | Planned (test data) |
 | Microsoft.Direct3D.WARP 1.0.20 (NuGet) | CI only: software D3D12 adapter for GPU tests (FND-05), never shipped | Microsoft EULA (redistributable binary) | no | n/a (CI-only download) | In use (CI) |
+| Noto Sans (Regular, Bold, Italic; ASCII subsets) | **test data only**: `crates/amg-sketch/tests/fixtures/fonts/` (S03, SK-10); plain files, not LFS; licence text kept beside them; never shipped | SIL OFL 1.1 | no | n/a (data) | In use (test data) |
