@@ -14,8 +14,14 @@
 //! - exactly degenerate (zero-area) faces are skipped; MESH-02 reports them separately.
 
 mod exact;
+mod global;
 mod repair;
 
+pub use global::{
+    AutoSelfIntersectionOpts, AutoSelfIntersectionReport, Candidate as GlobalCandidate,
+    GlobalHealth, GlobalSelfIntersectionOpts, GlobalSelfIntersectionReport, SelfIntersectionMethod,
+    remove_self_intersections_auto, remove_self_intersections_global,
+};
 pub use repair::{
     RemoveSelfIntersectionsOpts, RemoveSelfIntersectionsReport, remove_self_intersections,
     remove_self_intersections_with,

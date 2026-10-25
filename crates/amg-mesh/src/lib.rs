@@ -44,8 +44,11 @@ pub use holefill::{Fairing, HoleFillOpts, HoleFillReport, fill_holes, fill_holes
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
 pub use remesh::{EdgeLength, RemeshOpts, Sizing, remesh};
 pub use selfint::{
-    RemoveSelfIntersectionsOpts, RemoveSelfIntersectionsReport, SelfIntersectOpts, faces_intersect,
-    remove_self_intersections, remove_self_intersections_with, self_intersections,
+    AutoSelfIntersectionOpts, AutoSelfIntersectionReport, GlobalCandidate, GlobalHealth,
+    GlobalSelfIntersectionOpts, GlobalSelfIntersectionReport, RemoveSelfIntersectionsOpts,
+    RemoveSelfIntersectionsReport, SelfIntersectOpts, SelfIntersectionMethod, faces_intersect,
+    remove_self_intersections, remove_self_intersections_auto, remove_self_intersections_global,
+    remove_self_intersections_with, self_intersections,
 };
 pub use smooth::{LaplacianWeights, SmoothMethod, SmoothOpts, smooth};
 pub use spatial::{

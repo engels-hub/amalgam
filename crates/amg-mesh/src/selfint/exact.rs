@@ -31,7 +31,7 @@ fn c3(p: Point3) -> Coord3D<f64> {
 
 /// Exact orientation of `d` against the plane `abc` (sign convention of `robust`).
 #[inline]
-fn o3(a: Point3, b: Point3, c: Point3, d: Point3) -> i8 {
+pub(crate) fn o3(a: Point3, b: Point3, c: Point3, d: Point3) -> i8 {
     sign(orient3d(c3(a), c3(b), c3(c), c3(d)))
 }
 
@@ -47,7 +47,7 @@ fn pr(p: Point3, drop: u8) -> Coord<f64> {
 
 /// Exact 2D orientation of the projections.
 #[inline]
-fn o2(a: Point3, b: Point3, c: Point3, drop: u8) -> i8 {
+pub(crate) fn o2(a: Point3, b: Point3, c: Point3, drop: u8) -> i8 {
     sign(orient2d(pr(a, drop), pr(b, drop), pr(c, drop)))
 }
 
