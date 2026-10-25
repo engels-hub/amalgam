@@ -1,0 +1,28 @@
+# Golden metrics for mesh/selfint_global_two_spheres. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 5063.40180133917
+area = 1473.192919206933
+vertices = 1061
+triangles = 2118
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -10.000000035935697,
+    -9.99999999704085,
+    -10.000000007395197,
+]
+max = [
+    15.300000029124913,
+    9.999999974082714,
+    10.000000030163454,
+]
