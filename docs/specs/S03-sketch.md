@@ -717,7 +717,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-13 | Solver prototype + ADR-007 benchmark: native prototype vs `libslvs` (feature `slvs`) vs ezpz on decision cases D1–D10 (note §5) | SK-02, SK-14 | P0 | Done | 1. `docs/notes/sketch-solver-benchmark.md` reports every §5.3 metric for every option on D1–D10. 2. Proposed ADR-007 wording is in the PR. 3. The owner's decision is recorded. *This WP produces the decision, so it is not behind the ADR-007 gate.* |
 | SK-03 | Production solver core: substitution, connected components + Dulmage–Mendelsohn blocks, dense/sparse damped min-norm GN/LM, structure cache, `SolveStatus` / unsatisfied reporting, cancellation, driven-dimension measurement | SK-13 (ADR-007 gate cleared 2026-10-23) | P0 | Done | 1. ≥ 95 % of the SK-14 corpus passes, and 100 % of its non-degenerate well-constrained cases. 2. D9 warm solve < 5 ms median on the reference machine (criterion). 3. The same input solved 100× gives bit-identical params. 4. Cancellation returns `Cancelled` within 1 ms. |
 | SK-04 | DOF analysis (rank-revealing QR/SVD, per-entity status), diagnosis (redundant / conflicting / degenerate groups, leave-one-out refinement), `check_constraint` | SK-03 | P0 | Done | 1. All 50 hand-made DOF cases (§Testing) match exactly: total DOF, every entity's `ConstraintState`, and dependency groups as sets. 2. `check_constraint` agrees with full re-analysis on every case. 3. Analysis of a 500-entity sketch < 10 ms. |
-| SK-05 | Drag solving: `DragSession` for points, lines (translate), circle rim (radius), arc endpoints; weighted min-norm; warm start; SQP alternative only if SK-13 selected it | SK-03 | P0 | Todo | 1. On D4, D7 and a 200-entity generated sketch, 1000 scripted frames each: p95 step < 2 ms. 2. The jitter metric (note §5.3) is ≤ the SK-13 baseline. 3. No chirality flip on D7. 4. A fully constrained dragged point stays put. |
+| SK-05 | Drag solving: `DragSession` for points, lines (translate), circle rim (radius), arc endpoints; weighted min-norm; warm start; SQP alternative only if SK-13 selected it | SK-03 | P0 | Review | 1. On D4, D7 and a 200-entity generated sketch, 1000 scripted frames each: p95 step < 2 ms. 2. The jitter metric (note §5.3) is ≤ the SK-13 baseline. 3. No chirality flip on D7. 4. A fully constrained dragged point stays put. |
 | SK-06 | Profile/region detection (lines, arcs, circles): intersections, split/weld, merge overlaps, half-edge faces, holes and islands, open chains, issues | SK-01 | P0 | Done | 1. ≥ 25 golden fixtures pass: profile count, outer/hole counts and areas (relative 1e-9). Fixtures cover nested islands, T-junctions, tangent circles, overlapping collinear lines, near gaps, zero-length lines. 2. A fuzz test of 10 000 random line/arc soups never panics, satisfies Euler `V − E + F = 1 + C`, and the profile area sum equals the raster-union area within 0.5 %. 3. 500-curve sketch < 5 ms. |
 | SK-15 | Stable `ProfileId`s, `ProfileFingerprint`, `ProfileSet::match_previous` | SK-06 | P0 | Done | 1. 20 scripted dimension edits that keep topology keep every `ProfileId`. 2. 10 topology-changing edits give deterministic new ids, and `match_previous` maps each surviving region to the intended successor (fixtures list the intent). |
 | SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Done | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
@@ -1800,3 +1800,52 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   index per frame (fine, below the 2 ms drag budget; an incremental update is possible); a uniform
   grid beyond ~5 000 entities; `check_constraint` per candidate (~0.3-0.5 ms, see SK-04 leftovers)
   limits how many candidates can be checked per hover.
+
+### 2026-10-26 - SK-05 (drag solving, lane B)
+- **Landed:** `NativeSolver::begin_drag` now returns `NativeDrag` (`src/solve/native/drag.rs`, replacing the
+  interim point drag). Grabbable: point (target = start + cursor − grab, so a grab offset does not jump), line
+  (both ends translate), circle rim (the radius follows `|cursor − centre|` + the grab offset), arc (the end
+  point nearest the grab); other kinds give `NotApplicable`, unknown ids `UnknownEntity`. The equation system
+  and structure are built once per session (the sketch's structure and constraint values must not change
+  during a drag); only components containing a handle are re-solved, each as **one block** (the
+  Dulmage-Mendelsohn split would freeze a handle sitting in a square block), warm-started from the sketch's
+  current values; handles in no equation follow the cursor directly, fixed params stay put.
+- **ADR-007 decision (near-singular drags): weighted minimum norm as the default frame, feasible SQP as
+  fallback (`DragMode::Auto`).** Per frame: handles start at their targets with weight 1e4, damped min-norm
+  GN (max 12 steps). The frame is redone by SQP from the previous (feasible) frame when it does not converge
+  or moves any param of the touched components by more than 3x the cursor step (a branch jump; SK-13
+  finding 4). SQP minimises `½‖handles − targets‖² + ½μ‖Δx‖²` (μ = 1e-4) s.t. `F = 0`: the KKT step reuses the
+  min-norm Gram solve with the RHS `F − Js·gs`, followed by a min-norm restoration and step halving; a trial
+  is accepted only if feasible, the objective drops and the restoration moved ≤ half the step
+  (continuation: a restoration that jumps is a branch hop). `DragMode::{MinNorm, Sqp}` force either
+  (`NativeSolver::with_drag_mode`). SQP is not the default because it costs 4-10x more per frame on
+  well-conditioned drags (truss: 465 us vs 109 us p95 over the first 200 frames).
+- **Done-when evidence (this machine, loaded; 1000 scripted frames each, `Auto`; tests in `tests/drag.rs`,
+  bench `benches/drag.rs`, harness `corpus::drag`):**
+  1. p95 per step: D4 0.4 us, D7 133 us, 200-entity chain 99-103 us (bench `sk05/p95/*/auto`: 0.41 us,
+     119 us, 111 us); bound 2 ms (`timing_drag_p95`, strict with `AMG_STRICT_TIMING=1`). All 1000 frames
+     converge on all three.
+  2. Jitter (SK-13 metric) vs SK-13 baseline: D4 0 (baseline 0), D7 **0.67** (baseline 66.2 at 200 frames;
+     the prototype's min-norm drag measures 315 on the same 1000-frame script), chain 1.31 (prototype 1.31).
+  3. D7 chirality flips: **0** (`Auto` and `Sqp`); weighted min norm alone flips 123 times in 200 frames.
+  4. Fully constrained dragged points stay put: every vertex of D1 (DOF 0) dragged 30 frames up to 15 mm
+     away moves < 1e-8; a pinned triangle apex in a sketch with a free point does too.
+  Also tested: line translate, line with fixed start + length, rim of free / fixed-centre / dimensioned
+  circles, arc end and start slide on the circle, determinism (bit-identical), cancellation (sketch
+  unchanged), finish report.
+- **Deviations:** the 200-entity sketch is generated by `corpus::drag::truss_case` (name kept from a first
+  truss attempt): a chain of 40 hinged rigid triangles, 201 entities, DOF 39. A strip truss with six flex
+  hinges was dropped: it sat at dead-centre configurations where even the prototype's min norm did not
+  converge. The D7 branch metric ignores frames with `|sin| < 1e-4` (SK-13: 1e-6): at the toggle the
+  residual tolerance (1e-10) leaves `|sin|` up to ~1e-5 undetermined, so the sign there is noise.
+  SQP does not detect a branch hop right at a fold (the branches coincide there); it relies on the
+  continuation test, which holds on D7.
+- **Interface changes (additive, `amg-sketch` only):** `solve::{DragMode, DragStats, NativeDrag}`,
+  `NativeSolver::{drag, with_drag_mode}`, `corpus::drag` (fixtures + `run_script`), `[[bench]] drag`; the
+  `DragSession` / `DragSpec` / `DragStep` signatures are unchanged. Crate-internal: `block::{min_norm_step,
+  j_mul_csr, jt_mul_csr}` are `pub(crate)`.
+- **Leftovers:** `finish` is a full `solve` (the caller builds `CommitDrag` from the parameter delta);
+  ellipse/spline/polygon-rim drags; dragging a whole component with several simultaneous handles (multi
+  select) maps onto `Translate` already but is untested; the jump ratio (3) and SQP limits (16 outer, 6
+  halvings per frame) are tuned on D1/D4/D7/chain only; SQP restoration uses the whole-component block, so
+  a > 1000-unknown component would exceed the 2 ms budget on fallback frames.

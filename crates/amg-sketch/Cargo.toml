@@ -64,5 +64,9 @@ harness = false
 name = "query"
 harness = false
 
+[[bench]]
+name = "drag"
+harness = false
+
 [lints]
 workspace = true

@@ -89,7 +89,7 @@ pub(crate) fn to_dense(sub: &Sub, vals: &[f64]) -> Vec<f64> {
 }
 
 /// `y = Jᵀ z` (CSR).
-fn jt_mul_csr(sub: &Sub, vals: &[f64], z: &[f64]) -> Vec<f64> {
+pub(crate) fn jt_mul_csr(sub: &Sub, vals: &[f64], z: &[f64]) -> Vec<f64> {
     let mut y = vec![0.0; sub.n()];
     for (r, &zr) in z.iter().enumerate().take(sub.rows) {
         if zr != 0.0 {
@@ -102,7 +102,7 @@ fn jt_mul_csr(sub: &Sub, vals: &[f64], z: &[f64]) -> Vec<f64> {
 }
 
 /// `y = J v` (CSR).
-fn j_mul_csr(sub: &Sub, vals: &[f64], v: &[f64]) -> Vec<f64> {
+pub(crate) fn j_mul_csr(sub: &Sub, vals: &[f64], v: &[f64]) -> Vec<f64> {
     (0..sub.rows)
         .map(|r| {
             (sub.row_ptr[r] as usize..sub.row_ptr[r + 1] as usize)
@@ -113,7 +113,7 @@ fn j_mul_csr(sub: &Sub, vals: &[f64], v: &[f64]) -> Vec<f64> {
 }
 
 /// Minimum-norm step `dv = −Jsᵀ (Js Jsᵀ + λI)⁺ f` for scaled CSR values `js`.
-fn min_norm_step(sub: &Sub, js: &[f64], f: &[f64], lambda: f64) -> Vec<f64> {
+pub(crate) fn min_norm_step(sub: &Sub, js: &[f64], f: &[f64], lambda: f64) -> Vec<f64> {
     let m = sub.rows;
     let z = match &sub.sparse {
         Some(sp) => sp

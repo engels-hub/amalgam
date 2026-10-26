@@ -228,6 +228,31 @@ pub struct DragStep {
     pub max_residual: f64,
 }
 
+/// How a drag frame is solved (SK-05, ADR-007 near-singular decision).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum DragMode {
+    /// Weighted minimum norm per frame; a frame that does not converge, or that moves the
+    /// non-dragged geometry far more than the cursor moved (a branch jump near a singular
+    /// configuration), is redone by feasible SQP from the previous frame. The default.
+    #[default]
+    Auto,
+    /// Weighted minimum norm only (the SolveSpace approach; flips branches near toggles).
+    MinNorm,
+    /// Feasible SQP only: the cursor is the objective, the constraints stay satisfied.
+    Sqp,
+}
+
+/// Counters of a drag session ([`NativeDrag::stats`](super::NativeDrag::stats)).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct DragStats {
+    /// Frames solved.
+    pub frames: u32,
+    /// Frames redone (or solved) by feasible SQP.
+    pub sqp_frames: u32,
+    /// Frames whose result did not satisfy the equations (the sketch keeps the last good state).
+    pub failed_frames: u32,
+}
+
 /// An interactive drag (SK-05).
 pub trait DragSession: Send {
     /// Moves the grabbed point toward `target` (sketch coords) and re-solves (SK-05).

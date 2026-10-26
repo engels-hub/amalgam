@@ -20,6 +20,7 @@
 //! - [`runner`] runs a [`CorpusBackend`] over cases and reports pass/fail per case.
 //! - [`compare`] is the SK-13 solver comparison (ADR-007): the native prototype, libslvs
 //!   (feature `slvs`) and ezpz (feature `ezpz-bench`) behind one interface, plus metrics.
+//! - [`drag`] holds the SK-05 scripted-drag fixtures (200-entity truss) and harness.
 //! - [`solver`] adapts a production `SolverBackend` (SK-03 `NativeSolver`) to the runner.
 //!
 //! Sign conventions follow the S03 constraint table and SK-01's `TangentKind` notes:
@@ -27,6 +28,7 @@
 //! a point/line–circle distance with `Side::Positive` is measured outside the circle.
 
 pub mod compare;
+pub mod drag;
 pub mod ezpz;
 pub mod reference;
 pub mod runner;
