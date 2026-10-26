@@ -14,12 +14,14 @@
 //! - DOF analysis and diagnosis ([`analysis`], SK-04): per-entity status from the null space of
 //!   the decomposed system, circuits with a witness tie-break and leave-one-out refinement of
 //!   conflicts, and an incremental `check_constraint` on the cached analysis.
-//! - `begin_drag` is an interim point drag (weighted minimum norm); SK-05 replaces it.
+//! - Drag sessions ([`drag`], SK-05): weighted minimum norm per frame on the components that
+//!   contain the grabbed params, with a feasible-SQP fallback near singular configurations.
 
 mod analysis;
 mod block;
 mod dense;
 mod diagnose;
+mod drag;
 mod sparse;
 mod structure;
 #[cfg(test)]
@@ -28,13 +30,12 @@ mod tests;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use amg_core::Point2;
-
 use self::analysis::{Base, Settings, analyze_at};
 use self::block::{BlockCtx, BlockOutcome, solve_block, to_dense};
+pub use self::drag::NativeDrag;
 use self::structure::{Slot, Structure, Sub, SubKind};
 use super::api::{
-    Algorithm, ConstraintCheck, Diagnosis, DofAnalysis, DofReport, DragSession, DragSpec, DragStep,
+    ConstraintCheck, Diagnosis, DofAnalysis, DofReport, DragMode, DragSession, DragSpec,
     SolveOptions, SolveReport, SolveStatus, SolverBackend,
 };
 use super::rank::numeric_rank;
@@ -42,15 +43,13 @@ use super::residual::{SketchSystem, build, build_system_polled, characteristic_l
 use super::system::{EquationOwner, EquationSystem, Residual};
 use crate::error::SketchError;
 use crate::ids::{ConstraintId, ParamId};
-use crate::model::{ConstraintKind, DimensionKind, EntityKind, Sketch};
+use crate::model::{ConstraintKind, DimensionKind, Sketch};
 
 /// Blocks with at most this many unknowns use the dense step; larger ones the sparse one.
 pub const DENSE_MAX: usize = 64;
 /// Blocks with at most this many unknowns (and rows) get a dense numeric rank test; larger
 /// ones use their structural rank (SK-04: sparse rank-revealing QR).
 const RANK_DENSE_MAX: usize = 400;
-/// Movement cost of dragged params (weighted minimum norm, note §3.5).
-const DRAG_WEIGHT: f64 = 1e4;
 
 /// Scratch buffers reused across blocks.
 #[derive(Default)]
@@ -90,6 +89,8 @@ pub struct NativeSolver {
     stats: SolveStats,
     /// Analysis of the last sketch `analyze` / `check_constraint` saw (SK-04).
     analysis: Option<Arc<Base>>,
+    /// How drag frames are solved (SK-05).
+    drag_mode: DragMode,
 }
 
 impl std::fmt::Debug for NativeSolver {
@@ -118,6 +119,7 @@ impl Clone for NativeSolver {
             decompose: self.decompose,
             stats: self.stats,
             analysis: self.analysis.clone(),
+            drag_mode: self.drag_mode,
         }
     }
 }
@@ -138,7 +140,14 @@ impl NativeSolver {
             decompose: true,
             stats: SolveStats::default(),
             analysis: None,
+            drag_mode: DragMode::Auto,
         }
+    }
+
+    /// How drag frames are solved (default [`DragMode::Auto`]).
+    pub fn with_drag_mode(mut self, mode: DragMode) -> Self {
+        self.drag_mode = mode;
+        self
     }
 
     /// Blocks with more than `n` unknowns use the sparse step (default [`DENSE_MAX`]).
@@ -571,58 +580,6 @@ impl SolverBackend for NativeSolver {
         sketch: &Sketch,
         spec: DragSpec,
     ) -> Result<Box<dyn DragSession>, SketchError> {
-        let Some(EntityKind::Point { x, y }) = sketch.entity(spec.entity).map(|e| e.kind.clone())
-        else {
-            return Err(SketchError::NotApplicable(
-                "only points can be dragged until SK-05",
-            ));
-        };
-        Ok(Box::new(PointDrag {
-            solver: self.clone(),
-            params: [x, y],
-        }))
-    }
-}
-
-/// Interim point drag (weighted minimum norm, warm start, shared structure cache); SK-05
-/// replaces it.
-struct PointDrag {
-    solver: NativeSolver,
-    params: [ParamId; 2],
-}
-
-impl DragSession for PointDrag {
-    fn step(&mut self, sketch: &mut Sketch, target: Point2, cancel: &dyn Fn() -> bool) -> DragStep {
-        let mut x0 = sketch.params().as_slice().to_vec();
-        x0[self.params[0].index()] = target.x;
-        x0[self.params[1].index()] = target.y;
-        let dragged = self.params;
-        let weight = move |p: ParamId| {
-            if dragged.contains(&p) {
-                DRAG_WEIGHT
-            } else {
-                1.0
-            }
-        };
-        let r = self.solver.solve_weighted(
-            sketch,
-            &x0,
-            &weight,
-            &SolveOptions {
-                algorithm: Algorithm::Auto,
-                ..SolveOptions::fast()
-            },
-            cancel,
-        );
-        DragStep {
-            status: r.status,
-            iterations: r.iterations,
-            max_residual: r.max_residual,
-        }
-    }
-
-    fn finish(mut self: Box<Self>, sketch: &mut Sketch) -> SolveReport {
-        self.solver
-            .solve(sketch, &SolveOptions::default(), &|| false)
+        Ok(Box::new(self.drag(sketch, spec)?))
     }
 }

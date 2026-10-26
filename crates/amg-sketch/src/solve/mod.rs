@@ -27,10 +27,10 @@ pub mod system;
 
 pub use api::{
     Algorithm, ConstraintCheck, ConstraintState, DependencyGroup, Diagnosis, DofAnalysis,
-    DofReport, DragSession, DragSpec, DragStep, EntityStatus, GroupKind, SolveOptions, SolveReport,
-    SolveStatus, SolverBackend,
+    DofReport, DragMode, DragSession, DragSpec, DragStats, DragStep, EntityStatus, GroupKind,
+    SolveOptions, SolveReport, SolveStatus, SolverBackend,
 };
-pub use native::{DENSE_MAX, NativeSolver, SolveStats};
+pub use native::{DENSE_MAX, NativeDrag, NativeSolver, SolveStats};
 pub use orient::orient_constraint;
 pub use rank::{dof, numeric_rank};
 pub(crate) use residual::candidate_max_residual;
