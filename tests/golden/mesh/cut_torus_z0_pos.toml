@@ -1,0 +1,28 @@
+# Golden metrics for mesh/cut_torus_z0_pos. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 875.6466620583092
+area = 965.3490118940231
+vertices = 624
+triangles = 1248
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 0
+
+[metrics.bbox]
+min = [
+    -13.0,
+    -13.0,
+    0.0,
+]
+max = [
+    13.0,
+    13.0,
+    3.0,
+]

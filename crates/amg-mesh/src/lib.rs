@@ -13,6 +13,7 @@
 mod analysis;
 mod attrs;
 mod body;
+mod cut;
 mod decimate;
 mod error;
 mod groups;
@@ -34,6 +35,10 @@ pub mod corpus;
 pub use analysis::{AnalysisReport, AnalyzeOpts, ShellInfo, analyze};
 pub use attrs::{MeshAttrs, Rgba8, TriProperty};
 pub use body::MeshBody;
+pub use cut::{
+    KeepSide, PlaneCutOpts, PlaneCutResult, Polyline3, erase_and_fill, plane_cut, reverse_normals,
+    section, separate_shells,
+};
 pub use decimate::{DecimateOpts, DecimateReport, DecimateTarget, decimate};
 pub use error::{MeshError, MeshResult, TopoError};
 pub use groups::{
