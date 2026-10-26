@@ -1,0 +1,59 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/u09_circle_centre_fixed",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "A circle with a fixed centre.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c",
+        "geom": {
+          "point": {
+            "at": [
+              1.0,
+              1.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "k",
+        "geom": {
+          "circle": {
+            "center": 0,
+            "radius": 4.0
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 1
+    }
+  },
+  "dof": 1,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "under",
+      "free_dof": 1
+    }
+  ]
+}

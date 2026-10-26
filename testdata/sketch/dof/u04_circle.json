@@ -1,0 +1,53 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/u04_circle",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "A free circle.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c",
+        "geom": {
+          "point": {
+            "at": [
+              1.0,
+              1.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "k",
+        "geom": {
+          "circle": {
+            "center": 0,
+            "radius": 4.0
+          }
+        }
+      }
+    ],
+    "constraints": [],
+    "expected": {
+      "status": "converged",
+      "dof": 3
+    }
+  },
+  "dof": 3,
+  "entities": [
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 3
+    }
+  ]
+}

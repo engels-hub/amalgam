@@ -716,13 +716,13 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-14 | Solver test corpus + runner: corpus file format (JSON), `.slvs` 2D importer, ezpz text importer, hand-ported PlaneGCS cases, expected-result schema | SK-01 | P0 | Done | 1. `testdata/sketch/corpus/` holds ≥ 120 cases: ≥ 60 from SolveSpace 2D (`test/constraint/*`), ≥ 20 PlaneGCS, ≥ 20 ezpz, ≥ 20 own. 2. Each case has expected DOF and status. 3. The runner reports pass/fail per case. 4. Licence notices are in each source subfolder. |
 | SK-13 | Solver prototype + ADR-007 benchmark: native prototype vs `libslvs` (feature `slvs`) vs ezpz on decision cases D1–D10 (note §5) | SK-02, SK-14 | P0 | Done | 1. `docs/notes/sketch-solver-benchmark.md` reports every §5.3 metric for every option on D1–D10. 2. Proposed ADR-007 wording is in the PR. 3. The owner's decision is recorded. *This WP produces the decision, so it is not behind the ADR-007 gate.* |
 | SK-03 | Production solver core: substitution, connected components + Dulmage–Mendelsohn blocks, dense/sparse damped min-norm GN/LM, structure cache, `SolveStatus` / unsatisfied reporting, cancellation, driven-dimension measurement | SK-13 (ADR-007 gate cleared 2026-10-23) | P0 | Done | 1. ≥ 95 % of the SK-14 corpus passes, and 100 % of its non-degenerate well-constrained cases. 2. D9 warm solve < 5 ms median on the reference machine (criterion). 3. The same input solved 100× gives bit-identical params. 4. Cancellation returns `Cancelled` within 1 ms. |
-| SK-04 | DOF analysis (rank-revealing QR/SVD, per-entity status), diagnosis (redundant / conflicting / degenerate groups, leave-one-out refinement), `check_constraint` | SK-03 | P0 | Todo | 1. All 50 hand-made DOF cases (§Testing) match exactly: total DOF, every entity's `ConstraintState`, and dependency groups as sets. 2. `check_constraint` agrees with full re-analysis on every case. 3. Analysis of a 500-entity sketch < 10 ms. |
+| SK-04 | DOF analysis (rank-revealing QR/SVD, per-entity status), diagnosis (redundant / conflicting / degenerate groups, leave-one-out refinement), `check_constraint` | SK-03 | P0 | Done | 1. All 50 hand-made DOF cases (§Testing) match exactly: total DOF, every entity's `ConstraintState`, and dependency groups as sets. 2. `check_constraint` agrees with full re-analysis on every case. 3. Analysis of a 500-entity sketch < 10 ms. |
 | SK-05 | Drag solving: `DragSession` for points, lines (translate), circle rim (radius), arc endpoints; weighted min-norm; warm start; SQP alternative only if SK-13 selected it | SK-03 | P0 | Todo | 1. On D4, D7 and a 200-entity generated sketch, 1000 scripted frames each: p95 step < 2 ms. 2. The jitter metric (note §5.3) is ≤ the SK-13 baseline. 3. No chirality flip on D7. 4. A fully constrained dragged point stays put. |
 | SK-06 | Profile/region detection (lines, arcs, circles): intersections, split/weld, merge overlaps, half-edge faces, holes and islands, open chains, issues | SK-01 | P0 | Done | 1. ≥ 25 golden fixtures pass: profile count, outer/hole counts and areas (relative 1e-9). Fixtures cover nested islands, T-junctions, tangent circles, overlapping collinear lines, near gaps, zero-length lines. 2. A fuzz test of 10 000 random line/arc soups never panics, satisfies Euler `V − E + F = 1 + C`, and the profile area sum equals the raster-union area within 0.5 %. 3. 500-curve sketch < 5 ms. |
 | SK-15 | Stable `ProfileId`s, `ProfileFingerprint`, `ProfileSet::match_previous` | SK-06 | P0 | Done | 1. 20 scripted dimension edits that keep topology keep every `ProfileId`. 2. 10 topology-changing edits give deterministic new ids, and `match_previous` maps each surviving region to the intended successor (fixtures list the intent). |
 | SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Done | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
 | SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Todo | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
-| SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Review | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
+| SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Done | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
 | SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Done | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
 | SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Done | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
 | SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Done | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
@@ -1661,3 +1661,75 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   geometry cache.
 - **Left over:** move `SketchGeom` into `amg-sketch` when convenient; persist solved sketches in the cache; SK-09 refresh of `links`;
   `ParamId`-referencing `exprs_mut` for features other than sketches is opt-in.
+
+### 2026-10-26 - SK-04 (DOF analysis, diagnosis, incremental check, lane B)
+- **Landed** (`src/solve/native/{dense,analysis,diagnose}.rs`, `NativeSolver::{analyze,
+  check_constraint}`, `DofAnalysis::PerEntity`):
+  - `dense.rs`: Householder QR with column pivoting of Jᵀ (rank + orthonormal null basis,
+    τ = 1e-9 · max(m, n) · max|J|) and a full-pivot `rank_abs` for small matrices.
+  - Substituted analysis per component on the SK-03 `Structure`: the DM over/square blocks are
+    rank-checked; if all have full rank the null space is the union of the under pieces' null
+    spaces, otherwise the whole component's. Total DOF = unknowns − rank. An entity's `free_dof`
+    is the rank of the null-space rows of its own and its points' parameters (so a line whose two
+    ends slide on parallel rails has 1), `Full` iff 0.
+  - Diagnosis (`diagnose.rs`): the unsubstituted rows plus one unit row per parameter a `Fix`
+    locks (rows ordered entity equations, then constraints by id), Gram–Schmidt circuits per
+    connected component, only on components that look suspicious (substitution redundancy,
+    constant blocks, fixed joins, double fixes, rank-deficient substituted components, or
+    unsatisfied rows), so a clean sketch costs one QR per block. A satisfied circuit is
+    `Redundant` if it stays dependent at a **witness** configuration (driving dimensions made
+    driven, deterministic jitter of 1 % L_c on points, 1 % on radii, 0.1 % elsewhere, re-solved),
+    else `DegenerateConfiguration`; DOF and states are taken at the witness when its rank is
+    higher (generic DOF for degenerate inputs such as coincident centres held by a zero distance).
+  - Conflicts: per unsatisfied component, **leave-one-out**: every constraint of the component
+    (≤ 48) is removed in turn and the rest re-solved from the least-squares point, then from the
+    sketch's own values, then from a jittered start; the constraints whose removal alone makes the
+    component satisfiable form the `Conflicting` group. Fallbacks: unsatisfied circuits, else the
+    owners of the unsatisfied rows. A `Redundant` group contained in a `Conflicting` group is
+    dropped (the satisfied half of a broken symmetry). Entities referenced by a `Redundant` or
+    `Conflicting` group are `Over`.
+  - `check_constraint`: the analysis of the last sketch is cached (structure rev, bit-exact
+    params, dimension values). Fast path (candidate not `Fix`, no aux params, clean base,
+    candidate satisfied): rank of the candidate's rows projected on the cached null space ==
+    row count → `Independent`, else circuits on the touched raw components with the candidate
+    rows last (witness of sketch + candidate). Otherwise a full re-analysis of a clone with the
+    candidate. A driven dimension is always `Independent`. `analyze` of an unsatisfied sketch
+    analyses a fast-solved clone (the caller's sketch is untouched).
+  - `SolveOptions { dof: PerEntity }` fills `DofReport::entities` with the same analysis, and a
+    failed solve's diagnosis uses it (SK-03's interim groups are replaced).
+- **Done-when evidence (2026-10-26, this machine, other workers building):**
+  1. `tests/dof.rs::dof_cases_match_analysis`: the 50 cases in `testdata/sketch/dof/`
+     (10 under-, 10 fully-, 10 redundantly-constrained, 10 conflicting, 5 mixed, 5 degenerate /
+     witness; generator in the test is the source, `dof_cases_match_files` keeps the JSON in
+     sync) match exactly (total DOF, every entity's state and `free_dof`, groups as sets)
+     with the default solver, every block sparse (`with_dense_limit(0)`) and without the DM
+     split: **50/50 × 3**. `per_entity_solve_matches_analysis`: `solve` with `PerEntity` agrees.
+     Three hand expectations were corrected after re-derivation and are commented in the case:
+     `w05` (at the four-bar toggle the coupler–rocker joint is first-order stationary, δb ⊥ a
+     and δb ⊥ b − o2, so `b` and the rocker are `Full`), `c03` and `c10` drove the LOO restarts
+     and the redundant-inside-conflict rule above.
+  2. `check_constraint_agrees_with_full_analysis`: on every case, at the start and the solved
+     configuration, every constraint is removed and checked back; the result equals the group
+     membership of a full re-analysis (Independent / Redundant / Conflicting all occur). Also
+     SK-22 (`Equal` on mirrored ellipses → Redundant, not Conflicting) and SK-08 (point on spline
+     counts its curve parameter: DOF 9, 1 after fixing the spline).
+  3. `cargo bench -p amg-sketch --bench dof` (warm structure, cold analysis), medians at 500
+     entities: `rects` **0.51 ms**, `rects-free` 0.26 ms, `stairs` 0.56 ms, `stairs-free` 0.27 ms,
+     `redundant` (diagnosis + witness) **1.42 ms**; budget 10 ms. 2000 entities: 1.1–6.0 ms.
+     `check/rects/500` 0.51 ms, `check/rects-free/500` 0.33 ms. The test
+     `analysis_of_500_entities_is_fast` asserts 10 ms only with `AMG_STRICT_TIMING=1` (100 ms
+     otherwise).
+- **Deviations:** components above 400 unknowns or rows (`RANK_DENSE_MAX`) keep the SK-03
+  structural rank (no sparse rank-revealing QR yet): `stairs-free/500` is one 500-unknown
+  under-determined block and is analysed structurally (its 200-entity variant, numeric, takes
+  2.95 ms — the dense QR is O(n³)). The `check_constraint` fast path does not cover `Fix`,
+  aux-param candidates or a candidate unsatisfied at the current values; those take the full
+  re-analysis (still < 2 ms at 500 entities). Per-entity states are first-order (dead points of
+  mechanisms report `Full`).
+- **Interface changes (additive, `amg-sketch` only):** no public signatures changed;
+  `analyze` / `check_constraint` / `PerEntity` now return the full SK-04 results.
+  Crate-internal `Sketch::{validate_new_constraint, new_constraint_aux_count}`. No new deps.
+- **Leftovers:** sparse rank-revealing QR for > 400-unknown components (SPQR-style or
+  `faer` once it has column-pivoted sparse QR); the SK-20 snap filter needs `check_constraint`
+  far below the current ~0.3–0.5 ms at 500 entities (profile it; cache the projected null space per
+  component); second-order mobility for toggle points.

@@ -32,7 +32,7 @@ pub enum DofAnalysis {
     None,
     /// Total DOF only.
     Total,
-    /// Total DOF plus a status per entity (SK-04; until then `entities` stays empty).
+    /// Total DOF plus a status per entity (SK-04).
     PerEntity,
 }
 
@@ -117,7 +117,8 @@ pub enum ConstraintState {
 pub struct EntityStatus {
     /// State.
     pub state: ConstraintState,
-    /// Free DOF of the entity's own params.
+    /// Independent ways the entity can move: the rank of the null-space rows of its own
+    /// params and its points' params (a line: up to 4, an arc: up to 5).
     pub free_dof: u8,
 }
 

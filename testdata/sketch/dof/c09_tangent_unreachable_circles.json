@@ -1,0 +1,161 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/c09_tangent_unreachable_circles",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "A radius-3 circle tangent to two fixed circles 30 apart.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c1",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "c2",
+        "geom": {
+          "point": {
+            "at": [
+              30.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "c3",
+        "geom": {
+          "point": {
+            "at": [
+              15.0,
+              3.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "k1",
+        "geom": {
+          "circle": {
+            "center": 0,
+            "radius": 2.0
+          }
+        }
+      },
+      {
+        "name": "k2",
+        "geom": {
+          "circle": {
+            "center": 1,
+            "radius": 2.0
+          }
+        }
+      },
+      {
+        "name": "k3",
+        "geom": {
+          "circle": {
+            "center": 2,
+            "radius": 3.0
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 3
+        }
+      },
+      {
+        "Fix": {
+          "entity": 4
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 5
+            }
+          },
+          "value": 3.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Tangent": {
+          "a": 5,
+          "b": 3,
+          "kind": "External"
+        }
+      },
+      {
+        "Tangent": {
+          "a": 5,
+          "b": 4,
+          "kind": "External"
+        }
+      }
+    ],
+    "expected": {
+      "status": "inconsistent",
+      "dof": null,
+      "groups": [
+        {
+          "kind": "conflicting",
+          "constraints": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ]
+        }
+      ]
+    }
+  },
+  "dof": 0,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    }
+  ]
+}

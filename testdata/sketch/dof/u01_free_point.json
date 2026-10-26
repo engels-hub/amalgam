@@ -1,0 +1,40 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/u01_free_point",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "A free point.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "p",
+        "geom": {
+          "point": {
+            "at": [
+              1.0,
+              2.0
+            ]
+          }
+        }
+      }
+    ],
+    "constraints": [],
+    "expected": {
+      "status": "converged",
+      "dof": 2
+    }
+  },
+  "dof": 2,
+  "entities": [
+    {
+      "state": "under",
+      "free_dof": 2
+    }
+  ]
+}

@@ -1,0 +1,169 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/u07_polyline5",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "A polyline of five segments.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              5.0,
+              3.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              10.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              15.0,
+              3.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              20.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              25.0,
+              3.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 0,
+            "end": 1
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 1,
+            "end": 2
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 2,
+            "end": 3
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 3,
+            "end": 4
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 4,
+            "end": 5
+          }
+        }
+      }
+    ],
+    "constraints": [],
+    "expected": {
+      "status": "converged",
+      "dof": 12
+    }
+  },
+  "dof": 12,
+  "entities": [
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 4
+    },
+    {
+      "state": "under",
+      "free_dof": 4
+    },
+    {
+      "state": "under",
+      "free_dof": 4
+    },
+    {
+      "state": "under",
+      "free_dof": 4
+    },
+    {
+      "state": "under",
+      "free_dof": 4
+    }
+  ]
+}

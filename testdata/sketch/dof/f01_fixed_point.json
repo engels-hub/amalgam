@@ -1,0 +1,46 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/f01_fixed_point",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "A fixed point.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "p",
+        "geom": {
+          "point": {
+            "at": [
+              1.0,
+              2.0
+            ]
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 0
+    }
+  },
+  "dof": 0,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    }
+  ]
+}

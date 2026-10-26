@@ -1,0 +1,123 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/f08_concentric_radii",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Concentric circles with radii and a fixed centre.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c1",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "c2",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "k1",
+        "geom": {
+          "circle": {
+            "center": 0,
+            "radius": 5.0
+          }
+        }
+      },
+      {
+        "name": "k2",
+        "geom": {
+          "circle": {
+            "center": 1,
+            "radius": 8.0
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Concentric": {
+          "a": 2,
+          "b": 3
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 2
+            }
+          },
+          "value": 5.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 3
+            }
+          },
+          "value": 8.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 0
+    }
+  },
+  "dof": 0,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    }
+  ]
+}

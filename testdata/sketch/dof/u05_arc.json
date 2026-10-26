@@ -1,0 +1,84 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/u05_arc",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "A free arc.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "s",
+        "geom": {
+          "point": {
+            "at": [
+              5.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "e",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              5.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "a",
+        "geom": {
+          "arc": {
+            "center": 0,
+            "start": 1,
+            "end": 2
+          }
+        }
+      }
+    ],
+    "constraints": [],
+    "expected": {
+      "status": "converged",
+      "dof": 5
+    }
+  },
+  "dof": 5,
+  "entities": [
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    },
+    {
+      "state": "under",
+      "free_dof": 5
+    }
+  ]
+}

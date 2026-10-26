@@ -1,0 +1,277 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/f07_l_bracket",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "L-bracket of six lines with H/V, four lengths and a fixed corner.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              30.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              30.0,
+              10.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              10.0,
+              10.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              10.0,
+              30.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              30.0
+            ]
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 0,
+            "end": 1
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 1,
+            "end": 2
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 2,
+            "end": 3
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 3,
+            "end": 4
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 4,
+            "end": 5
+          }
+        }
+      },
+      {
+        "geom": {
+          "line": {
+            "start": 5,
+            "end": 0
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Horizontal": {
+          "Line": 6
+        }
+      },
+      {
+        "Vertical": {
+          "Line": 7
+        }
+      },
+      {
+        "Horizontal": {
+          "Line": 8
+        }
+      },
+      {
+        "Vertical": {
+          "Line": 9
+        }
+      },
+      {
+        "Horizontal": {
+          "Line": 10
+        }
+      },
+      {
+        "Vertical": {
+          "Line": 11
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 6
+            }
+          },
+          "value": 30.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 7
+            }
+          },
+          "value": 10.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 9
+            }
+          },
+          "value": 20.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 10
+            }
+          },
+          "value": 10.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 0
+    }
+  },
+  "dof": 0,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    }
+  ]
+}

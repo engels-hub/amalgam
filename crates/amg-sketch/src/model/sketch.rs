@@ -835,6 +835,17 @@ impl Sketch {
         self.touch_structure();
     }
 
+    /// Validates `kind` as [`add_constraint`](Sketch::add_constraint) would, without storing
+    /// it (candidate checks, SK-04).
+    pub(crate) fn validate_new_constraint(&self, kind: &ConstraintKind) -> Result<(), SketchError> {
+        self.view().constraint(kind, Mode::Add)
+    }
+
+    /// Number of auxiliary params `add_constraint` would allocate for `kind`.
+    pub(crate) fn new_constraint_aux_count(&self, kind: &ConstraintKind) -> usize {
+        self.view().aux_count(kind)
+    }
+
     // ---- Internals --------------------------------------------------------------------
 
     fn view(&self) -> View<'_> {
