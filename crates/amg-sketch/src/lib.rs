@@ -33,6 +33,7 @@ pub mod import;
 pub mod model;
 pub mod offset;
 pub mod profile;
+pub mod query;
 pub mod solve;
 pub mod text;
 pub mod transform;

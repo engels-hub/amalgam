@@ -721,7 +721,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-06 | Profile/region detection (lines, arcs, circles): intersections, split/weld, merge overlaps, half-edge faces, holes and islands, open chains, issues | SK-01 | P0 | Done | 1. ≥ 25 golden fixtures pass: profile count, outer/hole counts and areas (relative 1e-9). Fixtures cover nested islands, T-junctions, tangent circles, overlapping collinear lines, near gaps, zero-length lines. 2. A fuzz test of 10 000 random line/arc soups never panics, satisfies Euler `V − E + F = 1 + C`, and the profile area sum equals the raster-union area within 0.5 %. 3. 500-curve sketch < 5 ms. |
 | SK-15 | Stable `ProfileId`s, `ProfileFingerprint`, `ProfileSet::match_previous` | SK-06 | P0 | Done | 1. 20 scripted dimension edits that keep topology keep every `ProfileId`. 2. 10 topology-changing edits give deterministic new ids, and `match_previous` maps each surviving region to the intended successor (fixtures list the intent). |
 | SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Done | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
-| SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Todo | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
+| SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Review (wp-SK-20-snap) | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
 | SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Done | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
 | SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Done | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
 | SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Done | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
@@ -1739,3 +1739,64 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   SK-04's 500-entity analysis test are renamed `timing_cancellation_returns_within_a_millisecond` and
   `timing_analysis_of_500_entities_is_fast`, so `.config/nextest.toml` runs them alone (and CI retries
   them), as for the other `timing_*` tests. Earlier log entries refer to the old names.
+
+### 2026-10-23 - SK-20 (queries and inference hooks for UI-09, lane B)
+- **Landed** (`src/query/{mod,index,snap}.rs`, `tests/query.rs`, `benches/query.rs`; `lib.rs`: `pub mod query;`):
+  - `QueryIndex`: every point and evaluated curve with its box in flat arrays (point roles: end/free vs
+    centre-only). A hover query rejects with four comparisons per entity and evaluates only the few
+    survivors, so no tree was needed at 500 entities (a grid is the next step beyond ~5 000).
+    `matches` / `refresh` follow `structure_rev` / `values_rev`; the free functions `pick`,
+    `snap_candidates` (spec signatures) keep a per-thread one-entry `Rc<QueryIndex>` cache keyed by
+    the revisions, so repeated hovers do not rebuild.
+  - `pick`: points before curves on ties, `PickFilter::ALL` added (the derived `Default` selects
+    nothing). `param` is the curve parameter of the closest point.
+  - `snap_candidates`: Endpoint / Center (point entities by role), Midpoint (line; arc, elliptical arc,
+    spline, conic by arc length or eccentric angle, no constraint), Quadrant (circle, arc within its
+    span, ellipse and elliptical arc axis ends), OnCurve, Intersection (nearest 12 curves pairwise via
+    `geom::intersect`), AlignHorizontal / AlignVertical (rubber-band anchor and up to 3 nearest points
+    per axis, only when the point itself is out of snap range), and with `from`: Perpendicular (line
+    foot, radial points of circles and arcs, numeric roots on ellipses, splines and conics) and Tangent
+    (circle/arc analytic, ellipse and spline numeric; `External`/`Internal` chosen from the sign of the
+    centre distance of the line `from -> point`, spline and conic tangents carry no suggestion because
+    the model has only `AtEndpoint` for them). Sorted by kind priority (endpoint, centre, midpoint,
+    intersection, quadrant, tangent, perpendicular, on-curve, alignment) then distance; weaker
+    candidates at the same point as a stronger one (on-curve, quadrant, intersection) are dropped.
+  - Suggestions name the not-yet-created entity with `query::NEW_ENTITY` (the new point; the new
+    rubber-band line for tangent / perpendicular). `SnapOptions { from, from_entity, moving,
+    rubber_band, exclude }` and `snap_candidates_with` substitute real ids (a dragged point, the line
+    being drawn) and exclude entities; `SnapCandidate::constraints(point, line)` resolves the
+    placeholders. Every suggestion kind is accepted by `Sketch::add_constraint` and keeps the sketch
+    solvable (`suggestions_are_valid_constraints`).
+  - Redundancy: `suppress_redundant` / `snap_candidates_checked` run `SolverBackend::check_constraint`
+    on suggestions that name only existing entities (a placeholder cannot be redundant). `Redundant`
+    (or invalid) clears the suggestion and keeps the position snap; `Conflicting` removes the
+    candidate. Kept separate from `snap_candidates` because `check_constraint` is 0.3-0.5 ms.
+- **Done-when evidence (this machine, loaded by other builds):**
+  1. `tests/query.rs`: one test per `SnapKind` (endpoint/centre, midpoint of line, arc, elliptical arc,
+     spline and conic, quadrant of circle, arc and ellipse, on-curve for line, ellipse, spline and
+     conic, intersection line-line / line-circle / ellipse-spline, both alignments, perpendicular,
+     tangent incl. numeric ellipse and spline roots checked against the defining equation) plus pick
+     over all curve kinds. 17/17 pass; `cargo nextest run -p amg-sketch`: 493/493.
+  2. `redundant_suggestions_are_suppressed_on_a_fully_constrained_rectangle` (fixed corner + two
+     lengths, DOF 0): dragging a corner level with / above another corner yields the alignment with
+     its suggestion cleared (position kept); a free point keeps it; coinciding with the fixed corner
+     (contradicts the dimensions) drops the candidate; placeholder suggestions pass untouched.
+  3. `cargo bench -p amg-sketch --bench query` (about 520 entities: rectangles, circles, arcs,
+     ellipses, splines; 256 cursor positions, `from` set): `pick + snap_candidates` per query pair
+     **3.8 us** with a held index, **4.0 us** through the cached free functions (budget 100 us). The
+     test `timing_pick_and_snap_on_500_entities` asserts 0.1 ms only with `AMG_STRICT_TIMING=1`
+     (1 ms otherwise); measured 4.4 us. `index_build` 0.68 ms (once per edit, not per hover);
+     `suppress_redundant` 0.72 ms for a handful of candidates (job-side, outside the budget).
+- **Deviations:** the fully-checked variant is a separate function instead of `snap_candidates`
+  taking a solver (keeps the pure query inside 0.1 ms and the signature as in the spec).
+  `SnapCandidate` gains `secondary: Option<ConstraintKind>` (an intersection lies on two curves).
+  Splines and conics have no quadrant snaps.
+- **Interface changes (additive, `amg-sketch` only):** new `amg_sketch::query` module; types
+  `PickFilter::ALL`, `QueryIndex`, `SnapOptions`, `NEW_ENTITY`, `SnapCandidate::{secondary,
+  constraints}`, functions `snap_candidates_with`, `suppress_redundant`, `snap_candidates_checked`.
+  UI-09 should call `snap_candidates_with` with `moving` / `rubber_band` once it has created the
+  geometry, and `suppress_redundant` on a job or after a short hover dwell.
+- **Leftovers:** `index_build` 0.68 ms means a drag that changes geometry each frame rebuilds the
+  index per frame (fine, below the 2 ms drag budget; an incremental update is possible); a uniform
+  grid beyond ~5 000 entities; `check_constraint` per candidate (~0.3-0.5 ms, see SK-04 leftovers)
+  limits how many candidates can be checked per hover.
