@@ -36,7 +36,6 @@ use crate::io::BodyCodec;
 use crate::model::{BlobRef, Design};
 use crate::naming::{BodyNaming, EntityRef};
 use crate::recompute::engine_salt;
-use crate::stub::SketchGeom;
 
 /// Name of the index entry.
 pub const CACHE_INDEX: &str = "cache/index.json";
@@ -149,9 +148,14 @@ impl OutputCodec for StubOutputCodec {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        if out.sketch.is_some() {
+            return Err(OutputCodecError(
+                "solved sketches are not persisted yet; the sketch recomputes on open".to_owned(),
+            ));
+        }
         let wire = WireOutput {
             bodies,
-            sketch: out.sketch.is_some(),
+            sketch: false,
             construction: out.construction.map(|c| match c {
                 ConstructionGeom::Plane(p) => WireConstruction::Plane(p),
                 ConstructionGeom::Axis(l) => WireConstruction::Axis(l),
@@ -185,9 +189,14 @@ impl OutputCodec for StubOutputCodec {
             };
             bodies.push(BodyChange { id: b.id, change });
         }
+        if wire.sketch {
+            return Err(OutputCodecError(
+                "cache entry holds a sketch, which this build cannot restore".to_owned(),
+            ));
+        }
         Ok(FeatureOutput {
             bodies,
-            sketch: wire.sketch.then(|| Arc::new(SketchGeom::default())),
+            sketch: None,
             construction: wire.construction.map(|c| match c {
                 WireConstruction::Plane(p) => ConstructionGeom::Plane(p),
                 WireConstruction::Axis(l) => ConstructionGeom::Axis(l),

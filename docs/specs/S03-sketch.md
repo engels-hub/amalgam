@@ -722,7 +722,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-15 | Stable `ProfileId`s, `ProfileFingerprint`, `ProfileSet::match_previous` | SK-06 | P0 | Done | 1. 20 scripted dimension edits that keep topology keep every `ProfileId`. 2. 10 topology-changing edits give deterministic new ids, and `match_previous` maps each surviving region to the intended successor (fixtures list the intent). |
 | SK-21 | Composite builders: rectangles (2pt, 3pt, centre), polygon, slots (4 variants), 3-point/tangent circles and arcs | SK-02 | P0 | Done | 1. Each builder's output has zero residual. 2. Each builder has the expected constraint set and DOF (e.g. 2-pt rectangle: DOF 4, slot: DOF 5), checked with the SK-02 rank helper. 3. Degenerate input returns `Degenerate`. |
 | SK-20 | Queries & inference hooks for UI-09: `pick`, `snap_candidates` (endpoint/mid/centre/quadrant/intersection/alignment/tangent/perpendicular with suggested constraint), filtered by `check_constraint` | SK-04 | P0 | Todo | 1. Unit tests per `SnapKind`. 2. Redundant suggestions are suppressed (test on a fully constrained rectangle). 3. `pick` + `snap_candidates` < 0.1 ms on a 500-entity sketch. |
-| SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Todo | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
+| SK-19 | `amg-features::sketch`: `SketchFeature` (plane resolution, `Expr` evaluation with unit check, solve, profiles, health), `SketchEdit` via `EditFeature`, model params for driving dims | SK-03, SK-06, DOC-02, DOC-04, DOC-05 | P0 | Review | 1. Changing a user parameter referenced by a dimension recomputes the sketch and its profiles. 2. Wrong-unit `Expr` → feature error. 3. Driving dims appear as `dN` model params. 4. An inconsistent edit → `Warning` with diagnosis and previous geometry kept. 5. Random `SketchEdit` sequence → undo all → initial state (property test). 6. Save/load round-trip. |
 | SK-07 | Trim, extend, break, with constraint migration rules (coincident/tangent kept on surviving pieces, dimensions on deleted pieces removed and reported) | SK-06, SK-02 | P0 | Done | 1. ≥ 30 per-op fixtures (each op × line/arc/circle × intersection kinds) give the expected entities and constraints. 2. The result solves with residual 0. |
 | SK-16 | Sketch fillet and chamfer (equal, two-distance, distance-angle): trims both curves, adds tangent/coincident constraints and a radius/length dimension | SK-07 | P0 | Done | 1. Fixtures for line–line, line–arc, arc–arc, including corners where a fillet does not fit (→ `NotApplicable`). 2. Result DOF matches each fixture's hand-computed value, and the fillet arc is fully determined by its neighbours plus the radius dimension. |
 | SK-17 | Offset of curve chains (lines/arcs/circles; splines approximated in SK-08) with gap closing (arc/extend) and optional offset constraint (equal-distance) | SK-06, SK-02 | P0 | Done | 1. Open/closed chain fixtures, including self-intersecting offsets that get trimmed. 2. With `constrain = true`, editing the offset dimension moves the copy. |
@@ -1635,3 +1635,29 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - SK-03 and SK-11 Done. SK-10 stays `Review`: Done-when 2 (extrude golden via SOL-02) waits for SOL-02;
   the text profiles are tested. SK-10's font backend moved from `ttf-parser` (unmaintained,
   RUSTSEC-2026-0192) to `skrifa` before merge; no deny ignore was added.
+
+### 2026-10-26 - SK-19 (`amg-features::sketch`, lane B)
+- **Landed:** `crates/amg-features/src/sketch/` (`mod.rs`, `edit.rs`), kind `sketch.sketch` v1, tests in
+  `crates/amg-features/tests/sketch.rs`. One named test per Done-when: (1) `changing_a_user_parameter_recomputes_the_sketch_and_its_profiles`
+  (area 800 -> 1000 mm2; an unrelated parameter keeps the cached `Arc<SketchGeom>`), (2) `a_wrong_unit_expression_is_a_feature_error`
+  (refused up front by the command layer, and `Health::Error` with no sketch output for a feature that got into the design anyway,
+  length and angle fields), (3) `driving_dimensions_appear_as_model_parameters` (`d1`, `d2`, `d3`, owner = the feature, undo removes them),
+  (4) `an_inconsistent_edit_warns_with_a_diagnosis_and_keeps_the_previous_geometry` (`Health::Warning`, `SolveStatus::Inconsistent`, message
+  names the constraint, entities listed, previous 1000 mm2 geometry kept, removing the constraint heals it), (5) proptest
+  `random_edit_sequences_undo_to_the_initial_state` (24 cases x <= 24 edits incl. batches; undo all = initial `design.json`, redo all = final;
+  `dims` always equals the driving dimensions and is backed by model params; the sketch always recomputes without `Error`),
+  (6) `save_and_load_round_trip_through_the_amg_format` (design JSON equal, feature equal, recompute equal, re-save equal).
+- **API:** `SketchFeature { plane, sketch, dims, links }` as in Interfaces, plus `SketchFeature::new`, `apply` (atomic on a clone),
+  `edit_sketch(|&mut Sketch| ..)` (runs a builder or an `amg_sketch::edit` op and reconciles `dims`) and `commit_solved(&SketchGeom)`
+  (the `CommitDrag` that stores solved values as the warm start / last good geometry). `dims` is reconciled after every edit: it holds
+  exactly the driving dimensions; a driving dimension without an expression gets a literal (`"40 mm"`, `"1.57 rad"`).
+- **Deviations:** `SketchEdit` gains `AllocParam`, `AddPoint`, `AddLine`, `AddCircle`, `SetDimensionLabel` (S11 R5) and `SetPlane`, because
+  `EntityKind` carries `ParamId`s that a caller cannot allocate itself. `SetDimensionLabel` goes through the sketch's serde form until
+  `amg-sketch` has a label setter. Planar-face planes (`PlaneInput::Ref(Topo)`) fail with `InvalidValue` until BREP-17 (construction planes
+  resolve). `links` is stored and listed in `inputs()` but not refreshed (SK-09). Label positions still change the feature JSON and so the
+  cache key (S01 `Feature::key_data()` R6 is not implemented).
+- **Interface changes in `amg-doc` (additive; recorded in S01):** `stub::SketchGeom` is now the real type (plane, `Arc<Sketch>`, `SolveReport`,
+  `Arc<ProfileSet>`), `Feature::exprs_mut`, model-parameter promotion in `AddFeature`/`EditFeature`, sketch outputs not persisted in the
+  geometry cache.
+- **Left over:** move `SketchGeom` into `amg-sketch` when convenient; persist solved sketches in the cache; SK-09 refresh of `links`;
+  `ParamId`-referencing `exprs_mut` for features other than sketches is opt-in.

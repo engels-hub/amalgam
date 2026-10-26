@@ -141,6 +141,9 @@ dependencies = [
  "amg-sketch",
  "amg-subd",
  "amg-topopt",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

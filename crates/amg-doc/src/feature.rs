@@ -61,8 +61,16 @@ pub trait Feature: FeatureMeta + Send + Sync + fmt::Debug + Any {
     /// Every parameter expression this feature uses (S01 §5). The recompute engine (DOC-03)
     /// hashes their values into the cache key, and DOC-05 uses it to refuse deleting a
     /// parameter that a feature still reads, so a feature must list all of its `Expr` fields.
-    /// `exprs_mut` is still to come.
     fn exprs(&self) -> Vec<&Expr> {
+        Vec::new()
+    }
+
+    /// The same fields as [`exprs`](Feature::exprs), mutable and with the dimension each one
+    /// must have. When a feature enters a design or is edited, the command layer turns every
+    /// [`Expr::Inline`] into a model parameter `d<n>` owned by the feature and rewrites the field
+    /// to [`Expr::Param`] (S01 §5). Features with fixed-dimension fields override it; the default
+    /// has none.
+    fn exprs_mut(&mut self) -> Vec<(&mut Expr, Dimension)> {
         Vec::new()
     }
 
