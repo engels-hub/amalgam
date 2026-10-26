@@ -16,6 +16,7 @@ amg-jobs = { path = "crates/amg-jobs" }
 amg-compute = { path = "crates/amg-compute" }
 amg-testkit = { path = "crates/amg-testkit" }
 amg-occt-sys = { path = "crates/amg-occt-sys" }
+amg-manifold-sys = { path = "crates/amg-manifold-sys" }
 amg-nurbs = { path = "crates/amg-nurbs" }
 amg-brep = { path = "crates/amg-brep" }
 amg-sketch = { path = "crates/amg-sketch" }

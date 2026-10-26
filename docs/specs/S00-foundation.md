@@ -1608,3 +1608,23 @@ table/baseline/clone commands, the S00 §tools row, `THIRD_PARTY.md` OCCT row. `
 dependencies unchanged (BREP-01 adds `opencascade`). Remaining for Done: CI green on the push. Note for
 BREP-01: `docs/02-decisions.md`, `docs/notes/occt-integration.md` and S02 still describe pinning 8.0.0#1
 at `2026.07.29`; they should now say 8.0.1 at `2026.10.16`.
+
+### 2026-10-23 - MESH-05 (Manifold booleans; lane C): first vcpkg dependency, layering entry
+- **`vcpkg.json` gains its first dependency, `manifold`**, served by a new overlay port
+  `ports/manifold` (registered in `vcpkg-configuration.json` as `"overlay-ports": ["./ports"]`).
+  It pulls `tbb` (oneTBB 2023.1.0, no hwloc) and `clipper2` 2.0.1, all static and release-only
+  through `x64-windows-amg`. **No `.github/` or `deny.toml` change:** the composite vcpkg action
+  now finds a non-empty manifest and runs in `clippy`, `test` and `bench` (first cold run builds
+  tbb + clipper2 + manifold, about 5 min on this machine, then the binary cache serves it). The
+  `clippy (all features)` job thereby builds `amg-mesh/manifold` and `amg-manifold-sys/native`,
+  whose `build.rs` finds `<repo>/vcpkg_installed/x64-windows-amg` (the action's install root).
+  The `test`, `golden` and `bench` jobs use default features, so nothing links Manifold there,
+  and `golden` still needs no vcpkg. If the extra CI time is unwanted, the alternative is to
+  exclude the feature in the all-features clippy step like `amg-sketch/slvs` (lane D's call).
+- **Layering test (`crates/amg-testkit/tests/layering.rs`):** `amg-manifold-sys` gets an empty
+  allow-list entry next to `amg-occt-sys` (ADR-003 consequence), and the crate count is 24.
+  `docs/01-architecture.md` §Crates does not list `amg-manifold-sys` yet (left to the
+  architecture owner).
+- **Local builds:** `vcpkg install --triplet x64-windows-amg` at the repo root, or
+  `--x-install-root=<dir>` plus `AMG_VCPKG_INSTALLED=<dir>` (used for worktrees, so the install
+  tree stays off C:). Only needed with `--features manifold` / `--all-features`.
