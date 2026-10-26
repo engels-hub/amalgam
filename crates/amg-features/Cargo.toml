@@ -22,6 +22,11 @@ amg-io.workspace = true
 amg-fem.workspace = true
 amg-topopt.workspace = true
 amg-am.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true

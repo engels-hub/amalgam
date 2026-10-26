@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use crate::eval::CacheKey;
-use crate::feature::FeatureOutput;
+use crate::eval::{BodyGeom, CacheKey};
+use crate::feature::{BodyChangeKind, FeatureOutput};
 
 /// Default cache budget, bytes (S01 §3: 2 GiB, a preference).
 pub const DEFAULT_BUDGET_BYTES: u64 = 2 << 30;
@@ -33,8 +33,21 @@ pub fn estimate_bytes(out: &FeatureOutput) -> u64 {
     const BASE: usize = 256;
     const PER_BODY: usize = 192;
     const PER_WARNING: usize = 160;
-    let n = BASE + out.bodies.len() * PER_BODY + out.warnings.len() * PER_WARNING;
+    let mut n = BASE + out.bodies.len() * PER_BODY + out.warnings.len() * PER_WARNING;
+    for b in &out.bodies {
+        if let BodyChangeKind::Created { geom, .. } | BodyChangeKind::Modified { geom, .. } =
+            &b.change
+            && let BodyGeom::Mesh(m) = geom
+        {
+            n += mesh_bytes(m);
+        }
+    }
     u64::try_from(n).unwrap_or(u64::MAX)
+}
+
+/// Heap size of a mesh body's main arrays (positions, triangles, per-face group ids).
+fn mesh_bytes(m: &amg_mesh::IndexedMesh) -> usize {
+    m.positions.len() * 24 + m.tris.len() * 16
 }
 
 struct Entry {

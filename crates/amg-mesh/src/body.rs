@@ -58,6 +58,11 @@ impl MeshBody {
         }
     }
 
+    /// Wraps an already shared `mesh` (no copy).
+    pub fn from_arc(mesh: Arc<IndexedMesh>) -> Self {
+        Self { mesh }
+    }
+
     /// The shared mesh.
     pub fn mesh(&self) -> &Arc<IndexedMesh> {
         &self.mesh

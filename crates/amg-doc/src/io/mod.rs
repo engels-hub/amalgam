@@ -202,7 +202,8 @@ pub trait BodyCodec: Send + Sync + Debug {
     fn decode(&self, blob: &BlobRef, bytes: &[u8]) -> Result<BodyGeom, BodyCodecError>;
 }
 
-/// Codec for the stub geometry types: stores a tag per kind and nothing else.
+/// Codec for body geometry: meshes are stored with `amg_mesh::MeshBody::write_binary`
+/// (bit-exact, MESH-16); the other kinds are still stub types and store a tag per kind only.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StubBodyCodec;
 
@@ -210,7 +211,14 @@ impl BodyCodec for StubBodyCodec {
     fn encode(&self, _blob: &BlobRef, geom: &BodyGeom) -> Result<Vec<u8>, BodyCodecError> {
         Ok(match geom {
             BodyGeom::Solid(_) => b"stub:solid".to_vec(),
-            BodyGeom::Mesh(_) => b"stub:mesh".to_vec(),
+            BodyGeom::Mesh(m) => {
+                // Real geometry (MESH-16): the versioned, checksummed `AMGM` encoding.
+                let mut out = Vec::new();
+                amg_mesh::MeshBody::from_arc(Arc::clone(m))
+                    .write_binary(&mut out)
+                    .map_err(|e| BodyCodecError(format!("mesh encode: {e}")))?;
+                out
+            }
             BodyGeom::Implicit(_) => b"stub:implicit".to_vec(),
             BodyGeom::Form(_) => b"stub:form".to_vec(),
         })
@@ -220,6 +228,11 @@ impl BodyCodec for StubBodyCodec {
         match bytes {
             b"stub:solid" => Ok(BodyGeom::Solid(Shape::new())),
             b"stub:mesh" => Ok(BodyGeom::Mesh(Arc::new(IndexedMesh::default()))),
+            _ if bytes.starts_with(b"AMGM") => {
+                let body = amg_mesh::MeshBody::read_binary(bytes)
+                    .map_err(|e| BodyCodecError(format!("mesh decode: {e}")))?;
+                Ok(BodyGeom::Mesh(Arc::clone(body.mesh())))
+            }
             b"stub:implicit" => Ok(BodyGeom::Implicit(Arc::new(SdfGraph::default()))),
             b"stub:form" => Ok(BodyGeom::Form(Arc::new(SubdMesh::default()))),
             _ => Err(BodyCodecError("unknown stub geometry tag".to_owned())),

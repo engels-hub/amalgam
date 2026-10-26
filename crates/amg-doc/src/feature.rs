@@ -601,6 +601,12 @@ impl<'a> RecomputeCtx<'a> {
         }
     }
 
+    /// The job running this compute, for features that call job-aware library code (`None`
+    /// outside a job: never cancelled).
+    pub fn job(&self) -> Option<&'a JobCtx> {
+        self.job
+    }
+
     /// Reports progress of a long compute (`fraction` in `[0, 1]` within this feature).
     pub fn progress(&self, fraction: f32, msg: &str) {
         if let Some(job) = self.job {
