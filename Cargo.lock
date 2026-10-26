@@ -200,6 +200,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "amg-manifold-sys"
+version = "0.1.0"
+
+[[package]]
 name = "amg-materials"
 version = "0.1.0"
 dependencies = [
@@ -212,6 +216,7 @@ version = "0.1.0"
 dependencies = [
  "amg-core",
  "amg-jobs",
+ "amg-manifold-sys",
  "amg-mesh",
  "amg-testkit",
  "criterion 0.8.2",

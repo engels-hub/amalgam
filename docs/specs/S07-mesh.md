@@ -86,8 +86,9 @@ Mesh bodies are first-class bodies in the design, and every operation is a timel
    `MeshGL64` f64 path). Manifold and oneTBB are built by vcpkg in manifest mode (overlay port
    if the upstream port lacks `MANIFOLD_CBIND`), pinned next to OCCT, with no git/CMake inside
    `build.rs`. `manifold3d` / `manifold-csg-sys` (MIT / Apache-2.0) is the fallback if the
-   vcpkg route fails on MSVC. The cargo feature `amg-mesh/manifold` is on by default; without
-   it, `boolean()` returns `MeshError::BackendUnavailable`. **MESH-05 was gated by ADR-003 (accepted 2026-10-20).**
+   vcpkg route fails on MSVC. The cargo feature `amg-mesh/manifold` is **off by default**
+   (MESH-05: a plain `cargo build` must work without the native library; the app enables it);
+   without it, `boolean()` returns `MeshError::BackendUnavailable`. **MESH-05 was gated by ADR-003 (accepted 2026-10-20).**
 6. **Determinism.** Every op is bit-identical for the same input, regardless of rayon thread
    count:
    - ordered reductions;
@@ -741,22 +742,37 @@ pub fn soft_transform(m: &IndexedMesh, faces: &[FaceId], t: &Transform, falloff:
 ```
 
 ```rust
-// ───────────── amg_manifold_sys (MESH-05) — raw FFI, unsafe confined here ─────────────
-// Hand-written declarations for the subset of manifoldc (Manifold C API) we use; version pinned
-// in vcpkg.json. Exposed only to amg-mesh::boolean.
-#[repr(C)] pub struct ManifoldManifold { _p: [u8; 0] }
-#[repr(C)] pub struct ManifoldMeshGL64 { _p: [u8; 0] }
-extern "C" {
-    pub fn manifold_alloc_manifold() -> *mut ManifoldManifold;
-    pub fn manifold_alloc_meshgl64() -> *mut ManifoldMeshGL64;
-    pub fn manifold_meshgl64(mem: *mut ManifoldMeshGL64, vert_props: *const f64, n_verts: usize,
-                             n_props: usize, tri_verts: *const u64, n_tris: usize) -> *mut ManifoldMeshGL64;
-    pub fn manifold_of_meshgl64(mem: *mut ManifoldManifold, mesh: *mut ManifoldMeshGL64) -> *mut ManifoldManifold;
-    pub fn manifold_boolean(mem: *mut ManifoldManifold, a: *mut ManifoldManifold, b: *mut ManifoldManifold, op: i32) -> *mut ManifoldManifold;
-    pub fn manifold_status(m: *mut ManifoldManifold) -> i32;
-    pub fn manifold_get_meshgl64(mem: *mut ManifoldMeshGL64, m: *mut ManifoldManifold) -> *mut ManifoldMeshGL64;
-    // … accessors for vert_properties / tri_verts / run_original_id / face_id, batch boolean,
-    //   destructors. Exact list fixed by the MESH-05 spike against the pinned header.
+// ───────────── amg_manifold_sys (MESH-05) — raw FFI + thin safe layer, unsafe confined here ─────────────
+// `ffi`: hand-written declarations for the manifoldc subset we use (Manifold 3.5.4, overlay port
+// `ports/manifold`); build.rs checks every `manifold_*` name against the installed manifoldc.h.
+// Feature `native` (enabled by `amg-mesh/manifold`) links manifoldc, manifold, Clipper2, tbb12.
+pub mod ffi { /* ManifoldManifold, ManifoldMeshGL64, ManifoldManifoldVec, ManifoldMeshGL64Options,
+    manifold_alloc_* / manifold_delete_*, manifold_meshgl64, manifold_meshgl64_w_options,
+    manifold_of_meshgl64, manifold_as_original, manifold_empty, manifold_boolean,
+    manifold_manifold_empty_vec, manifold_manifold_vec_push_back, manifold_batch_boolean,
+    manifold_status, manifold_original_id, manifold_num_tri, manifold_get_meshgl64,
+    manifold_meshgl64_{num_prop,vert_properties,tri_verts,merge_from_vert,merge_to_vert,
+    run_index,run_original_id,face_id}(+ _length) */ }
+pub enum OpType { Add, Subtract, Intersect }
+pub enum Status { NoError, NotManifold, VertexIndexOutOfBounds, NonFiniteVertex, Other(i32) }
+pub struct MeshGL64;   // owns a ManifoldMeshGL64, Send
+impl MeshGL64 {
+    pub fn new(vert_props: &[f64], n_props: usize, tri_verts: &[u64]) -> MeshGL64;
+    pub fn with_merge(vert_props: &[f64], n_props: usize, tri_verts: &[u64], merge_from: &[u64], merge_to: &[u64]) -> MeshGL64;
+    pub fn to_data(&self) -> MeshData;
+}
+pub struct MeshData { pub n_props: usize, pub vert_props: Vec<f64>, pub tri_verts: Vec<u64>, pub merge_from: Vec<u64>,
+                      pub merge_to: Vec<u64>, pub run_index: Vec<u64>, pub run_original_id: Vec<u32>, pub face_id: Vec<u64> }
+pub struct Manifold;   // owns a ManifoldManifold, Send + Sync
+impl Manifold {
+    pub fn from_mesh(mesh: &MeshGL64) -> Result<Manifold, Status>;   // + AsOriginal: fresh original id
+    pub fn empty() -> Manifold;
+    pub fn status(&self) -> Status;
+    pub fn original_id(&self) -> i32;
+    pub fn num_tri(&self) -> usize;
+    pub fn boolean(&self, other: &Manifold, op: OpType) -> Result<Manifold, Status>;
+    pub fn batch_boolean(ms: &[&Manifold], op: OpType) -> Result<Manifold, Status>;
+    pub fn to_mesh(&self) -> MeshGL64;
 }
 ```
 
@@ -853,7 +869,7 @@ build, 8+ cores.
 | MESH-20 | Hole filling (Liepa: DP triangulation, refinement, harmonic/bi-harmonic fairing; CDT for planar loops) | MESH-02 | P0 | Done | All synthetic holes with boundary 3–2000 edges are filled; result is watertight with no new non-manifold elements. Patch mean edge length within 20 % of the surrounding edges. Fair-filled hole in a sphere (r = 20 mm) deviates < 2 % r. A 500-edge hole fills in < 200 ms. |
 | MESH-21 | Self-intersection removal (local delete + k-ring + refill, iterative) | MESH-19, MESH-20 | P0 | Done | ≥ 85 % of corpus models flagged `self_intersections` and `expect_repairable` become SI-free. Median Hausdorff distance (output → input) over the repaired models ≤ 1 mean input edge length, per-model values reported (owner, 2026-10-23, QUESTIONS #51; was ≤ 1 % of bbox diagonal). A watertight input never becomes non-watertight. Remaining pairs are reported. |
 | MESH-04 | Repair pipeline (weld, degenerate, duplicate, non-manifold, small shells, orient, holes, SI) + `RepairReport` | MESH-02, MESH-03, MESH-20, MESH-21 | P0 | Done | ≥ 95 % of `expect_repairable` corpus models become watertight (closed + manifold + oriented, outward), and ≥ 85 % are also SI-free. Repair is idempotent (second run changes nothing). No step increases any defect count. 1 M-tri typical repair < 3 s. |
-| MESH-05 | Booleans via Manifold: `amg-manifold-sys` (vcpkg + overlay port, TBB), `boolean`/`boolean_n`, group mapping, input auto-repair, `manifold` feature flag. **Gate: ADR-003 (cleared 2026-10-20)** | MESH-01, MESH-04 | P0 | Todo | Builds on Windows MSVC via vcpkg (Linux best-effort). Two 1 M-tri offset spheres union < 1 s end-to-end including conversion. Volume identity vol(A∪B)+vol(A∩B) = vol(A)+vol(B) within 1e-6 relative (property test, 200 random pairs). Output always watertight. Group ids survive (A kept, B re-allocated). 10 runs with TBB are bit-identical (or canonical sort documented). Without the feature: compiles, and `boolean` returns `BackendUnavailable`. |
+| MESH-05 | Booleans via Manifold: `amg-manifold-sys` (vcpkg + overlay port, TBB), `boolean`/`boolean_n`, group mapping, input auto-repair, `manifold` feature flag. **Gate: ADR-003 (cleared 2026-10-20)** | MESH-01, MESH-04 | P0 | Review | Builds on Windows MSVC via vcpkg (Linux best-effort). Two 1 M-tri offset spheres union < 1 s end-to-end including conversion. Volume identity vol(A∪B)+vol(A∩B) = vol(A)+vol(B) within 1e-6 relative (property test, 200 random pairs). Output always watertight. Group ids survive (A kept, B re-allocated). 10 runs with TBB are bit-identical (or canonical sort documented). Without the feature: compiles, and `boolean` returns `BackendUnavailable`. |
 | MESH-06 | Isotropic remesh (Botsch–Kobbelt) with feature-edge, boundary and group-border preservation, projection to input | MESH-01, MESH-03 | P0 | Done | On corpus watertight models and synthetic shapes: ≥ 95 % of triangles have min angle ≥ 30°; ≥ 90 % of edges within [0.8 L, 1.33 L]; Hausdorff to input ≤ 0.5 L. Cube feature edges stay within 1e-3 mm. Topology (genus, shells) unchanged. 1 M → ~1 M tris, 5 iterations, < 10 s. |
 | MESH-22 | Adaptive remesh (curvature sizing field, tolerance ε) | MESH-06 | P1 | Done | Max deviation from input ≤ ε on synthetic surfaces (sphere, torus, displaced sphere). Triangle count ≤ 60 % of uniform remesh at the same max deviation. |
 | MESH-07 | QEM decimation (boundary/group/feature penalties, flip and quality checks, deterministic) | MESH-01 | P0 | Done | 1 M → 100 k in < 2 s. Symmetric Hausdorff ≤ 0.2 % of bbox diagonal on the displaced-sphere benchmark. A closed manifold input stays closed and manifold. Group borders are kept when `preserve_group_borders`. Output is bit-identical across thread counts. |
@@ -1148,6 +1164,24 @@ Code: `crates/amg-mesh/src/repair/` (`mod.rs` driver, opts and report; `clean.rs
 - **MESH-21 corpus test with the real pipeline** (`pre_clean` = `repair` without holes and SI): 96 / 104 flagged models SI-free (59 of 67 repaired by MESH-21, 37 already clean after cleaning), against 90 / 104 with the old local stand-in; the 85 % bar still holds.
 - **Synthetic checks** (`tests/repair.rs`): each MESH-28 defect class alone and all together on a sphere and a torus end watertight, outward and SI-free with the volume within 3 % of the clean body; clean input is bit-identical; cavity orientation (hollow body keeps outer minus inner volume); fins and bow ties; small-shell filter edge cases; unresolved holes are reported; cancel and option errors; identical hash for 1 / 4 / 13 threads; goldens.
 - **Leftovers:** vertex normals are not re-oriented or recomputed after a flip or a split (recompute them); corner UVs and colours of split vertices are copies, patches from hole filling have none (MESH-20); the non-manifold step leaves faces it cannot pair as boundary (an odd number of sheets) and the hole filler decides what to do with them; nesting is only tested for up to 32 closed components; an uncollapsible interior degenerate face stays (reported in `after`); MESH-18 Wrap is not part of this WP (hopeless soups are excluded from the corpus targets); the SI step cannot repair overlapping solids (MESH-29).
+
+### 2026-10-23 - MESH-05 implemented (booleans via Manifold; lane C agent, branch `wp-MESH-05-manifold`)
+Code: new crate `crates/amg-manifold-sys` (`build.rs`, `src/lib.rs`), `crates/amg-mesh/src/boolean/` (`mod.rs` API + feature dispatch, `backend.rs` conversion and group mapping), tests `tests/boolean.rs`, bench `benches/mesh_boolean.rs`, goldens `tests/golden/mesh/boolean_spheres_{union,difference,intersection}.toml` and `boolean_box_minus_spheres.toml`; vcpkg overlay port `ports/manifold/`, `vcpkg.json` (`"dependencies": ["manifold"]`), `vcpkg-configuration.json` (`overlay-ports`); workspace dependency `amg-manifold-sys`; `amg-mesh/Cargo.toml` feature `manifold`, one `[[bench]]`, one `[[test]]` (both `required-features = ["manifold"]`); `lib.rs` one `mod` + one `pub use`. API as in Interfaces: `BoolOp`, `BoolOpts`, `BoolReport`, `boolean`, `boolean_n`.
+- **Native build.** Manifold 3.5.4 + oneTBB 2023.1.0 + Clipper2 2.0.1 from vcpkg (baseline `2026.10.16`), static, release-only, triplet `x64-windows-amg`; built on this machine with MSVC 14.44 in 5.3 min (cold, binary cache warm afterwards). The upstream port already sets `MANIFOLD_CBIND=ON`; the overlay exists for `MANIFOLD_PAR=ON` (TBB) and `MANIFOLD_DOWNLOADS=OFF`. `amg-manifold-sys/build.rs` does no git/CMake: with feature `native` it links `manifoldc`, `manifold`, `Clipper2`, `tbb12` from `AMG_VCPKG_INSTALLED` (else `<repo>/vcpkg_installed`) `/<triplet>/lib` and fails with a how-to message if `manifoldc.h` is missing; it also checks that every `manifold_*` function declared in `lib.rs` appears in the installed header (version drift guard). Without `native` nothing is linked, so `cargo build --workspace` needs no C++ library.
+- **Safe layer in the -sys crate.** `amg-mesh` keeps `unsafe_code = deny`; all `unsafe` is in `amg-manifold-sys` (`MeshGL64` / `Manifold` RAII owners, `MeshData` copy-out, `reserve_ids`), each block with a SAFETY comment. Signatures are in Interfaces.
+- **Group transport.** Manifold's `faceID` cannot be set through the C API (and is overwritten by coplanar ids), so groups travel as a vertex property: an operand with one group is passed as plain xyz and recognised by its run; an operand with several groups gets a 4th property (dense group index), each vertex shared by faces of different groups is duplicated per extra group, and the duplicates are declared with `mergeFromVert` / `mergeToVert` (`manifold_meshgl64_w_options`), so topology is exact and no position-based merge runs. Each operand gets its own `runOriginalID` from `manifold_reserve_ids`; output runs map back to operands through it. Output corners are interpolated inside one source triangle, so the property is that triangle's group index (rounded). Result table = operand 0's table unchanged (incl. groups whose faces vanished); each later operand's group that occurs in the result is re-allocated in (operand, source id) order with `GroupOrigin::Boolean { operand, source }`, name and primitive kept. Property vertices are collapsed back through the output merge vectors. **Canonical order:** because the parallel import can hand Manifold's internal mesh ids to the operands in either order, and Manifold orders output runs by those ids, the result puts runs in operand order (triangle order inside a run kept) and numbers vertices by first use; without this the 10-run determinism test failed once parallel import was added.
+- **Input checks.** An operand Manifold rejects as `NotManifold` is repaired with `repair(RepairOpts::default())` when `repair_inputs` (index in `BoolReport::repaired_inputs`), otherwise `analyze` names the problem: `NonManifold { edges, vertices }`, `NotClosed { boundary_loops }`, or `Boolean { status }`. Other Manifold statuses become `MeshError::Boolean`. `boolean_n` takes 1 to 256 operands (`InvalidOption` otherwise); `[a]` alone returns Manifold's normalised copy; 3+ use `manifold_batch_boolean` (`Difference` = first minus the union of the rest).
+- **Performance work.** First version: 1.45 s release for the 1 M x 1 M union, of which 1.06 s was operand import. `AsOriginal` (used to get a traceable id) recomputes normals and coplanar faces a second time; replacing it with a reserved `runOriginalID` saved about 0.4 s, importing the operands in parallel (rayon; Manifold's import is largely serial per mesh) about 0.2 s more, and parallel import/export loops on the Rust side the rest (release: 1.45 s, then 0.99 s, then 0.97 s). Manifold's own coplanar-face pass in the import cannot be skipped through the API.
+- **Measured (Done-when).**
+  - Builds on Windows MSVC via vcpkg with the feature on (above). Linux: not tried (best effort; `build.rs` links `libtbb`, `stdc++`, `pthread` there).
+  - Two 1 M-triangle offset spheres (`corpus::bench::boolean_pair(M1)`, 1 003 520 tris each, displaced, centres 7 mm apart), union end-to-end including both conversions: **974 ms** [964, 985] (criterion, release, `benches/mesh_boolean.rs -- _1M`, 16 logical cores, machine otherwise idle); 999 ms [983, 1018] while three other workers were building. Difference 884 ms [876, 893], intersection 771 ms [762, 781]; 100 k x 100 k: union 94 ms, difference 84 ms, intersection 75 ms. The margin under the budget is small (about 3 %): most of the time is inside Manifold (import with its coplanar-face pass about 450 ms for the two operands in parallel, boolean about 300 ms, mesh export about 90 ms). `tests/boolean.rs::timing_union_1m_spheres` (test profile) asserts < 1 s only with `AMG_STRICT_TIMING=1`. Output 1 366 154 tris, watertight.
+  - Volume identity: `volume_identity` proptest, 200 random pairs (icospheres of 1 to 3 subdivisions and boxes, radius 2 to 12, offsets up to 15 mm, so disjoint, nested, touching and overlapping cases): vol(A∪B)+vol(A∩B) = vol(A)+vol(B) and vol(A−B)+vol(A∩B) = vol(A) within 1e-6 relative; every non-empty output passes `analyze().is_watertight()`.
+  - Watertight: every output in every test is checked (closed, manifold, oriented, non-negative volume).
+  - Group ids: `group_ids_survive` (two cubes with named side groups whose ids collide): A's table and ids unchanged, B's groups re-allocated above A's counter with `Boolean { operand: 1, source }` and names kept; faces land in the geometrically right group, and the uncovered L-shaped rest of A's covered face keeps A's id (area exact). `boolean_n_batch` sees operands 1 and 2.
+  - Determinism: `determinism_10_runs`, 100 k x 100 k displaced spheres with extra groups on both operands, union / difference / intersection, 10 runs each: positions (bits), triangles and per-face groups identical; the test passed 6 times in a row (180 booleans). Manifold + TBB itself is deterministic for fixed operand ids; the run reordering above makes the result independent of the import order (documented in the module docs).
+  - Without the feature: `cargo nextest run -p amg-mesh` (default features) compiles and `boolean` returns `BackendUnavailable` (unit test `without_feature_backend_is_unavailable`).
+- **Deviations.** (1) `amg-mesh/manifold` is **off by default** (design decision 5 said on): a plain build and CI's default jobs must work without the native library; the app crate should enable it. (2) `MANIFOLD_CROSS_SECTION` stays **ON** (ADR-003's amendment said OFF): in Manifold 3.5.4 `MANIFOLD_CBIND` is a `cmake_dependent_option` on `MANIFOLD_CROSS_SECTION`, so the C API does not exist without it. That adds Clipper2 (BSL-1.0, permissive, static); Amalgam never calls it. Owner may want to note this on ADR-003. (3) Mesh attributes (vertex normals / colours, corner UVs, 3MF properties) are not carried through a boolean; the result has empty `MeshAttrs`.
+- **Leftovers.** `docs/01-architecture.md` §Crates does not list `amg-manifold-sys` (the layering test now does; see S00 Interface changes). Attribute propagation (colours/UVs as extra Manifold properties) if MESH-27 needs it. Linux build untested. CI's first run with a non-empty `vcpkg.json` will build Manifold + TBB + Clipper2 cold (about 5 min) before the binary cache takes over.
 
 ## Interface changes
 ### 2026-10-20 — MESH-01 (`IndexedMesh`, `HalfEdgeMesh`, weld, `MeshBody`; lane C)

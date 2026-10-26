@@ -1,0 +1,21 @@
+[package]
+name = "amg-manifold-sys"
+description = "Raw FFI to Manifold's C API (manifoldc), built by vcpkg with oneTBB (S07 MESH-05, ADR-003)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+links = "manifoldc"
+build = "build.rs"
+
+[dependencies]
+
+[features]
+# Link the vcpkg-built Manifold + oneTBB static libraries. Off by default, so a plain
+# `cargo build --workspace` works without the native libraries: the declarations still
+# compile, and nothing references the symbols. `amg-mesh/manifold` turns it on.
+native = []
+
+[lints]
+workspace = true

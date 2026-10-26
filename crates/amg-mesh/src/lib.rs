@@ -13,6 +13,7 @@
 mod analysis;
 mod attrs;
 mod body;
+mod boolean;
 mod cut;
 mod decimate;
 mod error;
@@ -35,6 +36,7 @@ pub mod corpus;
 pub use analysis::{AnalysisReport, AnalyzeOpts, ShellInfo, analyze};
 pub use attrs::{MeshAttrs, Rgba8, TriProperty};
 pub use body::MeshBody;
+pub use boolean::{BoolOp, BoolOpts, BoolReport, boolean, boolean_n};
 pub use cut::{
     KeepSide, PlaneCutOpts, PlaneCutResult, Polyline3, erase_and_fill, plane_cut, reverse_normals,
     section, separate_shells,

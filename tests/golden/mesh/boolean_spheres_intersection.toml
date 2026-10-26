@@ -1,0 +1,28 @@
+# Golden metrics for mesh/boolean_spheres_intersection. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 1170.4973311451454
+area = 565.6655554822582
+vertices = 1858
+triangles = 3712
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -1.0,
+    -5.0,
+    -6.981623318722194,
+]
+max = [
+    10.0,
+    9.642931924075667,
+    8.588389154891248,
+]

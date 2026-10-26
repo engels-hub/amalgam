@@ -29,7 +29,8 @@ const DOMAINS: &[&str] = &[
 /// crate above the foundation layer may also use the whole foundation layer.
 fn allowed(krate: &str) -> Option<BTreeSet<&'static str>> {
     let extra: Vec<&'static str> = match krate {
-        "amg-core" | "amg-occt-sys" => return Some(BTreeSet::new()),
+        // amg-manifold-sys: FFI crate created by MESH-05 (ADR-003).
+        "amg-core" | "amg-occt-sys" | "amg-manifold-sys" => return Some(BTreeSet::new()),
         // S00 §Interfaces: `TriSoup` borrows `amg_core::Point3`. Never a domain crate, since
         // domain crates dev-depend on the testkit.
         "amg-testkit" => return Some(["amg-core"].into()),
@@ -38,7 +39,6 @@ fn allowed(krate: &str) -> Option<BTreeSet<&'static str>> {
         // render is fed through `RenderScene`, never amg-doc.
         "amg-render" => return Some(["amg-core", "amg-jobs"].into()),
         "amg-nurbs" | "amg-sketch" | "amg-materials" => vec![],
-        // amg-manifold-sys is created by MESH-05 (ADR-003).
         "amg-mesh" => vec!["amg-manifold-sys"],
         "amg-brep" => vec!["amg-occt-sys", "amg-nurbs"],
         "amg-implicit" => vec!["amg-mesh"],
@@ -140,10 +140,10 @@ fn workspace() -> (BTreeSet<String>, Vec<Edge>) {
 }
 
 #[test]
-fn workspace_has_the_23_architecture_crates() {
+fn workspace_has_the_24_architecture_crates() {
     let (names, _) = workspace();
     let amg: Vec<_> = names.iter().filter(|n| n.starts_with("amg-")).collect();
-    assert_eq!(amg.len(), 23, "amg-* packages: {amg:?}");
+    assert_eq!(amg.len(), 24, "amg-* packages: {amg:?}");
     for n in amg {
         assert!(allowed(n).is_some(), "{n} has no allow-list entry");
     }

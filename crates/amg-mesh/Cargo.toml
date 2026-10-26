@@ -22,12 +22,18 @@ faer = { version = "=0.23.2", default-features = false, features = ["std", "spar
 toml = { workspace = true, optional = true }
 sha2 = { version = "0.10.9", optional = true }
 rand_chacha = { version = "0.9.0", optional = true }
+# MESH-05 booleans (feature `manifold`): Manifold + oneTBB via vcpkg (ADR-003, THIRD_PARTY.md).
+amg-manifold-sys = { workspace = true, optional = true, features = ["native"] }
 
 [features]
 # `amg_mesh::corpus`: broken-mesh corpus manifest + loader, seeded defect and benchmark
 # generators (MESH-28). Test support only; enabled for this crate's own tests via the
 # self dev-dependency below and by other crates' `[dev-dependencies]`.
 corpus = ["dep:toml", "dep:sha2", "dep:rand_chacha"]
+# `boolean` / `boolean_n` through Manifold (MESH-05). Off by default: it links the vcpkg-built
+# Manifold and oneTBB static libraries (`vcpkg install` at the repo root, see
+# amg-manifold-sys/build.rs). Without it the boolean functions return `BackendUnavailable`.
+manifold = ["dep:amg-manifold-sys"]
 
 [dev-dependencies]
 amg-mesh = { path = ".", features = ["corpus"] }
@@ -82,6 +88,15 @@ harness = false
 [[bench]]
 name = "mesh_cut"
 harness = false
+
+[[bench]]
+name = "mesh_boolean"
+harness = false
+required-features = ["manifold"]
+
+[[test]]
+name = "boolean"
+required-features = ["manifold"]
 
 [lints]
 workspace = true
