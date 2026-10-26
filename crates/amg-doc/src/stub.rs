@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use amg_core::Plane;
 use serde::{Deserialize, Serialize};
 
 /// B-rep shape handle. Cheap to clone; clones share the shape.
@@ -46,8 +47,21 @@ data_stub! {
     SdfGraph;
     /// Subdivision control mesh. TODO(FRM-01): replace with `pub use amg_subd::SubdMesh;`.
     SubdMesh;
-    /// Solved sketch geometry. TODO(SK-01): replace with the `amg-sketch` type.
-    SketchGeom;
+}
+
+/// Solved sketch carried in `FeatureOutput::sketch` and read via `RecomputeCtx::sketch` (SK-19;
+/// S03 Interfaces). Unlike the other stubs it carries data: `amg-doc` already depends on
+/// `amg-sketch`, so the real type lives here until it moves into `amg-sketch`.
+#[derive(Clone, Debug)]
+pub struct SketchGeom {
+    /// World placement of the sketch plane at this recompute.
+    pub plane: Plane,
+    /// Solved geometry (the last good geometry when `report` is not converged).
+    pub sketch: Arc<amg_sketch::Sketch>,
+    /// Outcome of the solve that produced (or failed to replace) `sketch`.
+    pub report: amg_sketch::solve::SolveReport,
+    /// Closed regions of `sketch`.
+    pub profiles: Arc<amg_sketch::ProfileSet>,
 }
 
 /// Stable key of a sketch curve or point. TODO(SK-01): replace with the `amg-sketch` type

@@ -1747,3 +1747,12 @@ Code in `amg-doc::io::cachefile` (cache), `amg-doc::recovery` (journal, snapshot
 - `RecomputeCtx::job() -> Option<&JobCtx>` (feature.rs) for features that call job-aware library code.
 - `cache::estimate_bytes` counts mesh positions/triangles.
 
+### 2026-10-26 - SK-19 (additive amg-doc hooks for `amg-features::sketch`, lane B)
+- `Feature::exprs_mut(&mut self) -> Vec<(&mut Expr, Dimension)>` (defaulted to empty). `Command::AddFeature` and `Command::EditFeature`
+  now turn every `Expr::Inline` it returns into a model parameter `d<n>` owned by the feature (`Design::add_model_params`) and store the
+  rewritten feature; features that do not override it are unaffected. A wrong-dimension expression is refused with `CommandError::Expr`.
+- `stub::SketchGeom` is no longer an empty stub: `{ plane: Plane, sketch: Arc<amg_sketch::Sketch>, report: SolveReport, profiles: Arc<ProfileSet> }`
+  (it lost `Default`, `PartialEq`, `Eq`). It can move into `amg-sketch` later.
+- `StubOutputCodec` refuses outputs that carry a sketch, so the cache file leaves them out and they recompute on open (decode of a legacy
+  `sketch: true` entry is an error for the same reason).
+

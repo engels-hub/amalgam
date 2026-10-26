@@ -6,6 +6,8 @@
 //!
 //! Domain lanes add feature *types*, never commands.
 
+use std::sync::Arc;
+
 use amg_core::Transform;
 use serde::{Deserialize, Serialize};
 
@@ -477,6 +479,25 @@ fn check_feature_params(d: &Design, f: &FeatureBox) -> Result<(), CommandError> 
     Ok(())
 }
 
+/// Turns the inline expressions a feature exposes through `Feature::exprs_mut` into model
+/// parameters `d<n>` owned by it (S01 §5). Does nothing for features without such fields.
+fn promote_model_params(d: &mut Design, id: FeatureId) -> Result<(), CommandError> {
+    let Some((_, node)) = d.timeline().node(id) else {
+        return Ok(());
+    };
+    let mut copy = node.feature.0.clone_arc();
+    let Some(f) = Arc::get_mut(&mut copy) else {
+        return Ok(());
+    };
+    let fields = f.exprs_mut();
+    if !fields.iter().any(|(e, _)| matches!(e, Expr::Inline(_))) {
+        return Ok(());
+    }
+    d.add_model_params(id, fields)?;
+    d.replace_feature(id, FeatureBox(copy))?;
+    Ok(())
+}
+
 fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
     let mut created = Vec::new();
     match cmd {
@@ -488,6 +509,7 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
         } => {
             check_feature_params(d, &feature)?;
             let id = d.add_feature(at, feature, context, name)?;
+            promote_model_params(d, id)?;
             created.push(CreatedId::Feature(id));
         }
         Command::EditFeature { id, feature } => {
@@ -501,6 +523,7 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
             }
             check_feature_params(d, &feature)?;
             d.replace_feature(id, feature)?;
+            promote_model_params(d, id)?;
         }
         Command::DeleteFeatures { mut ids } => {
             if ids.is_empty() {

@@ -141,6 +141,7 @@ dependencies = [
  "amg-sketch",
  "amg-subd",
  "amg-topopt",
+ "proptest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

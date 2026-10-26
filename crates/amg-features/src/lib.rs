@@ -3,3 +3,4 @@
 //! Spec: S04/S05/S06 + domain specs. Lane: shared by module.
 
 pub mod mesh;
+pub mod sketch;
