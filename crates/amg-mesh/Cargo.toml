@@ -83,5 +83,9 @@ harness = false
 name = "mesh_cut"
 harness = false
 
+[[bench]]
+name = "mesh_segment"
+harness = false
+
 [lints]
 workspace = true

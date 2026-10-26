@@ -590,3 +590,181 @@ fn a_history_document_with_mesh_features_round_trips_with_its_cache() {
     assert_eq!(doc.evaluated().node(rep).unwrap().health, Health::Ok);
     let _ = Design::new("unused");
 }
+
+// ----------------------------------------------------------------- MESH-12 face groups
+
+/// Closed box `[0, n]^3`, each side an `n x n` lattice of unit cells, outward triangles, one
+/// group.
+fn lattice_box(n: u32) -> IndexedMesh {
+    let mut ids = std::collections::HashMap::new();
+    let mut positions = Vec::new();
+    let mut tris = Vec::new();
+    for axis in 0..3usize {
+        let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
+        for side in [0, n] {
+            for i in 0..n {
+                for j in 0..n {
+                    let mut quad = [(0, 0), (1, 0), (1, 1), (0, 1)].map(|(di, dj)| {
+                        let mut p = [0u32; 3];
+                        p[axis] = side;
+                        p[u] = i + di;
+                        p[v] = j + dj;
+                        *ids.entry(p).or_insert_with(|| {
+                            positions.push(Point3::new(
+                                f64::from(p[0]),
+                                f64::from(p[1]),
+                                f64::from(p[2]),
+                            ));
+                            (positions.len() - 1) as u32
+                        })
+                    });
+                    if side == 0 {
+                        quad.reverse();
+                    }
+                    tris.push([quad[0], quad[1], quad[2]]);
+                    tris.push([quad[0], quad[2], quad[3]]);
+                }
+            }
+        }
+    }
+    IndexedMesh::new(positions, tris).unwrap()
+}
+
+fn used_groups(m: &IndexedMesh) -> std::collections::BTreeSet<FaceGroupId> {
+    m.groups.per_face().iter().copied().collect()
+}
+
+#[test]
+fn face_groups_run_as_a_feature_with_undo_redo_and_caching() {
+    let mut fx = Fixture::new();
+    let src = fx.add(source(&lattice_box(6)));
+    fx.recompute();
+    let h0 = fx.mesh(body(src)).content_hash();
+    assert_eq!(used_groups(&fx.mesh(body(src))).len(), 1);
+
+    let seg = fx.add(feature(MeshFaceGroupsFeature::new(body(src))));
+    let rev = fx.add(feature(MeshReverseNormalFeature {
+        body: body(src),
+        groups: None,
+    }));
+    fx.recompute();
+    assert_eq!(fx.doc.evaluated().node(seg).unwrap().health, Health::Ok);
+    let segmented = fx.mesh(body(src));
+    let h1 = segmented.content_hash();
+    assert_ne!(h1, h0);
+    // A box has six sides, 72 triangles each.
+    let groups = used_groups(&segmented);
+    assert_eq!(groups.len(), 6);
+    for g in &groups {
+        assert_eq!(segmented.groups.faces_of(*g).count(), 72);
+    }
+
+    assert!(fx.doc.undo());
+    assert!(fx.doc.undo());
+    fx.recompute();
+    assert_eq!(fx.mesh(body(src)).content_hash(), h0, "undo: exact hash");
+    assert!(fx.doc.redo());
+    assert!(fx.doc.redo());
+    fx.recompute();
+    assert_eq!(fx.mesh(body(src)).content_hash(), h1, "redo: exact hash");
+
+    // Editing a parameter recomputes the feature and the reverse after it only; the source
+    // comes from the cache. Editing back hits the cache.
+    let mut f = MeshFaceGroupsFeature::new(body(src));
+    f.opts.angle_threshold = amg_doc::Expr::Inline("20 deg".into());
+    fx.edit(seg, feature(f));
+    fx.recompute();
+    assert_eq!(fx.computed(), vec![seg, rev]);
+    assert_eq!(fx.cached(), vec![src]);
+    fx.edit(seg, feature(MeshFaceGroupsFeature::new(body(src))));
+    fx.recompute();
+    assert!(fx.computed().is_empty(), "{:?}", fx.computed());
+}
+
+#[test]
+fn a_downstream_reference_to_a_segmented_group_survives_a_parameter_edit() {
+    let mut fx = Fixture::new();
+    let src = fx.add(source(&lattice_box(6)));
+    let seg = fx.add(feature(MeshFaceGroupsFeature::new(body(src))));
+    fx.recompute();
+    let segmented = fx.mesh(body(src));
+    let g = segmented.groups.group_of(FaceId(0));
+    let r = MeshEntityRef::new(&segmented, g).unwrap();
+    let rev = fx.add(feature(MeshReverseNormalFeature {
+        body: body(src),
+        groups: Some(vec![r.clone()]),
+    }));
+    fx.recompute();
+    assert_eq!(fx.doc.evaluated().node(rev).unwrap().health, Health::Ok);
+    let flipped = fx.mesh(body(src));
+    let n = flipped
+        .tris
+        .iter()
+        .zip(&segmented.tris)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(n, 72, "only that side flipped");
+
+    // Same grouping after a parameter change: the ids are the same, so no fingerprint fallback.
+    let mut f = MeshFaceGroupsFeature::new(body(src));
+    f.opts.min_group_faces = 4;
+    fx.edit(seg, feature(f));
+    fx.recompute();
+    let health = &fx.doc.evaluated().node(rev).unwrap().health;
+    assert_eq!(*health, Health::Ok, "{health:?}");
+    assert_eq!(
+        resolve_group(&fx.mesh(body(src)), &r).unwrap().quality,
+        MatchQuality::Exact
+    );
+}
+
+#[test]
+fn replacing_existing_groups_warns_and_new_body_mode_keeps_the_input() {
+    let mut fx = Fixture::new();
+    let (mesh, _) = defective_sphere();
+    let src = fx.add(source(&mesh));
+    let mut f = MeshFaceGroupsFeature::new(body(src));
+    f.output = OutputMode::NewBody;
+    let seg = fx.add(feature(f));
+    fx.recompute();
+    let node = fx.doc.evaluated().node(seg).unwrap();
+    assert!(
+        matches!(node.health, Health::Warning(_)),
+        "{:?}",
+        node.health
+    );
+    assert_eq!(fx.mesh(body(src)).content_hash(), mesh.content_hash());
+    let new = fx.mesh(body(seg));
+    assert!(!used_groups(&new).is_empty());
+}
+
+#[test]
+fn bad_thresholds_fail_the_feature_and_the_json_round_trips() {
+    let mut fx = Fixture::new();
+    let src = fx.add(source(&lattice_box(3)));
+    let mut f = MeshFaceGroupsFeature::new(body(src));
+    f.opts.angle_threshold = amg_doc::Expr::Inline("0 deg".into());
+    let seg = fx.add(feature(f));
+    fx.recompute();
+    assert!(matches!(
+        fx.doc.evaluated().node(seg).unwrap().health,
+        Health::Error(_)
+    ));
+    let mut f = MeshFaceGroupsFeature::new(body(src));
+    f.opts.curvature_threshold = Some(amg_doc::Expr::Inline("-1".into()));
+    fx.edit(seg, feature(f));
+    fx.recompute();
+    assert!(matches!(
+        fx.doc.evaluated().node(seg).unwrap().health,
+        Health::Error(_)
+    ));
+
+    link();
+    let mut f = MeshFaceGroupsFeature::new(body(src));
+    f.opts.curvature_threshold = Some(amg_doc::Expr::Inline("0.5".into()));
+    let f = feature(f);
+    let s = serde_json::to_string(&f).unwrap();
+    let back: FeatureBox = serde_json::from_str(&s).unwrap();
+    assert!(!back.is_unknown());
+    assert_eq!(back, f);
+}

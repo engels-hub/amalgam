@@ -1,0 +1,28 @@
+# Golden metrics for mesh/segment_l_bracket. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 6000.000000000117
+area = 2440.0000000000005
+vertices = 2442
+triangles = 4880
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -12.713402457588757,
+    -19.856463428914424,
+    19.0,
+]
+max = [
+    26.573603771630992,
+    12.022847439002462,
+    52.44951421833929,
+]
