@@ -28,6 +28,10 @@ impl Shape {
     }
 }
 
+/// Indexed triangle mesh (MESH-16: the real `amg-mesh` type; a mesh body is
+/// `BodyGeom::Mesh(Arc<IndexedMesh>)`).
+pub use amg_mesh::IndexedMesh;
+
 macro_rules! data_stub {
     ($($(#[$m:meta])* $name:ident;)*) => {$(
         $(#[$m])*
@@ -38,8 +42,6 @@ macro_rules! data_stub {
 }
 
 data_stub! {
-    /// Indexed triangle mesh. TODO(MESH-02): replace with `pub use amg_mesh::IndexedMesh;`.
-    IndexedMesh;
     /// Implicit (SDF) node graph. TODO(IMP-01): replace with `pub use amg_implicit::SdfGraph;`.
     SdfGraph;
     /// Subdivision control mesh. TODO(FRM-01): replace with `pub use amg_subd::SubdMesh;`.

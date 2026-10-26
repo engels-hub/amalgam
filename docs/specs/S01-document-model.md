@@ -1740,3 +1740,10 @@ Code in `amg-doc::io::cachefile` (cache), `amg-doc::recovery` (journal, snapshot
   (by design: features read parameters); feature-level "config only" features. Reading
   `doc.design().params()` gives base values: UI code that shows the active values should use
   `Design::effective()`.
+
+### 2026-10-26 - MESH-16 (mesh bodies; requested by lane C, additive)
+- `amg_doc::stub::IndexedMesh` is now `pub use amg_mesh::IndexedMesh` (the TODO(MESH-02) stub is gone; no longer `Eq`; `Default` and `PartialEq` remain). `BodyGeom::Mesh(Arc<IndexedMesh>)` is the mesh body.
+- `StubBodyCodec` encodes/decodes mesh bodies with `amg_mesh::MeshBody::{write_binary, read_binary}` (bit-exact); other kinds still use the stub tags. The old `stub:mesh` tag still decodes (empty mesh), so v0/v1 fixtures load. `design.json` is unchanged, so `FORMAT_VERSION` is unchanged.
+- `RecomputeCtx::job() -> Option<&JobCtx>` (feature.rs) for features that call job-aware library code.
+- `cache::estimate_bytes` counts mesh positions/triangles.
+
