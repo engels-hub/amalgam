@@ -79,5 +79,9 @@ harness = false
 name = "mesh_repair"
 harness = false
 
+[[bench]]
+name = "mesh_cut"
+harness = false
+
 [lints]
 workspace = true

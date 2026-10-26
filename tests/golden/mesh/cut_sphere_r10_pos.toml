@@ -1,0 +1,28 @@
+# Golden metrics for mesh/cut_sphere_r10_pos. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 1542.2731237166392
+area = 820.7123998518814
+vertices = 1238
+triangles = 2472
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -9.007031613342708,
+    -7.371808216630113,
+    -4.464832944051367,
+]
+max = [
+    10.0,
+    10.0,
+    10.0,
+]
