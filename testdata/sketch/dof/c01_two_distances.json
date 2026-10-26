@@ -1,0 +1,104 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/c01_two_distances",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Two different distances between the same points.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "p0",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "p1",
+        "geom": {
+          "point": {
+            "at": [
+              11.0,
+              0.0
+            ]
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Distance": {
+              "a": 0,
+              "b": 1,
+              "side": "Positive"
+            }
+          },
+          "value": 10.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Distance": {
+              "a": 0,
+              "b": 1,
+              "side": "Positive"
+            }
+          },
+          "value": 12.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "inconsistent",
+      "dof": null,
+      "groups": [
+        {
+          "kind": "conflicting",
+          "constraints": [
+            1,
+            2
+          ]
+        }
+      ]
+    }
+  },
+  "dof": 1,
+  "entities": [
+    {
+      "state": "over",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 1
+    }
+  ]
+}

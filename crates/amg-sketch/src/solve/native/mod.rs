@@ -11,11 +11,14 @@
 //!   be numerically free). The better result is kept.
 //! - Cancellation is checked before each block, every iteration, every rank test and every 16
 //!   diagnosis rows. A cancelled solve leaves the sketch unchanged.
-//! - `analyze`, `check_constraint` and `begin_drag` are interim versions on the same machinery
-//!   (total DOF, circuit diagnosis, point drags by weighted minimum norm); SK-04 and SK-05
-//!   replace them.
+//! - DOF analysis and diagnosis ([`analysis`], SK-04): per-entity status from the null space of
+//!   the decomposed system, circuits with a witness tie-break and leave-one-out refinement of
+//!   conflicts, and an incremental `check_constraint` on the cached analysis.
+//! - `begin_drag` is an interim point drag (weighted minimum norm); SK-05 replaces it.
 
+mod analysis;
 mod block;
+mod dense;
 mod diagnose;
 mod sparse;
 mod structure;
@@ -27,11 +30,12 @@ use std::sync::Arc;
 
 use amg_core::Point2;
 
+use self::analysis::{Base, Settings, analyze_at};
 use self::block::{BlockCtx, BlockOutcome, solve_block, to_dense};
 use self::structure::{Slot, Structure, Sub, SubKind};
 use super::api::{
-    Algorithm, ConstraintCheck, DependencyGroup, Diagnosis, DofAnalysis, DofReport, DragSession,
-    DragSpec, DragStep, GroupKind, SolveOptions, SolveReport, SolveStatus, SolverBackend,
+    Algorithm, ConstraintCheck, Diagnosis, DofAnalysis, DofReport, DragSession, DragSpec, DragStep,
+    SolveOptions, SolveReport, SolveStatus, SolverBackend,
 };
 use super::rank::numeric_rank;
 use super::residual::{SketchSystem, build, build_system_polled, characteristic_length};
@@ -84,6 +88,8 @@ pub struct NativeSolver {
     dense_max: usize,
     decompose: bool,
     stats: SolveStats,
+    /// Analysis of the last sketch `analyze` / `check_constraint` saw (SK-04).
+    analysis: Option<Arc<Base>>,
 }
 
 impl std::fmt::Debug for NativeSolver {
@@ -111,6 +117,7 @@ impl Clone for NativeSolver {
             dense_max: self.dense_max,
             decompose: self.decompose,
             stats: self.stats,
+            analysis: self.analysis.clone(),
         }
     }
 }
@@ -130,6 +137,7 @@ impl NativeSolver {
             dense_max: DENSE_MAX,
             decompose: true,
             stats: SolveStats::default(),
+            analysis: None,
         }
     }
 
@@ -220,7 +228,9 @@ impl NativeSolver {
             self.retire(sys);
             return SolveReport::cancelled();
         };
-        let Some(mut report) = evaluate(&sys, &st, &run, opts, tol, cancel) else {
+        let settings = self.settings();
+        let Some(mut report) = evaluate(sketch, &sys, &st, &run, opts, tol, settings, cancel)
+        else {
             self.retire(sys);
             return SolveReport::cancelled();
         };
@@ -419,12 +429,15 @@ fn ranks(
 }
 
 /// Status, residuals, rank/DOF and diagnosis at the end of a run; `None` if cancelled.
+#[allow(clippy::too_many_arguments, reason = "internal pipeline step")]
 fn evaluate(
+    sketch: &Sketch,
     sys: &SketchSystem,
     st: &Structure,
     run: &Run,
     opts: &SolveOptions,
     tol: f64,
+    settings: Settings,
     cancel: &dyn Fn() -> bool,
 ) -> Option<SolveReport> {
     let x = &run.x;
@@ -468,12 +481,23 @@ fn evaluate(
         (false, true) => SolveStatus::Inconsistent,
         (false, false) => SolveStatus::DidNotConverge,
     };
-    let diagnosis = if opts.diagnose && status != SolveStatus::Converged {
-        Some(Diagnosis {
-            groups: diagnose::groups(system, &sys.free, x, tol, cancel)?,
-        })
+    let want_groups = opts.diagnose && status != SolveStatus::Converged;
+    let analysis = if want_groups || opts.dof == DofAnalysis::PerEntity {
+        Some(analyze_at(sketch, x, sys, st, settings, cancel)?)
     } else {
         None
+    };
+    let (dof, diagnosis) = match (opts.dof, analysis) {
+        (DofAnalysis::None, a) => (None, a.filter(|_| want_groups).map(|a| a.diagnosis)),
+        (DofAnalysis::Total, a) => (
+            dof.map(|dof| DofReport {
+                dof,
+                entities: BTreeMap::new(),
+            }),
+            a.filter(|_| want_groups).map(|a| a.diagnosis),
+        ),
+        (DofAnalysis::PerEntity, Some(a)) => (Some(a.dof), want_groups.then_some(a.diagnosis)),
+        (DofAnalysis::PerEntity, None) => (None, None),
     };
     Some(SolveReport {
         status,
@@ -481,13 +505,7 @@ fn evaluate(
         max_residual,
         unsatisfied,
         driven: BTreeMap::new(),
-        dof: match opts.dof {
-            DofAnalysis::None => None,
-            DofAnalysis::Total | DofAnalysis::PerEntity => dof.map(|dof| DofReport {
-                dof,
-                entities: BTreeMap::new(),
-            }),
-        },
+        dof,
         diagnosis,
     })
 }
@@ -534,21 +552,10 @@ impl SolverBackend for NativeSolver {
     }
 
     fn analyze(&mut self, sketch: &Sketch) -> (DofReport, Diagnosis) {
-        let Some(Ok((sys, st))) = self.prepare(sketch, &|| false) else {
-            return (DofReport::default(), Diagnosis::default());
-        };
-        let x = sketch.params().as_slice();
-        let never = || false;
-        let tol = effective_tol(SolveOptions::default().tolerance, sys.length_scale);
-        let (rank, _) = ranks(&sys.system, &st, x, &never).unwrap_or((0, false));
-        let groups = diagnose::groups(&sys.system, &sys.free, x, tol, &never).unwrap_or_default();
-        (
-            DofReport {
-                dof: u32::try_from(st.unknowns().saturating_sub(rank)).unwrap_or(u32::MAX),
-                entities: BTreeMap::new(),
-            },
-            Diagnosis { groups },
-        )
+        match self.base_analysis(sketch, &|| false) {
+            Some(b) => (b.analysis.dof.clone(), b.analysis.diagnosis.clone()),
+            None => (DofReport::default(), Diagnosis::default()),
+        }
     }
 
     fn check_constraint(
@@ -556,27 +563,7 @@ impl SolverBackend for NativeSolver {
         sketch: &Sketch,
         candidate: &ConstraintKind,
     ) -> Result<ConstraintCheck, SketchError> {
-        let mut s = sketch.clone();
-        let id = s.add_constraint(candidate.clone())?;
-        let mut scratch = NativeSolver::new()
-            .with_dense_limit(self.dense_max)
-            .with_decomposition(self.decompose);
-        let (_, diag) = scratch.analyze(&s);
-        let with = |g: &DependencyGroup| -> Vec<ConstraintId> {
-            g.constraints.iter().copied().filter(|&c| c != id).collect()
-        };
-        let mine = |k: GroupKind| {
-            diag.groups
-                .iter()
-                .find(|g| g.kind == k && g.constraints.contains(&id))
-        };
-        Ok(if let Some(g) = mine(GroupKind::Conflicting) {
-            ConstraintCheck::Conflicting { with: with(g) }
-        } else if let Some(g) = mine(GroupKind::Redundant) {
-            ConstraintCheck::Redundant { with: with(g) }
-        } else {
-            ConstraintCheck::Independent
-        })
+        self.check(sketch, candidate)
     }
 
     fn begin_drag(

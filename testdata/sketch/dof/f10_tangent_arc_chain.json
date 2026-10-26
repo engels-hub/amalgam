@@ -1,0 +1,284 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/f10_tangent_arc_chain",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Chain of three arcs tangent at shared end points, fully dimensioned.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c1",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "s1",
+        "geom": {
+          "point": {
+            "at": [
+              5.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "j1",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              5.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "c2",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              2.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "j2",
+        "geom": {
+          "point": {
+            "at": [
+              -3.0,
+              2.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "c3",
+        "geom": {
+          "point": {
+            "at": [
+              -1.0,
+              2.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "e3",
+        "geom": {
+          "point": {
+            "at": [
+              -1.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "a1",
+        "geom": {
+          "arc": {
+            "center": 0,
+            "start": 1,
+            "end": 2
+          }
+        }
+      },
+      {
+        "name": "a2",
+        "geom": {
+          "arc": {
+            "center": 3,
+            "start": 2,
+            "end": 4
+          }
+        }
+      },
+      {
+        "name": "a3",
+        "geom": {
+          "arc": {
+            "center": 5,
+            "start": 4,
+            "end": 6
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Fix": {
+          "entity": 1
+        }
+      },
+      {
+        "Tangent": {
+          "a": 7,
+          "b": 8,
+          "kind": {
+            "AtEndpoint": {
+              "a_end": "End",
+              "b_end": "Start",
+              "reversed": false
+            }
+          }
+        }
+      },
+      {
+        "Tangent": {
+          "a": 8,
+          "b": 9,
+          "kind": {
+            "AtEndpoint": {
+              "a_end": "End",
+              "b_end": "Start",
+              "reversed": false
+            }
+          }
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "ArcLength": {
+              "arc": 7
+            }
+          },
+          "value": 7.853981633974483,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 8
+            }
+          },
+          "value": 3.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "ArcLength": {
+              "arc": 8
+            }
+          },
+          "value": 4.71238898038469,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 9
+            }
+          },
+          "value": 2.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "ArcLength": {
+              "arc": 9
+            }
+          },
+          "value": 3.141592653589793,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 0
+    }
+  },
+  "dof": 0,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    }
+  ]
+}

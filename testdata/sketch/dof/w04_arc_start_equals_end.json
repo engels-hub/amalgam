@@ -1,0 +1,105 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/w04_arc_start_equals_end",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "An arc whose start and end coincide, with fixed centre and radius.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "s",
+        "geom": {
+          "point": {
+            "at": [
+              5.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "e",
+        "geom": {
+          "point": {
+            "at": [
+              5.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "a",
+        "geom": {
+          "arc": {
+            "center": 0,
+            "start": 1,
+            "end": 2
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 3
+            }
+          },
+          "value": 5.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 2
+    }
+  },
+  "dof": 2,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "under",
+      "free_dof": 1
+    },
+    {
+      "state": "under",
+      "free_dof": 1
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    }
+  ]
+}

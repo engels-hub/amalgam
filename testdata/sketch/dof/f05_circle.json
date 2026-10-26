@@ -1,0 +1,74 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/f05_circle",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Circle with a fixed centre and a radius.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c",
+        "geom": {
+          "point": {
+            "at": [
+              1.0,
+              2.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "k",
+        "geom": {
+          "circle": {
+            "center": 0,
+            "radius": 4.5
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 1
+            }
+          },
+          "value": 5.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 0
+    }
+  },
+  "dof": 0,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    }
+  ]
+}

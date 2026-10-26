@@ -1,0 +1,180 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/w05_four_bar_toggle",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Four-bar linkage at the crank–coupler toggle.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "o1",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "o2",
+        "geom": {
+          "point": {
+            "at": [
+              10.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "a",
+        "geom": {
+          "point": {
+            "at": [
+              3.466666666666667,
+              1.9955506062794355
+            ]
+          }
+        }
+      },
+      {
+        "name": "b",
+        "geom": {
+          "point": {
+            "at": [
+              10.4,
+              5.986651818838307
+            ]
+          }
+        }
+      },
+      {
+        "name": "crank",
+        "geom": {
+          "line": {
+            "start": 0,
+            "end": 2
+          }
+        }
+      },
+      {
+        "name": "coupler",
+        "geom": {
+          "line": {
+            "start": 2,
+            "end": 3
+          }
+        }
+      },
+      {
+        "name": "rocker",
+        "geom": {
+          "line": {
+            "start": 1,
+            "end": 3
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Fix": {
+          "entity": 1
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 4
+            }
+          },
+          "value": 4.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 5
+            }
+          },
+          "value": 8.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 6
+            }
+          },
+          "value": 6.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 1
+    }
+  },
+  "dof": 1,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "under",
+      "free_dof": 1
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "under",
+      "free_dof": 1
+    },
+    {
+      "state": "under",
+      "free_dof": 1
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    }
+  ]
+}

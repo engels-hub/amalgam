@@ -1,0 +1,162 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/r03_midpoint_and_symmetric",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Midpoint of a mirrored pair on the mirror axis, plus the symmetry.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "q0",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "q1",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              10.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "axis",
+        "geom": {
+          "line": {
+            "start": 0,
+            "end": 1
+          }
+        },
+        "construction": true
+      },
+      {
+        "name": "a",
+        "geom": {
+          "point": {
+            "at": [
+              -3.0,
+              4.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "b",
+        "geom": {
+          "point": {
+            "at": [
+              3.0,
+              4.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "m",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              4.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "ab",
+        "geom": {
+          "line": {
+            "start": 3,
+            "end": 4
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 2
+        }
+      },
+      {
+        "Symmetric": {
+          "a": 3,
+          "b": 4,
+          "axis": 2
+        }
+      },
+      {
+        "Midpoint": {
+          "point": 5,
+          "line": 6
+        }
+      },
+      {
+        "PointOnCurve": {
+          "point": 5,
+          "curve": 2
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged_redundant",
+      "dof": 2,
+      "groups": [
+        {
+          "kind": "redundant",
+          "constraints": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    }
+  },
+  "dof": 2,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 2
+    },
+    {
+      "state": "over",
+      "free_dof": 2
+    },
+    {
+      "state": "over",
+      "free_dof": 1
+    },
+    {
+      "state": "over",
+      "free_dof": 2
+    }
+  ]
+}

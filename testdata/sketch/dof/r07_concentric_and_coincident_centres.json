@@ -1,0 +1,103 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/r07_concentric_and_coincident_centres",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Concentric circles whose centres are also coincident.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c1",
+        "geom": {
+          "point": {
+            "at": [
+              1.0,
+              1.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "c2",
+        "geom": {
+          "point": {
+            "at": [
+              1.0,
+              1.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "k1",
+        "geom": {
+          "circle": {
+            "center": 0,
+            "radius": 3.0
+          }
+        }
+      },
+      {
+        "name": "k2",
+        "geom": {
+          "circle": {
+            "center": 1,
+            "radius": 5.0
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Concentric": {
+          "a": 2,
+          "b": 3
+        }
+      },
+      {
+        "Coincident": {
+          "a": 0,
+          "b": 1
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged_redundant",
+      "dof": 4,
+      "groups": [
+        {
+          "kind": "redundant",
+          "constraints": [
+            0,
+            1
+          ]
+        }
+      ]
+    }
+  },
+  "dof": 4,
+  "entities": [
+    {
+      "state": "over",
+      "free_dof": 2
+    },
+    {
+      "state": "over",
+      "free_dof": 2
+    },
+    {
+      "state": "over",
+      "free_dof": 3
+    },
+    {
+      "state": "over",
+      "free_dof": 3
+    }
+  ]
+}

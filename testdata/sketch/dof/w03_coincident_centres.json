@@ -1,0 +1,112 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/w03_coincident_centres",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Two circles with coincident centres held by a zero distance (before concentric).",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c1",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "c2",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "k1",
+        "geom": {
+          "circle": {
+            "center": 0,
+            "radius": 5.0
+          }
+        }
+      },
+      {
+        "name": "k2",
+        "geom": {
+          "circle": {
+            "center": 1,
+            "radius": 3.0
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 2
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Distance": {
+              "a": 0,
+              "b": 1,
+              "side": "Positive"
+            }
+          },
+          "value": 0.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "converged",
+      "dof": 2,
+      "groups": [
+        {
+          "kind": "degenerate_configuration",
+          "constraints": [
+            1
+          ]
+        }
+      ]
+    }
+  },
+  "dof": 2,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "under",
+      "free_dof": 1
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "under",
+      "free_dof": 2
+    }
+  ]
+}

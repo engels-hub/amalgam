@@ -1,0 +1,111 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/c05_radius_vs_fixed_rim_point",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Radius 5 but a fixed rim point at distance 7.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "c",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "k",
+        "geom": {
+          "circle": {
+            "center": 0,
+            "radius": 6.0
+          }
+        }
+      },
+      {
+        "name": "q",
+        "geom": {
+          "point": {
+            "at": [
+              7.0,
+              0.0
+            ]
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Fix": {
+          "entity": 2
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Radius": {
+              "curve": 1
+            }
+          },
+          "value": 5.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "PointOnCurve": {
+          "point": 2,
+          "curve": 1
+        }
+      }
+    ],
+    "expected": {
+      "status": "inconsistent",
+      "dof": null,
+      "groups": [
+        {
+          "kind": "conflicting",
+          "constraints": [
+            0,
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    }
+  },
+  "dof": 0,
+  "entities": [
+    {
+      "state": "over",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    }
+  ]
+}

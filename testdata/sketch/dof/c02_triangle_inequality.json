@@ -1,0 +1,175 @@
+{
+  "case": {
+    "format": 1,
+    "id": "dof/c02_triangle_inequality",
+    "source": {
+      "set": "own",
+      "origin": "docs/specs/S03-sketch.md §Testing (SK-04); written for Amalgam",
+      "licence": "LicenseRef-Amalgam-Personal"
+    },
+    "description": "Triangle with sides 10, 10, 30.",
+    "tags": [
+      "dof"
+    ],
+    "entities": [
+      {
+        "name": "p0",
+        "geom": {
+          "point": {
+            "at": [
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "p1",
+        "geom": {
+          "point": {
+            "at": [
+              10.0,
+              0.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "p2",
+        "geom": {
+          "point": {
+            "at": [
+              5.0,
+              4.0
+            ]
+          }
+        }
+      },
+      {
+        "name": "l01",
+        "geom": {
+          "line": {
+            "start": 0,
+            "end": 1
+          }
+        }
+      },
+      {
+        "name": "l12",
+        "geom": {
+          "line": {
+            "start": 1,
+            "end": 2
+          }
+        }
+      },
+      {
+        "name": "l20",
+        "geom": {
+          "line": {
+            "start": 2,
+            "end": 0
+          }
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "Fix": {
+          "entity": 0
+        }
+      },
+      {
+        "Horizontal": {
+          "Line": 3
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 3
+            }
+          },
+          "value": 10.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 4
+            }
+          },
+          "value": 10.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "Dimension": {
+          "kind": {
+            "Length": {
+              "line": 5
+            }
+          },
+          "value": 30.0,
+          "driving": true,
+          "label_pos": [
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "status": "inconsistent",
+      "dof": null,
+      "groups": [
+        {
+          "kind": "conflicting",
+          "constraints": [
+            2,
+            3,
+            4
+          ]
+        }
+      ]
+    }
+  },
+  "dof": 0,
+  "entities": [
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "full",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    },
+    {
+      "state": "over",
+      "free_dof": 0
+    }
+  ]
+}
