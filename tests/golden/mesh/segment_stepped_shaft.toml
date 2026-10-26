@@ -1,0 +1,28 @@
+# Golden metrics for mesh/segment_stepped_shaft. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 10346.78115603086
+area = 3014.210347519965
+vertices = 4682
+triangles = 9360
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    6.643727171376206,
+    -16.754674982490883,
+    -3.0222504014222142,
+]
+max = [
+    52.460368574283,
+    9.67233428162183,
+    37.473431622674624,
+]

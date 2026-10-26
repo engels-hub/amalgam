@@ -6,6 +6,7 @@
 //! - [`MeshEntityRef`] and [`resolve_group`]: a face-group reference that resolves by group id
 //!   first and by geometric fingerprint when the id is gone.
 //! - [`OutputMode`]: replace the input body or create a new one.
+//! - [`MeshFaceGroupsFeature`] (`mesh.face_groups`, MESH-12's segmentation).
 //! - [`MeshRepairFeature`] (`mesh.repair`, MESH-04's pipeline) and [`MeshReverseNormalFeature`]
 //!   (`mesh.reverse_normal`).
 //!
@@ -17,6 +18,7 @@ mod error;
 mod refs;
 mod repair;
 mod reverse;
+mod segment;
 #[cfg(test)]
 mod tests;
 
@@ -25,6 +27,7 @@ pub use error::MeshFeatureError;
 pub use refs::{GroupMatch, MeshEntityRef, ResolvedGroup, resolve_group};
 pub use repair::{MeshRepairFeature, RepairParams, SmallShellParams};
 pub use reverse::{MeshReverseNormalFeature, reverse_normals};
+pub use segment::{MeshFaceGroupsFeature, SegmentParams};
 
 /// Forces the registrations of this module to be linked (registry `link()` convention).
 pub fn link() {}

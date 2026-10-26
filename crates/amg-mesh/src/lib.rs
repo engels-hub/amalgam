@@ -24,6 +24,7 @@ mod indexed;
 pub mod iso;
 mod remesh;
 mod repair;
+mod segment;
 mod selfint;
 mod smooth;
 mod spatial;
@@ -53,6 +54,7 @@ pub use repair::{
     RepairOpts, RepairReport, RepairStep, RepairStepKind, SmallShellFilter, UnresolvedIssue,
     orient_consistently, repair,
 };
+pub use segment::{SegmentOpts, segment_face_groups};
 pub use selfint::{
     AutoSelfIntersectionOpts, AutoSelfIntersectionReport, GlobalCandidate, GlobalHealth,
     GlobalSelfIntersectionOpts, GlobalSelfIntersectionReport, RemoveSelfIntersectionsOpts,
