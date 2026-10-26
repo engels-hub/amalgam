@@ -1733,3 +1733,9 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   `faer` once it has column-pivoted sparse QR); the SK-20 snap filter needs `check_constraint`
   far below the current ~0.3–0.5 ms at 500 entities (profile it; cache the projected null space per
   component); second-order mobility for toggle points.
+
+### 2026-10-26 - Wave 7 merge review (SK-04, SK-19)
+- The cancellation test failed again in a full-workspace run (other tests saturating the CPU). It and
+  SK-04's 500-entity analysis test are renamed `timing_cancellation_returns_within_a_millisecond` and
+  `timing_analysis_of_500_entities_is_fast`, so `.config/nextest.toml` runs them alone (and CI retries
+  them), as for the other `timing_*` tests. Earlier log entries refer to the old names.

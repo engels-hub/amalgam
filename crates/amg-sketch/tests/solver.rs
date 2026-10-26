@@ -274,7 +274,7 @@ fn cancel_latency(
 }
 
 #[test]
-fn cancellation_returns_within_a_millisecond() {
+fn timing_cancellation_returns_within_a_millisecond() {
     // Done-when 4: cancellation requested at 40 points spread over the solve, on a
     // 3000-segment chain (one sparse block of 6000 unknowns), the D9 grid with DOF analysis,
     // and D6 (not converged: rank test + diagnosis). The solver is long-lived, as in the app.

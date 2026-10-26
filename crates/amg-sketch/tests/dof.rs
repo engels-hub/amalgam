@@ -1608,7 +1608,7 @@ fn rect_grid() -> amg_sketch::Sketch {
 }
 
 #[test]
-fn analysis_of_500_entities_is_fast() {
+fn timing_analysis_of_500_entities_is_fast() {
     // Done-when bound (10 ms) only with AMG_STRICT_TIMING=1; shared runners get 10×.
     let strict = std::env::var("AMG_STRICT_TIMING").is_ok_and(|v| v == "1");
     let bound = if strict { 10.0 } else { 100.0 };
