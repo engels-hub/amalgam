@@ -17,6 +17,7 @@ mod boolean;
 mod cut;
 mod decimate;
 mod error;
+mod fit;
 mod groups;
 mod halfedge;
 mod hash;
@@ -44,6 +45,7 @@ pub use cut::{
 };
 pub use decimate::{DecimateOpts, DecimateReport, DecimateTarget, decimate};
 pub use error::{MeshError, MeshResult, TopoError};
+pub use fit::{FitOpts, FitResult, fit_group_primitives, fit_primitive};
 pub use groups::{
     DEFAULT_GROUP, FaceGroupId, FaceGroupInfo, FaceGroups, GroupFingerprint, GroupOrigin,
     Primitive, PrimitiveKind, ShellSide,
