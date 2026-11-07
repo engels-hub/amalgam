@@ -1756,3 +1756,26 @@ Code in `amg-doc::io::cachefile` (cache), `amg-doc::recovery` (journal, snapshot
 - `StubOutputCodec` refuses outputs that carry a sketch, so the cache file leaves them out and they recompute on open (decode of a legacy
   `sketch: true` entry is an error for the same reason).
 
+
+### 2026-11-08 - requests from the S06 refinement (lane E, additive; implemented by ASM WPs)
+See `docs/specs/S06-assemblies.md` Interfaces and `docs/notes/assemblies.md`.
+- ASM-01: commands `AddOccurrence`, `DeleteOccurrences` (cascade: a component left without
+  occurrences goes with its features and orphaned sub-components), `MoveOccurrence`,
+  `SetOccurrenceGrounded`, `SetOccurrenceName`, `SetOccurrenceTransforms` (batch + joint
+  states). Occurrence transforms must have an orthonormal linear part (rigid or mirror);
+  scale gives `ModelError::InvalidValue`. `OccPath = Vec<OccurrenceId>`.
+- ASM-01: `Evaluated::{placements, world_transform, body_to_world, instances, asm_diagnostics}`
+  and `Placements` (authored transforms until ASM-04 solves them). This answers the S05 request
+  for `Evaluated::body_to_world`. `OccurrenceTransformChanged` is also emitted when a solved
+  placement changes.
+- ASM-01: `Document::{active_component, set_active_component}` (session state, not undoable,
+  not saved) and `DocEvent::ActiveComponentChanged`.
+- ASM-03: `FeatureOutput::assembly: Option<AsmItem>`, `ConstructionGeom::Frame(Transform)`,
+  module `amg-doc::joints`. Lane A code that matches `ConstructionGeom` exhaustively needs one
+  more arm.
+- ASM-04: `Design::joint_states: PMap<FeatureId, JointState>` (serde default empty, so
+  `FORMAT_VERSION` is unchanged) and the assembly stage after the timeline pass.
+- ASM-09: `BodyChangeKind::Moved { component, geom, naming }`.
+- `Component::joints` stays (always empty) because `Component` is `deny_unknown_fields`;
+  drop it at the next `FORMAT_VERSION` bump. Joints are timeline features, so `JointId` is
+  unused.

@@ -79,7 +79,7 @@ Sketch → extrude/revolve → fillet/chamfer/shell → patterns → timeline ed
 - B: SK-07, SK-16..19, SK-22, SK-09
 - D: RND-13 (device loss, diagnostics), UI-05, UI-06, UI-09, UI-12, UI-13, UI-14, UI-16, UI-17,
   UI-22 (solid body display)
-- E: DOC-06, DOC-13, ASM-01, ASM-02, FND-12, SCR-07, SCR-05 (CLI), SCR-08 (kernel CLI)
+- E: DOC-06, DOC-13, ASM-01, ASM-09, ASM-10, ASM-02, FND-12, SCR-07, SCR-05 (CLI), SCR-08 (kernel CLI)
 - G: IO-06, IO-09, AM-10 (slicer profile import)
 - F (starts early, independent): CMP-01..03
 
@@ -92,7 +92,7 @@ joints, direct mode, Python API.
 - B: SK-08, SK-10, SK-11
 - C: MESH-11..15, MESH-24, MESH-25, IMP-01, IMP-02, IMP-04..06, IMP-08
 - D: RND-05, RND-09, UI-11, UI-18
-- E: DOC-08, ASM-03..05, SCR-01..03, SCR-09..11
+- E: DOC-08, ASM-03, ASM-04, ASM-11, ASM-12, ASM-05, SCR-01..03, SCR-09..11
 - G: IO-07, IO-08, IO-10, IO-12 (3MF Prusa), MAT-02, MAT-03, MAT-08, AM-07, AM-15 (resin
   printability)
 - F: CMP-04, CMP-05, FEM-01..03

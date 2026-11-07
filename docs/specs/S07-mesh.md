@@ -1585,3 +1585,9 @@ Code: `crates/amg-features/src/mesh/` (`mod.rs`, `base.rs` OutputMode + input/em
   because Manifold 3.5.4 builds `MANIFOLD_CBIND` only with CrossSection) is open for the owner in
   QUESTIONS #52. `vcpkg.json` now depends on `manifold`, so the CI vcpkg action builds it (overlay port
   `ports/manifold`). The 1M x 1M union bench is 974 ms against the 1 s budget (little margin).
+
+### 2026-11-08 - request from the S06 refinement (lane E, additive)
+- **MESH-03 / `Bvh`:** `Bvh::overlapping_pairs_with(&self, other: &Bvh, other_to_self: &Transform,
+  visit: &mut dyn FnMut(u32, u32))`: every pair of primitives (self, other) whose boxes overlap
+  under the transform, deterministic order. Used by S06 ASM-07 (contact sets). If lane C
+  declines, ASM-07 builds it in `amg-features::assembly::contact` over the public `Bvh` API.
