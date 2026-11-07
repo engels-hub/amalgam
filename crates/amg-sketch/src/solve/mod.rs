@@ -31,6 +31,7 @@ pub use api::{
     SolveOptions, SolveReport, SolveStatus, SolverBackend,
 };
 pub use native::{DENSE_MAX, NativeDrag, NativeSolver, SolveStats};
+pub(crate) use native::{Problem, SubstPairs};
 pub use orient::orient_constraint;
 pub use rank::{dof, numeric_rank};
 pub(crate) use residual::candidate_max_residual;

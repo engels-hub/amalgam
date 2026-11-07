@@ -259,9 +259,26 @@ impl SubAnalysis {
         st: &Structure,
         over: &BTreeSet<EntityId>,
     ) -> BTreeMap<EntityId, EntityStatus> {
+        self.report_params(
+            sketch
+                .entities()
+                .map(|(id, e)| (id, entity_params(sketch, &e.kind))),
+            st,
+            over,
+        )
+    }
+
+    /// Per-entity status from each entity's moving parameters (dimension-agnostic); `over`
+    /// entities are `Over`.
+    pub(crate) fn report_params(
+        &self,
+        entities: impl IntoIterator<Item = (EntityId, SmallVec<[ParamId; 8]>)>,
+        st: &Structure,
+        over: &BTreeSet<EntityId>,
+    ) -> BTreeMap<EntityId, EntityStatus> {
         let mut out = BTreeMap::new();
-        for (id, e) in sketch.entities() {
-            let mut ks: SmallVec<[u32; 8]> = entity_params(sketch, &e.kind)
+        for (id, params) in entities {
+            let mut ks: SmallVec<[u32; 8]> = params
                 .iter()
                 .filter_map(|p| match st.slot.get(p.index()) {
                     Some(Slot::Unknown(k)) => Some(*k),
@@ -433,7 +450,7 @@ pub(crate) struct Analysis {
     pub sub: SubAnalysis,
 }
 
-fn sort_groups(groups: &mut Vec<DependencyGroup>) {
+pub(crate) fn sort_groups(groups: &mut Vec<DependencyGroup>) {
     let rank = |k: GroupKind| match k {
         GroupKind::Conflicting => 0u8,
         GroupKind::Redundant => 1,
@@ -443,7 +460,7 @@ fn sort_groups(groups: &mut Vec<DependencyGroup>) {
     groups.dedup();
 }
 
-fn group_of(
+pub(crate) fn group_of(
     kind: GroupKind,
     owners: impl IntoIterator<Item = EquationOwner>,
 ) -> Option<DependencyGroup> {
@@ -460,7 +477,7 @@ fn group_of(
     })
 }
 
-fn grads_of<'a>(v: &'a RawValues, rows: &[usize]) -> Vec<&'a [(u32, f64)]> {
+pub(crate) fn grads_of<'a>(v: &'a RawValues, rows: &[usize]) -> Vec<&'a [(u32, f64)]> {
     rows.iter().map(|&r| v.grad[r].as_slice()).collect()
 }
 
