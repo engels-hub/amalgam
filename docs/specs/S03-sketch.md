@@ -782,7 +782,8 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
 | SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Review | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
 | SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Done | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
-| SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Review | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
+| SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Done | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
+| SK-23 | `detect_profiles` performance on spline boundaries (SK-06 with SK-08 spline intersectors): found by MESH-14, a closed loop of two cubic splines (tilted ellipse section) takes 264 s | SK-06, SK-08 | P1 | Todo | 1. The MESH-14 `tilted_ellipse_closes_into_one_profile` case runs in < 50 ms and is un-ignored. 2. A bench of 100 spline edges in one loop is detected in < 100 ms (criterion bench). 3. SK-06 golden fixtures still pass. |
 
 ## Testing
 - **Jacobians (SK-02, SK-08, SK-22).** Central-difference check for every residual row on
@@ -1947,3 +1948,6 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **Leftovers:** a 3D sketch feature in `amg-features::sketch` (+ model-vertex link refresh via SK-09/BREP),
   3D witness/LOO diagnosis (generalise `analysis::witness` over a problem trait), structure cache keyed by a
   `Sketch3d` revision, 3D drag, splines through fit points, arcs/circles in 3D.
+
+### 2026-11-08 - SK-23 added (coordinator, wave 9 merge review)
+- MESH-14 found that `detect_profiles` takes 264 s on a closed loop of two cubic splines (the tilted ellipse section; its test is `#[ignore]`d in `amg-features::mesh::section_sketch`). New WP SK-23 (P1, lane B, deps SK-06, SK-08) owns the fix; the MESH-14 test is un-ignored there.
