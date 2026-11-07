@@ -763,6 +763,7 @@ note §10. "Corpus" = `testdata/fem/corpus/` (note §11).
    parts; the rigid variant is later.
 
 10. (from S08, 2026-11-08) IMP-07 (stress-driven lattice density) reads FEA results as a regular grid: FEM-06 should resample a chosen result (von Mises, displacement magnitude, safety factor) onto corner values of a box and call `amg_implicit::SampledGrid::from_dense(origin, cell_size, dims, values)`.
+11. (from S15, 2026-11-08) S15 is Refined and covers every CMP request in Interfaces (`SymCsr`, `SymbolicFactor`, `Cholesky`/`Ldlt`, `solve_many`, `PivotReport`, `FactorEstimate`, `Inertia`; `lanczos` with a `ShiftInvert` callback; `GpuCsr`, `pcg_gpu`, `Chebyshev`, `refine`, trait `GpuPreconditioner`). The f32 PCG and preconditioner trait are now CMP-08 (CMP-05 adds geometric multigrid on top), so FEM-08 and FEM-12 could depend on CMP-08 instead of CMP-05. LU is not provided (no consumer). Sizes for benches can come from `amg_compute::testprob`.
 
 ## Refinement log
 ### 2026-11-08 - S13-refine (lane F refinement)

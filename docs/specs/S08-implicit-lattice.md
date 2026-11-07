@@ -470,6 +470,7 @@ Reference cases (generators and data in `amg-implicit` tests and `testdata/`):
 6. Cross-type booleans with implicit bodies stay implicit instead of meshing? (QUESTIONS #63.)
 7. CMP-02 must provide the brick grid shape described under Interfaces (S15 is Draft). If S15
    refinement chooses a different layout, IMP-02 adapts; the `SdfBricks` API does not change.
+8. (from S15, 2026-11-08) CMP-02 shape is fixed in S15 Interfaces: `amg_compute::grid::BrickGrid<f16>` with `BrickLayout::CORNERS` (9³ samples per 8³-cell brick), `insert`/`lookup` by `BrickCoord`, fills `Fill0` = outside and `Fill1` = inside (per brick or per 64³-cell tile via `set_tile_fill`, matching IMP-02's tiles), and `GpuBrickGrid` with a two-level dense index (no hash), deterministic `allocate` from a brick mask, and WGSL from `brick_grid_wgsl`. Values are in index space; `SdfBricks`/`SampledGrid` keep origin and cell size. `amg-implicit` needs `amg-compute` in its Cargo.toml.
 
 ## Refinement log
 ### 2026-11-08 - S08-refine (lane C refinement)
