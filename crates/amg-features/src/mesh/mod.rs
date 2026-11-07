@@ -7,6 +7,7 @@
 //!   first and by geometric fingerprint when the id is gone.
 //! - [`OutputMode`]: replace the input body or create a new one.
 //! - [`MeshFaceGroupsFeature`] (`mesh.face_groups`, MESH-12's segmentation).
+//! - [`section_sketch`] (MESH-14): section polylines → sketch curves.
 //! - [`MeshRepairFeature`] (`mesh.repair`, MESH-04's pipeline) and [`MeshReverseNormalFeature`]
 //!   (`mesh.reverse_normal`).
 //!
@@ -18,6 +19,7 @@ mod error;
 mod refs;
 mod repair;
 mod reverse;
+pub mod section_sketch;
 mod segment;
 #[cfg(test)]
 mod tests;
