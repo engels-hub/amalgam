@@ -34,7 +34,7 @@ can start until FND-01..FND-04 are done, so this spec is kept small and its APIs
   refinement shows what they need (see open question 3).
 - Any domain geometry. It lives in domain crates.
 - The expression language with compound units. It belongs to S01 (DOC-04).
-- CLI subcommands `recompute`, `export` and `study run` (S18, SCR-05).
+- CLI subcommands `recompute`, `export` and `study run` (S18: SCR-05; `study run` is SCR-12).
 - GPU kernels, reductions and solvers (S15, `amg-compute`).
 - The renderer (S10).
 - OCCT/Manifold build scripts (BREP-01 and MESH-05 own their `-sys` crates).
@@ -326,7 +326,7 @@ adapt with a one-line conversion.
   - `amg-cli --version` prints the crate version and git SHA.
   - `amg-cli info` prints the build profile, thread counts and (after FND-09) the GPU
     adapter.
-  - S18 (SCR-05) adds `recompute`, `export`, `study run` and `convert`.
+  - S18 adds `recompute`, `export` and `convert` (SCR-05) and `study run` (SCR-12).
 - `amg-app`: an empty `main` stub created by FND-02 so the workspace builds. Lane D owns it
   from RND-01/UI-01 on.
 
