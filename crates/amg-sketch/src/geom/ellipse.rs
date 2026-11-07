@@ -276,6 +276,22 @@ pub(crate) fn integrate(f: impl Fn(f64) -> f64, lo: f64, hi: f64, panels: usize)
     sum * 0.5 * h
 }
 
+/// [`integrate`] of three integrands at once (one evaluation of `f` per node).
+pub(crate) fn integrate3(f: impl Fn(f64) -> [f64; 3], lo: f64, hi: f64, panels: usize) -> [f64; 3] {
+    let h = (hi - lo) / panels as f64;
+    let mut sum = [0.0; 3];
+    for k in 0..panels {
+        let mid = lo + (k as f64 + 0.5) * h;
+        for &(x, w) in gl_nodes() {
+            let v = f(mid + 0.5 * h * x);
+            for i in 0..3 {
+                sum[i] += w * v[i];
+            }
+        }
+    }
+    sum.map(|v| v * 0.5 * h)
+}
+
 // ---- Intersection --------------------------------------------------------------------------
 
 /// The other curve as an implicit function `F(p)` with a gradient, such that `|F|/|∇F|` is

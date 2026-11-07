@@ -13,9 +13,10 @@
 //! - **Overlap.** If a run of consecutive samples of the spline lies within the tolerance of the
 //!   other curve, the pair overlaps: the ends of every such run are reported as tangential hits
 //!   and no transversal hits are searched (the same convention as for the other curve types).
-//! - **Self-intersection** ([`self_intersections`]): the spline is cut into short pieces and the
-//!   pieces are intersected with each other. A loop shorter than a twelfth of a knot span is not
-//!   detected.
+//! - **Self-intersection** ([`self_intersections`]): one Bézier subdivision of the spline
+//!   against itself; pieces and consecutive pairs whose tangents fit in a half-plane are
+//!   monotone and dropped at once, so the shared ends of consecutive pieces are joins and are
+//!   not subdivided. Loops below the subdivision floor are not detected.
 
 use amg_core::{Aabb2, Point2, Tolerance};
 use smallvec::SmallVec;
@@ -115,10 +116,21 @@ pub(crate) fn intersect(
     };
     let span = s.span();
 
-    // Overlap: runs of samples of the spline lying on the other curve.
+    // Overlap: runs of samples of the spline lying on the other curve. A sample outside every
+    // box of the other curve (its Bézier pieces for a spline) is not on it, so the exact
+    // closest-point query only runs for the few samples inside (SK-23: unfiltered, this
+    // sampling is quadratic in the knot spans and dominated spline–spline pairs).
+    let near: Vec<Aabb2> = match other {
+        Curve2::BSpline(o) => pieces(o).iter().map(|b| b.bbox().expanded(lin)).collect(),
+        _ => vec![other.bbox().expanded(lin)],
+    };
+    let inside = |p: Point2| {
+        near.iter()
+            .any(|b| p.x >= b.min.x && p.x <= b.max.x && p.y >= b.min.y && p.y <= b.max.y)
+    };
     let on = |t: f64| {
         let p = s.eval(t);
-        other.closest(p).1.distance(p) <= lin
+        inside(p) && other.closest(p).1.distance(p) <= lin
     };
     let m = 40 * s.spans().len();
     let at = |i: usize| span * i as f64 / m as f64;
@@ -201,6 +213,7 @@ pub(crate) fn intersect(
 // ---- Spline vs spline ------------------------------------------------------------------------
 
 /// A Bézier piece of a spline: parameter range and homogeneous poles.
+#[derive(Clone)]
 struct Bz {
     lo: f64,
     hi: f64,
@@ -242,8 +255,19 @@ fn pieces(s: &BSpline2) -> Vec<Bz> {
 }
 
 /// Levenberg–Marquardt polish of `A(ta) − B(tb)`. Returns `(ta, tb, distance)`.
-fn refine(a: &BSpline2, b: &BSpline2, mut ta: f64, mut tb: f64) -> (f64, f64, f64) {
-    let (la, lb) = (a.span(), b.span());
+fn refine(a: &BSpline2, b: &BSpline2, ta: f64, tb: f64) -> (f64, f64, f64) {
+    refine_in(a, b, ta, tb, (0.0, a.span()), (0.0, b.span()))
+}
+
+/// [`refine`] with `ta` kept in `ra` and `tb` in `rb`.
+fn refine_in(
+    a: &BSpline2,
+    b: &BSpline2,
+    mut ta: f64,
+    mut tb: f64,
+    ra: (f64, f64),
+    rb: (f64, f64),
+) -> (f64, f64, f64) {
     let mut mu = 1e-6;
     let mut g = a.eval(ta) - b.eval(tb);
     for _ in 0..80 {
@@ -262,7 +286,7 @@ fn refine(a: &BSpline2, b: &BSpline2, mut ta: f64, mut tb: f64) -> (f64, f64, f6
         }
         let da = -(h11 * g0 - h01 * g1) / det;
         let db = -(-h01 * g0 + h00 * g1) / det;
-        let (na, nb) = ((ta + da).clamp(0.0, la), (tb + db).clamp(0.0, lb));
+        let (na, nb) = ((ta + da).clamp(ra.0, ra.1), (tb + db).clamp(rb.0, rb.1));
         let ng = a.eval(na) - b.eval(nb);
         if ng.length_squared() < g.length_squared() {
             let moved = (na - ta).abs().max((nb - tb).abs());
@@ -288,21 +312,16 @@ pub(crate) fn spline_spline(a: &BSpline2, b: &BSpline2, lin: f64) -> Vec<(f64, f
     let diag = a.bbox().diagonal().max(b.bbox().diagonal());
     let leaf = (1e-3 * diag).clamp(1e-4, 1e-2);
     let mut stack: Vec<(Bz, Bz)> = Vec::new();
+    // Only piece pairs whose boxes meet start the subdivision (the other pairs would be
+    // pruned at once, but pushing them clones their poles).
     let pb = pieces(b);
+    let bb: Vec<Aabb2> = pb.iter().map(|y| y.bbox().expanded(lin)).collect();
     for x in pieces(a) {
-        for y in &pb {
-            stack.push((
-                Bz {
-                    lo: x.lo,
-                    hi: x.hi,
-                    pw: x.pw.clone(),
-                },
-                Bz {
-                    lo: y.lo,
-                    hi: y.hi,
-                    pw: y.pw.clone(),
-                },
-            ));
+        let bx = x.bbox();
+        for (y, by) in pb.iter().zip(&bb) {
+            if meet(&bx, by) {
+                stack.push((x.clone(), y.clone()));
+            }
         }
     }
     let mut out: Vec<(f64, f64, Point2)> = Vec::new();
@@ -357,43 +376,193 @@ pub(crate) fn spline_spline(a: &BSpline2, b: &BSpline2, lin: f64) -> Vec<(f64, f
     out
 }
 
-/// Self-intersections `(t1, t2, point)`, `t1 < t2`, of a spline.
-pub(crate) fn self_intersections(s: &BSpline2, lin: f64) -> Vec<(f64, f64, Point2)> {
-    const PER_SPAN: usize = 12;
-    let mut cuts: Vec<f64> = Vec::new();
-    for (lo, hi) in s.spans() {
-        for k in 0..PER_SPAN {
-            cuts.push(lo + (hi - lo) * k as f64 / PER_SPAN as f64);
+/// True if the boxes overlap (closed boxes, no tolerance).
+fn meet(a: &Aabb2, b: &Aabb2) -> bool {
+    a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y
+}
+
+/// True if every tangent of the Bézier pieces `pws` points into one open half-plane, so the
+/// chain of pieces is strictly monotone along some direction and cannot meet itself (except
+/// where consecutive pieces share an end point). The derivative of a positive-weight rational
+/// Bézier is a positive combination of the pole differences `P_j − P_i`, `j > i` (Floater), so
+/// those differences bound the tangent cone. Pole differences shorter than `1e-12` of the
+/// piece size are ignored (repeated poles add nothing to the derivative).
+fn monotone(pws: &[&[Hom]]) -> bool {
+    const MARGIN: f64 = 1e-6;
+    let mut angles: SmallVec<[f64; 32]> = SmallVec::new();
+    for pw in pws {
+        let pts: SmallVec<[Point2; 12]> = pw
+            .iter()
+            .map(|h| Point2::new(h[0] / h[2], h[1] / h[2]))
+            .collect();
+        let size = Aabb2::from_points(pts.iter().copied()).diagonal();
+        for i in 0..pts.len() {
+            for j in i + 1..pts.len() {
+                let d = pts[j] - pts[i];
+                if d.length() > 1e-12 * size {
+                    angles.push(d.y.atan2(d.x));
+                }
+            }
         }
     }
-    cuts.push(s.span());
-    let parts: Vec<(f64, BSpline2)> = cuts
-        .windows(2)
-        .map(|w| (w[0], s.trimmed(w[0], w[1])))
-        .collect();
-    let mut out = Vec::new();
-    for i in 0..parts.len() {
-        for j in i + 1..parts.len() {
-            let (oi, pi) = &parts[i];
-            let (oj, pj) = &parts[j];
-            let shared = if j == i + 1 {
-                Some(pi.eval(pi.span()))
-            } else {
-                None
-            };
-            for (ta, tb, p) in spline_spline(pi, pj, lin) {
-                if shared.is_some_and(|q| q.distance(p) <= 10.0 * lin.max(1e-9)) {
+    if !angles.iter().all(|a| a.is_finite()) {
+        return false;
+    }
+    if angles.len() < 2 {
+        return true;
+    }
+    angles.sort_by(f64::total_cmp);
+    // The vectors fit in an arc narrower than π iff some angular gap between neighbours
+    // (cyclically) is wider than π.
+    let wrap = angles[0] + std::f64::consts::TAU - angles[angles.len() - 1];
+    let widest = angles.windows(2).map(|w| w[1] - w[0]).fold(wrap, f64::max);
+    widest > std::f64::consts::PI + MARGIN
+}
+
+/// Which ends of a pair of parameter ranges `(x, y)` are the same curve point: consecutive
+/// pieces, or the seam of a closed curve. A shared point is a join, not a crossing.
+#[derive(Copy, Clone, Default)]
+struct Shared {
+    /// The end of `x` is the start of `y`.
+    end_start: bool,
+    /// The start of `x` is the end of `y`.
+    start_end: bool,
+}
+
+/// One unit of work of [`self_intersections`].
+enum SelfJob {
+    /// The piece may cross itself; with the flag, its two ends are the same point (a closed
+    /// curve of one piece).
+    One(Bz, bool),
+    /// Two disjoint parameter ranges and their shared ends.
+    Two(Bz, Bz, Shared),
+}
+
+/// The Cartesian point of a homogeneous pole.
+fn cart(h: Hom) -> Point2 {
+    Point2::new(h[0] / h[2], h[1] / h[2])
+}
+
+/// Self-intersections `(t1, t2, point)`, `t1 < t2`, of a spline.
+///
+/// One Bézier subdivision of the curve against itself (SK-23; the previous version
+/// intersected every pair of twelfth-of-a-span parts, quadratic in the span count, with the
+/// shared end of every consecutive pair subdivided to the floor). A piece, or a pair of
+/// pieces sharing one end, whose tangents all lie in an open half-plane is monotone along
+/// some direction and is dropped at once; that is the common case for consecutive pieces of a
+/// smooth curve, so their shared end is never subdivided. Other pairs are pruned by
+/// control-polygon boxes and subdivided until both are tiny, then polished on the exact curve
+/// within the pair's parameter ranges; hits at a shared end are dropped. Loops smaller than
+/// the subdivision floor (`1e-3` of the curve's box diagonal, clamped to `1e-4..=1e-2` mm)
+/// are not detected.
+pub(crate) fn self_intersections(s: &BSpline2, lin: f64) -> Vec<(f64, f64, Point2)> {
+    let span = s.span();
+    let leaf = (1e-3 * s.bbox().diagonal()).clamp(1e-4, 1e-2);
+    let ps = pieces(s);
+    let n = ps.len();
+    let closed = s.eval(0.0).distance(s.eval(span)) <= lin;
+    let boxes: Vec<Aabb2> = ps.iter().map(|b| b.bbox().expanded(lin)).collect();
+    let mut stack: Vec<SelfJob> = Vec::new();
+    for i in 0..n {
+        for j in i + 1..n {
+            if meet(&boxes[i], &boxes[j]) {
+                let shared = Shared {
+                    end_start: j == i + 1,
+                    start_end: closed && i == 0 && j == n - 1,
+                };
+                stack.push(SelfJob::Two(ps[i].clone(), ps[j].clone(), shared));
+            }
+        }
+    }
+    stack.extend(ps.into_iter().map(|x| SelfJob::One(x, closed && n == 1)));
+    let shared_tol = 10.0 * lin.max(1e-9);
+    let mut out: Vec<(f64, f64, Point2)> = Vec::new();
+    let mut budget = 40_000 + 2_000 * n;
+    while let Some(job) = stack.pop() {
+        if budget == 0 {
+            break;
+        }
+        budget -= 1;
+        match job {
+            SelfJob::One(x, closes) => {
+                if (!closes && monotone(&[&x.pw])) || x.bbox().diagonal() <= leaf {
                     continue;
                 }
-                out.push((oi + ta, oj + tb, p));
+                let (l, r) = x.split();
+                let shared = Shared {
+                    end_start: true,
+                    start_end: closes,
+                };
+                stack.push(SelfJob::Two(l.clone(), r.clone(), shared));
+                stack.push(SelfJob::One(l, false));
+                stack.push(SelfJob::One(r, false));
+            }
+            SelfJob::Two(x, y, sh) => {
+                let (bx, by) = (x.bbox(), y.bbox());
+                if !meet(&bx.expanded(lin), &by) {
+                    continue;
+                }
+                // Sharing exactly one end and monotone together: they meet only there.
+                if sh.end_start != sh.start_end && monotone(&[&x.pw, &y.pw]) {
+                    continue;
+                }
+                let (dx, dy) = (bx.diagonal(), by.diagonal());
+                if dx <= leaf && dy <= leaf {
+                    let (ta, tb, d) = refine_in(
+                        s,
+                        s,
+                        0.5 * (x.lo + x.hi),
+                        0.5 * (y.lo + y.hi),
+                        (x.lo, x.hi),
+                        (y.lo, y.hi),
+                    );
+                    if d > lin {
+                        continue;
+                    }
+                    let p = s.eval(ta);
+                    let at_end =
+                        sh.end_start && cart(x.pw[x.pw.len() - 1]).distance(p) <= shared_tol;
+                    let at_start = sh.start_end && cart(x.pw[0]).distance(p) <= shared_tol;
+                    if !(at_end || at_start) {
+                        out.push((ta.min(tb), ta.max(tb), p));
+                    }
+                } else if dx >= dy {
+                    let (l, r) = x.split();
+                    let to_l = Shared {
+                        end_start: false,
+                        start_end: sh.start_end,
+                    };
+                    let to_r = Shared {
+                        end_start: sh.end_start,
+                        start_end: false,
+                    };
+                    stack.push(SelfJob::Two(l, y.clone(), to_l));
+                    stack.push(SelfJob::Two(r, y, to_r));
+                } else {
+                    let (l, r) = y.split();
+                    let to_l = Shared {
+                        end_start: sh.end_start,
+                        start_end: false,
+                    };
+                    let to_r = Shared {
+                        end_start: false,
+                        start_end: sh.start_end,
+                    };
+                    stack.push(SelfJob::Two(x.clone(), r, to_r));
+                    stack.push(SelfJob::Two(x, l, to_l));
+                }
             }
         }
     }
     // The closing point of a closed curve (end on start) is not a self-intersection.
-    let span = s.span();
     let eps = 1e-7 * span.max(1.0);
     out.retain(|&(t1, t2, _)| !(t1 <= eps && t2 >= span - eps));
     out.sort_by(|p, q| p.0.total_cmp(&q.0));
-    out.dedup_by(|p, q| p.2.distance(q.2) <= lin);
-    out
+    let mut uniq: Vec<(f64, f64, Point2)> = Vec::new();
+    for h in out {
+        if uniq.iter().all(|o| o.2.distance(h.2) > lin) {
+            uniq.push(h);
+        }
+    }
+    uniq
 }

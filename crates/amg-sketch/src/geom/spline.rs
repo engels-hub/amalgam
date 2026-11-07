@@ -21,7 +21,7 @@
 
 use amg_core::{Aabb2, Point2, Vec2};
 
-use super::ellipse::integrate;
+use super::ellipse::{integrate, integrate3};
 use crate::error::SketchError;
 
 /// Largest supported degree.
@@ -554,12 +554,30 @@ impl BSpline2 {
             .sum()
     }
 
+    /// The Bézier pieces as `(lo, hi, poles)` with Cartesian poles: the piece lies in their
+    /// convex hull and runs from the first to the last.
+    pub(crate) fn piece_points(&self) -> Vec<(f64, f64, Vec<Point2>)> {
+        self.bezier_pieces()
+            .into_iter()
+            .map(|(lo, hi, pw)| (lo, hi, pw.iter().map(|&h| unhom(h).0).collect()))
+            .collect()
+    }
+
     /// Tight bounding box (extrema found by sign changes of the coordinate derivatives).
+    ///
+    /// A coordinate whose Bézier pole differences all share a sign is monotone on that piece
+    /// (the derivative is a positive combination of them), so only pieces that are not
+    /// monotone in an axis are searched for extrema in it (SK-23).
     pub fn bbox(&self) -> Aabb2 {
         let mut b = Aabb2::from_points([self.eval(0.0), self.eval(self.span())]);
         let n = self.samples();
-        for (lo, hi) in self.spans() {
+        for (lo, hi, pts) in self.piece_points() {
+            b.include_point(pts[0]);
+            b.include_point(pts[pts.len() - 1]);
             for axis in 0..2 {
+                if monotone_axis(&pts, axis) {
+                    continue;
+                }
                 let g = |t: f64| {
                     let d = self.derivative(t);
                     if axis == 0 { d.x } else { d.y }
@@ -581,11 +599,31 @@ impl BSpline2 {
     }
 
     /// Closest point to `p`: `(t, point)`.
+    ///
+    /// Spans are visited nearest control-polygon box first; a span whose box is farther than
+    /// the best point so far cannot hold a closer point and is skipped (SK-23).
     pub fn closest(&self, p: Point2) -> (f64, Point2) {
         let n = self.samples();
-        let mut best = (0.0, f64::INFINITY);
-        let mut cand: Vec<f64> = Vec::new();
-        for (lo, hi) in self.spans() {
+        let mut best = (0.0, self.eval(0.0).distance_squared(p));
+        let d_end = self.eval(self.span()).distance_squared(p);
+        if d_end < best.1 {
+            best = (self.span(), d_end);
+        }
+        let mut order: Vec<(f64, f64, f64)> = self
+            .piece_points()
+            .into_iter()
+            .map(|(lo, hi, pts)| {
+                let bx = Aabb2::from_points(pts.iter().copied());
+                let q = p.clamp(bx.min, bx.max);
+                (q.distance_squared(p), lo, hi)
+            })
+            .collect();
+        order.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        for (box_d, lo, hi) in order {
+            if box_d > best.1 {
+                break;
+            }
+            let mut cand: Vec<f64> = Vec::new();
             let ts: Vec<f64> = (0..=n)
                 .map(|i| lo + (hi - lo) * i as f64 / n as f64)
                 .collect();
@@ -602,13 +640,11 @@ impl BSpline2 {
                     cand.push(self.refine_closest(p, ts[i], a, b));
                 }
             }
-        }
-        cand.push(0.0);
-        cand.push(self.span());
-        for t in cand {
-            let d = self.eval(t).distance_squared(p);
-            if d < best.1 {
-                best = (t, d);
+            for t in cand {
+                let d = self.eval(t).distance_squared(p);
+                if d < best.1 {
+                    best = (t, d);
+                }
             }
         }
         (best.0, self.eval(best.0))
@@ -638,7 +674,11 @@ impl BSpline2 {
     pub(crate) fn monotone_y(&self) -> Vec<f64> {
         let n = self.samples();
         let mut out = vec![0.0];
-        for (lo, hi) in self.spans() {
+        for (lo, hi, pts) in self.piece_points() {
+            if monotone_axis(&pts, 1) {
+                out.push(hi);
+                continue;
+            }
             let g = |t: f64| self.derivative(t).y;
             let (mut t_prev, mut g_prev) = (lo, g(lo));
             for i in 1..=n {
@@ -666,40 +706,28 @@ impl BSpline2 {
         let q0 = self.eval(0.0);
         let q1 = self.eval(self.span());
         let (mut area, mut mx, mut my) = (0.0, 0.0, 0.0);
+        // On a polynomial span the integrands are polynomials of degree at most `3p − 1`; the
+        // 12-point Gauss–Legendre rule is exact up to degree 23, so one panel is exact there
+        // (SK-23: the old five panels per span were most of the cost of a spline loop).
+        let panels = if !self.is_rational() && 3 * self.degree <= 24 {
+            1
+        } else {
+            2 + self.degree
+        };
         for (lo, hi) in self.spans() {
-            let panels = 2 + self.degree;
-            area += 0.5
-                * integrate(
-                    |t| {
-                        let (c, d, _) = self.derivs(t);
-                        (c - q0).perp_dot(d)
-                    },
-                    lo,
-                    hi,
-                    panels,
-                );
-            mx += 0.5
-                * integrate(
-                    |t| {
-                        let (c, d, _) = self.derivs(t);
-                        let r = c - q0;
-                        r.x * r.x * d.y
-                    },
-                    lo,
-                    hi,
-                    panels,
-                );
-            my -= 0.5
-                * integrate(
-                    |t| {
-                        let (c, d, _) = self.derivs(t);
-                        let r = c - q0;
-                        r.y * r.y * d.x
-                    },
-                    lo,
-                    hi,
-                    panels,
-                );
+            let [a, x, y] = integrate3(
+                |t| {
+                    let (c, d, _) = self.derivs(t);
+                    let r = c - q0;
+                    [r.perp_dot(d), r.x * r.x * d.y, r.y * r.y * d.x]
+                },
+                lo,
+                hi,
+                panels,
+            );
+            area += 0.5 * a;
+            mx += 0.5 * x;
+            my -= 0.5 * y;
         }
         // Chord back from `q1` to `q0` (relative to `q0`: from `d` to the origin).
         let d = q1 - q0;
@@ -708,9 +736,10 @@ impl BSpline2 {
         (area, Vec2::new(mx, my) + q0 * area)
     }
 
-    /// Self-intersections `(t1, t2, point)` with `t1 < t2`, to within `tol` (mm). The curve is
-    /// cut into twelve pieces per knot span and the pieces are intersected; a loop shorter than
-    /// a twelfth of a span is not found.
+    /// Self-intersections `(t1, t2, point)` with `t1 < t2`, to within `tol` (mm), by Bézier
+    /// subdivision of the curve against itself (shared ends of consecutive pieces and the seam
+    /// of a closed curve are not crossings). A loop smaller than about `1e-3` of the curve's
+    /// box diagonal is not found.
     pub fn self_intersections(&self, tol: f64) -> Vec<(f64, f64, Point2)> {
         super::spline_x::self_intersections(self, tol)
     }
@@ -771,6 +800,21 @@ pub fn conic_weight(rho: f64) -> Result<f64, SketchError> {
             value: rho,
         })
     }
+}
+
+/// True if coordinate `axis` of a Bézier piece with poles `pts` is monotone: every pole
+/// difference `P_j − P_i`, `j > i`, has the same sign in it (zero allowed).
+fn monotone_axis(pts: &[Point2], axis: usize) -> bool {
+    let c = |p: Point2| if axis == 0 { p.x } else { p.y };
+    let (mut pos, mut neg) = (false, false);
+    for i in 0..pts.len() {
+        for j in i + 1..pts.len() {
+            let d = c(pts[j]) - c(pts[i]);
+            pos |= d > 0.0;
+            neg |= d < 0.0;
+        }
+    }
+    !(pos && neg)
 }
 
 pub(crate) fn bisect(f: impl Fn(f64) -> f64, mut lo: f64, mut hi: f64) -> f64 {
