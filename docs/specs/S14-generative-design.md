@@ -62,3 +62,4 @@ compliance check by computing max overhang angle on output mesh; performance ben
 
 ## Open questions
 1. (from S16, 2026-10-20) GEN-06 should use the S16 overhang convention (`docs/notes/am-build-prep.md` §1.1: slope from horizontal, strict `−n·d > cos α`), so "prints without supports at α" is checkable with AM-02.
+2. (from S08, 2026-11-08) GEN-07 hands the density field to S08 as `SampledGrid::from_dense` (IMP-12), offsets it to the 0.5 iso level and meshes with `amg_implicit::to_mesh` (IMP-04). GEN-02's voxelisation can use `MeshSdf` (IMP-03).

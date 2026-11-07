@@ -90,7 +90,8 @@ joints, direct mode, Python API.
   SOL-25 (thread), SOL-26 (emboss), SOL-27 (surface repair), INS-04..06, INS-12, KH-04, KH-19, KH-06, KH-14, KH-15, KH-08, KH-18
   (loft builder lands with SOL-11)
 - B: SK-08, SK-10, SK-11
-- C: MESH-11..15, MESH-24, MESH-25, IMP-01, IMP-02, IMP-04..06, IMP-08
+- C: MESH-11..15, MESH-24, MESH-25, IMP-01, IMP-02, IMP-04..06, IMP-08, IMP-11..13, IMP-15,
+  IMP-16
 - D: RND-05, RND-09, UI-11, UI-18
 - E: DOC-08, ASM-03, ASM-04, ASM-11, ASM-12, ASM-05, SCR-01..03, SCR-09..11
 - G: IO-07, IO-08, IO-10, IO-12 (3MF Prusa), MAT-02, MAT-03, MAT-08, AM-07, AM-15 (resin
@@ -109,7 +110,7 @@ printable body, orientation optimization and plate arrangement.
 Thermal, buckling, nonlinear, outcome explorer, shape optimization, conformal lattices,
 automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
 - F: FEM-09..11, GEN-08..10
-- C: IMP-09, IMP-10, FRM-01..06
+- C: IMP-09, IMP-10, IMP-14 (stochastic lattice), FRM-01..06
 - A: SOL-15, SOL-16, SOL-28
 - E: DOC-10, SCR-04, SCR-06, SCR-13, SCR-14, ASM-06, ASM-07
 - B: SK-12

@@ -1779,3 +1779,11 @@ See `docs/specs/S06-assemblies.md` Interfaces and `docs/notes/assemblies.md`.
 - `Component::joints` stays (always empty) because `Component` is `deny_unknown_fields`;
   drop it at the next `FORMAT_VERSION` bump. Joints are timeline features, so `JointId` is
   unused.
+
+### 2026-11-08 - requests from the S08 refinement (lane C, additive; implemented by IMP-11)
+- `amg-doc::stub::SdfGraph` becomes `pub use amg_implicit::SdfGraph;` (immutable, `Send + Sync`,
+  `Clone + Debug`; no `Default` or `Eq`, so the stub's derived traits go).
+- The body codec stores implicit bodies with `SdfGraph::write_binary` (versioned `AMGI` magic,
+  checksummed) and reads them with `SdfGraph::read_binary`, as MESH-16 did for meshes. The
+  `stub:implicit` tag stays readable as an empty-graph placeholder until DOC-07 freezes the format.
+- No other change: implicit bodies stay body-level only for references (S01 §Persistent naming).
