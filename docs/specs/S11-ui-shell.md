@@ -1165,3 +1165,16 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **From S02 (B-rep kernel).** UI-22 maps a picked triangle to a face with
   `TessMesh::face_of_triangle` (face order = `face_ranges`); edge lines come from
   `TessMesh::edges`.
+
+### 2026-11-08: from the S04 refinement (lane A)
+
+S04 adopts Interfaces §B (`amg_features::dialog`) as is (S04 Open question 3), with two
+additive pieces UI-05 should render:
+- `DialogRegistration::new_component: Option<fn(&FieldValues) -> Option<String>>`. When it
+  returns `Some(name)`, UI-05 commits `AddComponent { name }` and `AddFeature` with the new
+  component as the context in one transaction (Fusion's "New component" operation). `None`
+  for every registration until S04 SOL-24.
+- `DispatchRegistration { command_id, dispatch, command }` (inventory): a command that starts
+  another kind's generic dialog chosen from the current selection. Press-pull
+  (`solid.press_pull`, S04 SOL-09) maps a face to `solid.offset_face`, an edge to
+  `solid.fillet` and a profile to `solid.extrude`.

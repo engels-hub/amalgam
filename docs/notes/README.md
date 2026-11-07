@@ -20,3 +20,4 @@ that depends on it starts.
 | `occt-integration.md` | S02 refinement (2026-10-20) | BREP-01, BREP-02, BREP-12 | Written |
 | `ui-framework.md` | S11 refinement (2026-10-20) | UI-01 | Written |
 | `viewport-rendering.md` | S10 refinement (2026-10-20) | RND-01 | Written |
+| `solid-features.md` | S04 refinement (2026-11-08) | SOL-01, SOL-02, SOL-08 | Written |

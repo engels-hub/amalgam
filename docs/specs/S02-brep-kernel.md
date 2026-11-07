@@ -1034,3 +1034,31 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
     surviving a text-`.brep` round trip (KH-01 adds that test).
 - **From S16 (AM).** Solid bodies on build plates need BREP-08 tessellation at export quality
   (IO-09 presets); until then Phase 1 plate items are mesh bodies.
+
+### 2026-11-08: requests from the S04 refinement (lane A)
+
+Additive; S04 Interfaces ("Kernel calls") has the signatures. The S04 WP that needs a request
+adds it to `amg-brep` itself if the S02 WP named here is already Done (same lane), with its
+`KernelOp` variant (S20 rule).
+- **R-S04-1 (BREP-09):** `edge_ends(s, e) -> KResult<EdgeEnds { p0, t0, p1, t1 }>`, for
+  tangent-chain propagation in fillet/chamfer (SOL-05).
+- **R-S04-2 (BREP-05):** `OpResult::per_solid` (= the naming note's Q3); cut and split results
+  become one body per solid (SOL-01, SOL-07).
+- **R-S04-3 (BREP-03):** `make_thin_face(&ThinProfile, &Tolerance) -> KResult<FaceBuild>`
+  (`BRepOffsetAPI_MakeOffset`, open-wire mode), for thin extrude/revolve and ribs (SOL-18,
+  SOL-13).
+- **R-S04-4 (BREP-17):** `silhouette_curves(s, faces, dir) -> KResult<Vec<CurveSeg>>`
+  (`Contap_Contour`), for silhouette split (SOL-22).
+- **R-S04-5 (BREP-16):** `offset_faces(s, &[(FaceId, f64)], ctx) -> KResult<OpResult>`, for
+  offset face and press-pull (SOL-09).
+- **R-S04-6 (BREP-14):** `mirrored(s, &Plane) -> KResult<OpResult>` (reflection with fixed
+  face orientation); `Shape::transformed` keeps rejecting improper transforms (SOL-08).
+- **R-S04-7 (BREP-15):** `PipeMode::Support { shell }` (`MakePipeShell::SetMode(SpineSupport)`),
+  for guide-surface sweeps (SOL-10).
+- **R-S04-8 (BREP-07, contract):** `shell` with an empty `remove` list returns a hollow solid
+  (SOL-06).
+- **R-S04-9 (BREP-10, Phase 3):** `fill_patch(boundary, support, Continuity, ctx)`
+  (`BRepOffsetAPI_MakeFilling`) and `reverse_faces(s, faces)`, for the surface repair tools
+  (SOL-27).
+- S04 also relies on the naming note's Q1 (rigid `transformed` keeps index order), used by
+  pattern instances.

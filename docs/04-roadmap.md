@@ -72,7 +72,9 @@ shell → measure, section → overhang analysis on a build plate → export 3MF
 Sketch → extrude/revolve → fillet/chamfer/shell → patterns → timeline edits that don't break
 (persistent naming) → parameters → STEP in/out → components.
 - A: BREP-05..07, BREP-09, BREP-10, BREP-13 (STEP/IGES), BREP-15 (sweeps, raw loft), BREP-16
-  (draft, split, defeature), BREP-17 (section, projection), SOL-01..09, CON-01..04, INS-07, INS-10,
+  (draft, split, defeature), BREP-17 (section, projection), SOL-01..09, SOL-18 (thin), SOL-20
+  (fillet on the S20 chain), SOL-23 (path/face patterns), SOL-24 (component ops), SOL-29 (parity
+  harness, recompute budget), CON-01..04, INS-07, INS-10,
   INS-11, KH-02, KH-03, KH-05, KH-12, KH-13, KH-16, KH-17
 - B: SK-07, SK-16..19, SK-22, SK-09
 - D: RND-13 (device loss, diagnostics), UI-05, UI-06, UI-09, UI-12, UI-13, UI-14, UI-16, UI-17,
@@ -84,7 +86,8 @@ Sketch → extrude/revolve → fillet/chamfer/shell → patterns → timeline ed
 ## Phase 3 — Advanced modeling & lattices
 Sweep/loft/holes/threads/text, mesh→B-rep, wall thickness, implicit modeling with lattices,
 joints, direct mode, Python API.
-- A: BREP-11, SOL-10..13, INS-04..06, INS-12, KH-04, KH-19, KH-06, KH-14, KH-15, KH-08, KH-18
+- A: BREP-11, SOL-10..14, SOL-19 (coil, pipe), SOL-21 (setback), SOL-22 (silhouette split),
+  SOL-25 (thread), SOL-26 (emboss), SOL-27 (surface repair), INS-04..06, INS-12, KH-04, KH-19, KH-06, KH-14, KH-15, KH-08, KH-18
   (loft builder lands with SOL-11)
 - B: SK-08, SK-10, SK-11
 - C: MESH-11..15, MESH-24, MESH-25, IMP-01, IMP-02, IMP-04..06, IMP-08
@@ -106,7 +109,7 @@ Thermal, buckling, nonlinear, outcome explorer, shape optimization, conformal la
 automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
 - F: FEM-09..11, GEN-08..10
 - C: IMP-09, IMP-10, FRM-01..06
-- A: SOL-14..16
+- A: SOL-15, SOL-16, SOL-28
 - E: DOC-10, SCR-04, SCR-06, ASM-06, ASM-07
 - B: SK-12
 - G: MAT-04, IO-18 (3MF beam lattice), IO-19 (3MF full materials)
