@@ -1036,3 +1036,11 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **From S02 (B-rep kernel).** `amg-io` converts `TessMesh` → `IndexedMesh` itself (it can't see
   `amg-features`); S12 maps `ForeignModel` to components. IO-06/IO-07 depend on BREP-13 and IO-08
   on BREP-17 (already in the table).
+
+### 2026-11-08: from the S08 refinement (resolves S08 open question 3)
+- IO-18 converts `amg_implicit::BeamGraph { nodes, beams: Vec<Beam { a, b, r_a, r_b }>, ball_radius }`
+  (IMP-06). Beams map to 3MF `beam v1 v2 r1 r2` with cap mode `sphere`; `ball_radius: Some(r)`
+  maps to ball mode `all` with `ballradius = r`. Beams are already clipped to the body; writing
+  unclipped beams plus a clipping mesh is IO-18's choice (see `docs/notes/implicit-modeling.md` §7.3).
+- On read, a beam lattice can become a `BeamGraph` wrapped in an implicit body (exact, editable)
+  instead of a capsule mesh, once IMP-11 exists. IO-18 deps stay IO-11, IMP-06.

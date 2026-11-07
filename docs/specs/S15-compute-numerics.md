@@ -28,3 +28,4 @@ matrices, iterative and direct solvers, eigen solvers, voxel/brick grids.
 1. (from S10, 2026-10-20) `SHADER_F64` is Vulkan-only in wgpu 30, so the default DX12 device never has it; plan f32 or emulated-double kernels.
 2. (from S16, 2026-10-20) AM-13 (GPU orientation scoring, Phase 4) depends on CMP-01 and keeps its backend behind `ComputeBackend` with a CPU reference.
 3. (integration, 2026-10-20) Agreed earlier-wave repoint applied: CMP-01 now depends on FND-09 (`amg-jobs::gpu`) instead of FND-04.
+4. (from S08, 2026-11-08) IMP-02 and IMP-12 need from CMP-02 a sparse brick grid with brick edge 8, `half::f16` (and f32) storage, insert/lookup by brick coordinate, and a GPU layout (brick table + hash or dense index) that WGSL can read. S08 wraps it as `SdfBricks` / `SampledGrid`, so the CMP-02 type name can still change.

@@ -886,3 +886,8 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   project by AM-06), temperatures, `shrinkage`, `cost`. The build direction (plate +Z,
   `d_local = R⁻¹·Z`) is what S13 maps to material axis 3; the material never stores an
   orientation. Infill and print settings stay in S16.
+
+### 2026-11-08: from the S08 refinement
+- Implicit build items resolve through `amg_features::implicit::mesh_for_export(graph, quality)`
+  (IMP-13; cached per graph hash and cell size). Until IMP-13 lands they keep
+  `UnresolvedReason::NotAMesh`.
