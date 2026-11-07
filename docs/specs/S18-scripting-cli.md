@@ -464,6 +464,10 @@ Requests from the 2026-11-08 refinement (additive; owners must confirm):
   need. Lands with SCR-07.
 - **S00 / architecture (ADR-level, QUESTIONS #56):** allow the edge `amg-ui → amg-script` in the
   layering allow-list; add `amg-ui::script` to lane E in the roadmap lanes table.
+- **From S13 (2026-11-08, S13 refinement):** S13 is `Refined`. SCR-12 should add FEM-17 (study run
+  job `RunStudy`, `load_results`) to its deps; the Python study API wraps `amg_features::sim::{Study,
+  studies, RunStudy, load_results}` (S13 Interfaces). The cantilever study for its Done-when is the
+  FEM-04 golden case.
 - **S11 (lane D):** `amg-app` links `python3.dll` delay-loaded when its `python` feature is on
   (`/DELAYLOAD:python3.dll` + `delayimp.lib` in `build.rs`), and starts `ScriptRuntime` lazily on
   first console/script use. For SCR-16 (P3): an owned `DialogSchema` variant (`Arc<DialogSchema>`

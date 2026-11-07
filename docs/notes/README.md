@@ -24,3 +24,4 @@ that depends on it starts.
 | `scripting-api.md` | S18 refinement (2026-11-08) | SCR-07, SCR-01, SCR-03 | Written |
 | `assemblies.md` | S06 refinement (2026-11-08) | ASM-01, ASM-03, ASM-04 | Written |
 | `implicit-modeling.md` | S08 refinement (2026-11-08) | IMP-01, IMP-02, IMP-04, IMP-06 | Written |
+| `simulation-fem.md` | S13 refinement (2026-11-08) | FEM-02, FEM-04, FEM-15 | Written |
