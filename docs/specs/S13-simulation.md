@@ -763,6 +763,7 @@ note §10. "Corpus" = `testdata/fem/corpus/` (note §11).
    parts; the rigid variant is later.
 
 10. (from S08, 2026-11-08) IMP-07 (stress-driven lattice density) reads FEA results as a regular grid: FEM-06 should resample a chosen result (von Mises, displacement magnitude, safety factor) onto corner values of a box and call `amg_implicit::SampledGrid::from_dense(origin, cell_size, dims, values)`.
+
 ## Refinement log
 ### 2026-11-08 - S13-refine (lane F refinement)
 - **Read:** AGENTS.md, vision, architecture, ADRs (ADR-004 wgpu/CUDA, ADR-006 faer, ADR-008
