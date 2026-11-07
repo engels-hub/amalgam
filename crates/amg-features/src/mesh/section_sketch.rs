@@ -887,9 +887,8 @@ mod tests {
         );
     }
 
-    /// SK-06 on spline boundaries is very slow (minutes for this ellipse), hence ignored.
+    /// A closed loop of two splines (SK-23 made this fast: about 10 ms).
     #[test]
-    #[ignore = "amg-sketch profile detection on splines takes minutes"]
     fn tilted_ellipse_closes_into_one_profile() {
         let (polys, plane, exact, _) = tilted_ellipse();
         let curves = section_to_sketch_curves(&polys, &plane, TOL);
