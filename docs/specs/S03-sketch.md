@@ -697,6 +697,56 @@ pub enum SketchEdit {
 }
 ```
 
+```rust
+// ───────────────────────── amg_sketch::sketch3d (SK-12) ─────────────
+// 3D points / lines / clamped B-splines in model space (mm), constraints as `system::Residual`s,
+// solved by `NativeSolver` (SK-03) and analysed by the SK-04 null-space DOF code.
+pub enum Entity3 {
+    Point([ParamId; 3]),
+    ModelVertex { at: [ParamId; 3], link: Option<ExternalLinkId> },   // fixed coordinates
+    Line { start: EntityId, end: EntityId },
+    Spline { degree: usize, poles: Vec<EntityId>, knots: Vec<f64> },   // poles are points
+}
+pub enum Axis { X, Y, Z }
+pub enum SplineEnd { Start, End }
+pub enum Constraint3 {                       // "point" = Point or ModelVertex
+    Coincident { a, b },                     // 3 rows, substituted (to a vertex: constant)
+    PointOnLine { point, line },             // 3 rows + aux line parameter
+    PointOnSpline { point, spline },         // 3 rows + aux curve parameter
+    Distance { a, b, value }, Length { line, value },
+    Angle { a, b, value },                   // (0, π); Parallel for 0 / π
+    Parallel { a, b },                       // v − s·u = 0, aux ratio s
+    Perpendicular { a, b }, EqualLength { a, b },
+    AlongAxis { line, axis },                // 2 rows, substituted
+    Tangent { line, spline, end },           // line ∥ end leg of the control polygon
+}
+pub struct Constraint3Entry { pub kind: Constraint3, pub aux: SmallVec<[ParamId; 1]> }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Sketch3d { /* params, fixed flags, entities, constraints */ }
+impl Sketch3d {
+    pub fn new() -> Self;
+    pub fn add_point(&mut self, p: Point3) -> Result<EntityId, SketchError>;
+    pub fn add_model_vertex(&mut self, at: Point3, link: Option<ExternalLinkId>) -> Result<EntityId, SketchError>;
+    pub fn move_model_vertex(&mut self, id: EntityId, at: Point3) -> Result<(), SketchError>;
+    pub fn add_line(&mut self, start: EntityId, end: EntityId) -> Result<EntityId, SketchError>;
+    pub fn add_line_points(&mut self, a: Point3, b: Point3) -> Result<EntityId, SketchError>;
+    pub fn add_spline(&mut self, degree: usize, poles: &[EntityId]) -> Result<EntityId, SketchError>;
+    pub fn add_spline_knots(&mut self, degree: usize, poles: &[EntityId], knots: Vec<f64>) -> Result<EntityId, SketchError>;
+    pub fn set_fixed(&mut self, point: EntityId, fixed: bool) -> Result<(), SketchError>;
+    pub fn add_constraint(&mut self, kind: Constraint3) -> Result<ConstraintId, SketchError>;
+    pub fn remove_constraint(&mut self, id: ConstraintId) -> Result<Constraint3, SketchError>;
+    pub fn set_value(&mut self, id: ConstraintId, v: f64) -> Result<(), SketchError>;
+    pub fn point(&self, id: EntityId) -> Option<Point3>;
+    pub fn line(&self, id: EntityId) -> Option<(Point3, Point3)>;
+    pub fn spline_point(&self, id: EntityId, t: f64) -> Option<Point3>;
+    pub fn system(&self) -> Result<SketchSystem, SketchError>;          // shared `system` layer
+    pub fn solve(&mut self, solver: &mut NativeSolver, opts: &SolveOptions,
+                 cancel: &dyn Fn() -> bool) -> SolveReport;            // SK-03 pipeline
+    pub fn analyze(&self, solver: &NativeSolver) -> (DofReport, Diagnosis);  // SK-04
+    // + entities / entity / constraints / constraint / params / is_fixed / characteristic_length
+}
+```
+
 **Consumer contracts:**
 - **SOL-02/03 (S04):** read `SketchGeom::profiles` (via `RecomputeCtx::sketch`), select by
   `EntityRef::Profile { sketch, profile: ProfileId }`, and pass `Profile` loops (`Curve2` +
@@ -732,7 +782,7 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
 | SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Review | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
 | SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Done | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
-| SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Todo | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
+| SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Review | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
 
 ## Testing
 - **Jacobians (SK-02, SK-08, SK-22).** Central-difference check for every residual row on
@@ -1584,7 +1634,7 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   SK-18 (`transform`), SK-22 (`ellipse`) and SK-08 (`spline`) now use `NativeSolver` (the log
   entries asked to swap when SK-03 lands). `solve::proto` stays for the SK-13 comparison harness
   (`corpus::compare::native`, `benches/solver_compare.rs`, `tests/sk13_compare.rs`).
-- **Done-when evidence (2026-10-23, this machine, heavily loaded):**
+- **Done-when evidence (2026-10-27, this machine, heavily loaded):**
   1. Corpus (`tests/solver.rs::corpus_pass_rate`, `SolverRunner` with total DOF + diagnosis):
      **135/135** (100 %), so every well-constrained case (`converged`, DOF 0) passes; the same
      135/135 with every block on the sparse path (`with_dense_limit(0)`) and without the DM split
@@ -1849,3 +1899,51 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   select) maps onto `Translate` already but is untested; the jump ratio (3) and SQP limits (16 outer, 6
   halvings per frame) are tuned on D1/D4/D7/chain only; SQP restoration uses the whole-component block, so
   a > 1000-unknown component would exceed the 2 ms budget on fallback frames.
+
+### 2026-10-27 - SK-12 (3D sketch, lane B)
+- **Landed** (`src/sketch3d/{mod,residual}.rs`, `src/solve/native/generic.rs`, `tests/sketch3d.rs`,
+  `tests/golden/sketch/sk12_polyline.json`; `lib.rs`: `pub mod sketch3d;` and a doc line):
+  - `Sketch3d` (serde): free points, model vertices (fixed coordinates, optional `ExternalLinkId`,
+    `move_model_vertex` for refresh), lines, clamped non-rational B-splines through point poles; fixed
+    points via `set_fixed`. Constraints (`Constraint3`): coincident, point on line, point on spline,
+    distance, length, angle `(0, π)`, parallel, perpendicular, equal length, along a model axis, line–spline
+    end tangency. Each is a `system::Residual` (`Res3`) with an analytic Jacobian (checked against central
+    differences); logical slots that share a parameter (lines sharing a point) are summed into one column.
+    Angular rows are scaled by `L_c` (bounding-box diagonal, ≥ 1 mm). Point-on-line/spline and the
+    parallel/tangent ratio use one auxiliary unknown each (3 full-rank rows instead of a rank-2 cross
+    product, so the DM structure never sees a fake over-determined block); B-spline basis via
+    `BSpline2::{find_span, basis_derivs}` (SK-08).
+  - Solver reuse, no fork: `Structure::new` now delegates to `Structure::build(n, rev, sys, subst, ..)`,
+    a sketch-free constructor taking the substitution callback; the status/rank part of `evaluate` is the
+    shared `outcome`; `SubAnalysis::report_params` is the entity-agnostic per-entity status (the sketch
+    `report` calls it); `RawSystem::with_fixes` is the sketch-free raw-row builder. `native::generic`
+    (`Problem`, `NativeSolver::{solve_problem, analyze_problem}`, crate-internal) runs substitution →
+    components → DM blocks → LM → rank test → SK-04 null-space DOF / per-entity status → circuits on any
+    `SketchSystem`. 3D coincidence and axis constraints are substituted like 2D coincident / H / V (a point
+    coincident with a model vertex becomes a constant; two different vertices on one point give a fixed join
+    → `Inconsistent`).
+- **Done-when evidence (2026-10-27, this machine, loaded):**
+  1. `polyline_with_lengths_angles_and_model_vertices_solves`: a 5-segment spatial polyline between two model
+     vertices, perturbed start (1–2.5 mm per coordinate), 5 lengths, 3 angles, a right angle, one segment
+     along Z: `Converged`, max residual < 1e-9, ends bit-exact on the vertices, every dimension re-measured
+     within 1e-9, DOF 1 (hand count: 12 unknowns, 11 independent equations; the chain swings about the
+     V0–V1 chord), `analyze` agrees, no groups. Also: the solve follows a moved model vertex, golden
+     coordinates (`polyline_golden`, 1e-9), 20 repeated solves bit-identical, cancel leaves the sketch
+     unchanged, serde round trip.
+  2. `dof_cases_match_hand_derived_values`: **11** cases, each with its hand derivation in a comment (free
+     point 3; vertex + length 2; + axis 0; rigid triangle 6; rigid tetrahedron 6; two-bar pivot 3; point on a
+     fixed line 1; point on a fixed spline 1; doubled axis constraint 1 + `ConvergedRedundant` + one Redundant
+     group; perpendicular L about a vertex 3; spline tangent to a fixed line 7) plus selected per-entity
+     `(state, free_dof)`; all match with the default solver, every block sparse (`with_dense_limit(0)`) and
+     without the DM split (11 × 3), and `analyze` equals the solve's `PerEntity` report. Conflict test: one
+     point coincident with two different model vertices → `Inconsistent`, one `Conflicting` group of both.
+- **Deviations:** the 3D path has no witness tie-break or leave-one-out refinement (both re-solve a 2D
+  `Sketch`): a satisfied circuit is always `Redundant` (never `DegenerateConfiguration`), conflicts are the
+  unsatisfied circuits, and DOF at a singular configuration is the first-order count. No structure cache in
+  the 3D path (rebuilt per call; fine at 3D-sketch sizes). No drag sessions, driven dimensions or
+  `check_constraint` for 3D. No `amg-features` 3D sketch feature (not in the WP's Interfaces).
+- **Interface changes (additive, `amg-sketch` only):** new public `sketch3d` module (Interfaces above).
+  Crate-internal refactors listed under Landed; no public signature in `solve` changed. No new deps.
+- **Leftovers:** a 3D sketch feature in `amg-features::sketch` (+ model-vertex link refresh via SK-09/BREP),
+  3D witness/LOO diagnosis (generalise `analysis::witness` over a problem trait), structure cache keyed by a
+  `Sketch3d` revision, 3D drag, splines through fit points, arcs/circles in 3D.

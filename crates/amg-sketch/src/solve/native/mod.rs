@@ -22,6 +22,7 @@ mod block;
 mod dense;
 mod diagnose;
 mod drag;
+mod generic;
 mod sparse;
 mod structure;
 #[cfg(test)]
@@ -33,6 +34,8 @@ use std::sync::Arc;
 use self::analysis::{Base, Settings, analyze_at};
 use self::block::{BlockCtx, BlockOutcome, solve_block, to_dense};
 pub use self::drag::NativeDrag;
+pub(crate) use self::generic::Problem;
+pub(crate) use self::structure::SubstPairs;
 use self::structure::{Slot, Structure, Sub, SubKind};
 use super::api::{
     ConstraintCheck, Diagnosis, DofAnalysis, DofReport, DragMode, DragSession, DragSpec,
@@ -437,20 +440,26 @@ fn ranks(
     Some((total, deficient))
 }
 
-/// Status, residuals, rank/DOF and diagnosis at the end of a run; `None` if cancelled.
-#[allow(clippy::too_many_arguments, reason = "internal pipeline step")]
-fn evaluate(
-    sketch: &Sketch,
-    sys: &SketchSystem,
+/// Status, residuals and total DOF of a solved configuration (no sketch needed).
+struct Outcome {
+    pub status: SolveStatus,
+    pub max_residual: f64,
+    /// Constraints with a row above the tolerance, ascending.
+    pub unsatisfied: Vec<ConstraintId>,
+    /// Unknowns minus the numeric rank, when the rank test ran.
+    pub dof: Option<u32>,
+}
+
+/// Status from the residuals at `x` and the (structural and numeric) rank test; `None` if
+/// cancelled. The rank test runs when `opts` asks for diagnosis or DOF.
+fn outcome(
+    system: &EquationSystem,
     st: &Structure,
-    run: &Run,
+    x: &[f64],
     opts: &SolveOptions,
     tol: f64,
-    settings: Settings,
     cancel: &dyn Fn() -> bool,
-) -> Option<SolveReport> {
-    let x = &run.x;
-    let system = &sys.system;
+) -> Option<Outcome> {
     let mut f = vec![0.0; system.rows()];
     system.eval(x, &mut f);
     let max_residual = max_abs(&f);
@@ -490,6 +499,33 @@ fn evaluate(
         (false, true) => SolveStatus::Inconsistent,
         (false, false) => SolveStatus::DidNotConverge,
     };
+    Some(Outcome {
+        status,
+        max_residual,
+        unsatisfied,
+        dof,
+    })
+}
+
+/// Status, residuals, rank/DOF and diagnosis at the end of a run; `None` if cancelled.
+#[allow(clippy::too_many_arguments, reason = "internal pipeline step")]
+fn evaluate(
+    sketch: &Sketch,
+    sys: &SketchSystem,
+    st: &Structure,
+    run: &Run,
+    opts: &SolveOptions,
+    tol: f64,
+    settings: Settings,
+    cancel: &dyn Fn() -> bool,
+) -> Option<SolveReport> {
+    let x = &run.x;
+    let Outcome {
+        status,
+        max_residual,
+        unsatisfied,
+        dof,
+    } = outcome(&sys.system, st, x, opts, tol, cancel)?;
     let want_groups = opts.diagnose && status != SolveStatus::Converged;
     let analysis = if want_groups || opts.dof == DofAnalysis::PerEntity {
         Some(analyze_at(sketch, x, sys, st, settings, cancel)?)

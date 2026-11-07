@@ -68,8 +68,6 @@ pub(crate) struct RawValues {
 impl RawSystem {
     pub(crate) fn new(sketch: &Sketch, sys: &EquationSystem, free: &[ParamId]) -> RawSystem {
         let n = sketch.params().len();
-        let mut col = vec![u32::MAX; n];
-        let mut ncols = 0u32;
         let mut fix_params: BTreeMap<ConstraintId, Vec<ParamId>> = BTreeMap::new();
         let mut fix_count: BTreeMap<ParamId, u32> = BTreeMap::new();
         let store = sketch.params();
@@ -94,6 +92,20 @@ impl RawSystem {
             }
             fix_params.insert(id, ps);
         }
+        RawSystem::with_fixes(n, sys, free, &fix_params, &fix_count)
+    }
+
+    /// The raw rows of any system over `n` parameter slots: its blocks plus one unit row per
+    /// parameter in `fix_params` (dimension-agnostic callers pass none), merged by owner.
+    pub(crate) fn with_fixes(
+        n: usize,
+        sys: &EquationSystem,
+        free: &[ParamId],
+        fix_params: &BTreeMap<ConstraintId, Vec<ParamId>>,
+        fix_count: &BTreeMap<ParamId, u32>,
+    ) -> RawSystem {
+        let mut col = vec![u32::MAX; n];
+        let mut ncols = 0u32;
         // Columns: free unknowns and fix-locked params, in parameter order.
         let mut is_col = vec![false; n];
         for p in free.iter().chain(fix_count.keys()) {
@@ -135,7 +147,7 @@ impl RawSystem {
             push_block(&mut rows, bi);
             bi += 1;
         }
-        for (id, ps) in &fix_params {
+        for (id, ps) in fix_params {
             while bi < nb && matches!(sys.owner(bi), EquationOwner::Constraint(c) if c < *id) {
                 push_block(&mut rows, bi);
                 bi += 1;

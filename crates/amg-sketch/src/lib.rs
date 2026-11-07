@@ -13,6 +13,7 @@
 //! - [`transform`]: mirror, patterns and move/copy/rotate/scale (SK-18).
 //! - [`text`]: text blocks of locked spline outlines (SK-10).
 //! - [`import`]: DXF/SVG import into entities (SK-11).
+//! - [`sketch3d`]: 3D sketches on the same solver and DOF analysis (SK-12).
 //! - [`corpus`]: the solver test corpus format, `.slvs`/ezpz importers, a reference checker
 //!   and the solver-agnostic runner (SK-14; test infrastructure).
 //!
@@ -34,6 +35,7 @@ pub mod model;
 pub mod offset;
 pub mod profile;
 pub mod query;
+pub mod sketch3d;
 pub mod solve;
 pub mod text;
 pub mod transform;

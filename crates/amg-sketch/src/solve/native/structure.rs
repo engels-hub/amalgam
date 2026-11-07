@@ -192,7 +192,10 @@ fn line_ends(sketch: &Sketch, id: EntityId) -> Option<(EntityId, EntityId)> {
 
 /// Parameter pairs `(p, q)` whose equations are exactly `p − q = 0`, if the block can be
 /// replaced by aliasing.
-fn subst_pairs(sketch: &Sketch, owner: EquationOwner) -> Option<SmallVec<[(ParamId, ParamId); 2]>> {
+pub(crate) type SubstPairs = SmallVec<[(ParamId, ParamId); 2]>;
+
+/// [`SubstPairs`] of a sketch's equation block.
+fn subst_pairs(sketch: &Sketch, owner: EquationOwner) -> Option<SubstPairs> {
     let EquationOwner::Constraint(cid) = owner else {
         return None;
     };
@@ -277,8 +280,28 @@ impl Structure {
         dense_max: usize,
         decompose: bool,
     ) -> Structure {
+        Structure::build(
+            sketch.params().len(),
+            sketch.structure_rev(),
+            sys,
+            &|owner| subst_pairs(sketch, owner),
+            dense_max,
+            decompose,
+        )
+    }
+
+    /// Builds the structure of any system over `n` parameter slots (dimension-agnostic: SK-12
+    /// 3D sketches). `subst` names the blocks that are exactly `p − q = 0` (aliased instead of
+    /// solved); `rev` is stored for cache validation.
+    pub(crate) fn build(
+        n: usize,
+        rev: u64,
+        sys: &SketchSystem,
+        subst: &dyn Fn(EquationOwner) -> Option<SubstPairs>,
+        dense_max: usize,
+        decompose: bool,
+    ) -> Structure {
         let system = &sys.system;
-        let n = sketch.params().len();
         let mut is_var = vec![false; n];
         let mut is_fixed = vec![false; n];
         for p in &sys.free {
@@ -304,7 +327,7 @@ impl Structure {
         let mut fixed_joins = Vec::new();
         let mut substituted_rows = 0;
         for (bi, (owner, _, rows)) in system.iter().enumerate() {
-            let pairs = subst_pairs(sketch, owner).filter(|ps| {
+            let pairs = subst(owner).filter(|ps| {
                 ps.iter().all(|(p, q)| {
                     p.index() < n && q.index() < n && is_var[p.index()] && is_var[q.index()]
                 })
@@ -453,7 +476,7 @@ impl Structure {
         }
 
         Structure {
-            rev: sketch.structure_rev(),
+            rev,
             n_params: n,
             fixed: sys.fixed.iter().copied().collect(),
             free: sys.free.clone(),
