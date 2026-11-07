@@ -14,7 +14,7 @@ scheduled in an earlier phase than any of its dependencies.
 | C — Mesh & implicit | S07, S08, S09 | `amg-mesh`, `amg-manifold-sys`, `amg-implicit`, `amg-subd`, `amg-features::{mesh,implicit,form}`, `amg-ui::{mesh,form}` |
 | D — Viewport & UI framework | S10, S11 | `amg-render`, `amg-app`, `amg-ui` framework (shell, widgets, generic dialogs, viewport input, browser, timeline, sketch-mode UX) |
 | E — Document & API | S00, S01, S06, S18 | `amg-core`, `amg-jobs`, `amg-testkit`, `amg-doc`, `amg-script`, `amg-cli`, `amg-features::assembly` |
-| F — Numerics & simulation | S15, S13, S14 | `amg-compute`, `amg-fem`, `amg-topopt`, `amg-features::sim`, `amg-ui::{sim,generative}` |
+| F — Numerics & simulation | S15, S13, S14 | `amg-compute`, `amg-fem`, `amg-tetwild-sys`, `amg-topopt`, `amg-features::sim`, `amg-ui::{sim,generative}` |
 | G — AM, I/O, materials | S12, S16, S17 | `amg-io`, `amg-am`, `amg-materials`, `amg-features::{io,am}`, `amg-ui::{am,io,materials}` |
 
 **UI ownership rule:** lane D owns the `amg-ui` framework. Each domain lane owns its own
@@ -95,20 +95,20 @@ joints, direct mode, Python API.
 - E: DOC-08, ASM-03, ASM-04, ASM-11, ASM-12, ASM-05, SCR-01..03, SCR-09..11
 - G: IO-07, IO-08, IO-10, IO-12 (3MF Prusa), MAT-02, MAT-03, MAT-08, AM-07, AM-15 (resin
   printability)
-- F: CMP-04, CMP-05, FEM-01..03
+- F: CMP-04, CMP-05, FEM-01..03, FEM-13, FEM-14
 
 ## Phase 4 — Simulation & generative design (the "paid Fusion" milestone)
 Linear static + modal FEA, GPU topology optimization with AM overhang constraint, outcome →
 printable body, orientation optimization and plate arrangement.
-- F: FEM-04..08, FEM-13, GEN-01..07
+- F: FEM-04..08, FEM-15..19, GEN-01..07
 - G: AM-04, AM-05, AM-13 (GPU orientation scoring), AM-08 (support preview, now P1)
 - C: IMP-07 (stress-driven lattice density)
-- E: SCR-12 (studies from script/CLI; blocked until S13 is refined)
+- E: SCR-12 (studies from script/CLI; S13 refined 2026-11-08, runs on FEM-17)
 
 ## Phase 5 — Advanced parity
 Thermal, buckling, nonlinear, outcome explorer, shape optimization, conformal lattices,
 automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
-- F: FEM-09..11, GEN-08..10
+- F: FEM-09..11, FEM-20..25, GEN-08..10
 - C: IMP-09, IMP-10, FRM-01..06
 - A: SOL-15, SOL-16, SOL-28
 - E: DOC-10, SCR-04, SCR-06, SCR-13, SCR-14, ASM-06, ASM-07

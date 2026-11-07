@@ -23,3 +23,4 @@ that depends on it starts.
 | `solid-features.md` | S04 refinement (2026-11-08) | SOL-01, SOL-02, SOL-08 | Written |
 | `scripting-api.md` | S18 refinement (2026-11-08) | SCR-07, SCR-01, SCR-03 | Written |
 | `assemblies.md` | S06 refinement (2026-11-08) | ASM-01, ASM-03, ASM-04 | Written |
+| `simulation-fem.md` | S13 refinement (2026-11-08) | FEM-02, FEM-04, FEM-15 | Written |

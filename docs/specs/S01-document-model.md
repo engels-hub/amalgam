@@ -1779,3 +1779,14 @@ See `docs/specs/S06-assemblies.md` Interfaces and `docs/notes/assemblies.md`.
 - `Component::joints` stays (always empty) because `Component` is `deny_unknown_fields`;
   drop it at the next `FORMAT_VERSION` bump. Joints are timeline features, so `JointId` is
   unused.
+
+### 2026-11-08 - requests from the S13 refinement (lane E, additive; needed by FEM-01, FEM-03, FEM-17)
+See `docs/specs/S13-simulation.md` Interfaces and `docs/notes/simulation-fem.md` §9.
+- `ExtRegistration` collection and migration on load (§11; not built by DOC-07). Also needed by S16.
+- `Design::exts_of_kind(&self, kind: &str) -> impl Iterator<Item = (&ExtKey, &ExtRecord)>` (same as S16).
+- `Evaluated::body_key(&self, BodyId) -> Option<CacheKey>`: key of the node that last produced the
+  body's geometry (study out-of-date tracking and mesh cache).
+- `Evaluated::resolve(&self, r: &TopoRef) -> Result<Resolved, ResolveError>` outside `RecomputeCtx` (DOC-06).
+- Extension-record blobs outside a full save: a `BlobSource` to read a `BlobRef` from the open
+  container, and pending blob bytes attached with a `SetExt` from a job result, written at the next
+  save and never copied into undo snapshots (FEM result blobs are tens of MB).

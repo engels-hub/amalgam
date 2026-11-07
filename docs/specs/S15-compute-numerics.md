@@ -28,3 +28,4 @@ matrices, iterative and direct solvers, eigen solvers, voxel/brick grids.
 1. (from S10, 2026-10-20) `SHADER_F64` is Vulkan-only in wgpu 30, so the default DX12 device never has it; plan f32 or emulated-double kernels.
 2. (from S16, 2026-10-20) AM-13 (GPU orientation scoring, Phase 4) depends on CMP-01 and keeps its backend behind `ComputeBackend` with a CPU reference.
 3. (integration, 2026-10-20) Agreed earlier-wave repoint applied: CMP-01 now depends on FND-09 (`amg-jobs::gpu`) instead of FND-04.
+4. (from S13, 2026-11-08) S13 lists what FEM needs from CMP-03 (symbolic/numeric Cholesky, multi-RHS, pivot report, memory estimate, LDLᵀ), CMP-04 (shift-invert Lanczos with a factorisation callback) and CMP-05 (f32 CSR PCG with a `Preconditioner` trait for p-multigrid) under Interfaces → "Needed from other specs"; see `docs/notes/simulation-fem.md` §8.
