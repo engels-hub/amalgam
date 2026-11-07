@@ -2,39 +2,543 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Refined |
 | **Priority** | P0 (components) / P1 (joints) / P2 (motion) |
-| **Crates** | `amg-doc` (component tree, `amg-doc::joints` solver), `amg-features::assembly` |
+| **Crates** | `amg-doc` (component tree commands, placements, `amg-doc::joints` data + solver), `amg-features::assembly`, `amg-ui::assembly` (lane E, pending owner OK: QUESTIONS #60) |
 | **Lane** | E |
-| **Depends on** | S01, S02 |
-| **Parity** | Assemblies section |
+| **Depends on** | S01 (DOC-05 commands, DOC-06 naming, DOC-09 events, DOC-12 recompute job); S02 (BREP-02 `Shape::transformed`, BREP-08 tessellation for contact); S03 (SK-03 `solve::system` layer, `numeric_rank`); S05 (CON-03 `construct::resolve` for joint origins); S07 (MESH-03 BVH for contact); S11 (UI-05/06/07/21 framework) |
+| **Parity** | Assemblies section of `03-fusion-parity.md` |
 
 ## Summary
-Fusion-style multi-component designs inside one file: components with occurrences,
-activate-component editing context, joints with DOF, joint solving, drive/motion links,
-contact sets. External references (linked designs) later.
+Fusion-style multi-component designs inside one file: components with occurrences, an
+active-component editing context, joints with DOF and limits, a 3D joint solver with drag,
+as-built joints and rigid groups, motion links, drive joints, motion studies and contact sets.
+Linked external designs come later (P3). The design note is
+[`docs/notes/assemblies.md`](../notes/assemblies.md); this spec states the decisions and the
+contract, the note has the reasoning, prior art, math and budgets.
+
+## Scope
+**In:**
+- Component tree editing: new component, new occurrence of a component (copy/paste), delete
+  with cascade, reparent, ground, rename, visibility; active component.
+- Solved placements in evaluated state and the world-transform queries other lanes use
+  (`Evaluated::body_to_world`, `instances`).
+- "Create components from bodies" and moving bodies between components.
+- Move/rotate occurrences (gizmo, point to point).
+- Joint origins, the seven Fusion joint types, offsets, flip, limits and rest values, joint
+  origin features.
+- The joint solver, the assembly stage of recompute and joint-aware drag.
+- As-built joints, rigid groups, motion links, drive joints, motion studies, contact sets.
+
+**Out:**
+- STEP assembly import/export: S12 IO-06 (uses ASM-01 commands).
+- Component patterns and mirror, "New component" body op, cross-component participants: S04
+  SOL-24 (uses ASM-01/02).
+- Mass properties and interference over assemblies: S05 INS-10, INS-04 (use ASM-01 queries).
+- Exploded views and animation: S19 LAT-03.
+- Physics (dynamics, forces, sliding contact). Motion is kinematic only.
+- "Make independent" copies of a component definition (needs feature duplication with
+  reference remapping; not planned).
 
 ## Design
-- Component = definition; Occurrence = instance with transform. Bodies/sketches/features
-  live in components; the timeline records which component was active.
-- Joint types: rigid, revolute, slider, cylindrical, pin-slot, planar, ball; limits; as-built joints;
-  joint origins (snap points on geometry via `EntityRef`).
-- Joint solver: rigid-body kinematics (6-DOF per occurrence, constraints as equations) — reuse
-  the S03 numeric solver core generalized to 3D (shared crate module or copy with SE(3) params).
-- Motion: drive joints, motion links (ratios), simple motion study (keyframes → animation).
-- Contact sets: collision via mesh BVH (S07), stop motion at contact.
+Full detail and reasoning in [`docs/notes/assemblies.md`](../notes/assemblies.md).
+
+### 1. Data model
+- **Geometry lives in component space** (note §1). A component's bodies are evaluated in its
+  own coordinates; each occurrence places them. This is already how DOC-03 works
+  (`EvalBody::component`, cache key hashes the context id, not transforms), so moving an
+  occurrence never recomputes the moved component's features.
+- **Occurrence transforms are rigid or mirrored** (orthonormal linear part, `|det| = 1` within
+  1e-9). Scale is refused (`ModelError::InvalidValue`).
+- **Authored vs evaluated** (note §2). `Occurrence::transform` is the last committed position.
+  `Evaluated::placements` is the position after the assembly stage. Display, picking, measure,
+  INS-04/INS-10 and IO-06 export use placements. Features that read another component through
+  `EntityRef::InContext` see authored transforms (DOC-03 already hashes them), which keeps
+  recompute acyclic and deterministic.
+- **Paths.** `OccPath = Vec<OccurrenceId>` from a component downward (the existing
+  `Design::occurrence_paths` and `EntityRef::InContext` already use `Vec<OccurrenceId>`). World
+  queries take paths from the root.
+- **Active component** is session state of the `Document` (not undoable, not saved, root on
+  open). The UI uses it as `AddFeature::context`. Fusion records the context per feature; so
+  does `FeatureNode::context`.
+- **Delete cascade.** Deleting the last occurrence of a component deletes the component, its
+  sub-components that have no other occurrence, and every timeline feature whose context is
+  one of them, in one command (through the existing `DeleteFeatures` path, so model parameters
+  are converted as usual). Features elsewhere that referenced them get `Error` with an
+  upstream/resolve cause.
+
+### 2. Moving occurrences: no pending positions
+Every move ends in one `Command::SetOccurrenceTransforms` (one undo entry; undo is Fusion's
+Revert). No Capture Position timeline entries. When a geometry edit moves a joint origin, the
+solved placements change and the root shows "positions out of date" until "Update positions"
+commits them. The owner confirms this against Fusion's pending/capture model in QUESTIONS #59
+(note §3); the WPs are written so that capture would only add a UI flag.
+
+### 3. Joints are timeline features
+Joints, as-built joints, rigid groups, motion links and joint origins are features in
+`amg-features::assembly` (note §4). They resolve their origins (DOC-06 + CON-03) to frames in
+component space and return an `AsmItem` in the new `FeatureOutput::assembly`. They read no
+placements, and list `Dependency::Entity(target)` for the inner target of each origin, so
+moves never re-run them. `Component::joints` stays empty (kept so files load; removed at the
+next `FORMAT_VERSION` bump).
+
+### 4. Joint origins and joint types
+- A joint origin is a frame on geometry: path, snap (`OriginAt`: vertex, edge start/mid/end,
+  circle centre, face centre, axis point, construction entity, component origin, picked point),
+  and `Align` (flip, angle, offset x/y/z as `Expr`, optional x-axis reference). z comes from the
+  geometry; x follows the deterministic rule of note §5.1 (projection of component +X, else +Y).
+- Joint types and their residual rows: note §5.2. Rigid 0 DOF, revolute 1, slider 1,
+  cylindrical 2, pin-slot 2, planar 3, ball 3. Joint values (θ, d, …) are extracted from the
+  relative frame and unwrapped against the stored joint state.
+- Limits `{min, max, rest}` per value as `Expr`. Enforced by the solver; `rest` is applied when
+  a drag of that joint ends.
+- Joint states (`Design::joint_states`, authored): last committed unwrapped values, written
+  with the move command. Needed for angles beyond ±π and for motion links (note §5.5).
+
+### 5. Joint solver and assembly stage (`amg-doc::joints`)
+- Maximal coordinates: one rigid pose per unknown, SE(3) increments applied on the left with a
+  retraction after each step; analytic Jacobians (note §6.1).
+- Built on `amg_sketch::solve::{EquationSystem, Residual, numeric_rank}`; the LM loop is our own
+  because `NativeSolver`'s pipeline is crate-private and additive-only. `nalgebra` stays inside
+  `amg-doc` (ADR-006).
+- Decomposition (note §6.2): per context component, bottom-up; rigid joints and rigid groups
+  substituted as clusters; independent connected components. A component placed twice is
+  solved once (its copies move alike).
+- Seeded from authored transforms; damped min-norm LM (under-constrained parts move as little as
+  possible); limits by active set; DOF by numeric rank; per-joint diagnostics become
+  `Health::Warning` on the joint node (note §6.3).
+- Assembly stage after the timeline pass: collect `AsmItem`s, key them, solve, store placements
+  (note §7). Deterministic: 100 runs give bit-identical placements.
+- Drag (`AsmDrag`, note §6.4): weighted min-norm step toward the cursor in the constraint
+  null space, Newton projection, limit clamp, optional contact. Synchronous on the UI thread up
+  to 2 000 unknowns, a job above.
+
+### 6. Motion and contact
+- Motion links: residual between two joint values with a ratio from two `Expr`s and a reverse
+  flag (note §8.1).
+- Drive joints: a tool that sets one value with a temporary row and commits.
+- Motion study: `ExtRecord` `assembly.motion_study` with per-joint keyed values over steps;
+  playback frames are computed by a job and not saved (note §8.2).
+- Contact sets: `ExtRecord` `assembly.contact` (Off / Sets / All). Pairs in a set are tested
+  with BVH overlap on meshes (solids tessellated by BREP-08, "Fine" preset); a penetrating
+  step is bisected to the contact and stopped (note §8.3). Off by default.
+
+### 7. UI (`amg-ui::assembly`)
+- Browser: activate radio per component, grounded pin icon, context menus (new component,
+  activate, ground, create components from bodies, copy/paste, delete, move to component),
+  "positions out of date" badge.
+- Tools: Move/Copy for occurrences (triad, point to point, fields), Joint, As-built Joint,
+  Joint Origin, Rigid Group, Motion Link, Drive Joints, Motion Study panel, Contact Sets.
+  Feature dialogs use S11's generic dialogs where they fit and hand-built tools
+  (`EditAction::StartTool`) for picking origins and dragging.
+- Overlays: joint glyphs (type icon at the origin, DOF arrows) via RND-07.
+- The module is in no lane yet. QUESTIONS #60 proposes lane E (the lane that owns S06).
+
+## Interfaces
+Provisional Rust signatures. Names can still change during implementation, but other lanes
+code against these shapes. Existing items are not repeated; everything here is additive to
+the current `amg-doc` code.
+
+```rust
+// ===== amg-doc::model / command (ASM-01) =========================================
+pub type OccPath = Vec<amg_doc::OccurrenceId>;     // from a component downward; empty = that component
+
+impl Design {
+    /// Joint state of a joint feature, if one was committed (ASM-04).
+    pub fn joint_state(&self, joint: FeatureId) -> Option<&JointState>;
+    /// Features whose context is `c`, in timeline order.
+    pub fn features_in(&self, c: ComponentId) -> impl Iterator<Item = FeatureId> + '_;
+    /// True if `path` walks parent → child starting in `from`.
+    pub fn is_valid_path(&self, from: ComponentId, path: &[OccurrenceId]) -> bool;
+}
+
+// New `Command` variants (existing NewComponent, RenameComponent, SetOccurrenceTransform and
+// SetOccurrenceVisible stay as they are).
+pub enum Command {
+    /* … existing … */
+    /// Another placement of an existing component (copy/paste, STEP shared prototypes).
+    AddOccurrence { parent: ComponentId, component: ComponentId, transform: Transform,
+                    name: Option<String> },                                    // -> CreatedId::Occurrence
+    /// Removes occurrences; a component left without occurrences is deleted with its
+    /// features and orphaned sub-components (§1 cascade).
+    DeleteOccurrences { occs: Vec<OccurrenceId> },
+    /// Reparent; `keep_world` recomputes the transform so the world placement is unchanged.
+    MoveOccurrence { occ: OccurrenceId, parent: ComponentId, keep_world: bool },
+    SetOccurrenceGrounded { occ: OccurrenceId, grounded: bool },
+    SetOccurrenceName { occ: OccurrenceId, name: Option<String> },
+    /// A committed move of several occurrences (drag, gizmo, drive, "Update positions"),
+    /// with the joint states of the joints involved (ASM-04). One undo entry.
+    SetOccurrenceTransforms { moves: Vec<(OccurrenceId, Transform)>,
+                              joint_states: Vec<(FeatureId, JointState)> },
+}
+
+impl Document {
+    /// Session state: the component new features go into (root after open/new).
+    pub fn active_component(&self) -> ComponentId;
+    /// Emits `DocEvent::ActiveComponentChanged`. Fails if `c` does not exist.
+    pub fn set_active_component(&mut self, c: ComponentId) -> Result<(), CommandError>;
+}
+pub enum DocEvent { /* … existing … */ ActiveComponentChanged(ComponentId) }
+// `OccurrenceTransformChanged(o)` is also emitted when the *solved* placement of `o` changes.
+
+// ===== amg-doc::eval (ASM-01; solved by ASM-04) ===================================
+/// Placements of every occurrence after the assembly stage (= authored before ASM-04).
+#[derive(Clone, Debug, Default)]
+pub struct Placements { /* occ -> (parent, component, local); component -> occs; crate-private */ }
+impl Placements {
+    pub fn local(&self, o: OccurrenceId) -> Option<Transform>;            // relative to parent
+    /// Product of the locals along `path` (from the root). None if the path is invalid.
+    pub fn world(&self, path: &[OccurrenceId]) -> Option<Transform>;
+    pub fn len(&self) -> usize;
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct BodyInstance { pub path: OccPath /* from root */, pub world: Transform }
+impl Evaluated {
+    pub fn placements(&self) -> &Arc<Placements>;
+    pub fn world_transform(&self, path: &[OccurrenceId]) -> Option<Transform>;
+    /// S05 request: world transform of `body` seen through `path` (from the root). None if
+    /// the path does not end at the body's component.
+    pub fn body_to_world(&self, body: BodyId, path: &[OccurrenceId]) -> Option<Transform>;
+    /// Every placement of a body (one per occurrence path of its component), path order.
+    pub fn instances(&self, body: BodyId) -> Vec<BodyInstance>;
+    pub fn asm_diagnostics(&self) -> &[AsmDiagnostic];                    // empty before ASM-04
+}
+
+// ===== amg-doc::feature additions =================================================
+pub struct FeatureOutput { /* … existing … */ pub assembly: Option<AsmItem> /* ASM-03 */ }
+pub enum BodyChangeKind {
+    /* … existing … */
+    /// The body now belongs to `component` (ASM-09). Geometry is replaced by `geom`
+    /// (already expressed in the new component's space).
+    Moved { component: ComponentId, geom: BodyGeom, naming: Option<BodyNaming> },
+}
+pub enum ConstructionGeom { /* … existing … */ Frame(Transform) /* joint origin, ASM-03 */ }
+
+// ===== amg-doc::joints (data: ASM-03; solver + drag: ASM-04; links: ASM-06; contact: ASM-07)
+/// A rigid frame (orthonormal, right-handed): columns x, y, z; translation = origin. mm.
+pub type Frame = Transform;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum JointKind { Rigid, Revolute, Slider, Cylindrical, PinSlot, Planar, Ball }
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum JointAxis { X, Y, Z }
+/// One joint value. Units: rad for rotations, mm for slides.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum ValueSel { Rotation, Slide, SlideX, SlideY, Pitch, Yaw, Roll }
+impl JointKind {
+    pub fn dof(self) -> u32;
+    pub fn values(self) -> &'static [ValueSel];
+}
+
+/// Evaluated joint: frames in the component space of the leaf of each path.
+#[derive(Clone, Debug, PartialEq)]
+pub struct JointEval {
+    pub kind: JointKind,
+    pub motion_axis: JointAxis,             // rotation / slide axis of A (Z by default)
+    pub slide_axis: Option<JointAxis>,      // pin-slot only; ≠ motion_axis
+    pub a_path: OccPath, pub a: Frame,      // "to" side (paths from the joint's context)
+    pub b_path: OccPath, pub b: Frame,      // "from" side
+    pub limits: Vec<(ValueSel, Limits)>,
+}
+#[derive(Copy, Clone, Debug, PartialEq, Default)]
+pub struct Limits { pub min: Option<f64>, pub max: Option<f64>, pub rest: Option<f64> }
+#[derive(Clone, Debug, PartialEq)]
+pub struct RigidGroupEval { pub members: Vec<OccPath>, pub relative: Vec<Transform> /* to members[0], captured */ }
+#[derive(Clone, Debug, PartialEq)]
+pub struct MotionLinkEval { pub a: (FeatureId, ValueSel), pub b: (FeatureId, ValueSel),
+                            pub k: f64, pub c: f64 }                   // v_b = k·v_a + c
+#[derive(Clone, Debug, PartialEq)]
+pub enum AsmItem { Joint(JointEval), RigidGroup(RigidGroupEval), MotionLink(MotionLinkEval) }
+
+/// Unwrapped joint values (authored, `Design::joint_states`).
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+pub struct JointState { pub values: Vec<(ValueSel, f64)> }
+
+/// Values of `kind` for frames given in one common space; angles unwrapped to `seed`.
+pub fn joint_values(j: &JointEval, a_world: &Frame, b_world: &Frame, seed: Option<&JointState>) -> JointState;
+/// Closed-form placement of the "from" occurrence for a tree joint (ASM-03 dialog snap):
+/// the new local transform of `b_path[0]` relative to the context.
+pub fn snap_placement(j: &JointEval, p: &Placements, ctx_world: &Transform, values: &JointState)
+    -> Result<Transform, AsmError>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AsmDiagnostic { pub feature: FeatureId, pub issue: AsmIssue }
+#[derive(Clone, Debug, PartialEq)]
+pub enum AsmIssue {
+    NotConverged { residual: f64 }, Overconstrained { residual: f64 }, Redundant, Flipped,
+    LimitViolated { value: ValueSel, at: f64 }, BadPath,
+}
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
+pub enum AsmError {
+    #[error("occurrence path is not valid in this component")] BadPath,
+    #[error("occurrence {0} is grounded")] Grounded(OccurrenceId),
+    #[error("nothing to drag: the occurrence has no free motion")] NoFreedom,
+    #[error("joint solve did not converge (residual {0} mm)")] NotConverged(f64),
+    #[error("cancelled")] Cancelled,
+}
+
+#[derive(Clone, Debug)]
+pub struct SolveOptions { pub tol: f64 /* 1e-9 mm */, pub max_iter: u32 /* 50 */, pub limit_rounds: u32 /* 8 */ }
+#[derive(Clone, Debug)]
+pub struct AsmSolution {
+    pub placements: Placements,
+    pub states: Vec<(FeatureId, JointState)>,
+    pub diagnostics: Vec<AsmDiagnostic>,
+    pub dof: Vec<(ComponentId, u32)>,            // remaining DOF per context
+    pub stats: AsmStats,
+}
+#[derive(Copy, Clone, Debug, Default)]
+pub struct AsmStats { pub systems: u32, pub unknowns: u32, pub clusters: u32, pub iterations: u32 }
+/// The assembly stage (called by the recompute engine; public for tests and tools).
+pub fn solve_assembly(design: &Design, items: &[(FeatureId, ComponentId, AsmItem)],
+                      seed: &Placements, opts: &SolveOptions) -> AsmSolution;
+
+/// Joint-aware drag (ASM-04) and drive (ASM-06).
+pub struct AsmDrag { /* system of the grabbed occurrence's connected component */ }
+#[derive(Copy, Clone, Debug)]
+pub enum DragTarget { Point(Point3), Pose(Transform) }
+#[derive(Clone, Debug)]
+pub struct DragFrame { pub placements: Arc<Placements>, pub stopped: Option<Stop>, pub dof: u32 }
+#[derive(Clone, Debug, PartialEq)]
+pub enum Stop { Limit(FeatureId, ValueSel), Contact(OccPath, OccPath) }
+impl AsmDrag {
+    /// `grabbed` is a path from the root; `grab` the picked world point.
+    pub fn start(design: &Design, eval: &Evaluated, grabbed: &[OccurrenceId], grab: Point3)
+        -> Result<AsmDrag, AsmError>;
+    pub fn update(&mut self, target: DragTarget) -> DragFrame;
+    /// ASM-06: drive one joint value to `to` (rad or mm).
+    pub fn drive(&mut self, joint: FeatureId, value: ValueSel, to: f64) -> DragFrame;
+    /// ASM-07: stop at contact.
+    pub fn set_contact(&mut self, check: Option<Arc<dyn ContactCheck>>);
+    /// Applies rest values and returns the commit (`SetOccurrenceTransforms`).
+    pub fn finish(self) -> Command;
+}
+/// Implemented by `amg-features::assembly::contact` (ASM-07).
+pub trait ContactCheck: Send + Sync {
+    /// First penetrating pair under `p`, in deterministic order, or None.
+    fn penetrating(&self, p: &Placements) -> Option<(OccPath, OccPath)>;
+}
+
+// ===== amg-features::assembly (ASM-03, ASM-05, ASM-06, ASM-07, ASM-09) =============
+pub use amg_doc::joints::{JointKind, JointAxis, ValueSel};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct JointOrigin { pub path: OccPath, pub at: OriginAt, pub align: Align,
+                         pub z_hint: Option<amg_core::Vec3> }
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum OriginAt {
+    Vertex(EntityRef),
+    EdgeStart(EntityRef), EdgeMid(EntityRef), EdgeEnd(EntityRef),
+    CircleCenter(EntityRef),
+    FaceCenter(EntityRef),
+    AxisPoint { face: EntityRef, at: AxisPos },
+    PointOnFace { face: EntityRef, uv: [f64; 2] },
+    Construction(ConstructionId),
+    ComponentOrigin,
+}
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AxisPos { Start, Mid, End }
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Align { pub flip: bool, pub angle: Expr, pub offset: [Expr; 3], pub x_axis: Option<EntityRef> }
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LimitSpec { pub min: Option<Expr>, pub max: Option<Expr>, pub rest: Option<Expr> }
+
+/// Frame of an origin in the component space of the leaf of `o.path`.
+pub fn origin_frame(ctx: &RecomputeCtx<'_>, o: &JointOrigin) -> Result<Frame, FeatureError>;
+/// Same, for tool previews outside recompute.
+pub fn origin_frame_in(design: &Design, eval: &Evaluated, o: &JointOrigin) -> Result<Frame, AsmPrepError>;
+/// Keypoints offered while hovering a picked entity (dialog snapping).
+pub fn keypoints(design: &Design, eval: &Evaluated, path: &[OccurrenceId], e: &EntityRef) -> Vec<(OriginAt, Frame)>;
+
+/// "assembly.joint" v1.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JointFeature { pub kind: JointKind, pub motion_axis: JointAxis, pub slide_axis: Option<JointAxis>,
+                          pub from: JointOrigin, pub to: JointOrigin, pub limits: Vec<(ValueSel, LimitSpec)> }
+/// "assembly.joint_origin" v1 → `ConstructionGeom::Frame`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JointOriginFeature { pub origin: JointOrigin }
+/// "assembly.as_built_joint" v1 (ASM-05): one origin; the other side's frame is captured.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AsBuiltJointFeature { pub kind: JointKind, pub motion_axis: JointAxis, pub slide_axis: Option<JointAxis>,
+                                 pub origin: JointOrigin, pub other: OccPath, pub captured: Frame,
+                                 pub limits: Vec<(ValueSel, LimitSpec)> }
+/// "assembly.rigid_group" v1 (ASM-05).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RigidGroupFeature { pub members: Vec<OccPath>, pub relative: Vec<Transform> }
+/// "assembly.motion_link" v1 (ASM-06).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MotionLinkFeature { pub a: FeatureId, pub a_value: ValueSel, pub b: FeatureId, pub b_value: ValueSel,
+                               pub ratio_a: Expr, pub ratio_b: Expr, pub reverse: bool,
+                               pub v_a0: f64, pub v_b0: f64 }
+/// "assembly.bodies_to_components" v1 (ASM-09).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BodiesToComponentsFeature { pub moves: Vec<(BodyId, ComponentId)> }
+
+/// Commands for one "Create Components from Bodies" transaction (ASM-09).
+pub fn components_from_bodies(design: &Design, eval: &Evaluated, bodies: &[BodyId])
+    -> Result<Vec<Command>, AsmPrepError>;
+/// Commands for "move body to component" (ASM-09).
+pub fn move_bodies(design: &Design, eval: &Evaluated, bodies: &[BodyId], to: ComponentId)
+    -> Result<Vec<Command>, AsmPrepError>;
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
+pub enum AsmPrepError {
+    #[error("body {0:?} does not exist")] NoBody(BodyId),
+    #[error("component {0} does not exist")] NoComponent(ComponentId),
+    #[error("target component is placed {0} times; pick one occurrence")] AmbiguousTarget(usize),
+    #[error(transparent)] Resolve(#[from] amg_doc::ResolveError),
+    #[error(transparent)] Asm(#[from] amg_doc::joints::AsmError),
+}
+
+pub mod motion {           // ASM-06; ExtRecord kind "assembly.motion_study", v1
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct MotionStudy { pub name: String, pub steps: u32, pub tracks: Vec<Track> }
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct Track { pub joint: FeatureId, pub value: ValueSel, pub keys: Vec<(f64 /*step*/, Expr)> }
+    pub struct Playback { pub frames: Vec<Arc<amg_doc::Placements>>, pub stops: Vec<(u32, amg_doc::joints::Stop)> }
+    pub fn play(jobs: &JobSystem, design: DesignSnapshot, eval: Arc<Evaluated>, study: MotionStudy,
+                contact: Option<Arc<dyn ContactCheck>>) -> JobHandle<Playback, AsmError>;
+}
+pub mod contact {          // ASM-07; ExtRecord kind "assembly.contact", v1
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct ContactConfig { pub mode: ContactMode, pub sets: Vec<ContactSet> }
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum ContactMode { Off, Sets, All }
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct ContactSet { pub name: String, pub members: Vec<OccPath> }
+    /// Tessellates (BREP-08) and builds BVHs in a job; the result implements `ContactCheck`.
+    pub fn prepare(jobs: &JobSystem, design: DesignSnapshot, eval: Arc<Evaluated>, cfg: &ContactConfig)
+        -> JobHandle<Arc<MeshContact>, AsmError>;
+    pub struct MeshContact { /* per-member meshes + BVHs, pair list */ }
+    impl amg_doc::joints::ContactCheck for MeshContact { /* … */ }
+}
+pub fn link() {}
+```
+
+**Needed from other specs (requests, recorded in their Interface changes, 2026-11-08):**
+- **S01 (lane E, same lane):** everything in the `amg-doc` blocks above is additive and is
+  implemented by ASM-01/03/04/09 themselves; recorded in S01 Interface changes.
+- **S05 / CON-03:** `resolve_input` on a ref that is not `InContext` returns geometry in the
+  referenced body's component space (no occurrence transform applied). Joint origins resolve
+  the inner target and apply paths themselves.
+- **S07 / MESH-03:** `Bvh::overlapping_pairs_with(&self, other: &Bvh, other_to_self: &Transform,
+  visit: &mut dyn FnMut(u32, u32))` (two trees, deterministic order) for contact sets. If S07
+  declines, ASM-07 writes it inside `amg-features::assembly::contact` over the public `Bvh`
+  nodes.
+- **S11:**
+  - The generic dialog and tools take `AddFeature::context` from `Document::active_component()`.
+  - UI-20 instance transforms come from `Evaluated::instances` / `placements` (solved), not
+    authored transforms; it listens to `OccurrenceTransformChanged`.
+  - Picking a body instance must say which occurrence path it was: `PickTarget::Body` gains an
+    instance index (`PickTarget` is `Copy`, so a `u32` into the scene's path table), and
+    `SelItem::entity` wraps sub-entities picked outside the active component in
+    `EntityRef::InContext { path, .. }`.
+  - A transient placement overlay for drag frames: `SceneAdapter::set_placement_overlay(Option<Arc<Placements>>)`
+    so dragged instances move without a recompute.
+- **S12 / IO-06:** uses `AddOccurrence` for shared prototypes and `BakedBody::component` for
+  bodies of imported components. No change on S12's side.
 
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| ASM-01 | Components/occurrences, activate component, new component from bodies | DOC-01 | P0 | Todo | |
-| ASM-02 | Ground, move/rotate occurrences, capture position | ASM-01 | P0 | Todo | |
-| ASM-03 | Joint origins + joint types + limits | ASM-01, DOC-06 | P1 | Todo | |
-| ASM-04 | Joint solver (3D) and drag in assemblies | ASM-03, SK-03 | P1 | Todo | 4-bar linkage drags correctly |
-| ASM-05 | As-built joints, rigid groups | ASM-04 | P1 | Todo | |
-| ASM-06 | Motion links, drive joints, motion study | ASM-04 | P2 | Todo | |
-| ASM-07 | Contact sets | ASM-04, MESH-03 | P2 | Todo | |
-| ASM-08 | Linked external designs | DOC-07 | P3 | Todo | |
+| ASM-01 | Components/occurrences in `amg-doc`: commands `AddOccurrence`, `DeleteOccurrences` (cascade), `MoveOccurrence`, `SetOccurrenceGrounded`, `SetOccurrenceName`, `SetOccurrenceTransforms`; rigid/mirror transform validation; `Placements` + `Evaluated::{placements, world_transform, body_to_world, instances}` (authored placements until ASM-04); `Document::active_component`; events | DOC-05, DOC-09, DOC-12 | P0 | Todo | 1. Proptest: ≤ 100 random valid tree commands, undo all → `design.json` equals the initial one; redo all → equals the final one. 2. Deleting the last occurrence of a component holding 3 features and one sub-component removes all of them in one undo entry; a root feature that read one of its bodies gets `Error` with an upstream cause. 3. On a 3-level tree with one component placed twice, `body_to_world` equals the hand-multiplied transforms within 1e-12 and `instances` lists exactly 2 entries. 4. A scaled transform is refused with `InvalidValue`; a mirror (det −1) is accepted. 5. `MoveOccurrence { keep_world: true }` leaves the world transform unchanged within 1e-12. 6. Exact `DocEvent` sets per new command and for undo/redo (DOC-09 style). 7. Moving an occurrence recomputes no feature (engine counter). 8. criterion: `world_transform` of a depth-10 path < 1 µs; building `Placements` for 10 000 occurrences < 2 ms. |
+| ASM-09 | Create components from bodies, move bodies between components: `BodyChangeKind::Moved`, feature `assembly.bodies_to_components`, `components_from_bodies`/`move_bodies` transaction builders; geometry transformed into the target space (`Shape::transformed`, `IndexedMesh::transform`) | ASM-01, BREP-02 | P0 | Todo | 1. Three bodies in the root → one transaction creates 3 components and one feature; every body keeps its `BodyId` and its world bbox within 1e-9 mm; one undo entry. 2. Moving a body into an existing component placed at a non-identity transform keeps its world bbox within 1e-9 mm and volume within 1e-9 relative (solid and mesh). 3. A later root feature that reads the moved body still resolves (same `BodyId`), and the body reports the new component. 4. `.amg` save/load keeps the tree and each body's component. |
+| ASM-10 | Assembly UI module `amg-ui::assembly`: browser activate radio and active styling, grounded icon, context menus (New Component, Activate, Ground/Unground, Create Components from Bodies, Copy/Paste occurrence, Delete, Move to Component), "positions out of date" badge with "Update positions" | ASM-01, ASM-09, UI-07, UI-21 | P0 | Todo | 1. Kittest: activate a sub-component, run a generic-dialog feature → its node has that context. 2. Copy/paste an occurrence → 2 render instances share 1 uploaded mesh (upload counter). 3. Ground toggle sends `SetOccurrenceGrounded`, undo restores it. 4. Delete of a component with features is one undo entry. 5. Every menu entry is reachable by label (kittest) and appears only for the right selection. |
+| ASM-02 | Ground, move/rotate occurrences: Move/Copy tool for occurrences (triad free move, point to point, numeric fields), commit as one `SetOccurrenceTransforms`; capture semantics per QUESTIONS #59 | ASM-10, UI-06 | P0 | Todo | 1. Scripted triad drag of 12.5 mm along X and 90° about Z gives the exact transform (1e-12) in one undo entry. 2. A grounded occurrence cannot be moved (tool shows why). 3. Point to point puts a vertex on a vertex within 1e-9 mm. 4. Moving recomputes no feature in the moved component (counter). 5. With 100 occurrences on screen, UI frame time during the drag stays < 16 ms (tracing span). |
+| ASM-03 | Joint origins, joint types and limits: `amg-doc::joints` data (`JointKind`, `JointEval`, `AsmItem`, `JointState`, `joint_values`, `snap_placement`), `FeatureOutput::assembly`, `ConstructionGeom::Frame`; `amg-features::assembly` `JointOrigin` + `origin_frame(_in)` + `keypoints` (snaps, x rule, align), features `assembly.joint` and `assembly.joint_origin` | ASM-01, DOC-06, CON-03 | P1 | Todo | 1. On a box-with-hole + pin fixture, every `OriginAt` variant gives the expected frame within 1e-9 (table test, ≥ 14 cases incl. the x-rule fallback and flip/angle/offset). 2. For all 7 joint types, `joint_values` recovers the values of a constructed relative pose within 1e-12 and the note §5.2 rows are zero on it. 3. `snap_placement` puts the pin in the hole: axes coincide within 1e-9 mm. 4. Editing the hole position upstream moves the joint frame with it (DOC-06 naming); deleting the hole face gives the joint an `Error` naming the ref. 5. Moving an occurrence does not re-run joint features (counter). 6. Joint offsets are model parameters: editing one changes the frame. |
+| ASM-04 | Joint solver (3D), assembly stage of recompute and drag: residuals per note §5.2 with analytic Jacobians, LM with SE(3) retraction on `amg_sketch::solve::system`, decomposition (contexts, rigid clusters, connected components), limits active set, DOF, `AsmDiagnostic` → health, `Design::joint_states`, `AsmDrag`, `test.joint` feature, golden mechanisms `tests/golden/asm/` | ASM-03, SK-03 | P1 | Todo | 1. 4-bar linkage drags correctly: scripted crank drag through 360° in 1° steps keeps the rocker within 1e-9 rad of the closed-form solution at every step with no branch flip; drag frame p95 < 2 ms. 2. Golden mechanisms 1–6 of note §10 pass. 3. Every residual's Jacobian matches finite differences (relative error < 1e-6) on 100 random poses. 4. 100 runs give bit-identical placements. 5. Budgets of note §9 (assembly stage rows) met in criterion. 6. An over-constrained loop reports `Overconstrained` on the later joint and leaves the earlier result in place. |
+| ASM-11 | Joint tools UI: Joint dialog (type, two origin picks with keypoint hover snapping, align fields, limits tab, animate preview), Joint Origin dialog, edit joint, joint glyph overlay (RND-07) | ASM-03, ASM-02, UI-05, UI-06, RND-07 | P1 | Todo | 1. Kittest: pick the pin's circular edge, then the hole's → preview snaps; OK gives `AddFeature` + `SetOccurrenceTransforms` in one undo entry. 2. Hover keypoints update within one frame. 3. Each joint shows one glyph at its origin with the type icon (overlay count test). 4. Editing a joint's type from revolute to slider keeps its origins. |
+| ASM-12 | Joint-aware drag in the viewport: drag tool on `AsmDrag`, rest value on release, limit/stop feedback, DOF arrows on glyphs, scene placement overlay during drag | ASM-04, ASM-11 | P1 | Todo | 1. Kittest on the 4-bar: dragging the coupler moves crank and rocker consistently (positions vs ASM-04 golden within 1e-9) and commits one undo entry. 2. A revolute with limits 0..90° stops at 90° and the status bar says why. 3. A joint with `rest` returns to it on release. 4. No recompute runs during the drag (counter); UI frame < 16 ms. |
+| ASM-05 | As-built joints, rigid groups: features `assembly.as_built_joint` (captured frame) and `assembly.rigid_group`, rigid-cluster substitution, dialogs | ASM-04, ASM-11 | P1 | Todo | 1. An as-built revolute between two occurrences changes no placement on creation (1e-12), then a drag rotates about the picked axis only. 2. A rigid group of 3 occurrences moves as one (relative transforms unchanged within 1e-12); `AsmStats::clusters` shows the substitution. 3. A rigid group that contradicts a rigid joint reports `Overconstrained`. |
+| ASM-06 | Motion links, drive joints, motion study: `assembly.motion_link`, link residual, Drive Joints tool, `motion::MotionStudy` ExtRecord, playback job, Motion Study panel with "capture this frame" | ASM-04, ASM-12 | P2 | Todo | 1. Gear pair linked 2:1 driven through 5 turns: phase error < 1e-9 rad. 2. Rack and pinion (revolute ↔ slider, 360° ↔ 2π·10 mm) tracks within 1e-9 mm. 3. Drive Joints sets 45° exactly and commits one undo entry. 4. 4-bar motion study, 360 steps: playback job < 200 ms; frames equal the ASM-04 golden values. 5. A study survives save/load and undo. |
+| ASM-07 | Contact sets: `contact::ContactConfig` ExtRecord (Off/Sets/All), `prepare` job (BREP-08 tessellation, BVHs), `MeshContact: ContactCheck`, bisection stop in `AsmDrag` and playback, Contact Sets UI | ASM-04, ASM-12, MESH-03, BREP-08 | P2 | Todo | 1. A pin on a slider joint driven into a blind hole stops at the bottom within the tessellation deviation + 1e-3 mm. 2. With mode Off nothing stops. 3. Touching faces (within tolerance) do not count as contact. 4. Drag frame with one contact pair of 2 × 100 k triangles: p95 < 8 ms. 5. `All` on 20 occurrences tests only pairs whose boxes overlap (counter) and stops correctly. |
+| ASM-08 | Linked external designs | DOC-07 | P3 | Todo | Refine before Phase 6: reference by document UUID + path hint, update/break-link semantics, naming through `BodyNaming::for_import`, interaction with SOL-16 (derive). |
+
+Priorities follow the parity matrix: component tree and moving P0, joints P1, motion and
+contact P2, linked designs P3. Phases (roadmap): ASM-01, ASM-09, ASM-10, ASM-02 in Phase 2;
+ASM-03, ASM-04, ASM-11, ASM-12, ASM-05 in Phase 3; ASM-06, ASM-07 in Phase 5; ASM-08 in Phase 6.
+
+## Testing
+- Unit and property tests in `amg-doc` for every command, the cascade and the placements
+  (ASM-01), the residuals (FD Jacobian checks) and the solver (ASM-04).
+- Golden mechanisms in `tests/golden/asm/` (note §10), driven by the lane-E `test.joint`
+  feature so they run without OCCT; values compared with closed-form solutions.
+- Origin-frame tests on B-rep fixtures in `amg-features::assembly` (ASM-03), gated like other
+  OCCT tests.
+- Kittest UI tests for ASM-02, ASM-10, ASM-11, ASM-12.
+- criterion benches for the budgets below.
+
+## Performance targets
+From note §9, inside the vision budgets (recompute < 500 ms for a typical part; UI never
+blocks > 16 ms):
+
+| Case | Budget |
+|---|---|
+| Assembly stage, 50 occurrences, 60 joints incl. one loop | < 5 ms median |
+| Assembly stage, 500 occurrences, mostly grounded/rigid | < 20 ms median |
+| Assembly stage, unchanged key | < 0.2 ms |
+| Drag frame, 4-bar or 50-occurrence mechanism | p95 < 2 ms |
+| Drag frame with one contact pair (2 × 100 k tris) | p95 < 8 ms |
+| Motion study, 4-bar, 360 steps | < 200 ms |
+| `world_transform`, depth-10 path | < 1 µs |
 
 ## Open questions
-1. (from S05, S12, 2026-10-20) INS-04, INS-10 and IO-06 need occurrence transforms (`Evaluated::body_to_world(BodyId, occurrence path)`, requested from S01) and component creation from STEP `ForeignModel` assemblies (S12 maps `ForeignNode`s to components).
+1. ~~(from S05, S12, 2026-10-20) INS-04, INS-10 and IO-06 need occurrence transforms
+   (`Evaluated::body_to_world(BodyId, occurrence path)`, requested from S01) and component
+   creation from STEP `ForeignModel` assemblies (S12 maps `ForeignNode`s to components).~~
+   **Resolved 2026-11-08:** ASM-01 provides `Evaluated::{body_to_world, instances,
+   world_transform}` over solved placements and `Command::AddOccurrence` for shared
+   prototypes. S12 needs no other change.
+2. **(owner, QUESTIONS #59)** Pending positions + Capture Position (Fusion) or every move
+   committed at once with undo as revert? *Recommended:* commit at once (§2, note §3).
+3. **(owner, QUESTIONS #60)** Lane E owns a new `amg-ui::assembly` module? *Recommended:* yes.
+4. Joints as timeline features or as an authored joint table? **Resolved 2026-11-08:** timeline
+   features (§3, note §4); `Component::joints` stays empty until the next format bump.
+5. Reuse `NativeSolver` for joints? **Resolved 2026-11-08:** reuse the `system` layer and
+   `numeric_rank` only; own LM with SE(3) retraction (§5, note §6.1).
+6. Copies of a subassembly in different joint positions? **Resolved 2026-11-08:** not
+   supported; a component is solved once, so all copies move alike (note §6.2). Revisit with
+   "make independent" if the owner needs it.
+
+## Refinement log
+### 2026-11-08 - S06-refine (lane E refinement)
+- **Read:** AGENTS.md, vision, architecture, ADRs, roadmap, QUESTIONS; S01 (Interfaces, Interface
+  changes, DOC-01/05 logs), S03 (`solve::system`, SK-12), S04 (SOL-24, solid-features note
+  §2.3), S05 (CON-03 `ResolvedRef`, INS-04/INS-10), S07 (MESH-03), S11 (registration API,
+  `PickTarget`, browser), S12 (IO-06, `ImportBrepFeature`), S19 (LAT-03). Code: `amg-doc`
+  (`model.rs`, `command.rs`, `feature.rs`, `recompute.rs` cache keys), `amg-features::{mesh,
+  sketch}` registration, `amg_sketch::solve::{system, rank, native}`, `amg_mesh::spatial::pairs`,
+  `amg_core::Transform` (= `DAffine3`).
+- **Prior art** (note §0): Autodesk Fusion help on joint types (seven types; note that the help
+  page's "Motion allowed" lines for planar and ball contradict its own text, we follow the
+  standard DOF counts), Capture/Revert, motion links, motion studies and contact sets; Onshape
+  mates and mate connectors; FreeCAD 1.0 Assembly workbench with OndselSolver (LGPL-2.1 per the
+  Gentoo ebuild; C++); FreeCAD Assembly3 (SolveSpace `libslvs`), Assembly4 (attachment trees,
+  no solver); our S03 solver. No dependency is added: the solver is ours on the S03 system layer.
+- **Findings from the code:**
+  - DOC-03's key hashes the feature context id but no occurrence transform, and `InContext`
+    paths hash authored transforms. So geometry already lives in component space; S06 keeps
+    that and puts solved positions in evaluated state.
+  - `Transform` is a general affine; occurrence transforms get a rigid/mirror check (ASM-01).
+  - `Component::joints` is `deny_unknown_fields`-serialized, so it stays (empty).
+  - `NativeSolver`'s generic pipeline (`Problem`) is crate-private; `EquationSystem`,
+    `Residual` and `numeric_rank` are public.
+  - `amg_mesh` has only a self-overlap BVH query; contact needs a two-tree query (S07 request).
+- **Decisions:** no pending positions (owner confirms, #59); joints as timeline features with
+  `FeatureOutput::assembly`; joint frames from CON-03 in component space; maximal-coordinate
+  solver with SE(3) increments; per-context bottom-up solve; rigid substitution; limits by
+  active set; joint states for unwrapped angles; motion studies and contact sets as
+  `ExtRecord`s.
+- **WPs:** ASM-01..08 keep their meaning and IDs (ASM-01 and ASM-02 are referenced by S04, S05
+  and S12; ASM-06 by S19). "New component from bodies" moved from ASM-01 to new **ASM-09**
+  (other specs use ASM-01 only for the component tree). New: **ASM-10** (browser/assembly UI
+  module), **ASM-11** (joint dialogs, glyphs), **ASM-12** (joint-aware viewport drag). ASM-02
+  now depends on ASM-10 and UI-06; ASM-03 adds CON-03; ASM-05 adds ASM-11; ASM-06 adds ASM-12;
+  ASM-07 adds ASM-12 and BREP-08. Every WP has a measurable Done-when.
+- **Questions:** #59 (capture model), #60 (`amg-ui::assembly` lane). Open question 1 resolved.
+- **Roadmap:** Phase 2 lane E adds ASM-09, ASM-10; Phase 3 lane E adds ASM-11, ASM-12. Lane
+  table unchanged pending #60.
+- **Interface requests** recorded in S01, S05, S07 and S11 Interface changes (2026-11-08).
+
+## Interface changes
+None yet (spec not implemented). Requests this spec makes of other specs are listed under
+Interfaces → "Needed from other specs".

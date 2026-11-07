@@ -926,3 +926,11 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   curvature, with the formulas defined once in `docs/notes/viewport-rendering.md` §11; isocurves
   are passed as edge polylines. RND-06 currently supports 4 section planes; the request to raise
   it to 6 is under S10 Interface changes (QUESTIONS #29).
+
+### 2026-11-08: request from the S06 refinement (lane E)
+- **CON-03:** `resolve_input` on a ref that is not `EntityRef::InContext` returns geometry in
+  the referenced body's component space (no occurrence transform). S06 joint origins
+  (`amg_features::assembly::origin_frame`, ASM-03) resolve the inner target and apply paths
+  themselves, so their cache keys don't depend on positions.
+- **INS-04 / INS-10:** use `Evaluated::instances(body)` / `body_to_world(body, path)` (ASM-01;
+  solved placements once ASM-04 lands) for per-occurrence transforms.

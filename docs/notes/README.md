@@ -21,3 +21,4 @@ that depends on it starts.
 | `ui-framework.md` | S11 refinement (2026-10-20) | UI-01 | Written |
 | `viewport-rendering.md` | S10 refinement (2026-10-20) | RND-01 | Written |
 | `solid-features.md` | S04 refinement (2026-11-08) | SOL-01, SOL-02, SOL-08 | Written |
+| `assemblies.md` | S06 refinement (2026-11-08) | ASM-01, ASM-03, ASM-04 | Written |

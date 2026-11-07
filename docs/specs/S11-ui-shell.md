@@ -1178,3 +1178,16 @@ additive pieces UI-05 should render:
   another kind's generic dialog chosen from the current selection. Press-pull
   (`solid.press_pull`, S04 SOL-09) maps a face to `solid.offset_face`, an edge to
   `solid.fillet` and a profile to `solid.extrude`.
+
+### 2026-11-08: requests from the S06 refinement (lane E)
+- Generic dialogs and tools take `AddFeature::context` from `Document::active_component()`
+  (S06 ASM-01).
+- UI-20 takes instance transforms from `Evaluated::instances` / `placements` (solved, ASM-01/04)
+  and also updates them on `OccurrenceTransformChanged` from an evaluated swap.
+- `SceneAdapter::set_placement_overlay(Option<Arc<amg_doc::Placements>>)`: transient placements
+  for drag frames (S06 ASM-12), so dragged instances move without a recompute.
+- Picking through instances: `PickTarget::Body` gains an instance index (`u32` into the scene's
+  occurrence-path table; `PickTarget` stays `Copy`), and `SelItem::entity` wraps sub-entities
+  picked outside the active component in `EntityRef::InContext { path, .. }`.
+- The assembly module would be `amg-ui::assembly`, owned by lane E if the owner agrees
+  (QUESTIONS #60).
