@@ -1797,3 +1797,13 @@ See `docs/specs/S13-simulation.md` Interfaces and `docs/notes/simulation-fem.md`
 - Extension-record blobs outside a full save: a `BlobSource` to read a `BlobRef` from the open
   container, and pending blob bytes attached with a `SetExt` from a job result, written at the next
   save and never copied into undo snapshots (FEM result blobs are tens of MB).
+### 2026-11-08 - requests from the S09 refinement (lane C, additive; implemented by FRM-16)
+- `amg-doc::stub::SubdMesh` becomes `pub use amg_subd::SubdMesh;` (immutable, `Send + Sync`,
+  `Clone + Debug`; no `Default` or `Eq`, so the stub's derived traits go). `amg-doc` already
+  depends on `amg-subd`.
+- The body codec stores Form bodies with `SubdCage::write_binary` (versioned `AMGS` magic,
+  checksummed) and reads them with `SubdCage::read_binary`, as MESH-16 did for meshes. The
+  `stub:form` tag stays readable as an empty-cage placeholder until DOC-07 freezes the format.
+- No other change: Form bodies stay body-level only for references (S01 §Persistent naming).
+  The `form.create` feature carries its cage in feature data (base64 `AMGS`), so nothing new is
+  needed in the file format.

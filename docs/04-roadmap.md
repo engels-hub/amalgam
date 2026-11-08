@@ -110,7 +110,8 @@ printable body, orientation optimization and plate arrangement.
 Thermal, buckling, nonlinear, outcome explorer, shape optimization, conformal lattices,
 automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
 - F: FEM-09..11, FEM-20..25, GEN-08..10, GEN-19 (frequency limit), CMP-09..11 (CMP-10 only if the CMP-03 or FEM-04 direct-solve bench misses budget)
-- C: IMP-09, IMP-10, IMP-14 (stochastic lattice), FRM-01..06
+- C: IMP-09, IMP-10, IMP-14 (stochastic lattice), FRM-01..06, FRM-11, FRM-12, FRM-14..18 (S09 refined
+  2026-11-08: exact evaluation, timeline, Form environment, topology tools II, thicken, packed conversion)
 - A: SOL-15, SOL-16, SOL-28
 - E: DOC-10, SCR-04, SCR-06, SCR-13, SCR-14, ASM-06, ASM-07
 - B: SK-12
@@ -118,7 +119,7 @@ automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
 - D: RND-10, RND-14 (large-mesh clusters/LOD)
 
 ## Phase 6 — Later (P3)
-FEM-12, GEN-11, GEN-12, FRM-07, FRM-08, SOL-17, ASM-08, AM-09, AM-14, CMP-06, SCR-15, SCR-16, LAT-01..03 (S19 has no lane yet; assign one when the owner raises its priority and it is refined).
+FEM-12, GEN-11, GEN-12, FRM-07, FRM-08, FRM-09, FRM-10, FRM-13, SOL-17, ASM-08, AM-09, AM-14, CMP-06, SCR-15, SCR-16, LAT-01..03 (S19 has no lane yet; assign one when the owner raises its priority and it is refined).
 Ongoing from Phase 2 onward: KH-09 (upstream OCCT bug reports/patches).
 
 ## Phase 7 — Rust kernel (only after everything above is done)
