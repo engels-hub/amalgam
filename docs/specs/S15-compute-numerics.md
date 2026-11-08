@@ -691,4 +691,14 @@ Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Revie
 - Status set to `Refined`.
 
 ## Interface changes
-None yet (the spec has not reached `Ready`).
+### 2026-11-08: from the S14 refinement (lane F; inputs to the S15 refinement)
+See `docs/specs/S14-generative-design.md` Interfaces and `docs/notes/generative-design.md` §5.
+- CMP-05: a PCG driver over a caller-supplied matrix-free operator and preconditioner on GPU f32
+  buffers (S14 owns the H8 operator and the multigrid V-cycle), with warm start, a relative-residual
+  stop and cancellation; kept behind the ADR-004 backend trait.
+- CMP-01: typed buffers, dispatch, and deterministic fixed-order reductions (dot, norm, max); no
+  float atomics, so topology-optimisation runs are bit-identical.
+- CMP-03: Cholesky with separate symbolic and numeric phases (the multigrid coarse level, ≤ 40 k
+  DOF, is refactored every design iteration). Same request as S13.
+- CMP-02: GEN-02 does not need it (dense per-element arrays only); its done-when can drop GEN-02.
+- Coordinator, 2026-11-08: this request was written while S15 was being refined and merged after it. S15's Interfaces already cover the CMP-05 point (`GridLevelOperator`, `Gmg`, `pcg_gpu` on CMP-08), the CMP-01 point (fixed-order reductions, no float atomics) and the CMP-03 point (`SymbolicFactor` + `Cholesky`). The CMP-02 point (drop GEN-02 from its Done-when) is for the CMP-02 implementer to check.

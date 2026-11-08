@@ -891,3 +891,8 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - Implicit build items resolve through `amg_features::implicit::mesh_for_export(graph, quality)`
   (IMP-13; cached per graph hash and cell size). Until IMP-13 lands they keep
   `UnresolvedReason::NotAMesh`.
+### 2026-11-08: from the S14 refinement
+- GEN-06 tests call `amg_am::overhang::classify_faces` (AM-02) from `amg-features` tests with the
+  shared α convention. No change requested.
+- Optional, later: `amg_features::sim::generative::OutcomeBodyFeature::build` records an additive
+  outcome's build direction, so AM-01 could pre-orient a new print item for that body.
