@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P1 (core) / P2 (outcome explorer, extra constraints) |
 | **Crates** | `amg-topopt`, `amg-features::sim::generative` (study record, jobs, outcome body), `amg-ui::generative` (Generative workspace) |
 | **Lane** | F |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P1 |
 | **Crates** | `amg-script`, `amg-cli`, `amg-ui::script` (owned by the scripting lane; edge `amg-ui → amg-script` allowed, QUESTIONS #56) |
 | **Lane** | E |

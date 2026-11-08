@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 |
 | **Crates** | `amg-io`, `amg-features::io` (import features, document ↔ scene adapter; lane G, see Refinement log), `amg-ui::io` (import/export dialogs, drag-drop) |
 | **Lane** | G |

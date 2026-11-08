@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 (measure, section, properties, construction) / P1 (interference, surface analyses) |
 | **Crates** | `amg-features::inspect` (new module: measurement math, sections, properties, analysis fields), `amg-features::construct` (construction features + math), `amg-ui::inspect` (tools, panels, overlays), `amg-ui::construct` (proposed; fallback `amg-ui::inspect::construct`) |
 | **Lane** | A |

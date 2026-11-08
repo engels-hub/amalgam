@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 (basic) / P1 (full) / P2 (anisotropic printed models) |
 | **Crates** | `amg-materials`, `amg-ui::materials` (material browser and editor); additive changes in `amg-core::units` (MAT-01) and `amg-doc` (MAT-06), flagged as interface changes |
 | **Lane** | G |

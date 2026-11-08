@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 |
 | **Crates** | `amg-render` |
 | **Lane** | D |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 (components) / P1 (joints) / P2 (motion) |
 | **Crates** | `amg-doc` (component tree commands, placements, `amg-doc::joints` data + solver), `amg-features::assembly`, `amg-ui::assembly` (lane E, owner 2026-11-09, QUESTIONS #60) |
 | **Lane** | E |

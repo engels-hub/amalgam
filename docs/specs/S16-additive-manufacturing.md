@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 (machine profiles, plate placement, overhang analysis, 3MF hand-off) / P1 (orientation, arrange, printability, resin checks, resin support preview) / P3 (SLS packing, metal PBF) |
 | **Crates** | `amg-am`, `amg-features::am` (print-setup extension record), `amg-ui::am` (Manufacture workspace) |
 | **Lane** | G |

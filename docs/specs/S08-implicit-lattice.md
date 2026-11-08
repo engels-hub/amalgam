@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P1 (lattice is a key AM differentiator); IMP-03 is P0 (S07 robust shell and wrap) |
 | **Crates** | `amg-implicit`, `amg-features::implicit`, `amg-ui::implicit` (owned by lane C, QUESTIONS #61) |
 | **Lane** | C |

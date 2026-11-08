@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 (failure capture) / P1 (`amg-nurbs`, fillet + loft hardening, robustness framework) / P3 (Rust rewrites, last phase) |
 | **Crates** | `amg-nurbs` (all of it; ADR-013); in `amg-brep` (shared with S02) the modules `amg_brep::capture`, `amg_brep::robust::{fillet, loft, corpus}` and `amg_brep::nurbs_conv`, plus their `amg-occt-sys` shims; `testdata/kernel/`, `tests/golden/kernel/` |
 | **Lane** | A |

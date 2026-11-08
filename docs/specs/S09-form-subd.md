@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P2 |
 | **Crates** | `amg-subd`, `amg-features::form`, `amg-ui::form` |
 | **Lane** | C |

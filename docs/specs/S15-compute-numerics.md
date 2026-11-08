@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P1 |
 | **Crates** | `amg-compute` (foundation layer) |
 | **Lane** | F |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P1 (static, modal) / P2 (thermal, buckling, nonlinear) / P3 (event) |
 | **Crates** | `amg-fem`, `amg-tetwild-sys` (new, FFI), `amg-features::sim`, `amg-ui::sim` (Simulation workspace) |
 | **Lane** | F |

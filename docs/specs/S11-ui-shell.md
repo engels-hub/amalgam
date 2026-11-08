@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 |
 | **Crates** | `amg-ui` framework modules (`app`, `module`, `command`, `shortcut`, `search`, `marking`, `tool`, `input`, `nav`, `pick`, `select`, `widgets`, `dialog`, `manip`, `browser`, `timeline`, `sketch`, `scene`, `jobs`, `notify`, `prefs`, `theme`, `icons`, `dock`, `testing`), `amg-app` |
 | **Lane** | D |

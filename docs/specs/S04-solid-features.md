@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Refined |
+| **Status** | Ready |
 | **Priority** | P0 / P1 |
 | **Crates** | `amg-features::solid`, `amg-features::dialog` (the shared dialog-schema module S11 renders) |
 | **Lane** | A |
