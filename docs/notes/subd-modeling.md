@@ -53,7 +53,7 @@ FRM-06 (§7).
 
 ## 2. Own Rust evaluator, OpenSubdiv as oracle
 
-Decided (QUESTIONS #100 lets the owner override): `amg-subd` implements refinement and
+Decided (owner-confirmed 2026-11-09, QUESTIONS #100): `amg-subd` implements refinement and
 evaluation in Rust. OpenSubdiv is a test oracle only, behind a `osd-oracle` cargo feature
 that is off by default and not built in CI.
 
@@ -151,7 +151,7 @@ Pull and interpolate (closest point, limit positions), conversion accuracy check
 - `FormConvertFeature` (`form.convert`): input a Form body; target `Brep` (FRM-06) or `Mesh`
   (FRM-16, `to_mesh_tol`); output replaces the body (default) or a new body.
 - **Finish Form** (FRM-17) inserts or updates a `form.convert` (target B-rep) right after the
-  form node when the preference "Form output" is `B-rep` (default; QUESTIONS #101). Then
+  form node when the preference "Form output" is `B-rep` (default; owner decision 2026-11-09, QUESTIONS #101). Then
   fillets, shells and booleans work on a form exactly as in Fusion. Re-entering the form
   edits the `form.create` node (timeline edit with rollback, S01), and the convert node and
   everything after it recompute on Finish.
@@ -270,6 +270,29 @@ Approach decided when FRM-08 is refined: a Rust Instant Meshes style field-align
 so its limit surface lies on the input mesh.
 
 ## 10. Open points
-- QUESTIONS #100: own evaluator with OpenSubdiv as oracle (decided, owner may override).
-- QUESTIONS #101: Finish Form output default (B-rep or SubD body).
-- QUESTIONS #102: which foreign SubD/T-spline formats FRM-10 reads first.
+- QUESTIONS #100: own evaluator with OpenSubdiv as oracle (decided by the owner, 2026-11-09).
+- QUESTIONS #101: Finish Form adds/updates a B-rep `form.convert` (decided, 2026-11-09).
+- QUESTIONS #102: FRM-10 reads OBJ control cages and `.tsm` (decided 2026-11-09); see §11.
+
+## 11. Foreign cages: OBJ and `.tsm` (FRM-10)
+- **OBJ** control cages: polygon-preserving read (quads and n-gons kept), `o`/`g` per body, crease
+  tags where present.
+- **`.tsm`** is the T-Splines plug-in (Rhino/Maya) model format, which Fusion's "Insert T-Spline"
+  also reads. Research on 2026-11-09:
+  - No official specification is published. Autodesk's help describes importing, not the layout.
+    A McNeel forum answer says the storage details must be asked from T-Splines (Autodesk).
+  - It is a text-based format ("T-spline Mesh"; a `.tss` holds a whole scene with other objects).
+    A Computer-Aided Design 2016 paper (by the Beihang T-SPLINE library authors), "Reconsideration of T-spline data models and their
+    exchanges using STEP", describes the T-spline data model that the file carries (control
+    points, face/edge structure with T-junctions, knot intervals).
+  - The only open implementation found is the Beihang "T-SPLINE" C++ library (GitHub
+    GrapeTec/T-SPLINE, SourceForge tspline), with `tsm2obj`/`tsm2stp` tools. It is **LGPL-3.0**; its
+    parser is not documented as a spec. We must not copy or translate its code (licence policy,
+    ADR-012); reading it only to learn the layout is a grey area, so we do not rely on it.
+  - Plan: a clean-room reader written from owner-supplied `.tsm` files (exported from Fusion or
+    Rhino) and the facts in the paper. It reads control points, face lists and T-junction edges,
+    and refines T-junctions into quads. Without samples the `.tsm` part of FRM-10 stays
+    unstarted; it is a stretch goal and does not block the OBJ path.
+  - Open for the owner: provide 3-5 `.tsm` samples (a box, a sphere with creases, a form with
+    T-junctions) under `$AMG_TESTDATA_DIR/subd/tsm/`. If the owner has Fusion, exporting the same
+    form to OBJ as well gives a reference limit mesh.

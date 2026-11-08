@@ -26,8 +26,8 @@ Status: **Written** (refinement output; revisit after GEN-03 and GEN-04 land).
 | Voxel size | `h = [hx, hy, hz]`. `hx = hy = hz` except for additive studies with α ≠ 45° (§7.2). |
 | Density | `x` = design variable per element, `x̃` = filtered, `x̄` = projected ("physical") density. Outcomes store `x̄`. |
 | Overhang angle | S16 convention (`docs/notes/am-build-prep.md` §1.1): slope from horizontal, a downward face needs support when `−n·d > cos α`. Fusion's 45° default is the same in both conventions. |
-| Build direction | One of ±X, ±Y, ±Z (Fusion offers the same six; QUESTIONS #91 asks about arbitrary directions). |
-| Precision | f32 on the GPU (wgpu DX12 has no f64, S15 OQ 1); f64 on the CPU reference and in the optimiser (MMA/OC). |
+| Build direction | One of ±X, ±Y, ±Z (Fusion offers the same six; owner decision 2026-11-09, QUESTIONS #91: six now, arbitrary directions later via a rotated grid frame, GEN-20). |
+| Precision | `R: GpuReal` on the GPU: f64 where the device has `SHADER_F64` (in practice Vulkan), else f32 (ADR-004 note, S15 OQ 1); f64 on the CPU reference and in the optimiser (MMA/OC). |
 
 ## 2. Fusion behaviour (prior art) and our choices
 
@@ -39,7 +39,7 @@ Status: **Written** (refinement output; revisit after GEN-03 and GEN-04 land).
 | Objectives: minimise mass, or maximise stiffness with a mass target. Limits: safety factor (2 in Autodesk tutorials), displacement, modal frequency (P2). | `Objective::{MinMass, MaxStiffness { mass_target }}`, `Limits { safety_factor, max_displacement, min_frequency }`. Default safety factor 2.0. |
 | Manufacturing: unrestricted, additive (build direction ±X/±Y/±Z or all, overhang angle default 45°, minimum thickness), 2.5/3/5-axis milling, 2-axis cutting, die casting. | Unrestricted and additive in P1; minimum thickness maps to the filter radius in P1 and is guaranteed by the robust formulation in P2 (GEN-09). Milling, 2-axis and casting are P3 (GEN-12). "All directions" is one outcome per direction (six outcomes). |
 | Several materials × methods → several outcomes, solved in the cloud; outcome explorer with thumbnails, properties table, scatter plot, filters, compare, iteration slider. | Same set of outcomes, solved locally one at a time on the GPU (§10.3). Explorer in GEN-08 (P2). |
-| Resolution slider (100 steps, default 40 of 100). | `Resolution::{Voxels(n), Size(h)}`. Default target 1 M voxels (QUESTIONS #92 asks the owner). |
+| Resolution slider (100 steps, default 40 of 100). | `Resolution::{Voxels(n), Size(h)}`. Default target 1 M voxels for the final run, with a 125 k "quick preview" button (owner, QUESTIONS #92). |
 | Outcome → "Create design" (T-spline / B-rep / mesh), "Export mesh". | Outcome → mesh body (default) or implicit body through S08 (§8), SubD/B-rep later via S09. The body is a baked feature, not linked live to the study (§8.4). |
 | Fusion's solver is level-set based (Autodesk research). | SIMP baseline (best documented, simplest to verify against the classics); level set is GEN-11 (P3). |
 
@@ -122,7 +122,7 @@ Fusion lets the user pick symmetry planes. We accept up to three axis-aligned pl
 or offset construction planes parallel to them). The optimiser works on the reduced variable set:
 mirrored elements share one variable and their sensitivities are summed. Loads need not be
 symmetric (Fusion behaves the same). A tilted plane is a precheck error; a rotated grid frame is
-left for later (it would also serve arbitrary build directions, QUESTIONS #91).
+left for later as GEN-20 (it also serves arbitrary build directions, QUESTIONS #91).
 
 ## 5. Voxel FE solver (GEN-14 CPU reference, GEN-03 GPU)
 
@@ -162,7 +162,7 @@ get a constraint mask: a coarse node is fixed in an axis if any of its fine chil
 good enough for a preconditioner).
 
 ### 5.5 Precision
-f32 on the GPU. `E_min = 1e-6 E_0` (the classic 1e-9 gives contrasts f32 PCG cannot resolve, and
+GPU precision is `R: GpuReal` (f64 where `SHADER_F64`, else f32; both paths tested, the f64 path through S15's local gate). `E_min = 1e-6 E_0` (the classic 1e-9 gives contrasts f32 PCG cannot resolve, and
 the difference in compliance is below 0.1 %). Stop at relative residual `1e-4` in the optimisation
 loop (warm-started from the previous design iteration's `u`; Amir 2014 shows loose tolerances do not
 change the optimum), `1e-6` for the final metrics. The CPU reference uses f64 with the same `E_min`
@@ -230,7 +230,8 @@ updated each iteration from the previous ratio, Le 2010). Allowable `σ_allow = 
 material (`SolidMaterial::yield_strength`; a material without yield is a precheck error for min
 mass). Preserve cells are included (bolt bosses are where stress peaks), void and obstacle cells
 are not. One adjoint solve per case per iteration, so stress studies cost about twice a compliance
-study (QUESTIONS #93).
+study. The vision budgets accordingly are 5 min (max stiffness), 10 min (stress-constrained) and
+15 min (robust), decided by the owner on 2026-11-09 (QUESTIONS #93).
 
 ### 6.7 Termination and status
 `Converged`: final β reached, design change < 0.01 for 3 iterations and all constraints satisfied
@@ -302,7 +303,8 @@ decimation tolerance `0.25 h`. IMP-04 guarantees closed, oriented, manifold outp
 outcome id, the outcome blob hash and the conversion options, so it can be re-run with other
 options (`EditFeature` + new payload) but it does not follow later study edits, because rerunning
 an optimisation is not a recompute. Output kind: mesh body (default) or implicit body
-(`BodyGeom::Implicit` holding the graph). QUESTIONS #90 asks which default the owner wants.
+(`BodyGeom::Implicit` holding the graph). Owner decision 2026-11-09 (QUESTIONS #90): mesh by default,
+implicit one click away.
 
 ## 9. Validation FEA (GEN-17)
 
@@ -316,7 +318,8 @@ built directly with `amg-fem` types:
 
 The report (max von Mises, min safety factor, max displacement, mass, per case) is stored in the
 outcome header next to the voxel model's prediction, with the relative difference. Validation runs
-on demand and automatically after "Create body" (QUESTIONS #94).
+on demand and as part of "Create body", not automatically when an outcome finishes (owner, QUESTIONS #94,
+2026-11-09).
 
 ## 10. Study record, outcomes and jobs (GEN-01, GEN-18, GEN-08)
 
@@ -369,7 +372,9 @@ settings and commits the script and the numbers to `testdata/topopt/ref/`.
 | Scenario | Budget | Bench | WP |
 |---|---|---|---|
 | One static solve, 1 M voxels, from zero to 1e-4 | < 2 s | `budget/topopt-solve-1m` | GEN-03 |
-| Min compliance, 1 M voxels, 100 iterations (vision) | < 5 min | `budget/topopt-1m-100it` | GEN-04 |
+| Max stiffness (min compliance), 1 M voxels, 100 iterations (vision) | < 5 min | `budget/topopt-1m-100it` | GEN-04 |
+| Stress-constrained, 1 M voxels, 100 iterations (vision) | < 10 min | `budget/topopt-stress-1m` | GEN-16 |
+| Robust min-size, 1 M voxels, 100 iterations (vision) | < 15 min | `budget/topopt-robust-1m` | GEN-09 |
 | Filter + projection + sensitivities + OC per iteration, 1 M | < 0.2 s | part of the above | GEN-04 |
 | AM filter forward + adjoint, 1 M | < 0.1 s | `topopt/am-filter-1m` | GEN-06 |
 | Voxelisation of a 1 M-triangle preserve set at 1 M voxels | < 5 s | `topopt/voxelize-1m` | GEN-02 |

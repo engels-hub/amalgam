@@ -11,9 +11,9 @@ scheduled in an earlier phase than any of its dependencies.
 |---|---|---|
 | A — Kernel & solid modeling | S02, S04, S05, S20 | `amg-occt-sys`, `amg-brep`, `amg-nurbs`, `amg-features::{solid,construct,inspect}`, `amg-ui::{inspect,construct}` (solid features need no `amg-ui::solid`: they register through the generic dialogs, S11) |
 | B — Sketch | S03 | `amg-sketch`, `amg-features::sketch` |
-| C — Mesh & implicit | S07, S08, S09 | `amg-mesh`, `amg-manifold-sys`, `amg-implicit`, `amg-subd`, `amg-features::{mesh,implicit,form}`, `amg-ui::{mesh,form}` |
+| C — Mesh & implicit | S07, S08, S09 | `amg-mesh`, `amg-manifold-sys`, `amg-implicit`, `amg-subd`, `amg-features::{mesh,implicit,form}`, `amg-ui::{mesh,form,implicit}` |
 | D — Viewport & UI framework | S10, S11 | `amg-render`, `amg-app`, `amg-ui` framework (shell, widgets, generic dialogs, viewport input, browser, timeline, sketch-mode UX) |
-| E — Document & API | S00, S01, S06, S18 | `amg-core`, `amg-jobs`, `amg-testkit`, `amg-doc`, `amg-script`, `amg-cli`, `amg-features::assembly` |
+| E — Document & API | S00, S01, S06, S18 | `amg-core`, `amg-jobs`, `amg-testkit`, `amg-doc`, `amg-script`, `amg-cli`, `amg-features::assembly`, `amg-ui::{assembly,script}` |
 | F — Numerics & simulation | S15, S13, S14 | `amg-compute`, `amg-fem`, `amg-tetwild-sys`, `amg-topopt`, `amg-features::sim`, `amg-ui::{sim,generative}` |
 | G — AM, I/O, materials | S12, S16, S17 | `amg-io`, `amg-am`, `amg-materials`, `amg-features::{io,am}`, `amg-ui::{am,io,materials}` |
 
@@ -79,7 +79,7 @@ Sketch → extrude/revolve → fillet/chamfer/shell → patterns → timeline ed
 - B: SK-07, SK-16..19, SK-22, SK-09
 - D: RND-13 (device loss, diagnostics), UI-05, UI-06, UI-09, UI-12, UI-13, UI-14, UI-16, UI-17,
   UI-22 (solid body display)
-- E: DOC-06, DOC-13, ASM-01, ASM-09, ASM-10, ASM-02, FND-12, SCR-07, SCR-05 (CLI), SCR-08 (kernel CLI)
+- E: DOC-06, DOC-13, ASM-01, ASM-13 (pending positions / capture), ASM-09, ASM-10, ASM-02, FND-12, SCR-07, SCR-05 (CLI), SCR-08 (kernel CLI)
 - G: IO-06, IO-09, AM-10 (slicer profile import)
 - F (starts early, independent): CMP-07, CMP-01..03
 
@@ -109,7 +109,9 @@ printable body, orientation optimization and plate arrangement.
 ## Phase 5 — Advanced parity
 Thermal, buckling, nonlinear, outcome explorer, shape optimization, conformal lattices,
 automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
-- F: FEM-09..11, FEM-20..25, GEN-08..10, GEN-19 (frequency limit), CMP-09..11 (CMP-10 only if the CMP-03 or FEM-04 direct-solve bench misses budget)
+- F: FEM-09..11, FEM-20..25, GEN-08..10, GEN-19 (frequency limit), CMP-09..11 (CMP-10 only if the CMP-03 or FEM-04 direct-solve bench misses budget), CMP-06
+  (CUDA; started only if the CMP-08/CMP-05 benchmarks show FEM-08 or GEN-03 near or over
+  budget, made the default only if ≥ 1.5× faster than wgpu; QUESTIONS #80)
 - C: IMP-09, IMP-10, IMP-14 (stochastic lattice), FRM-01..06, FRM-11, FRM-12, FRM-14..18 (S09 refined
   2026-11-08: exact evaluation, timeline, Form environment, topology tools II, thicken, packed conversion)
 - A: SOL-15, SOL-16, SOL-28
@@ -119,7 +121,7 @@ automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
 - D: RND-10, RND-14 (large-mesh clusters/LOD)
 
 ## Phase 6 — Later (P3)
-FEM-12, GEN-11, GEN-12, FRM-07, FRM-08, FRM-09, FRM-10, FRM-13, SOL-17, ASM-08, AM-09, AM-14, CMP-06, SCR-15, SCR-16, LAT-01..03 (S19 has no lane yet; assign one when the owner raises its priority and it is refined).
+FEM-12, GEN-11, GEN-12, GEN-20 (rotated grid frame, QUESTIONS #91), FRM-07, FRM-08, FRM-09, FRM-10, FRM-13, SOL-17, ASM-08, AM-09, AM-14, SCR-15, SCR-16, LAT-01..03 (S19 has no lane yet; assign one when the owner raises its priority and it is refined).
 Ongoing from Phase 2 onward: KH-09 (upstream OCCT bug reports/patches).
 
 ## Phase 7 — Rust kernel (only after everything above is done)

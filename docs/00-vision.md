@@ -39,8 +39,11 @@ additive build prep) — runs on the local machine, primarily on the GPU.
 | Recompute of a typical 50-feature part after editing an early sketch | < 500 ms |
 | Mesh boolean, two 1 M-triangle meshes | < 1 s |
 | Import a 1 GB binary STL (20 M triangles) | < 5 s |
-| Linear static FEA, ~500 k DOF | < 30 s |
-| Topology optimization, 1 M voxels, 100 iterations | < 5 min |
+| Linear static FEA, ~500 k DOF: assembly + solve + stress recovery, mesh taken from the study's cache | < 30 s |
+| Tet meshing for FEA, same model (≈ 120 k TET10); cached across solves and load-case edits | < 30 s |
+| Topology optimization, 1 M voxels, 100 iterations: max-stiffness | < 5 min |
+| Topology optimization, same size: stress-constrained min mass | < 10 min |
+| Topology optimization, same size: robust (min-size, three designs) | < 15 min |
 | UI never blocks for more than | 16 ms (everything heavier goes to the job system) |
 
 ## Principles

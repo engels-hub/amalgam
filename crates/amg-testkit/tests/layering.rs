@@ -51,7 +51,12 @@ fn allowed(krate: &str) -> Option<BTreeSet<&'static str>> {
         "amg-am" => vec!["amg-mesh", "amg-implicit", "amg-io"],
         "amg-doc" => DOMAINS.to_vec(),
         "amg-features" => [DOMAINS, &["amg-doc"]].concat(),
-        "amg-ui" => [DOMAINS, &["amg-doc", "amg-features", "amg-render"]].concat(),
+        // QUESTIONS #56 (owner, 2026-11-09): `amg-ui::script` (console, script manager) uses amg-script.
+        "amg-ui" => [
+            DOMAINS,
+            &["amg-doc", "amg-features", "amg-render", "amg-script"],
+        ]
+        .concat(),
         "amg-script" => vec!["amg-doc", "amg-features"],
         "amg-app" | "amg-cli" => [
             DOMAINS,

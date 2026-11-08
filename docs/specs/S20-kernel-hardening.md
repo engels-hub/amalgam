@@ -203,11 +203,18 @@ Robustness note §5–§6.
   surfaces (constant, variable, chord), vertex blends, trimming (our own or OCCT intersection
   routines), and topology rebuild. To ship, it must beat KH-03 + KH-04 + KH-19 on the fillet
   corpus.
+- **G2 (curvature-continuous) fillets** (owner, QUESTIONS #55, 2026-11-09): needed, and OCCT
+  cannot build them, so they are part of this engine: a G2 blend profile (e.g. a curvature-
+  continuous cubic/quintic or conic-blend cross-section) on constant and variable radius edges
+  and at tangent-chain ends, exposed as a continuity option (G1 default, G2) on `solid.fillet`
+  (S04 SOL-05 ships G1 only and S04 adds the dialog option when KH-10 lands). Verified by
+  curvature-comb sampling across the blend boundary.
 - **Progressive kernel replacement:** the corpora decide which further OCCT operations
   (booleans, shell/offset, surface–surface intersection) are worth replacing with Rust behind
   `BrepKernel`. A full Rust kernel, possibly building on or contributing to `truck` /
   `monstertruck`, is a long-term option.
-- KH-10 and KH-11 are placeholders. They are refined into 1–3-day WPs before Phase 7 starts.
+- KH-10 and KH-11 are placeholders. They are refined into 1–3-day WPs before Phase 7 starts;
+  the G2 blend profile is one of KH-10's WPs.
 
 ## Interfaces
 All signatures are public API that other crates rely on. Bodies are omitted. Both crates set
@@ -842,7 +849,7 @@ open request.
 | KH-08 | Loft builder: `robust::loft::build` (prepare → `loft_surfaces` → faces → caps → sewing → solid → validation incl. self-interference), end conditions from adjacent faces (`CrossBoundaryField` impl), fallback chain (Own → ThruSections → PipeShell), `LoftOutput`, failure capture | KH-06, KH-14, KH-16, KH-17, BREP-09, BREP-10, SOL-01 | P1 | Todo | 1. ≥ 98 % success on the loft corpus excluding rails/centerline cases. 2. 100 % of `Ok` results are BRepCheck-valid; closed sections give closed solids. 3. Sections reproduced within `fit_tol` (1e-5 mm); exact-oracle volumes within 1e-6 relative. 4. G1/G2 end conditions to adjacent planar/cylindrical faces measured on the B-rep: ≤ 1e-6 rad / ≤ 1e-5 relative. 5. `LoftReport` engine recorded; failures are captured as dumps. 6. Typical loft (≤ 6 sections × ≤ 8 edges) builds in < 100 ms (preview budget, S04) and < 300 ms including validation. |
 | KH-18 | Loft rails + centerline in the builder: rail intersection and splitting, per-patch Gordon networks, centerline frames + intermediate sections, optional OCCT `GeomFill_Gordon` engine (OCCT ≥ 8.0.0p1) | KH-08, KH-15 | P1 | Todo | 1. ≥ 98 % success on the full loft corpus including rails and centerline cases, with zero invalid `Ok`. 2. Rails reproduced within `fit_tol`; lateral faces watertight (sewing adds no tolerance above 1e-5 mm). 3. A rail missing a section gives `RailMiss` with indices. 4. Centerline lofts keep sections exact and show no twist flip (frame angle continuity ≤ 5° between neighbouring intermediate sections). |
 | KH-09 | Upstream OCCT bug reports/patches for isolated issues found by the harnesses | KH-02 | P3 | Todo | Ongoing. Each report links a minimal Draw script or a C++ reproducer and its corpus case id; the list is kept in `kernel-metrics.md`. |
-| KH-10 | **Phase 7:** Rust fillet engine (placeholder; refine into 1–3-day WPs before Phase 7) | KH-04, KH-19, KH-15 | P3 | Todo | beats KH-03 + KH-04 + KH-19 success rate on the full corpus with zero regressions |
+| KH-10 | **Phase 7:** Rust fillet engine, including G2 (curvature-continuous) blends as a continuity option (QUESTIONS #55; placeholder, refine into 1–3-day WPs before Phase 7) | KH-04, KH-19, KH-15 | P3 | Todo | 1. Beats KH-03 + KH-04 + KH-19 success rate on the full corpus with zero regressions. 2. G2 option: on constant and variable radius corpus cases the curvature across both blend boundaries is continuous (max jump < 1e-3 of the local 1/R on 50 samples per boundary), blend volumes match the exact-volume oracle where one exists, and G1 results are unchanged. |
 | KH-11 | **Phase 7:** corpus-driven replacement of further OCCT ops (booleans, offset, SSI) with Rust (placeholder; refine before Phase 7) | KH-10 | P3 | Todo | each replacement beats OCCT on its corpus |
 
 Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Review`, `Done`, `Blocked (reason)`.
@@ -987,6 +994,9 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
 - **Owner/architecture questions proposed** (not written to QUESTIONS.md by this agent): Open
   questions 3 and 4.
 - Status Draft → Refined.
+
+### 2026-11-09 - owner answers moved in
+- QUESTIONS #55: G2 fillets are needed; added to Design §7 and KH-10 (scope and Done-when 2). S04 SOL-05 ships G1 and points here.
 
 ## Interface changes
 

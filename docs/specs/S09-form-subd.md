@@ -58,7 +58,7 @@ Full detail in `docs/notes/subd-modeling.md`. Short version:
   `design.json`). Each edit inside the form is one `EditFeature` swapping the cage `Arc`, so
   undo is per edit. The body is `BodyGeom::Form(Arc<SubdMesh>)`. `form.convert` turns it into a
   Solid (FRM-06) or a Mesh (FRM-16). Finish Form adds the B-rep convert node by default
-  (QUESTIONS #101), so solid features work on forms as in Fusion.
+  (decided, QUESTIONS #101; a preference can switch it off), so solid features work on forms as in Fusion.
 - **References.** Inside the form, tools use cage ids directly (authored data). From outside,
   Form bodies stay body-level only (S01 §Persistent naming, unchanged). The converted B-rep tags
   faces by root cage face and edges by cage edge (note §7.5), so downstream fillets survive form
@@ -450,7 +450,7 @@ pub const FORM_CONTEXT: amg_ui::ContextId = amg_ui::ContextId("form.edit");
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum FormDisplay { Box, ControlFrame, #[default] Smooth }      // Ctrl+1/2/3
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub enum FinishOutput { #[default] Brep, Subd }                    // preference, QUESTIONS #101
+pub enum FinishOutput { #[default] Brep, Subd }                    // preference; Brep default decided, QUESTIONS #101
 /// `BodyGeom::Form` → display mesh: Preview level 1, Normal level 2, Fine level 3; per-quad
 /// root `FaceId` as the render sub-id.
 pub struct FormTessellator;
@@ -498,7 +498,7 @@ the reference machine (vision doc), release build. Golden tests live in `tests/g
 | FRM-13 | Match (boundary to a sketch curve or B-rep edge, position/tangent) and Repair body (validation report, fix zero-length edges and flipped faces); tools | FRM-07 | P3 | Todo | 1. Matching a plane form's boundary to a circle edge: boundary limit curve within 0.01 mm of the circle at 64 samples; tangent mode: normal angle to the target face ≤ 0.5°. 2. Repair fixes every injected defect of a 20-case table (or reports it). 3. Kittest per tool. |
 | FRM-09 | Sketch-driven form creation: extrude, revolve, sweep, loft (sketch curves → cage strips with face counts), pipe from a sketch path | FRM-02, SK-19 | P3 | Todo | 1. Revolving a sketch spline 360° with 8 faces around gives a closed cage whose limit profile is within 1 % of the sketch curve's height at 32 samples. 2. Loft of 3 circles gives an open tube; extrude of a closed sketch profile gives a capped body. 3. Golden tests per tool. 4. Kittest per tool. |
 | FRM-08 | Quad remesh (mesh → SubD cage) for organic mesh → B-rep: approach per note §9 (decided when this WP is refined), fit with the §8 solve, `form.from_mesh` feature | FRM-06, FRM-07, MESH-06 | P3 | Todo | On 10 corpus organic meshes (scans, sculpts): ≥ 95 % quads, valid closed cage for closed input, Hausdorff from the limit surface to the input ≤ 0.5 % of the bbox diagonal, target face count within ±20 %, < 30 s for a 200 k-triangle input; the result converts through FRM-06 to a valid solid. |
-| FRM-10 | Foreign SubD / T-spline import (ADR-009 note): OBJ quad cage as SubD (`o`/`g` per body, crease tags where present; needs a polygon-preserving IO-05 read option, requested from S12 when this WP is refined), and the formats chosen in QUESTIONS #102 (T-junctions resolved by local refinement into quads, with a warning) | FRM-16, IO-05 | P3 | Todo | 1. An OBJ control net exported from a SubD modeler imports as a Form body whose level-3 limit mesh matches a reference export within 0.1 % of the diagonal. 2. A cage with T-junctions imports as a valid manifold cage with the warning. 3. Import is one undoable command. |
+| FRM-10 | Foreign SubD / T-spline import (ADR-009 note): OBJ quad cage as SubD (`o`/`g` per body, crease tags where present; needs a polygon-preserving IO-05 read option, requested from S12 when this WP is refined), and `.tsm` (the T-Splines plug-in format; owner decision QUESTIONS #102: OBJ + `.tsm`; stretch, needs owner-supplied sample files, note §11) with T-junctions resolved by local refinement into quads, with a warning | FRM-16, IO-05 | P3 | Todo | 1. An OBJ control net exported from a SubD modeler imports as a Form body whose level-3 limit mesh matches a reference export within 0.1 % of the diagonal. 2. A cage with T-junctions imports as a valid manifold cage with the warning. 3. Import is one undoable command. 4. (stretch, only when the owner has supplied `.tsm` samples under `$AMG_TESTDATA_DIR/subd/tsm/`; skipped cleanly otherwise) a `.tsm` sample exported from Fusion/Rhino imports as a Form body whose control-point count and face count match the sample's own report and whose level-3 limit mesh is within 0.5 % of the diagonal of the source application's mesh export; the reader is written from the samples and the published description in note §11, not from third-party code. |
 | FRM-14 | Form performance and fuzz hardening: criterion benches C1–C3 for refine, stencils, patch table, conversion; cargo-fuzz target for `AMGS` decode; random op-sequence fuzz over FRM-04/FRM-18 | FRM-06, FRM-18 | P2 | Todo | 1. Benches for every budget under Performance targets run in CI (report only) and meet the targets locally. 2. `AMGS` decode fuzz runs 10 min with no panic. 3. 10 000 random op sequences never yield an invalid cage or a panic. |
 
 ## Testing
@@ -539,14 +539,13 @@ Reference cages (built in `amg-subd` tests): **C1** 6×6×6 box form with 8 crea
 2. (from S20, 2026-10-20) FRM-06 should build on `amg-nurbs`; this needs the layering edge `amg-subd → amg-nurbs` (QUESTIONS #41).
    **Resolved 2026-10-20 (owner, QUESTIONS #41):** the edge is allowed (architecture crate table
    and the layering test updated). FRM-06 may depend on `amg-nurbs`.
-3. Own Rust evaluator vs FFI to OpenSubdiv. **Decided 2026-11-08 (refinement):** own Rust,
-   OpenSubdiv as a test oracle behind `osd-oracle` (note §2). The owner may override
-   (QUESTIONS #100); answering (b) would replace FRM-01's refinement and FRM-15 with an
-   `amg-opensubdiv-sys` crate.
-4. **(owner)** Finish Form output: auto-add a B-rep `form.convert` (Fusion behaviour,
-   *default*) or keep the SubD body until the user converts? QUESTIONS #101. Only FRM-17's
-   preference default depends on it.
-5. **(owner)** Which foreign formats FRM-10 reads first. QUESTIONS #102. P3; does not block.
+3. Own Rust evaluator vs FFI to OpenSubdiv. **Decided 2026-11-08 (refinement), confirmed
+   2026-11-09 (owner, QUESTIONS #100):** own Rust, OpenSubdiv as a test oracle behind
+   `osd-oracle` (note §2).
+4. Finish Form output. **Resolved 2026-11-09 (owner, QUESTIONS #101):** Finish Form adds or updates a
+   `form.convert` node producing a B-rep body (Fusion behaviour; preference `FinishOutput`).
+5. Foreign formats for FRM-10. **Resolved 2026-11-09 (owner, QUESTIONS #102):** OBJ control cages plus
+   `.tsm`; `.tsm` is a stretch goal gated on owner-supplied samples (note §11).
 6. Packed conversion as the default once FRM-11 lands? Decide from FRM-11's fillet results;
    unpacked stays the default until then (Rhino's default is packed, Fusion's conversion gives
    one face per T-spline face region).
@@ -573,11 +572,11 @@ Reference cages (built in `amg-subd` tests): **C1** 6×6×6 box form with 8 crea
   `BUILD_FREE_LICENSE`), `quadrs` (MIT). Details and sources in `docs/notes/subd-modeling.md` §0.
 - **Decided:**
   - Own n-gon half-edge cage (amg-mesh's is triangle-only) with stable, never-reused ids.
-  - Own evaluator; OpenSubdiv is a fixture oracle only (open question 3, QUESTIONS #100).
+  - Own evaluator; OpenSubdiv is a fixture oracle only (owner-confirmed, QUESTIONS #100).
   - One `form.create` node per form holding the authored cage (Fusion model), base64 `AMGS` in
     `design.json`; undo per edit through `EditFeature`.
   - `form.convert` (B-rep or mesh) instead of teaching solid features about Form bodies; Finish
-    Form inserts it by default (QUESTIONS #101).
+    Form inserts it by default (owner-confirmed, QUESTIONS #101).
   - Form bodies stay body-level for references; the converted B-rep carries cage-id tags.
   - G1 at extraordinary vertices via Peters' construction with a double knot (Rhino "G1x"
     shape); G2 rejected (bulges).
@@ -609,6 +608,9 @@ Reference cages (built in `amg-subd` tests): **C1** 6×6×6 box form with 8 crea
 - **Requests to other specs:** S01 (stub swap + codec, implemented by FRM-16), S16
   (`mesh_for_export` for Form bodies). Each is a short dated note in that spec.
 - Status set to `Refined`.
+
+### 2026-11-09 - owner answers moved in
+- QUESTIONS #100 (own evaluator, OpenSubdiv oracle only), #101 (Finish Form adds/updates `form.convert` B-rep; FRM-17 Done-when 2 already matches), #102 (FRM-10 reads OBJ + `.tsm`). `.tsm` research: no public specification found; text-based; the only open implementation is LGPL-3.0, so FRM-10's `.tsm` part is a stretch goal that needs owner sample files and a clean-room reader (FRM-10 Done-when 4, note §11). Open questions 3-5 updated.
 
 ## Interface changes
 None yet (the spec has not reached `Ready`).

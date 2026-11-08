@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Refined |
 | **Priority** | P1 (lattice is a key AM differentiator); IMP-03 is P0 (S07 robust shell and wrap) |
-| **Crates** | `amg-implicit`, `amg-features::implicit`, `amg-ui::implicit` (module pending QUESTIONS #61) |
+| **Crates** | `amg-implicit`, `amg-features::implicit`, `amg-ui::implicit` (owned by lane C, QUESTIONS #61) |
 | **Lane** | C |
 | **Depends on** | S00 (FND-03 core types, FND-04 jobs, FND-09 `Gpu`), S07 (MESH-02/03/07/16/17/19: mesh types, `MeshSpatial`, `ScalarField`, checks), S15 (CMP-02 brick grids), S01 (DOC-05 features), S10 (RND-03 `ExternalLayer`), S11 (UI-05, UI-20), S02 (BREP-08 tessellation, for solid inputs), S13 (FEM-06, for IMP-07 only) |
 | **Parity** | `03-fusion-parity.md` §Volumetric / implicit: volumetric lattice, variable shells / smooth booleans / offsets, automated modeling |
@@ -72,8 +72,8 @@ Summary of the design note; section numbers refer to it.
 - **Fields (§9).** `Scalar = Const | Field { field, ramp }` drives thickness and offsets. Fields:
   distance to a body or faces, `x, y, z` expressions, projected images, sampled grids (FEA,
   topology optimisation).
-- **Cross-type booleans (§10).** Proposed: solid/mesh combined with implicit stays implicit
-  (QUESTIONS #63). Until answered, implicit combine accepts implicit targets only.
+- **Cross-type booleans (§10).** Decided (owner, QUESTIONS #63): solid/mesh combined with implicit
+  stays implicit (the other operand enters as a `MeshSdf`); meshed only on demand or at export.
 
 ### Fusion behaviour we match (Volumetric Lattice, Design Extension)
 - One command on a body: cell type from a library, cell size (per axis), rotation, thickness
@@ -415,12 +415,12 @@ the reference machine (vision doc), release build. Golden tests live in `tests/g
 | IMP-06 | Lattices: TPMS (5 kinds × sheet/network), periodic struts (6 built-in cells + custom `UnitCell`), round-cone beams, `BeamGraph` + `from_periodic` clipping, `InBody` node (lattice ∩ body + skin + solid regions, open faces) | IMP-02, IMP-04 | P1 | Todo | Network mode at `c = 0` for gyroid, Schwarz P and diamond gives volume fraction 0.5 ± 0.005 (1e6 Monte Carlo samples). Sheet wall thickness measured on the mesh (MESH-11) within ±5 % of target or ±1 cell. Strut lattice volume matches Monte Carlo of the explicit capsule union within 1 %. `from_periodic` on a cell-aligned box gives the analytic beam count, and every kept beam end lies in the region within 1e-4 mm. R2 full pipeline (sample + mesh at 0.2 mm) < 30 s; output watertight and manifold. Golden tests for each cell type. |
 | IMP-16 | Fields and grading: `FieldNode` (distance, `FieldExpr`, projected image, grid), `Ramp`, field-driven `Scalar` in offset/shell/lattice thickness, Lipschitz bounds for fields | IMP-06, IMP-12 | P1 | Todo | A gyroid with thickness ramped linearly in z (0.5 → 1.5 mm over 40 mm): measured wall thickness per 5 mm slab within ±5 % of the ramp. Graded strut radii equal the ramp at the beam end nodes exactly. `FieldExpr` table tests (≥ 60 cases, including errors with spans). Image field equals pixel values at pixel centres. Finite-difference test: no field-driven graph exceeds its Lipschitz bound. |
 | IMP-13 | Implicit display and export plumbing: `BodyTessellator` for `BodyGeom::Implicit` in `amg-ui::implicit`, `mesh_for_export` with a (graph hash, cell size) cache | IMP-04, IMP-11, UI-20 | P1 | Todo | Implicit bodies show in the viewport at Preview/Normal/Fine quality without blocking the UI (latest-wins). A second `mesh_for_export` call for the same graph and quality returns the cached `Arc` in < 1 ms. An implicit body exported through IO-11 gives a watertight 3MF that the IO-02 reader loads back with the same triangle count. |
-| IMP-08 | Implicit modeling features: `implicit.from_body`, `implicit.combine` (smooth booleans), `implicit.shell` (variable thickness), `implicit.offset`, `implicit.to_mesh`; their generic dialogs | IMP-11, IMP-12, IMP-13, IMP-16, UI-05 | P1 | Todo | Each is a registered feature: undoable, parametric, serialises round-trip, reports health. Smooth union of two r = 10 mm spheres (blend 2 mm) matches a Monte Carlo volume of the analytic field within 0.5 %. A field-driven shell has measured thickness within ±1 cell of the field. `implicit.to_mesh` gives a watertight `BodyGeom::Mesh`. Golden tests for each. Cross-type inputs follow QUESTIONS #63 (until answered: implicit targets only, clear error otherwise). |
+| IMP-08 | Implicit modeling features: `implicit.from_body`, `implicit.combine` (smooth booleans), `implicit.shell` (variable thickness), `implicit.offset`, `implicit.to_mesh`; their generic dialogs | IMP-11, IMP-12, IMP-13, IMP-16, UI-05 | P1 | Todo | Each is a registered feature: undoable, parametric, serialises round-trip, reports health. Smooth union of two r = 10 mm spheres (blend 2 mm) matches a Monte Carlo volume of the analytic field within 0.5 %. A field-driven shell has measured thickness within ±1 cell of the field. `implicit.to_mesh` gives a watertight `BodyGeom::Mesh`. Golden tests for each. Cross-type inputs (QUESTIONS #63, decided): a solid or mesh combined with an implicit body gives an implicit result (the other operand enters as a `MeshSdf`); test: lattice minus a solid cylinder stays `BodyGeom::Implicit`, no mesh is built until `implicit.to_mesh` or export, and the result volume matches a Monte Carlo reference within 1 %. |
 | IMP-15 | Volumetric Lattice feature (`implicit.lattice`) on solid/mesh/implicit bodies: cell library, cell size, rotation, uniform/graded thickness, skin with open faces, solid regions, min-feature warning; Lattice dialog in `amg-ui::implicit` with ray-march preview | IMP-06, IMP-16, IMP-08, IMP-05, BREP-08, UI-05 | P1 | Todo | Lattice on a corpus STEP bracket (via BREP-08) and on a corpus mesh: undoable, parametric (cell-size edit recomputes only the lattice and dependents), serialises round-trip. No skin within 1 cell of an open face; solid within `distance` of a solid-region face. A thickness below `min_feature` gives a warning. R3 completes (bake + lattice + mesh) < 45 s, watertight. Golden tests `lattice_*`. |
 | IMP-07 | FEA-driven variation: `FieldParam::StudyResult` (von Mises, displacement, safety factor) via `SampledGrid::from_dense`, out-of-date when the study changes | IMP-16, IMP-15, FEM-06 | P2 | Todo | On the S13 plate-with-hole study, strut radius follows the von Mises ramp: in the top-decile stress region the mean measured radius is ≥ 90 % of the ramp maximum, in the bottom decile ≤ 110 % of the ramp minimum. Re-solving the study marks the lattice out of date, and recompute picks up the new field. |
 | IMP-14 | Stochastic (Voronoi foam) lattice: jittered-grid seeds, own Bowyer–Watson 3D Delaunay (`robust` predicates), Voronoi edges → `BeamGraph::stochastic`, `LatticeCellParam::Stochastic` | IMP-06, IMP-15 | P2 | Todo | Delaunay of 10 k jittered seeds passes the empty-circumsphere check with exact predicates. Same seed gives a bit-identical beam graph. Mean beam length within ±15 % of the target cell size. A 100 mm part at 5 mm mean cell builds its beam graph in < 5 s. Meshed result watertight and manifold. |
 | IMP-09 | Conformal lattices: `UvwMap` (cylindrical, spherical, sweep along a curve), strut instancing in UVW → `BeamGraph`, TPMS through the map | IMP-06, IMP-15 | P2 | Todo | A cylindrical strut lattice in a tube (r 20–30 mm, 100 mm long, 24 cells around) closes across the seam (shared nodes within 1e-6 mm, no duplicate beams). Measured cell size within ±10 % of target across the wall. A conformal TPMS in the tube is watertight and within the IMP-06 thickness tolerance. Beam graph exports through IO-18 when present. |
-| IMP-10 | Automated modeling: connect selected faces with generated shapes that avoid obstacle bodies (approach per QUESTIONS #62) | IMP-08 | P2 | Todo | On 3 reference cases (2–4 connect faces, 1–2 obstacles): the result touches every connect face (gap ≤ 0.01 mm), keeps the clearance to obstacles (≥ set value − 1 cell), is watertight, and finishes in < 10 s. Approach decided by QUESTIONS #62 before start. |
+| IMP-10 | Automated modeling: connect selected faces with generated shapes that avoid obstacle bodies (approach per QUESTIONS #62: implicit tube heuristic first, small topology-optimisation mode later via S14) | IMP-08 | P2 | Todo | On 3 reference cases (2–4 connect faces, 1–2 obstacles): the result touches every connect face (gap ≤ 0.01 mm), keeps the clearance to obstacles (≥ set value − 1 cell), is watertight, and finishes in < 10 s. Approach (owner, QUESTIONS #62): the implicit heuristic (smooth-union tubes between connect faces, obstacles subtracted with a clearance offset, smoothed) ships first; a small topology-optimisation mode (S14 GEN, connect faces as preserves, obstacles as keep-outs, minutes per run) is added later as an option, as a new WP once S13/S14 exist. |
 
 ## Testing
 - **Analytic:** primitive SDFs, booleans, smooth booleans, TPMS formulas and their volume fractions
@@ -464,10 +464,9 @@ Reference cases (generators and data in `amg-implicit` tests and `testdata/`):
 3. ~~(from S12, 2026-10-20) Beam/ball representation for IO-18.~~ **Resolved 2026-11-08:**
    `BeamGraph` (nodes, tapered beams `r_a`/`r_b` with sphere caps, optional uniform ball radius)
    maps 1:1 to 3MF beams and balls. Recorded in S12 Interface changes.
-4. Does lane C get an `amg-ui::implicit` module? (QUESTIONS #61; the Lattice dialog and implicit
-   display need one.)
-5. IMP-10 approach: implicit heuristic or topology optimisation? (QUESTIONS #62.)
-6. Cross-type booleans with implicit bodies stay implicit instead of meshing? (QUESTIONS #63.)
+4. Does lane C get an `amg-ui::implicit` module? (QUESTIONS #61.) **Resolved 2026-11-09 (owner):** yes, lane C owns `amg-ui::implicit`.
+5. IMP-10 approach: implicit heuristic or topology optimisation? (QUESTIONS #62.) **Resolved 2026-11-09 (owner):** implicit heuristic first, small topology-optimisation mode later.
+6. Cross-type booleans with implicit bodies stay implicit instead of meshing? (QUESTIONS #63.) **Resolved 2026-11-09 (owner):** yes, stay implicit.
 7. CMP-02 must provide the brick grid shape described under Interfaces (S15 is Draft). If S15
    refinement chooses a different layout, IMP-02 adapts; the `SdfBricks` API does not change.
 8. (from S15, 2026-11-08) CMP-02 shape is fixed in S15 Interfaces: `amg_compute::grid::BrickGrid<f16>` with `BrickLayout::CORNERS` (9³ samples per 8³-cell brick), `insert`/`lookup` by `BrickCoord`, fills `Fill0` = outside and `Fill1` = inside (per brick or per 64³-cell tile via `set_tile_fill`, matching IMP-02's tiles), and `GpuBrickGrid` with a two-level dense index (no hash), deterministic `allocate` from a brick mask, and WGSL from `brick_grid_wgsl`. Values are in index space; `SdfBricks`/`SampledGrid` keep origin and cell size. `amg-implicit` needs `amg-compute` in its Cargo.toml.
@@ -518,7 +517,7 @@ Reference cases (generators and data in `amg-implicit` tests and `testdata/`):
   - IMP-07: now only FEA-driven grading (the roadmap already calls it "stress-driven lattice
     density"); generic fields moved to IMP-16. Deps IMP-16, IMP-15, FEM-06.
   - IMP-08: now the implicit modeling features; adds deps IMP-11, IMP-12, IMP-13, IMP-16, UI-05.
-  - IMP-09: adds dep IMP-15 (feature integration). IMP-10: approach waits on QUESTIONS #62.
+  - IMP-09: adds dep IMP-15 (feature integration). IMP-10: approach per QUESTIONS #62 (decided 2026-11-09).
   - New: IMP-11 (timeline integration), IMP-12 (sampled grids), IMP-13 (display/export
     plumbing), IMP-14 (stochastic), IMP-15 (Volumetric Lattice feature + dialog), IMP-16 (fields).
 - **Roadmap:** Phase 3 C gains IMP-11, IMP-12, IMP-13, IMP-15, IMP-16; Phase 5 C gains IMP-14.
@@ -531,6 +530,9 @@ Reference cases (generators and data in `amg-implicit` tests and `testdata/`):
   (`SampledGrid::from_dense` for result fields), S15 (CMP-02 brick-grid shape), S16
   (`mesh_for_export`). Each is a short dated note in that spec.
 - Status set to `Refined`.
+
+### 2026-11-09 - owner answers moved in
+- QUESTIONS #61 (`amg-ui::implicit` for lane C; roadmap Lanes row needs the module), #62 (IMP-10: implicit heuristic first, topology-optimisation mode later), #63 (booleans with an implicit body stay implicit; IMP-08 Done-when, design note §10). Open questions 4-6 resolved.
 
 ## Interface changes
 None yet (the spec has not reached `Ready`).

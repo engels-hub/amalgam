@@ -36,7 +36,12 @@ Everything else in `amg-mesh` (repair, remesh, decimate) is written in Rust.
 - We own the bindings: a new `amg-manifold-sys` crate over Manifold's C API (`manifoldc`).
   `manifold-csg-sys` is the fallback only if that route fails.
 - Manifold and oneTBB (Apache-2.0) are built via a vcpkg overlay port, with
-  `MANIFOLD_CROSS_SECTION=OFF`.
+  `MANIFOLD_CROSS_SECTION=ON` (**amended 2026-11-09, owner, QUESTIONS #52 (a)**; the original
+  amendment said OFF). CrossSection adds Clipper2 (BSL-1.0, permissive, static). In Manifold
+  3.5.4 the C API (`MANIFOLD_CBIND`) is a `cmake_dependent_option` on CrossSection, so it cannot
+  be built without it. This matches the shipped MESH-05 build. Amalgam does not call
+  CrossSection or Clipper2. Revisit if a later Manifold release decouples `MANIFOLD_CBIND` from
+  CrossSection.
 - `MeshGL64` is used for f64 exchange.
 - Everything sits behind a `manifold` cargo feature. Without it, `boolean()` returns
   `MeshError::BackendUnavailable`.
@@ -55,8 +60,19 @@ benchmarked, CUDA (`cudarc`, behind a feature) is the first optimisation to purs
 compute kernels (FEA, topology optimisation, SDF), and is not an afterthought. Solver kernels
 should keep the backend behind a small internal trait so a CUDA path can be added without
 reworking callers.
+**Note (2026-11-09, owner; QUESTIONS #81): GPU compute precision.** Numeric GPU kernels run in
+f64 where the device supports wgpu `SHADER_F64`, and in f32 with f64 iterative refinement on the
+CPU (residual `b − A·x` and update in f64, correction solved on the GPU in f32) where it does not.
+The choice is made at runtime from the device's capabilities (`Gpu::has(SHADER_F64)`), never at
+build time, and both paths are tested. In wgpu 30 only the Vulkan backend reports `SHADER_F64`
+(wgpu-hal sets it from Vulkan `shaderFloat64`; DX12 and Metal never report it, and MSL has no
+double type). The default Windows device (DX12 + FXC) and WARP in CI therefore run the f32
+fallback. Emulated double (df64) kernels are not used. Details: S15 Design and
+`docs/notes/compute-numerics.md` §2.1.
 
 ## ADR-005 — UI toolkit: egui + egui_dock (Accepted 2026-10-20)
+**Note (2026-11-09, owner, QUESTIONS #56):** `amg-ui → amg-script` is an allowed layering edge (for `amg-ui::script`: console, script manager, add-in commands); `amg-script` never depends on `amg-ui`. Recorded in architecture §Crates and in the `amg-testkit` layering allow-list (S00).
+**Note (2026-11-09, owner, QUESTIONS #63):** a boolean with an implicit operand stays implicit (see the 01-architecture.md exception). The "converted to mesh" warning applies only when the target is a mesh body (S07 MESH-27).
 Immediate-mode UI is fast to iterate on and fits tool-heavy apps; `egui_dock` for dockable panels,
 `egui-wgpu` to share the device with the viewport. Alternative considered: Slint (prettier, slower
 to iterate), iced (less mature docking). Revisit if egui's look becomes a blocker.
@@ -70,7 +86,7 @@ to iterate), iced (less mature docking). Revisit if egui's look becomes a blocke
 
 ## ADR-006 — Math: glam (f64) + nalgebra/faer where needed (Accepted 2026-10-20)
 `glam::DVec3/DMat4/DQuat` for geometry (f64 everywhere in the model), `glam::Vec3` (f32) only on
-the GPU side. `nalgebra` for small dense linear algebra (sketch solver), `faer` for large sparse
+the GPU side (geometry types; numeric compute kernels may use f64 where the device supports it, see the ADR-004 note of 2026-11-09). `nalgebra` for small dense linear algebra (sketch solver), `faer` for large sparse
 systems (FEA).
 **Clarifications (2026-10-19 refinements of S00 and S07):**
 - glam f64 types are the only math types in cross-crate public APIs. `nalgebra` and `faer`

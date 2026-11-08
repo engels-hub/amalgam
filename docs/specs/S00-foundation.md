@@ -119,6 +119,7 @@ BREP-01 and SCR-01 add those.
 every `amg-*` → `amg-*` edge against an allow-list table copied from architecture §Crates.
 An edge that isn't on the list fails the test. Changing the allow-list needs an ADR, since
 crate boundaries are architecture.
+Current additions to the table: `amg-ui → amg-script` (owner, 2026-11-09, QUESTIONS #56; ADR-005 note; S18 SCR-03 builds `amg-ui::script` on it).
 
 **`[workspace.package]`:** `edition = "2024"`, `rust-version = "1.97"`, `license = "LicenseRef-Amalgam-Personal"`,
 `publish = false`.

@@ -44,7 +44,7 @@ without guessing.
 - Rust stable, edition 2021+, `#![deny(unsafe_op_in_unsafe_fn)]`; `unsafe` only in `-sys` crates
   and documented GPU/FFI boundaries.
 - Errors: `thiserror` in libraries, `anyhow` only in binaries/tests.
-- Geometry in f64 (`amg-core` aliases), millimetres, radians. f32 only on the GPU.
+- Geometry in f64 (`amg-core` aliases), millimetres, radians. f32 only on the GPU (compute kernels may use f64 where supported, see ADR-004).
 - Never block the UI thread; long work goes through `amg-jobs` with progress + cancel.
 - No OCCT types outside `amg-brep`; no `amg-doc` types inside `amg-render`.
 - New third-party dependency → check licence (ADR-012), list in `THIRD_PARTY.md`.

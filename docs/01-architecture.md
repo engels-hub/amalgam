@@ -27,11 +27,19 @@ core data model, threading model) needs an ADR in [02-decisions.md](02-decisions
   FFI            │ amg-occt-sys (cxx → OpenCASCADE)              │
                  │ manifold3d, fTetWild, etc. via *-sys crates   │
                  └───────────────────────────────────────────────┘
-  Scripting: amg-script (pyo3) sits beside amg-ui and drives amg-doc commands.
+  Scripting: amg-script (pyo3) drives amg-doc commands. amg-ui depends on amg-script (one
+  allow-listed edge, see below); amg-script never depends on amg-ui.
 ```
 
 **Rule:** a crate may depend only on crates in its own layer or below. Domain crates do not
 depend on each other except where listed in the table below (keeps parallel work conflict-free).
+
+**Exception (owner, 2026-11-09, QUESTIONS #56):** `amg-ui → amg-script` is allowed. The Python
+console, the script manager and add-in commands are egui code (`amg-ui::script`, owned by the
+scripting lane) that must call the interpreter host, mirror queue and add-in registry that live
+in `amg-script`. Routing them through `amg-app` would put UI code in the binary, and a panel trait
+in `amg-script` would duplicate the S11 panel API. `amg-script` still depends only on doc and
+features, so the headless `amg-cli` never links egui. The layering test allow-list (S00) gains this edge.
 
 ## Crates and ownership
 
@@ -55,8 +63,8 @@ depend on each other except where listed in the table below (keeps parallel work
 | `amg-doc` | design tree, components, bodies, timeline DAG, parameters & expressions, persistent naming, undo/redo, `.amg` format | all domain crates (as data types) | S01 |
 | `amg-features` | every timeline feature (`Extrude`, `Fillet`, `MeshRemesh`, `Lattice`, …) implementing `Feature` | doc + domains | S04/S05/S06 + domain specs |
 | `amg-render` | wgpu renderer, scene graph mirror, picking, analysis shaders, result plots | core, jobs (no doc dependency: fed via `RenderScene`) | S10 |
-| `amg-ui` | egui app shell, command system, tools, dialogs, browser tree, timeline UI. Framework owned by S11; workspace modules (`inspect`, `mesh`, `form`, `sim`, `generative`, `am`, `io`, `materials`) owned by their domain specs | everything above | S11 + domain specs |
-| `amg-script` | Python API (pyo3), headless batch | doc, features | S18 |
+| `amg-ui` | egui app shell, command system, tools, dialogs, browser tree, timeline UI. Framework owned by S11; workspace modules (`inspect`, `mesh`, `form`, `implicit`, `sim`, `generative`, `am`, `io`, `materials`, `script`) owned by their domain specs | everything above | S11 + domain specs |
+| `amg-script` | Python API (pyo3), headless batch; also used by `amg-ui::script` (console, script manager, add-in commands) | doc, features | S18 |
 | `amg-cli` / `amg-app` | binaries | — | S00 |
 
 ## Core data model (summary — full detail in S01)
@@ -114,6 +122,12 @@ Document
 
 Booleans across types are resolved by converting to the "lowest common" representation
 (usually mesh) with a user-visible warning; solid∘solid stays B-rep.
+
+**Exception (owner, 2026-11-09, QUESTIONS #63):** a boolean with an implicit body as an operand stays
+implicit: the solid or mesh operand enters as a mesh SDF, and the result is meshed only on demand or
+at export (or when a mesh-only feature reads it). Meshing a lattice at every boolean would cost
+seconds and gigabytes and lose the editable lattice. Mesh-target booleans (S07 MESH-27) keep
+their "converted to mesh" warning.
 
 ## Rendering pipeline (summary — full detail in S10)
 

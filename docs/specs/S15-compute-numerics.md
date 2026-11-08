@@ -22,6 +22,9 @@ sources.
 **In:**
 - A thin layer over `amg_jobs::gpu`: typed GPU vectors, a dispatch context, a WGSL prelude,
   timestamps (CMP-07).
+- Runtime precision selection (CMP-07): numeric kernels in f64 where the device has wgpu
+  `SHADER_F64`, in f32 with f64 iterative refinement on the CPU where it does not (note §2.1,
+  ADR-004 note of 2026-11-09). Both paths are tested.
 - GPU primitives with CPU references: reduce, dot, scan, compaction, segmented reduce, stable
   radix sort, atomic counters (CMP-01).
 - Dense voxel grids and sparse brick grids, CPU and GPU, with generated WGSL accessors (CMP-02).
@@ -38,16 +41,26 @@ sources.
 - SDF evaluation and its WGSL interpreter (S08); the brick grid is only its storage.
 - Rendering kernels (S10).
 - Non-symmetric sparse LU (no P1 consumer; faer has it, add when needed — note §5).
-- f64 or emulated-double GPU kernels (note §2.1).
+- Emulated-double (df64) GPU kernels (note §2.1). Native f64 kernels are in scope where the
+  device supports them.
 
 ## Design
-- **GPU constraints** (note §1): DX12 with FXC by default, so no subgroups, no `f16` shader type
-  and no f64. Kernels use shared memory and barriers only. f16 data is packed two per `u32`
+- **GPU constraints** (note §1): DX12 with FXC by default, so no subgroups and no `f16` shader
+  type. f64 exists only where wgpu reports `SHADER_F64`, which in wgpu 30 is Vulkan only (not
+  DX12, not WARP, not Metal). Kernels use shared memory and barriers only. f16 data is packed two per `u32`
   (`pack2x16float`/`unpack2x16float`). Bindings stay under the device's storage-binding limit;
   1-D launches fold into 2-D grids past 65 535 workgroups.
-- **Precision** (note §2.1, resolves open question 1): GPU kernels are f32. Accuracy comes from
-  mixed-precision iterative refinement with f64 residuals on the CPU. Every GPU routine has an
-  f64 (or exact integer) CPU reference with the same semantics.
+- **Precision** (note §2.1; open question 1 as re-resolved on 2026-11-09; ADR-004 note): numeric
+  kernels are written once over a WGSL alias `real` and compiled as f64 where the device has
+  `SHADER_F64`, as f32 otherwise. The precision is a runtime value (`Precision`), resolved once
+  per device from a `PrecisionPolicy` (default `Auto`; `AMG_COMPUTE_PRECISION=auto|f32|f64`
+  overrides it for tests and diagnostics). The f64 path solves to the requested tolerance
+  directly. The f32 path (the default DX12 device, WARP) gets its accuracy from mixed-precision
+  iterative refinement with f64 residuals on the CPU. `solve_gpu` is the one place that picks
+  the path; callers build their operator in the resolved precision. Both paths are tested
+  (Testing). Every GPU routine has an f64 (or exact integer) CPU reference with the same
+  semantics. Integer and storage kernels (scan, compaction, sort, brick grids) do not depend on
+  the precision.
 - **Determinism** (note §2.2): CPU results are bit-identical across runs and thread counts; GPU
   results are bit-identical across runs on one device. No float atomics; deterministic allocation
   by mark → scan → scatter.
@@ -62,7 +75,7 @@ sources.
 - **Eigen** (note §6): thick-restart shift-invert Lanczos, vibration and buckling transforms, the
   factorisation as a callback, Sturm-count check for band searches.
 - **Iterative** (note §7): PCG generic over a crate-private `VectorBackend` (ADR-004 amendment),
-  full-storage f32 `GpuCsr`, Chebyshev–Jacobi smoothers shared with S13's p-multigrid, matrix-free
+  full-storage `GpuCsr<R>` (f32 or f64 values), Chebyshev–Jacobi smoothers shared with S13's p-multigrid, matrix-free
   geometric multigrid for voxel grids.
 
 ## Interfaces
@@ -72,7 +85,9 @@ Signatures other crates rely on (`amg-implicit`, `amg-fem`, `amg-topopt`, `amg-a
 New dependencies: `half` (MIT/Apache-2.0, feature `bytemuck`), `faer =0.23.2`
 (`std`, `sparse-linalg`), `rayon`, `bytemuck`, `blake3`; `cudarc` behind `cuda`.
 Cargo features: `gpu` (default, needs `amg-jobs/gpu`), `cuda` (CMP-06), `metis` (CMP-10, only
-if chosen there).
+if chosen there). Precision is never a Cargo feature: it is chosen at runtime per device
+(`amg_compute::precision`). GPU numeric types are generic over `R: GpuReal` (f32 or f64) with
+`f32` as the default type parameter, so `dyn GpuOperator` still means the f32 operator.
 
 ```rust
 // ───────────── amg_compute (crate root) ─────────────
@@ -91,6 +106,10 @@ pub enum ComputeError {
     #[error("not converged after {iterations} iterations (relative residual {residual:e})")]
     NotConverged { iterations: u32, residual: f64 },
     #[error("invalid shape: {0}")] Shape(String),
+    /// E.g. an f64 kernel or `PrecisionPolicy::RequireF64` on a device without `SHADER_F64`.
+    #[error("not supported on this device: {0}")] Unsupported(String),
+    /// E.g. an unknown `AMG_COMPUTE_PRECISION` value.
+    #[error("invalid setting: {0}")] Config(String),
 }
 impl amg_core::Diagnostic for ComputeError { /* user_message, hint, severity, is_cancelled */ }
 pub type ComputeResult<T> = Result<T, ComputeError>;
@@ -102,6 +121,44 @@ pub enum SolverDevice {
     Wgpu(std::sync::Arc<amg_jobs::gpu::Gpu>),
     #[cfg(feature = "cuda")] Cuda(std::sync::Arc<cuda::CudaDevice>),
 }
+impl SolverDevice {
+    /// `Cpu` → F64; `Wgpu` → `policy.resolve(gpu)`; `Cuda` → F64 unless `ForceF32`.
+    pub fn precision(&self, policy: precision::PrecisionPolicy) -> ComputeResult<precision::Precision>;
+}
+
+// ───────────── amg_compute::precision (CMP-07) ─────────────
+/// Floating-point precision of GPU numeric kernels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Precision { F32, F64 }
+/// How the precision is chosen for a device.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrecisionPolicy {
+    /// F64 iff the device has `SHADER_F64`, else F32 (the owner's policy; the default).
+    #[default] Auto,
+    /// The f32 + refinement path on any device (tests both paths on one f64-capable device).
+    ForceF32,
+    /// Errors with `Unsupported` on a device without `SHADER_F64` (the f64 test gate).
+    RequireF64,
+}
+/// `auto` | `f32` | `f64`, case-insensitive; unset or empty = `Auto`.
+pub const PRECISION_ENV: &str = "AMG_COMPUTE_PRECISION";
+impl PrecisionPolicy {
+    /// Errors with `Config` on any other value.
+    pub fn parse(value: Option<&str>) -> ComputeResult<PrecisionPolicy>;
+    pub fn from_env() -> ComputeResult<PrecisionPolicy>;
+    pub fn resolve(self, gpu: &Gpu) -> ComputeResult<Precision>;
+}
+/// `Precision::F64` iff `gpu.has(wgpu::Features::SHADER_F64)`.
+pub fn device_precision(gpu: &Gpu) -> Precision;
+/// Scalars GPU numeric kernels are instantiated for: f32 and f64.
+pub trait GpuReal: bytemuck::Pod + std::fmt::Debug + Send + Sync + sealed::Sealed + 'static {
+    const PRECISION: Precision;
+    /// `"f32"` or `"f64"`: the WGSL type the prelude binds to `real`.
+    const WGSL: &'static str;
+    fn from_f64(v: f64) -> Self;
+    fn to_f64(self) -> f64;
+}
+impl GpuReal for f32 {} impl GpuReal for f64 {}
 
 // ───────────── amg_compute::gpu (CMP-07) ─────────────
 /// Typed storage buffer. Usage always includes STORAGE | COPY_SRC | COPY_DST.
@@ -123,8 +180,14 @@ impl<T: bytemuck::Pod> GpuVec<T> {
 #[derive(Clone)]
 pub struct Kernel { /* Arc<wgpu::ComputePipeline>, workgroup: [u32; 3], label */ }
 impl Kernel {
-    /// Prepends `PRELUDE_WGSL` to `wgsl`; cached through `Gpu::compute_pipeline`.
+    /// Prepends `prelude_wgsl(Precision::F32)` to `wgsl`; cached through `Gpu::compute_pipeline`.
     pub fn new(gpu: &Gpu, label: &str, wgsl: &str, entry: &str, constants: &[(&str, f64)]) -> ComputeResult<Self>;
+    /// Same with the prelude for `precision` (`alias real = f64;` for F64). Errors with
+    /// `Unsupported` for F64 on a device without `SHADER_F64`. The pipeline cache keys on the
+    /// full source, so both variants of one kernel are cached side by side.
+    pub fn with_precision(gpu: &Gpu, label: &str, wgsl: &str, entry: &str, constants: &[(&str, f64)],
+                          precision: Precision) -> ComputeResult<Self>;
+    pub fn precision(&self) -> Precision;
     pub fn workgroup(&self) -> [u32; 3];
     /// `entries[i]` is bound at `@binding(i)` of `@group(group)`.
     pub fn bind_group(&self, gpu: &Gpu, group: u32, entries: &[wgpu::BindingResource<'_>]) -> wgpu::BindGroup;
@@ -150,24 +213,26 @@ impl ComputeCtx {
     /// GPU time per labelled dispatch since the last call; empty without TIMESTAMP_QUERY.
     pub fn take_timings(&mut self) -> Vec<(String, std::time::Duration)>;
 }
-/// `amg_linear_id(gid, nwg) -> u32`, `WG` override, shared constants.
-pub const PRELUDE_WGSL: &str;
+/// `amg_linear_id(gid, nwg) -> u32`, `WG` override, `alias real = f32;` (or `f64`), shared constants.
+pub fn prelude_wgsl(precision: Precision) -> &'static str;
 
 // ───────────── amg_compute::prim (CMP-01) ─────────────
 #[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum ReduceOp { Sum, Min, Max }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum ScanKind { Exclusive, Inclusive }
-/// Element types the reductions accept: f32, u32, i32.
+/// Element types the reductions accept: f32, f64 (needs `SHADER_F64`), u32, i32.
 pub trait ReduceScalar: bytemuck::Pod + sealed::Sealed {}
 
 /// Cached pipelines for all primitives plus reusable scratch buffers.
 pub struct Primitives { /* kernels, scratch pool */ }
 impl Primitives {
+    /// f64 pipelines are built lazily and only on a device with `SHADER_F64`; an f64 call on
+    /// any other device returns `Unsupported`.
     pub fn new(gpu: &Gpu) -> ComputeResult<Self>;
     /// Writes the result to `out[out_index]` (stays on the GPU; no readback).
     pub fn reduce<T: ReduceScalar>(&self, cx: &mut ComputeCtx, op: ReduceOp, input: &GpuVec<T>,
                                    out: &GpuVec<T>, out_index: u64) -> ComputeResult<()>;
-    pub fn dot(&self, cx: &mut ComputeCtx, a: &GpuVec<f32>, b: &GpuVec<f32>,
-               out: &GpuVec<f32>, out_index: u64) -> ComputeResult<()>;
+    pub fn dot<R: GpuReal>(&self, cx: &mut ComputeCtx, a: &GpuVec<R>, b: &GpuVec<R>,
+                           out: &GpuVec<R>, out_index: u64) -> ComputeResult<()>;
     /// `total` (optional) receives the sum of all inputs (the allocation size).
     pub fn scan(&self, cx: &mut ComputeCtx, kind: ScanKind, input: &GpuVec<u32>, output: &GpuVec<u32>,
                 total: Option<(&GpuVec<u32>, u64)>) -> ComputeResult<()>;
@@ -175,8 +240,8 @@ impl Primitives {
     pub fn compact(&self, cx: &mut ComputeCtx, flags: &GpuVec<u32>, values: &GpuVec<u32>,
                    out: &GpuVec<u32>, count: &GpuVec<u32>) -> ComputeResult<()>;
     /// Segment s covers `values[offsets[s]..offsets[s+1]]`; empty segments give the identity.
-    pub fn segmented_reduce(&self, cx: &mut ComputeCtx, op: ReduceOp, values: &GpuVec<f32>,
-                            offsets: &GpuVec<u32>, out: &GpuVec<f32>) -> ComputeResult<()>;
+    pub fn segmented_reduce<R: GpuReal>(&self, cx: &mut ComputeCtx, op: ReduceOp, values: &GpuVec<R>,
+                                        offsets: &GpuVec<u32>, out: &GpuVec<R>) -> ComputeResult<()>;
     /// Stable LSD radix sort of the low `key_bits` bits (1..=32). `values` move with keys.
     pub fn sort(&self, cx: &mut ComputeCtx, keys: &mut GpuVec<u32>, values: Option<&mut GpuVec<u32>>,
                 key_bits: u32) -> ComputeResult<()>;
@@ -189,13 +254,13 @@ impl AtomicCounter {
     pub fn binding(&self) -> wgpu::BindingResource<'_>;
     pub fn read(&self, gpu: &Gpu) -> Readback<u32>;
 }
-/// CPU references with identical semantics (the f32 sum uses the GPU's tree order).
+/// CPU references with identical semantics (f32 and f64 sums use the GPU's tree order).
 pub mod cpu {
     pub fn reduce<T: super::ReduceScalar>(op: super::ReduceOp, v: &[T]) -> T;
-    pub fn dot(a: &[f32], b: &[f32]) -> f32;
+    pub fn dot<R: GpuReal>(a: &[R], b: &[R]) -> R;
     pub fn scan(kind: super::ScanKind, v: &[u32]) -> (Vec<u32>, u32);
     pub fn compact(flags: &[u32], values: &[u32]) -> Vec<u32>;
-    pub fn segmented_reduce(op: super::ReduceOp, values: &[f32], offsets: &[u32]) -> Vec<f32>;
+    pub fn segmented_reduce<R: GpuReal>(op: super::ReduceOp, values: &[R], offsets: &[u32]) -> Vec<R>;
     pub fn sort(keys: &mut [u32], values: Option<&mut [u32]>, key_bits: u32);
 }
 
@@ -386,44 +451,47 @@ pub trait LinearOperator: Send + Sync {
 impl LinearOperator for SymCsr { /* spmv */ }
 pub trait CpuPreconditioner: Send + Sync { fn apply(&self, r: &[f64], z: &mut [f64]); }
 
-/// GPU operator in f32. `apply` records work into `cx`; it does not submit.
-pub trait GpuOperator: Send + Sync {
+/// GPU operator in precision `R` (f32 or f64). `apply` records work into `cx`; it does not submit.
+pub trait GpuOperator<R: GpuReal = f32>: Send + Sync {
     fn dim(&self) -> u64;
-    fn apply(&self, cx: &mut ComputeCtx, x: &GpuVec<f32>, y: &GpuVec<f32>) -> ComputeResult<()>;
+    fn apply(&self, cx: &mut ComputeCtx, x: &GpuVec<R>, y: &GpuVec<R>) -> ComputeResult<()>;
     /// Diagonal (dim) or 3×3 node blocks (9·dim/3, row-major) for block Jacobi.
-    fn diagonal(&self, cx: &mut ComputeCtx, out: &GpuVec<f32>) -> ComputeResult<()>;
-    fn block_diagonal(&self, _cx: &mut ComputeCtx, _out: &GpuVec<f32>) -> ComputeResult<bool> { Ok(false) }
+    fn diagonal(&self, cx: &mut ComputeCtx, out: &GpuVec<R>) -> ComputeResult<()>;
+    fn block_diagonal(&self, _cx: &mut ComputeCtx, _out: &GpuVec<R>) -> ComputeResult<bool> { Ok(false) }
 }
 /// z ≈ A⁻¹ r. S13 plugs its p-multigrid in here; CMP-05 `Gmg` implements it.
-pub trait GpuPreconditioner: Send + Sync {
-    fn apply(&self, cx: &mut ComputeCtx, r: &GpuVec<f32>, z: &GpuVec<f32>) -> ComputeResult<()>;
+pub trait GpuPreconditioner<R: GpuReal = f32>: Send + Sync {
+    fn apply(&self, cx: &mut ComputeCtx, r: &GpuVec<R>, z: &GpuVec<R>) -> ComputeResult<()>;
 }
-/// Full (both triangles) storage: f32 values, u32 columns.
-pub struct GpuCsr { /* row_ptr: GpuVec<u32>, cols, vals, n, nnz */ }
-impl GpuCsr {
-    pub fn upload(gpu: &Gpu, a: &SymCsr) -> ComputeResult<GpuCsr>;
+/// Full (both triangles) storage: `R` values (rounded from the f64 `SymCsr` for f32), u32 columns.
+pub struct GpuCsr<R: GpuReal = f32> { /* row_ptr: GpuVec<u32>, cols, vals: GpuVec<R>, n, nnz */ }
+impl<R: GpuReal> GpuCsr<R> {
+    /// `Unsupported` for f64 on a device without `SHADER_F64`.
+    pub fn upload(gpu: &Gpu, a: &SymCsr) -> ComputeResult<GpuCsr<R>>;
     /// Overwrites values on the same pattern (Newton steps, SIMP updates).
     pub fn update_values(&self, gpu: &Gpu, a: &SymCsr) -> ComputeResult<()>;
     pub fn bytes(&self) -> u64;
 }
-impl GpuOperator for GpuCsr { /* ... */ }
-pub struct Jacobi { /* inverse diagonal */ }
-pub struct BlockJacobi3 { /* inverted 3×3 blocks */ }
+impl<R: GpuReal> GpuOperator<R> for GpuCsr<R> { /* ... */ }
+pub struct Jacobi<R: GpuReal = f32> { /* inverse diagonal */ }
+pub struct BlockJacobi3<R: GpuReal = f32> { /* inverted 3×3 blocks */ }
 /// Chebyshev polynomial of degree `degree` in D⁻¹A on [λmax/ratio, 1.1·λmax];
 /// λmax from `estimate_steps` Lanczos steps. Used as smoother (S13 p-MG, CMP-05) or preconditioner.
-pub struct Chebyshev { /* degree, bounds, inv diag */ }
-impl Jacobi { pub fn new(cx: &mut ComputeCtx, a: &dyn GpuOperator) -> ComputeResult<Self>; }
-impl BlockJacobi3 { pub fn new(cx: &mut ComputeCtx, a: &dyn GpuOperator) -> ComputeResult<Self>; }
+pub struct Chebyshev<R: GpuReal = f32> { /* degree, bounds, inv diag */ }
+impl<R: GpuReal> Jacobi<R> { pub fn new(cx: &mut ComputeCtx, a: &dyn GpuOperator<R>) -> ComputeResult<Self>; }
+impl<R: GpuReal> BlockJacobi3<R> { pub fn new(cx: &mut ComputeCtx, a: &dyn GpuOperator<R>) -> ComputeResult<Self>; }
 #[derive(Clone, Copy, Debug)]
 pub struct ChebyshevOpts { pub degree: u32 /* 2 */, pub ratio: f64 /* 30.0 */, pub estimate_steps: u32 /* 10 */ }
-impl Chebyshev {
-    pub fn new(cx: &mut ComputeCtx, prim: &Primitives, a: std::sync::Arc<dyn GpuOperator>,
+impl<R: GpuReal> Chebyshev<R> {
+    pub fn new(cx: &mut ComputeCtx, prim: &Primitives, a: std::sync::Arc<dyn GpuOperator<R>>,
                opts: ChebyshevOpts, ctx: &JobCtx) -> ComputeResult<Self>;
     pub fn bounds(&self) -> (f64, f64);
     /// `sweeps` applications as a smoother on x (A·x = b), x updated in place.
-    pub fn smooth(&self, cx: &mut ComputeCtx, b: &GpuVec<f32>, x: &GpuVec<f32>, sweeps: u32) -> ComputeResult<()>;
+    pub fn smooth(&self, cx: &mut ComputeCtx, b: &GpuVec<R>, x: &GpuVec<R>, sweeps: u32) -> ComputeResult<()>;
 }
-impl GpuPreconditioner for Jacobi {} impl GpuPreconditioner for BlockJacobi3 {} impl GpuPreconditioner for Chebyshev {}
+impl<R: GpuReal> GpuPreconditioner<R> for Jacobi<R> {}
+impl<R: GpuReal> GpuPreconditioner<R> for BlockJacobi3<R> {}
+impl<R: GpuReal> GpuPreconditioner<R> for Chebyshev<R> {}
 
 #[derive(Clone, Copy, Debug)]
 pub struct PcgOpts { pub rel_tol: f64 /* 1e-6 */, pub max_iter: u32 /* 10_000 */, pub check_every: u32 /* 8 */ }
@@ -432,8 +500,9 @@ pub struct SolveStats { pub iterations: u32, pub rel_residual: f64, pub converge
 /// `x` holds the initial guess on entry. Returns `converged: false` (not an error) at max_iter.
 pub fn pcg_cpu(a: &dyn LinearOperator, m: &dyn CpuPreconditioner, b: &[f64], x: &mut [f64],
                opts: &PcgOpts, ctx: &JobCtx) -> ComputeResult<SolveStats>;
-pub fn pcg_gpu(cx: &mut ComputeCtx, prim: &Primitives, a: &dyn GpuOperator, m: &dyn GpuPreconditioner,
-               b: &GpuVec<f32>, x: &GpuVec<f32>, opts: &PcgOpts, ctx: &JobCtx) -> ComputeResult<SolveStats>;
+pub fn pcg_gpu<R: GpuReal>(cx: &mut ComputeCtx, prim: &Primitives, a: &dyn GpuOperator<R>,
+                           m: &dyn GpuPreconditioner<R>, b: &GpuVec<R>, x: &GpuVec<R>, opts: &PcgOpts,
+                           ctx: &JobCtx) -> ComputeResult<SolveStats>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RefineOpts { pub rel_tol: f64 /* 1e-8 */, pub max_outer: u32 /* 20 */, pub inner_rel_tol: f64 /* 1e-4 */ }
@@ -446,15 +515,43 @@ pub fn refine(a: &dyn LinearOperator, b: &[f64], x: &mut [f64], opts: &RefineOpt
               inner: &mut dyn FnMut(&[f64], &mut [f64], f64 /* inner tol */) -> ComputeResult<SolveStats>)
               -> ComputeResult<RefineStats>;
 
+/// An operator and preconditioner in the precision the device resolved to. Callers build it
+/// with `match policy.resolve(gpu)? { Precision::F32 => GpuSystem::F32 { .. }, Precision::F64 =>
+/// GpuSystem::F64 { .. } }`, instantiating their generic operator once per arm.
+pub enum GpuSystem {
+    F32 { a: std::sync::Arc<dyn GpuOperator<f32>>, m: std::sync::Arc<dyn GpuPreconditioner<f32>> },
+    F64 { a: std::sync::Arc<dyn GpuOperator<f64>>, m: std::sync::Arc<dyn GpuPreconditioner<f64>> },
+}
+impl GpuSystem { pub fn precision(&self) -> Precision; }
+#[derive(Clone, Copy, Debug)]
+pub struct GpuSolveOpts {
+    pub rel_tol: f64,                                 // 1e-8; on the f64 CPU residual when `cpu_a` is given
+    pub pcg: PcgOpts,                                 // max_iter, check_every (its rel_tol is set per path)
+    pub refine: RefineOpts,                           // max_outer; inner_rel_tol used on the F32 path only
+}
+#[derive(Clone, Debug)]
+pub struct GpuSolveStats {
+    pub precision: Precision,
+    pub outer: u32, pub inner_iterations: u32,
+    pub rel_residual: f64,                            // f64 CPU residual when `cpu_a` is given
+    pub converged: bool,
+}
+/// The one place that picks the precision path. `b`, `x` are f64 on the CPU (`x` = initial guess).
+/// With `cpu_a`: `refine` over `cpu_a` with `pcg_gpu::<R>` as the inner solve; the inner tolerance
+/// is `refine.inner_rel_tol` on F32 (several outer steps) and `rel_tol` on F64 (normally one outer
+/// step). Without `cpu_a` (loose solves, e.g. S14 topopt at ≥ 1e-5): one `pcg_gpu::<R>` to `rel_tol`.
+pub fn solve_gpu(cx: &mut ComputeCtx, prim: &Primitives, sys: &GpuSystem, cpu_a: Option<&dyn LinearOperator>,
+                 b: &[f64], x: &mut [f64], opts: &GpuSolveOpts, ctx: &JobCtx) -> ComputeResult<GpuSolveStats>;
+
 // ───────────── amg_compute::mg (CMP-05) ─────────────
 /// One level of a structured (vertex-centred) grid operator, matrix-free on the GPU.
-pub trait GridLevelOperator: GpuOperator {
+pub trait GridLevelOperator<R: GpuReal = f32>: GpuOperator<R> {
     fn nodes(&self) -> [u32; 3];
     fn dofs_per_node(&self) -> u32;                   // 1 (scalar) or 3 (elasticity)
     /// Fixed (Dirichlet) DOF mask, one u32 per DOF (0/1).
     fn fixed(&self) -> &GpuVec<u32>;
     /// Next coarser level (nodes (n−1)/2+1 per axis), re-discretised from coarsened coefficients.
-    fn coarsen(&self, cx: &mut ComputeCtx) -> ComputeResult<Box<dyn GridLevelOperator>>;
+    fn coarsen(&self, cx: &mut ComputeCtx) -> ComputeResult<Box<dyn GridLevelOperator<R>>>;
     /// Assembled f64 matrix with fixed DOFs eliminated (coarsest level only).
     fn assemble(&self, cx: &mut ComputeCtx, ctx: &JobCtx) -> ComputeResult<SymCsr>;
 }
@@ -464,22 +561,22 @@ pub struct GmgOpts {
     pub pre_smooth: u32, pub post_smooth: u32,        // 2, 2
     pub smoother: ChebyshevOpts,
 }
-/// V-cycle preconditioner; coarsest level solved by CMP-03 Cholesky (f64, CPU).
-pub struct Gmg { /* levels, smoothers, transfer kernels, coarse Cholesky */ }
-impl Gmg {
-    pub fn build(cx: &mut ComputeCtx, prim: &Primitives, fine: std::sync::Arc<dyn GridLevelOperator>,
+/// V-cycle preconditioner in precision `R`; coarsest level solved by CMP-03 Cholesky (f64, CPU).
+pub struct Gmg<R: GpuReal = f32> { /* levels, smoothers, transfer kernels, coarse Cholesky */ }
+impl<R: GpuReal> Gmg<R> {
+    pub fn build(cx: &mut ComputeCtx, prim: &Primitives, fine: std::sync::Arc<dyn GridLevelOperator<R>>,
                  opts: &GmgOpts, ctx: &JobCtx) -> ComputeResult<Gmg>;
     pub fn levels(&self) -> usize;
     /// Re-coarsens after the fine coefficients changed (each SIMP iteration); keeps buffers.
     pub fn update(&mut self, cx: &mut ComputeCtx, ctx: &JobCtx) -> ComputeResult<()>;
 }
-impl GpuPreconditioner for Gmg {}
+impl<R: GpuReal> GpuPreconditioner<R> for Gmg<R> {}
 /// Reference operator: variable-coefficient Q1 Poisson (per-cell coefficient), 27-point.
-pub struct Q1Poisson { /* nodes, coeff: GpuVec<f32>, fixed */ }
-impl Q1Poisson {
+pub struct Q1Poisson<R: GpuReal = f32> { /* nodes, coeff: GpuVec<R>, fixed */ }
+impl<R: GpuReal> Q1Poisson<R> {
     pub fn new(gpu: &Gpu, nodes: [u32; 3], coeff: &DenseGrid<f32>, fixed: &DenseGrid<u8>) -> ComputeResult<Self>;
 }
-impl GridLevelOperator for Q1Poisson {}
+impl<R: GpuReal> GridLevelOperator<R> for Q1Poisson<R> {}
 
 // ───────────── amg_compute::eigen (CMP-04; CMP-09) ─────────────
 /// Solves with (K − σB). Implemented by S13 (own constraints) or by `CholeskyShift`/`LdltShift`.
@@ -529,46 +626,53 @@ pub fn lanczos(k: &dyn LinearOperator, b: &dyn LinearOperator, op: &mut dyn Shif
                reshift: Option<&mut dyn FnMut(f64) -> ComputeResult<Box<dyn ShiftInvert>>>,
                opts: &LanczosOpts, ctx: &JobCtx) -> ComputeResult<EigenResult>;
 /// LOBPCG (CMP-09): smallest `count` eigenpairs of K φ = λ M φ with a GPU preconditioner.
-pub fn lobpcg(cx: &mut ComputeCtx, prim: &Primitives, k: &dyn GpuOperator, m: &dyn GpuOperator,
-              precond: &dyn GpuPreconditioner, count: u32, opts: &LobpcgOpts, ctx: &JobCtx) -> ComputeResult<EigenResult>;
+pub fn lobpcg<R: GpuReal>(cx: &mut ComputeCtx, prim: &Primitives, k: &dyn GpuOperator<R>, m: &dyn GpuOperator<R>,
+                          precond: &dyn GpuPreconditioner<R>, count: u32, opts: &LobpcgOpts,
+                          ctx: &JobCtx) -> ComputeResult<EigenResult>;
 #[derive(Clone, Copy, Debug)]
 pub struct LobpcgOpts { pub tol: f64 /* 1e-6 */, pub max_iter: u32 /* 500 */, pub seed: u64 }
 ```
 
 **Expected from other specs** (owned there; listed so the dependency is explicit):
 - **S00 / lane E (`amg-jobs::gpu`, FND-09, Done):** no change. `Gpu::compute_pipeline`,
-  `upload`, `storage`, `readback`, `has`, `GpuError` are used as they are.
+  `upload`, `storage`, `readback`, `has`, `GpuError` are used as they are. `GpuConfig` already
+  requests `SHADER_F64` as an optional feature, so a Vulkan device gets it without changes. CI
+  request (optional, 2026-11-09): a Vulkan software adapter job for the f64 path (Testing).
 - **S08:** wraps `BrickGrid<f16>` / `GpuBrickGrid` in `SdfBricks` and `SampledGrid`; S08's
   per-tile classification maps to `set_tile_fill` (Fill0 = outside, Fill1 = inside). Its
   `amg-implicit` Cargo.toml gains `amg-compute` (allowed by the layering test).
 - **S13:** uses `SymCsr` (builds the upper pattern itself, then `from_raw`), `SymbolicFactor`,
   `Cholesky`, `Ldlt`, `FactorEstimate`, `PivotReport`, `lanczos` with its own `ShiftInvert`,
-  `GpuCsr`, `pcg_gpu`, `Chebyshev`, `refine`, and implements `GpuPreconditioner` for its
-  p-multigrid.
-- **S14:** implements `GridLevelOperator` for H8 elasticity (density-coarsened) and uses `Gmg`,
-  `pcg_gpu`, `DenseGrid`.
+  `GpuCsr`, `pcg_gpu`, `Chebyshev`, `refine` (or `solve_gpu`), and implements `GpuPreconditioner`
+  for its p-multigrid, generic over `R: GpuReal` so it runs on both precision paths.
+- **S14:** implements `GridLevelOperator<R>` for H8 elasticity (density-coarsened), generic over
+  `R: GpuReal`, and uses `Gmg`, `pcg_gpu` (or `solve_gpu` without `cpu_a`), `DenseGrid`.
 - **S16:** `Primitives::{sort, scan, segmented_reduce, reduce}`, `AtomicCounter` (AM-13).
 
 ## Work packages
 WPs are ≈ 1–3 days each. CMP-01..06 keep their IDs and meaning; CMP-07..11 are new. Times are
 on the reference machine (note §1: Ryzen 7 5700X3D, 32 GB, RTX 5060 Ti 16 GB), release build,
 GPU times from timestamps excluding upload and readback. "WARP" = the CI software adapter.
+"F32 path" / "F64 path" = the two precision paths (Design, note §2.1). "f64 gate" = the
+reference GPU on Vulkan with `AMG_REQUIRE_F64=1` (Testing), the only place the F64 path runs
+until CI has a Vulkan adapter. Budget bars apply to the F32 path on the default (DX12) device,
+which is what the default Windows build runs; F64-path numbers are recorded beside them.
 Benchmarks are criterion benches under `crates/amg-compute/benches/` registered with the FND-08
 harness; measured numbers go into the Refinement log.
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| CMP-07 | GPU layer: `GpuVec<T>` (binding-limit checks), `Kernel`, `ComputeCtx` (batched encoder, uniform arena, `dispatch_1d` 2-D folding, timestamps), `PRELUDE_WGSL`, `ComputeError` + `Diagnostic`, WARP test harness; crate deps (`half`, `bytemuck`, `rayon`) and THIRD_PARTY rows | FND-09, FND-05 | P1 | Todo | 1. On WARP and the reference GPU, `dispatch_1d` with n ∈ {0, 1, 255, 256, 257, 65 535·256 + 1, 2²⁶ + 3} writes every index exactly once (counter test). 2. `GpuVec::zeroed` past the binding limit returns `TooLarge`, no panic. 3. A destroyed device makes `finish` return `Gpu(DeviceLost)` within 1 s (no hang). 4. Bench: 1 000 empty dispatches recorded and submitted in one `ComputeCtx` cost ≤ 20 µs CPU each. 5. `take_timings` is non-empty on the reference GPU and empty without `TIMESTAMP_QUERY`. 6. `cargo deny` passes; `half` listed in THIRD_PARTY.md. |
-| CMP-01 | GPU primitives: reduce (sum/min/max on f32/u32/i32), dot, exclusive/inclusive scan, compaction, segmented reduce, stable radix sort (keys + optional values, `key_bits`), `AtomicCounter`, `cpu` references; benchmarks vs CPU | CMP-07 | P1 | Todo | 1. Every primitive equals its `cpu` reference on sizes {0, 1, 255, 256, 257, 65 537, 2²⁰ + 7, 2²⁴} with random data, on WARP and the reference GPU: integers exactly, f32 sums bit-equal to the tree-order reference on the reference GPU and within n·ε₃₂·Σ\|x\| on WARP. 2. Same input → bit-identical output over 3 runs. 3. Sort is stable (equal keys keep value order; property test vs `slice::sort_by_key`). 4. Benches (reference GPU, 2²⁶ elements): reduce f32 ≥ 60 % of the measured device-to-device copy bandwidth; scan u32 ≥ 30 %; sort of 2²⁴ key-value pairs ≥ 1 G pairs/s and ≥ 3× rayon `par_sort_by_key` on the CPU; numbers recorded. |
+| CMP-07 | GPU layer: `GpuVec<T>` (binding-limit checks), `Kernel` (incl. `with_precision`), `ComputeCtx` (batched encoder, uniform arena, `dispatch_1d` 2-D folding, timestamps), `prelude_wgsl` (`real` alias), `ComputeError` + `Diagnostic`; precision selection (`Precision`, `PrecisionPolicy`, `AMG_COMPUTE_PRECISION`, `GpuReal`, `device_precision`, `SolverDevice::precision`); WARP test harness with a per-precision test matrix and the f64 skip/require rule; crate deps (`half`, `bytemuck`, `rayon`) and THIRD_PARTY rows | FND-09, FND-05 | P1 | Todo | 1. On WARP and the reference GPU, `dispatch_1d` with n ∈ {0, 1, 255, 256, 257, 65 535·256 + 1, 2²⁶ + 3} writes every index exactly once (counter test). 2. `GpuVec::zeroed` past the binding limit returns `TooLarge`, no panic. 3. A destroyed device makes `finish` return `Gpu(DeviceLost)` within 1 s (no hang). 4. Bench: 1 000 empty dispatches recorded and submitted in one `ComputeCtx` cost ≤ 20 µs CPU each. 5. `take_timings` is non-empty on the reference GPU and empty without `TIMESTAMP_QUERY`. 6. `cargo deny` passes; `half` listed in THIRD_PARTY.md. 7. `PrecisionPolicy::resolve`: `Auto` gives F64 exactly when `Gpu::has(SHADER_F64)` (WARP and the reference GPU on DX12 → F32; the reference GPU on Vulkan → F64); `ForceF32` gives F32 on every device; `RequireF64` on WARP returns `Unsupported`, no panic; `parse` accepts `auto`/`f32`/`f64` (any case, empty = `Auto`) and rejects anything else with `Config`. 8. The harness runs each numeric GPU test once per precision. On a device without `SHADER_F64` the f64 case is reported as skipped with the reason (`f64: adapter has no SHADER_F64`), and fails instead when `AMG_REQUIRE_F64=1`. CI (WARP) runs the f32 cases and reports the f64 skips. 9. f64 gate (Testing): `AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1 cargo nextest run -p amg-compute` on the reference GPU passes, including an f64 kernel (`real` = f64) for test 1 and a bit-exact f64 upload → kernel copy → readback; the run is recorded in the Refinement log before Review. |
+| CMP-01 | GPU primitives: reduce (sum/min/max on f32/f64/u32/i32), dot and segmented reduce (f32/f64), exclusive/inclusive scan, compaction, stable radix sort (keys + optional values, `key_bits`), `AtomicCounter`, `cpu` references; benchmarks vs CPU | CMP-07 | P1 | Todo | 1. Every primitive equals its `cpu` reference on sizes {0, 1, 255, 256, 257, 65 537, 2²⁰ + 7, 2²⁴} with random data, on WARP and the reference GPU: integers exactly, f32 sums bit-equal to the tree-order reference on the reference GPU and within n·ε₃₂·Σ\|x\| on WARP. The f64 variants (reduce, dot, segmented reduce) pass the same sizes on the f64 gate, bit-equal to the f64 tree-order reference; on WARP they are skipped by the CMP-07 rule, and an f64 call there returns `Unsupported`. 2. Same input → bit-identical output over 3 runs (both precisions). 3. Sort is stable (equal keys keep value order; property test vs `slice::sort_by_key`). 4. Benches (reference GPU, 2²⁶ elements): reduce f32 ≥ 60 % of the measured device-to-device copy bandwidth; scan u32 ≥ 30 %; sort of 2²⁴ key-value pairs ≥ 1 G pairs/s and ≥ 3× rayon `par_sort_by_key` on the CPU; f64 reduce and dot on Vulkan recorded (no bar); numbers recorded. |
 | CMP-02 | Grids: `DenseGrid<T>`, `BrickGrid<T>` (two-level tree, `BrickLayout::{CELLS, CORNERS}`, fills, aprons, Morton `canonicalize`, `content_hash`), `GpuBrickGrid` (upload/download, deterministic scan-based `allocate`), `brick_grid_wgsl` | CMP-01 | P1 | Todo | 1. Sphere r = 50 at cell 0.5 baked as `d / cell` into `BrickGrid<f16>` (`CORNERS`, band ±4 cells, inside tiles Fill1): CPU `trilinear` error vs the analytic distance ≤ 0.01 cell inside the band; sign correct everywhere in the box (fills). 2. A GPU kernel using `bg_trilinear` at 1 M random points equals CPU `trilinear` within 1e-3 cell (WARP and reference GPU). 3. GPU `allocate` from a mask gives buffers bit-identical over 3 runs and the same brick order as CPU `canonicalize`; upload → download round-trips bit-exactly for f16, f32, u8. 4. Grids built in two insertion orders have equal `content_hash` after `canonicalize`. 5. Sphere r = 100 at cell 0.1: index (root + tiles) ≤ 10 % of brick bytes; bytes recorded. 6. Bench: ≥ 0.5 G `bg_trilinear` samples/s at random in-band points on the reference GPU. 7. A box needing > 2²⁴ root tiles returns `Shape`. |
 | CMP-03 | Sparse direct: `SymCsr` (upper CSR, validation, deterministic `spmv`, `add_scaled`), `TripletBuilder`, `SymbolicFactor` (reusable, `estimate`), `Cholesky` and `Ldlt` (faer, LBLᵀ) with multi-RHS, `PivotReport`, `Inertia`; `testprob` generators | FND-03, FND-04 | P1 | Todo | 1. `q1_elasticity(55, Clamped)` (499 125 DOF): analyse + factor + solve ≤ 20 s (S13 note §8.1 split of the vision 30 s budget), relative residual ≤ 1e-10. 2. `q1_elasticity(70, Clamped)` (1 029 000 DOF): completes on 32 GB; time and peak RSS recorded; `estimate().bytes` within 10 % of the measured factor storage. 3. `solve_many` with 6 RHS takes ≤ 2× one `solve_in_place`. 4. `q1_elasticity(_, Free)` gives `NotPositiveDefinite` with a row, or a `PivotReport` with `below_threshold`; never a panic. 5. `Ldlt::inertia` on random diagonal-plus-low-rank matrices equals the dense eigenvalue sign count (proptest). 6. Re-factoring with new values on the same pattern skips analysis (counter). 7. Factor and solve are bit-identical over 2 runs; `spmv` bit-identical across 1, 4, 16 threads. 8. `from_raw` rejects unsorted, lower or out-of-range input with `InvalidMatrix`. |
 | CMP-04 | Eigen: thick-restart shift-invert Lanczos (`lanczos`) with full B-reorthogonalisation, `EigenMode::{Vibration, Buckling}`, `Which::{Nearest, Band}` with Sturm check and re-shift, `ShiftInvert` callback, `CholeskyShift`, `LdltShift` | CMP-03 | P1 | Todo | 1. 50 random sparse SPD pencils (n ≤ 3 000): the 10 eigenvalues nearest σ match faer's dense generalised solver within 1e-10 relative; ‖ΦᵀBΦ − I‖∞ ≤ 1e-10. 2. Free-free `q1_elasticity(20, Free)` with σ < 0: exactly 6 values with \|λ\| ≤ 1e-8·λ₇, then the next 4 within 1e-9 of dense. 3. Band mode finds every eigenvalue in [lo, hi] on 20 pencils (vs dense), `sturm_checked` true; a band with more than `max` values returns the `max` lowest and says so. 4. Buckling mode on a pencil with known eigenvalues (indefinite K_G) within 1e-9. 5. Bench: `q1_elasticity(55, Clamped)`, 8 modes, including the factorisation, ≤ 40 s (FEM-07 budget 60 s). 6. Cancel during iterations returns `Cancelled` within 1 s after the factorisation ends. |
-| CMP-08 | Iterative core: `LinearOperator`, `CpuPreconditioner`, `GpuOperator`, `GpuPreconditioner`; `GpuCsr` (full storage, `update_values`); `Jacobi`, `BlockJacobi3`, `Chebyshev` (Lanczos bounds, `smooth`); `pcg_cpu`, `pcg_gpu` (async convergence checks) on a crate-private `VectorBackend`; `refine` | CMP-01, CMP-03 | P1 | Todo | 1. `pcg_gpu` and `pcg_cpu` on `q1_poisson(65)` and `q1_elasticity(40)` reach 1e-5 relative residual with iteration counts within 2 % of each other (WARP and reference GPU). 2. `refine` + `pcg_gpu` (block Jacobi) on `q1_elasticity(70)` reaches ‖r‖/‖b‖ ≤ 1e-8, and the solution matches CMP-03 Cholesky within 1e-7 in relative energy norm. 3. Bench: `q1_elasticity(70)` with `BlockJacobi3` ≥ 250 PCG iterations/s; GPU idle between submissions ≤ 10 % (timestamps). 4. Iteration counts and results bit-identical over 3 runs. 5. `Chebyshev` λmax estimate within 5 % of the dense value on a 3 000-DOF problem. 6. Cancel returns `Cancelled` within 100 ms; device loss returns an error. |
-| CMP-05 | Geometric multigrid for structured grids: `GridLevelOperator`, `Gmg` (Chebyshev–Jacobi smoothing, trilinear transfer, re-discretised coarse levels, padding to `2^k·m + 1`, fixed masks, coarse CPU Cholesky, `update`), `Q1Poisson` reference operator; MGPCG | CMP-08, CMP-02 | P1 | Todo | 1. `Q1Poisson` with a `simp_field` coefficient (contrast 1e3), clamped on one face: MGPCG reaches 1e-6 relative residual in ≤ 25 iterations at 129³ nodes, and the 257³ count is ≤ 1.2× the 129³ count (h-independence). 2. Bench: 257³ nodes (16 974 593 DOF) solve < 2 s on the reference GPU (headroom for GEN-03's 1 M-voxel elasticity < 2 s). 3. Contrast 1e6: iteration counts recorded (no limit). 4. Non-`2^k·m + 1` dims (e.g. 100³) converge within 1.3× the padded power-of-two case. 5. `update` after a coefficient change reuses all buffers (allocation counter) and gives the same iterations as a fresh `build`. 6. Matches `pcg_cpu` + Cholesky reference within 1e-5 relative on 33³. |
-| CMP-06 | Optional CUDA backend (`cudarc`, NVRTC at runtime) behind feature `cuda`: `VectorBackend` impl, CSR SpMV, Chebyshev, `SolverDevice::Cuda`; ships only if benchmarks warrant (ADR-004) | CMP-05, CMP-08 | P3 | Todo | 1. Builds and tests pass with and without `cuda`; without a CUDA driver `SolverDevice::Cuda` creation returns an error, not a crash. 2. CMP-08 test 1 and CMP-05 test 1 pass on CUDA. 3. Bench table CUDA vs wgpu for CMP-08 bench 3 and CMP-05 bench 2 recorded; made the default only if ≥ 1.5× faster (owner decides, QUESTIONS #80). |
-| CMP-09 | LOBPCG (`lobpcg`): block, preconditioned, GPU operators, f64 Rayleigh–Ritz on the CPU, soft locking | CMP-08, CMP-04 | P2 | Todo | 1. On `q1_elasticity(40, Clamped)`, 8 smallest eigenvalues within 1e-6 relative of CMP-04 Lanczos. 2. `q1_elasticity(88, Clamped)` (2 044 416 DOF), 8 modes with `BlockJacobi3`, < 120 s on the reference GPU; iterations recorded. 3. Deterministic over 2 runs. |
+| CMP-08 | Iterative core: `LinearOperator`, `CpuPreconditioner`, `GpuOperator<R>`, `GpuPreconditioner<R>`; `GpuCsr<R>` (full storage, `update_values`); `Jacobi`, `BlockJacobi3`, `Chebyshev` (Lanczos bounds, `smooth`), all generic over f32/f64; `pcg_cpu`, `pcg_gpu<R>` (async convergence checks) on a crate-private `VectorBackend`; `refine`; `GpuSystem` + `solve_gpu` (precision-path selection) | CMP-01, CMP-03 | P1 | Todo | 1. `pcg_gpu` and `pcg_cpu` on `q1_poisson(65)` and `q1_elasticity(40)` reach 1e-5 relative residual with iteration counts within 2 % of each other: f32 on WARP and the reference GPU (DX12), f64 on the f64 gate. 2. `solve_gpu` with `BlockJacobi3` on `q1_elasticity(70)` reaches ‖r‖/‖b‖ ≤ 1e-8 (f64 CPU residual) on both paths, and both solutions match CMP-03 Cholesky within 1e-7 in relative energy norm: the F32 path on the reference GPU (DX12) and the F64 path on the f64 gate, where it needs exactly one outer step; on the same Vulkan device with `ForceF32` the F32 path meets the same bounds (both paths on one device). 3. Bench: `q1_elasticity(70)` with `BlockJacobi3` ≥ 250 PCG iterations/s on the F32 path on the default (DX12) reference device (the budget bar); GPU idle between submissions ≤ 10 % (timestamps). F64-path iterations/s and total `solve_gpu` time on Vulkan recorded next to the F32 numbers (no bar; input to open question 8). 4. Iteration counts and results bit-identical over 3 runs, on each path. 5. `Chebyshev` λmax estimate within 5 % of the dense value on a 3 000-DOF problem (both precisions). 6. Cancel returns `Cancelled` within 100 ms; device loss returns an error. 7. A `GpuSystem` built from `PrecisionPolicy::Auto` takes the F32 path on WARP and the F64 path on the f64 gate (`GpuSolveStats::precision`); building an f64 `GpuCsr` on WARP returns `Unsupported`. |
+| CMP-05 | Geometric multigrid for structured grids: `GridLevelOperator<R>`, `Gmg<R>` (Chebyshev–Jacobi smoothing, trilinear transfer, re-discretised coarse levels, padding to `2^k·m + 1`, fixed masks, coarse CPU Cholesky, `update`), `Q1Poisson<R>` reference operator, all generic over f32/f64; MGPCG | CMP-08, CMP-02 | P1 | Todo | 1. `Q1Poisson` with a `simp_field` coefficient (contrast 1e3), clamped on one face: MGPCG reaches 1e-6 relative residual in ≤ 25 iterations at 129³ nodes, and the 257³ count is ≤ 1.2× the 129³ count (h-independence); on the F32 path (reference GPU, DX12) and the F64 path (f64 gate). 2. Bench: 257³ nodes (16 974 593 DOF) solve < 2 s on the reference GPU on the F32 path (default DX12 device; headroom for GEN-03's 1 M-voxel elasticity < 2 s). F64-path time on Vulkan recorded (no bar; input to open question 8). 3. Contrast 1e6: iteration counts recorded for both paths (no limit). 4. Non-`2^k·m + 1` dims (e.g. 100³) converge within 1.3× the padded power-of-two case. 5. `update` after a coefficient change reuses all buffers (allocation counter) and gives the same iterations as a fresh `build`. 6. Matches `pcg_cpu` + Cholesky reference within 1e-5 relative on 33³, on both paths (f32 also on WARP). |
+| CMP-06 | Optional CUDA backend (`cudarc`, NVRTC at runtime) behind feature `cuda`: `VectorBackend` impl, CSR SpMV, Chebyshev, `SolverDevice::Cuda`, f32 and f64 (precision chosen by `SolverDevice::precision`); Phase 5, started only if the wgpu solver benchmarks miss their budgets (QUESTIONS #80 (b), ADR-004) | CMP-05, CMP-08 | P2 | Todo | Gate: scheduled only if CMP-08 bench 3 or CMP-05 bench 2, or the FEM-08 / GEN-03 budget benches built on them, miss their budgets on wgpu; otherwise it stays Todo. 1. Builds and tests pass with and without `cuda`; without a CUDA driver `SolverDevice::Cuda` creation returns an error, not a crash. 2. CMP-08 test 1 and CMP-05 test 1 pass on CUDA in f32 and f64. 3. Bench table CUDA vs wgpu for CMP-08 bench 3 and CMP-05 bench 2, per precision path, recorded; CUDA becomes the default only if ≥ 1.5× faster than wgpu on the same path (owner decides). |
+| CMP-09 | LOBPCG (`lobpcg<R>`): block, preconditioned, GPU operators (f32 or f64), f64 Rayleigh–Ritz on the CPU, soft locking | CMP-08, CMP-04 | P2 | Todo | 1. On `q1_elasticity(40, Clamped)`, 8 smallest eigenvalues within 1e-6 relative of CMP-04 Lanczos, on the F32 path (reference GPU, DX12) and the F64 path (f64 gate). 2. `q1_elasticity(88, Clamped)` (2 044 416 DOF), 8 modes with `BlockJacobi3`, < 120 s on the reference GPU on the F32 path; iterations recorded for both paths. 3. Deterministic over 2 runs. |
 | CMP-10 | Nested-dissection ordering: geometric ND from node coordinates (`Ordering::NestedDissection`), or METIS behind `metis` if geometric ND is not enough | CMP-03 | P2 | Todo | 1. On `q1_elasticity(55)` and the S13 500 k DOF bracket, factor nnz ≥ 25 % lower than AMD. 2. Becomes the default only if factor time drops ≥ 20 %; numbers recorded either way. Only scheduled if CMP-03 test 1 misses its budget or S13 FEM-04 bench 5 does. |
-| CMP-11 | Smoothed-aggregation AMG preconditioner: CPU setup (strength of connection, aggregation, rigid-body near-null space for 3-DOF nodes), GPU V-cycle with `Chebyshev` smoothing, `GpuPreconditioner` | CMP-08 | P2 | Todo | 1. Unstructured test (`q1_elasticity` with randomly perturbed nodes and a random symmetric renumbering): iterations to 1e-6 ≤ 2× `Gmg` on the unperturbed grid of equal size. 2. Setup for 1 M DOF < 5 s CPU. 3. Iterations grow ≤ 1.5× from 125 k to 1 M DOF. |
+| CMP-11 | Smoothed-aggregation AMG preconditioner: CPU setup (strength of connection, aggregation, rigid-body near-null space for 3-DOF nodes), GPU V-cycle with `Chebyshev` smoothing, `GpuPreconditioner<R>` (f32 and f64) | CMP-08 | P2 | Todo | 1. Unstructured test (`q1_elasticity` with randomly perturbed nodes and a random symmetric renumbering): iterations to 1e-6 ≤ 2× `Gmg` on the unperturbed grid of equal size, on both precision paths. 2. Setup for 1 M DOF < 5 s CPU. 3. Iterations grow ≤ 1.5× from 125 k to 1 M DOF. |
 
 Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Review`, `Done`, `Blocked (reason)`.
 
@@ -576,6 +680,21 @@ Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Revie
 - Every GPU routine has a CPU reference in the crate, and every GPU test runs on WARP in CI
   (FND-05) and on the reference GPU locally. Timing assertions run only on the reference GPU
   (`AMG_BENCH_REFERENCE=1`); WARP checks correctness only.
+- **Both precision paths** (owner policy, QUESTIONS #81). Numeric GPU tests are written once,
+  generic over `R: GpuReal`, and the CMP-07 harness runs them per precision:
+  - **F32 path:** CI on WARP (DX12) and the reference GPU on DX12 (the default device). This
+    path is always exercised by CI.
+  - **F64 path:** needs a device with `SHADER_F64`, which in wgpu 30 means Vulkan. CI's Windows
+    runners have only WARP (DX12), so the F64 path is tested by the **f64 gate**: on the
+    reference machine, `AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1 cargo nextest run -p
+    amg-compute`, run by the implementing agent before setting a WP touching numeric kernels to
+    `Review`, with the result recorded in the Refinement log. The same Vulkan device also runs
+    the F32 path with `AMG_COMPUTE_PRECISION=f32`, so both paths are compared on one device.
+  - **Explicit skip:** on a device without `SHADER_F64` every f64 case is reported as skipped
+    with its reason (never silently passed), and fails instead when `AMG_REQUIRE_F64=1`.
+  - **CI later:** a Mesa lavapipe (software Vulkan) job, installed the way `install-warp` is,
+    would run the F64 path in CI if lavapipe reports `shaderFloat64` on the runner (to verify;
+    lane E request, open question 9). When it exists it sets `AMG_REQUIRE_F64=1`.
 - Property tests (proptest): primitives vs CPU references; `SymCsr` validation; sort stability;
   `Ldlt::inertia` vs dense.
 - Solver tests on `testprob` problems with known answers (manufactured solutions for Poisson,
@@ -595,11 +714,19 @@ Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Revie
 | Brick lookups (CMP-02) | ≥ 0.5 G trilinear samples/s | IMP-02, IMP-05 |
 | UI thread | never blocks: all waits are on job threads (`ComputeCtx::finish`, `Readback::wait`) | vision 16 ms |
 
+GPU solver bars (CMP-08, CMP-05, CMP-09) apply to the F32 path on the default DX12 device; the
+F64 path's numbers (Vulkan) are recorded beside them without a bar until open question 8 is
+answered.
+
 ## Open questions
 1. ~~(from S10, 2026-10-20) `SHADER_F64` is Vulkan-only in wgpu 30, so the default DX12 device never has it; plan f32 or emulated-double kernels.~~
-   **Resolved 2026-11-08:** f32 kernels only, accuracy through f64 iterative refinement on the
+   ~~**Resolved 2026-11-08:** f32 kernels only, accuracy through f64 iterative refinement on the
    CPU; no emulated double (WGSL `fma` is not guaranteed fused on DX12, FXC may reorder, and the
-   RTX 5060 Ti runs FP64 at 1/64 rate anyway). Note §2.1.
+   RTX 5060 Ti runs FP64 at 1/64 rate anyway). Note §2.1.~~
+   **Re-resolved 2026-11-09 (owner, QUESTIONS #81, the f32-only proposal not accepted):** f64
+   kernels where the device has `SHADER_F64`, f32 kernels with f64 CPU iterative refinement as
+   the fallback, chosen at runtime; both paths tested. Still no emulated double. Design, note
+   §2.1, ADR-004 note.
 2. ~~(from S16, 2026-10-20) AM-13 (GPU orientation scoring, Phase 4) depends on CMP-01 and keeps its backend behind `ComputeBackend` with a CPU reference.~~
    **Resolved 2026-11-08:** CMP-01 ships a `cpu` reference for every primitive, so AM-13's CPU
    path can use the same semantics. `ComputeBackend` stays S07/S16's enum; `amg-compute` does
@@ -619,9 +746,29 @@ Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Revie
    f32 CSR PCG with the `GpuPreconditioner` trait and Chebyshev–Jacobi is in **CMP-08** (new),
    which CMP-05 now depends on; FEM-08 can depend on CMP-08 instead of CMP-05 if S13 wants it
    earlier (note in S13 open questions).
-6. CUDA timing: ADR-004's amendment calls CUDA the first optimisation once wgpu solvers are
-   benchmarked, but the roadmap keeps CMP-06 at P3 in Phase 6. (QUESTIONS #80.)
-7. Accept the no-f64-on-GPU policy (note §2.1) as an ADR-004 note? (QUESTIONS #81.)
+6. ~~CUDA timing: ADR-004's amendment calls CUDA the first optimisation once wgpu solvers are
+   benchmarked, but the roadmap keeps CMP-06 at P3 in Phase 6. (QUESTIONS #80.)~~
+   **Resolved 2026-11-09 (owner, QUESTIONS #80 (b)):** CMP-06 moves to Phase 5 at P2 and is
+   started only if the wgpu solver benchmarks miss their budgets; CUDA becomes the default only
+   if ≥ 1.5× faster. CMP-06 row updated.
+7. ~~Accept the no-f64-on-GPU policy (note §2.1) as an ADR-004 note? (QUESTIONS #81.)~~
+   **Resolved 2026-11-09 (owner, QUESTIONS #81):** not accepted; the ADR-004 note states the
+   owner's policy instead (open question 1).
+8. (2026-11-09, QUESTIONS #103) **Default backend and the f64 path.** In
+   wgpu 30 only Vulkan reports `SHADER_F64`, and the Windows default device is DX12 (FND-09), so
+   with default settings no Windows user ever gets the F64 path. Options: (a) keep DX12 as the
+   default; the F64 path runs only with `AMG_WGPU_BACKEND=vulkan` (or a later setting), and the
+   budgets bind on the F32 path; (b) make Vulkan the Windows default (an S00/S10 decision that
+   also moves rendering); (c) a second, compute-only Vulkan `Gpu` for solvers when the render
+   device is DX12 (needs an ADR-004 change: "one device"). Related: the RTX 5060 Ti runs FP64 at
+   1/64 of FP32, so compute-bound kernels (matrix-free H8, Chebyshev) may miss GEN-03 / FEM-08
+   budgets on the F64 path, while bandwidth-bound CSR SpMV should be about 1.5× slower per
+   iteration. Should `Auto` stay "F64 whenever available" for every solver, or may a solver
+   pick F32 + refinement on F64 devices when its F64 bench misses budget? *Recommended:* (a) now,
+   and decide the second part from the CMP-08 / CMP-05 bench tables (both paths recorded).
+   Refinement log 2026-11-09.
+9. (2026-11-09, request to lane E / S00) Optional CI job with a Vulkan software adapter (Mesa
+   lavapipe) so the F64 path runs in CI; until then the f64 gate is local (Testing).
 
 ## Refinement log
 ### 2026-11-08 - S15-refine (lane F refinement)
@@ -689,6 +836,73 @@ Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Revie
   Interfaces name `amg_compute` types), S14 (GEN-03 implements `GridLevelOperator`), S08 (CMP-02
   shape delivered; fill mapping). Each is a short dated note in that spec.
 - Status set to `Refined`.
+
+### 2026-11-09 - owner answers QUESTIONS #80, #81 (lane F refinement)
+- **Read:** QUESTIONS #80 and #81 (owner answers), ADR-004, this spec, note §1–2 and §7–8, S00
+  FND-09 (log: `SHADER_F64` absent on DX12 with the RTX 5060 Ti), `crates/amg-jobs/src/gpu`
+  (`GpuConfig::optional_features` = `SHADER_F64 | TIMESTAMP_QUERY`; `backend.rs`: DX12 default
+  on Windows, `AMG_WGPU_BACKEND=dx12|vulkan|warp`), `.github/workflows/ci.yml` (all jobs on
+  `windows-2025`, GPU tests on WARP with `AMG_REQUIRE_GPU=1`), and the wgpu 30.0.1 / naga 30.0.1
+  sources in the cargo registry.
+- **#81, owner did not accept f32-only.** Policy: f64 kernels where the device has
+  `SHADER_F64`, f32 + f64 CPU iterative refinement as the fallback; both paths tested. Applied:
+  - Interfaces: new `amg_compute::precision` (`Precision`, `PrecisionPolicy` with `Auto` /
+    `ForceF32` / `RequireF64`, `AMG_COMPUTE_PRECISION`, `GpuReal` for f32/f64,
+    `device_precision`), `SolverDevice::precision`, `Kernel::with_precision`, `prelude_wgsl`
+    (replaces `PRELUDE_WGSL`; binds `alias real`), `ComputeError::{Unsupported, Config}`. Numeric
+    GPU types are generic over `R: GpuReal` with default `f32` (`GpuOperator<R>`,
+    `GpuPreconditioner<R>`, `GpuCsr<R>`, `Jacobi<R>`, `BlockJacobi3<R>`, `Chebyshev<R>`,
+    `pcg_gpu<R>`, `GridLevelOperator<R>`, `Gmg<R>`, `Q1Poisson<R>`, `lobpcg<R>`); `dot`,
+    `segmented_reduce` and the reductions accept f64. New `GpuSystem` + `solve_gpu`: the one
+    place that picks the path (F64: PCG to the final tolerance, normally one outer step; F32:
+    `refine` with a loose inner f32 PCG).
+  - **Generic, not dual, kernels.** WGSL has no generics, so each numeric kernel is one source
+    over `alias real`, and the prelude binds it to f32 or f64. The pipeline cache keys on the
+    full source, so both variants coexist. Checked in naga 30: f64 needs no `enable` directive
+    in WGSL (only the `FLOAT64` capability, which wgpu grants with `SHADER_F64`); f64 literals
+    use the `lf` suffix, so kernels write constants as `real(…)` conversions. Atomics stay
+    u32/i32 (no float atomics on either path).
+  - **How the fallback is chosen:** at runtime, per device, from `Gpu::has(SHADER_F64)` (the
+    feature is already requested as optional by FND-09's `GpuConfig`); never a Cargo feature.
+    `ForceF32` lets one f64-capable device run both paths.
+  - Grids, scan, compaction and sort are integer or storage formats and are unchanged; S08 / S16
+    kernels may use `GpuReal` / `Precision` for their own numerics.
+  - WP Done-when: CMP-07 (precision tests 7–9, skip/require rule), CMP-01 (f64 reductions),
+    CMP-08 (tests on both paths, `solve_gpu` selection test 7), CMP-05, CMP-09, CMP-11 (both
+    paths). Budget bars stay on the F32 path on the default device; F64 numbers recorded.
+    CMP-02, CMP-03, CMP-04, CMP-10 unchanged (CPU or storage only). No new WP: the precision
+    layer fits CMP-07 and the generic kernels are written once inside the existing WPs.
+  - **Testing the f64 path:** CI has only WARP (DX12), which never has `SHADER_F64`. So: the
+    "f64 gate" on the reference machine (Vulkan, `AMG_REQUIRE_F64=1`), recorded in this log
+    before Review; on every other device the f64 cases are skipped with a reason. A lavapipe
+    CI job would close the gap (open question 9; lavapipe's `shaderFloat64` on the runner not
+    verified here).
+- **Does the default backend matter? Yes.** wgpu-hal 30.0.1 sets `SHADER_F64` only in
+  `vulkan/adapter.rs` (from `VkPhysicalDeviceFeatures::shaderFloat64`). The DX12 HAL never
+  reports it (although D3D12 hardware has `DoublePrecisionFloatShaderOps` and SM 5.1 has
+  `double`), and `wgpu-types` documents `SHADER_F64` as "Supported Platforms: Vulkan". Metal never
+  reports it: MSL has no double type and naga's MSL backend rejects f64. So the owner's
+  "Vulkan/Metal" is in practice Vulkan only; macOS would always run the F32 path. On Windows the
+  default device is DX12 (`BackendSelection::platform_default`), so with default settings every
+  Windows user runs the F32 path, and the F64 path needs `AMG_WGPU_BACKEND=vulkan`. The
+  backend default therefore decides which path users get; S15's code is the same either way
+  (precision is per `Gpu`). Options and the FP64-rate concern (RTX 5060 Ti: FP64 at 1/64 of
+  ~23.7 TFLOPS FP32 ≈ 0.37 TFLOPS; 448 GB/s; f64 CSR SpMV at ~0.17 flop/byte stays
+  bandwidth-bound, about 1.5× slower per iteration than f32 (12 vs 8 bytes per non-zero), while
+  compute-bound matrix-free kernels may be much slower) are open question 8 for the owner. Not
+  changed here: the DX12 default is S00/S10's, and the kernels must stay FXC-safe for the
+  fallback anyway. If a later wgpu reports `SHADER_F64` on DX12, `Auto` picks it up with no
+  code change.
+- **#80 (b):** CMP-06 moves to Phase 5 at P2, gated on the wgpu solver benchmarks missing their
+  budgets (CMP-08 bench 3, CMP-05 bench 2, FEM-08 / GEN-03 budget benches); default only if
+  ≥ 1.5× faster on the same precision path. CMP-06 also covers f64 (CUDA devices always have
+  it). Note §8 updated.
+- **Roadmap (for the coordinator; this refinement does not edit it):** CMP-06 from Phase 6 to
+  Phase 5 lane F, with the gate above.
+- **Requests to other specs:** S13 (FEM-08 wording "f32 PCG", "wgpu DX12 has no f64"; the
+  p-multigrid should be generic over `R: GpuReal`), S14 (GEN-03 "f32" H8 operator; generic over
+  `R`), lane E (lavapipe CI job). Listed for the coordinator; not edited here.
+- Status stays `Refined`.
 
 ## Interface changes
 ### 2026-11-08: from the S14 refinement (lane F; inputs to the S15 refinement)

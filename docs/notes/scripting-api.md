@@ -9,7 +9,7 @@ scripts pick faces and edges, and how the CLI shares the same code.
 
 | Source | What it does | What we take | What we reject |
 |---|---|---|---|
-| **Fusion API** (Autodesk docs: "Creating Scripts and Add-Ins", Python add-in template, `Application.executeTextCommand`) | Bundled CPython. Scripts (`run(context)`) and add-ins (`run`/`stop`, "Run on Startup") in folders with a `.manifest`. Object model `app.activeProduct.rootComponent.sketches.add(plane)`, `extrudeFeatures.createInput(profile, op)` + `setDistanceExtent` + `add`. Command definitions with toolbar controls and `CommandInputs` dialogs. Text commands window. VS Code debugging. Internal unit is the **centimetre**. Scripts run on the UI thread and block the app. | Scripts vs add-ins split, `run`/`stop` entry points, run-on-startup flag, folder layout with a manifest, command definitions placed in toolbar panels, text console, debugger hookup | The `createInput` + setter object dance (we take keyword arguments generated from the dialog schema). Centimetres (we use mm, the internal unit, so values never need a factor). A blocking UI thread. An `adsk.*` compatibility layer (QUESTIONS #57) |
+| **Fusion API** (Autodesk docs: "Creating Scripts and Add-Ins", Python add-in template, `Application.executeTextCommand`) | Bundled CPython. Scripts (`run(context)`) and add-ins (`run`/`stop`, "Run on Startup") in folders with a `.manifest`. Object model `app.activeProduct.rootComponent.sketches.add(plane)`, `extrudeFeatures.createInput(profile, op)` + `setDistanceExtent` + `add`. Command definitions with toolbar controls and `CommandInputs` dialogs. Text commands window. VS Code debugging. Internal unit is the **centimetre**. Scripts run on the UI thread and block the app. | Scripts vs add-ins split, `run`/`stop` entry points, run-on-startup flag, folder layout with a manifest, command definitions placed in toolbar panels, text console, debugger hookup | The `createInput` + setter object dance (we take keyword arguments generated from the dialog schema). Centimetres (we use mm, the internal unit, so values never need a factor). A blocking UI thread. An `adsk.*` compatibility layer (decided no, owner 2026-11-09, QUESTIONS #57; the reference gets a "porting from Fusion" table) |
 | **FreeCAD** (`FreeCAD`/`FreeCADGui` modules, macro recorder, Python console) | Every GUI action echoes the Python line it ran; macros are recorded Python. Headless via `FreeCADCmd`. | The console and "copy as script" from recorded commands (SCR-15). Headless and GUI share one module. | Echoing every UI action into the console (noise); App/Gui module split by object type |
 | **Onshape FeatureScript** (`qCreatedBy`, `qGeometry`, `qParallelPlanes`, `qLargest`, `qClosestTo`) | Entity references are queries evaluated at regeneration. | Query vocabulary for script selectors (§6): created-by + role, geometry class, direction, largest, closest | Storing queries in features: S04 features store resolved `TopoRef`s (naming note, Onshape row) |
 | **CadQuery / build123d** (Apache-2.0) | Fluent selectors on faces/edges: `faces(">Z")` (top face), edges parallel to Z, `%PLANE`, sorting by area/length/position. | Method-chain selectors over a body's faces/edges, sorted/filtered by axis, type, position, size | String selector mini-language as the main API (kept out; plain methods are discoverable and typed). Their kernel-level model (no timeline) |
@@ -37,14 +37,15 @@ scripts pick faces and edges, and how the CLI shares the same code.
 - **`amg_script::runtime`** embeds CPython in the app: it starts the interpreter on its own
   thread, runs files and console lines, captures output, interrupts, and hosts add-ins.
 - **`amg-ui::script`** is the egui side (console panel, script manager, dynamic commands).
-  It needs a new layering edge `amg-ui → amg-script` (QUESTIONS #56).
+  It uses the layering edge `amg-ui → amg-script` (owner decision 2026-11-09, QUESTIONS #56; rationale in
+  architecture §Layering).
 
 ## 3. Embedding CPython
 
 ### 3.1 Which Python
 - **Stable ABI**: pyo3 with `abi3-py312`. One build runs on any CPython ≥ 3.12, the version in
   `dev-setup.md`. CI tests 3.12 and the newest release.
-- **Not bundled (default)**: the app uses an installed CPython (QUESTIONS #58). Discovery order:
+- **Not bundled (decided, owner 2026-11-09, QUESTIONS #58)**: the app uses an installed CPython. Discovery order:
   1. `AMG_PYTHON_HOME` (a directory holding `python3.dll`);
   2. PEP 514 registry keys `HKCU` then `HKLM\Software\Python\PythonCore\<ver>\InstallPath`,
      highest version ≥ 3.12;

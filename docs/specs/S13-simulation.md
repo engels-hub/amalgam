@@ -6,7 +6,7 @@
 | **Priority** | P1 (static, modal) / P2 (thermal, buckling, nonlinear) / P3 (event) |
 | **Crates** | `amg-fem`, `amg-tetwild-sys` (new, FFI), `amg-features::sim`, `amg-ui::sim` (Simulation workspace) |
 | **Lane** | F |
-| **Depends on** | S01 (DOC-05 `SetExt`, DOC-06 resolver, DOC-07 `ext/`, DOC-09 `ExtChanged`); S02 (BREP-08 tessellation, BREP-09 projection); S07 (MESH-03 `MeshSpatial`, MESH-04 repair); S10 (RND-07 overlays, RND-08 field shading); S11 (UI-02, UI-04, UI-05); S15 (CMP-03 direct, CMP-04 eigen, CMP-05 PCG); S16 (AM-01 print setup, for FEM-22); S17 (MAT-01, MAT-06; MAT-04 for FEM-22) |
+| **Depends on** | S01 (DOC-05 `SetExt`, DOC-06 resolver, DOC-07 `ext/`, DOC-09 `ExtChanged`); S02 (BREP-08 tessellation, BREP-09 projection); S07 (MESH-03 `MeshSpatial`, MESH-04 repair); S10 (RND-07 overlays, RND-08 field shading); S11 (UI-02, UI-04, UI-05); S15 (CMP-03 direct, CMP-04 eigen, CMP-08 PCG, CMP-05 multigrid); S16 (AM-01 print setup, for FEM-22); S17 (MAT-01, MAT-06; MAT-04 for FEM-22) |
 | **Parity** | `03-fusion-parity.md` §Simulation — all of it cloud-solved in Fusion, local here |
 
 Design note: [`docs/notes/simulation-fem.md`](../notes/simulation-fem.md) (pipeline, meshing,
@@ -62,7 +62,7 @@ Full detail and the reasoning are in the design note. Summary:
   study job. `amg-ui::sim` is the workspace.
 - **Geometry → analysis mesh.** Solid bodies are tessellated (BREP-08, face id per triangle)
   and mesh bodies use their face groups, so each surface triangle has a `PatchId`. The mesher
-  (fTetWild via `amg-tetwild-sys`; TetGen behind feature `tetgen`, QUESTIONS #71) makes TET4;
+  (fTetWild via `amg-tetwild-sys`; TetGen behind feature `tetgen`, used by `MesherChoice::Auto` for clean closed input; QUESTIONS #71, decided) makes TET4;
   patch tags transfer to the tet boundary by nearest input triangle. TET10 promotion adds
   mid-nodes, snaps boundary ones to the exact surface (`SurfaceProjector`: BREP-09
   `project_point_on_face` for solids, `MeshSpatial::closest_point` for meshes) and
@@ -83,9 +83,10 @@ Full detail and the reasoning are in the design note. Summary:
   internal heat, fixed temperature; radiation linearised by Picard iteration.
 - **Solvers (S15).** Direct sparse Cholesky (faer, CMP-03) up to about 1.5 M DOF; one
   factorisation for all load cases with the same constraints. Modal: shift-invert Lanczos
-  (CMP-04) with σ < 0 so free-free models work; default 8 modes. Larger models: GPU PCG in f32
-  (CMP-05) with a p-multigrid preconditioner (TET10 smoother, TET4 coarse level by CPU Cholesky)
-  inside f64 iterative refinement (note §8.3; wgpu DX12 has no f64). Buckling: generalised eigen
+  (CMP-04) with σ < 0 so free-free models work; default 8 modes. Larger models: GPU PCG, generic
+  over `R: GpuReal` (CMP-05), with a p-multigrid preconditioner (TET10 smoother, TET4 coarse level by
+  CPU Cholesky): f64 kernels where the device reports `SHADER_F64` (in practice Vulkan), otherwise
+  f32 kernels inside f64 CPU iterative refinement (note §8.3; ADR-004 note, S15 `solve_gpu`). Buckling: generalised eigen
   with geometric stiffness. Unconstrained bodies are caught by a graph pre-check and by the
   pivot check, and reported by body name.
 - **Nonlinear (P2).** Newton–Raphson with load stepping and cut-back; J2 plasticity with
@@ -657,7 +658,7 @@ mesh, results) and an `OverlayProvider` (BC/load glyphs, RND-07).
     (shift-invert with σ < 0 is SPD for SPD K, but buckling needs indefinite).
   - CMP-04: shift-invert Lanczos for `K φ = λ M φ` taking a factorisation callback, n smallest
     or in a frequency band, with M-orthonormal vectors.
-  - CMP-05: PCG on the GPU with f32 CSR values, a `Preconditioner` trait so S13 can plug in the
+  - CMP-08 (was CMP-05 before the S15 re-split): PCG on the GPU with CSR values of type `R: GpuReal` (f32 or f64), a `Preconditioner` trait so S13 can plug in the
     p-multigrid, and Chebyshev–Jacobi smoothing.
 - **S16 (AM-01):** read access to a print setup's item rotation for a body (build direction in
   body coordinates) for FEM-22. Uses `amg_features::am::setups`.
@@ -683,13 +684,13 @@ note §10. "Corpus" = `testdata/fem/corpus/` (note §11).
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | FEM-01 | Study data model: `Study` record (`fem.study`, v1), `to_record`/`from_record`, `command`, `new_study_command`, `studies`, `study_bodies`, `inputs_hash`, `status` (out-of-date), `precheck`; `ExtRegistration` + migration stub | DOC-05, DOC-07, DOC-09, MAT-06 | P1 | Todo | 1. A study with 2 load cases, 5 BCs and a material override round-trips `to_record`/`from_record` and a `.amg` save→load→save with byte-identical `design.json`. 2. `SetExt` edits undo/redo to equal records. 3. Changing a body's upstream feature parameter, its material, or any BC flips `status` to `OutOfDate`; changing only a UI-only field (study name) does not. 4. `precheck` reports: no bodies, unassigned material, no constraint on a body, empty target — each as a named diagnostic (table test). 5. A v2 fixture record gives `TooNew`, a garbled one `Decode` (no panic). |
-| FEM-02 | `amg-tetwild-sys` (vcpkg overlay port, MPIR, shared vcpkg oneTBB) + `TetMesher` trait, fTetWild backend (in-process API or `.msh` subprocess fallback, note §12), `SurfaceInput`, global sizing, `transfer_patches`; optional TetGen backend behind `tetgen` | MESH-04, MESH-03, FND-05 | P1 | Todo | 1. CI builds `amg-tetwild-sys` on Windows; `cargo deny` passes; THIRD_PARTY rows added. 2. Corpus (≥ 40 bodies, note §11) at default settings: ≥ 95 % mesh with no error, 0 inverted TET4, volume within 1 % of input, `ambiguous_tags` < 1 % of boundary facets. 3. Per-body mesh times recorded in the note (median, p95, and the 120 k-tet case for QUESTIONS #70); with `tetgen`, the same table for TetGen on clean inputs. 4. A cancelled meshing job returns `Cancelled` within 1 s. 5. Only one TBB library is loaded in a process using both Manifold and fTetWild (test lists loaded modules). |
+| FEM-02 | `amg-tetwild-sys` (vcpkg overlay port, MPIR, shared vcpkg oneTBB) + `TetMesher` trait, fTetWild backend (in-process API or `.msh` subprocess fallback, note §12), `SurfaceInput`, global sizing, `transfer_patches`; optional TetGen backend behind `tetgen` | MESH-04, MESH-03, FND-05 | P1 | Todo | 1. CI builds `amg-tetwild-sys` on Windows; `cargo deny` passes; THIRD_PARTY rows added. 2. Corpus (≥ 40 bodies, note §11) at default settings: ≥ 95 % mesh with no error, 0 inverted TET4, volume within 1 % of input, `ambiguous_tags` < 1 % of boundary facets. 3. Per-body mesh times recorded in the note (median, p95, and the 120 k-tet case must be < 30 s, the meshing budget of QUESTIONS #70); with `tetgen`, the same table for TetGen on clean inputs, and a recommendation on Gmsh/HXT (QUESTIONS #72) if either mesher misses the budget or the 95 % success rate. `Auto` picks TetGen for clean closed input (QUESTIONS #71). 4. A cancelled meshing job returns `Cancelled` within 1 s. 5. Only one TBB library is loaded in a process using both Manifold and fTetWild (test lists loaded modules). |
 | FEM-03 | BC/load target mapping: `SimRef` → `PatchId` sets (DOC-06 resolver for solids, `resolve_group` for meshes), `study_geometry` (`SurfaceInput`, `PatchInfo`, `SurfaceProjector` impls), `map_target` (facets, edge regions, vertex snapping), `target_triangles` | FEM-02, FEM-13, DOC-06, BREP-08, BREP-09 | P1 | Todo | 1. Box, cylinder-with-hole and L-bracket fixtures: every face/edge/vertex `SimRef` maps to the expected patch and the mapped facet area equals the B-rep face area within 0.5 % (mesh deflection). 2. After an upstream edit that keeps the face (DOC-11 corpus case TNP-02-style), the BC still maps to the same face; a deleted face gives a diagnostic naming the BC, not a panic. 3. A mesh body with 3 face groups maps by group id and by fingerprint after a group renumbering. 4. `PatchInfo::Cylinder` axis within 1e-6 rad of the B-rep axis. |
 | FEM-04 | Linear static core: TET10 element (4-pt stiffness, B-matrix), quadrature tables, parallel assembly into reduced CSR (`TᵀKT`), direct solve via CMP-03 (multi-RHS per constraint key), Gauss-point stress, extrapolation and per-body nodal averaging, reactions, unconstrained-body detection, `solve_static` | FEM-15, CMP-03 | P1 | Todo | 1. Quadrature rules integrate all monomials up to their degree within 1e-14. 2. Golden: patch test (1e-10), cantilever (1 %), NAFEMS LE1 92.7 MPa and LE10 −5.38 MPa within 2 %, plate with hole Kt 3.02 within 3 %. 3. A free body gives `Unconstrained` naming it. 4. Two load cases with equal constraints factor once (counter). 5. Criterion bench `budget/fem-static-500k` (≈ 500 k DOF TET10 bracket, mesh from cache): assemble + factor + solve + recover < 30 s (vision), with the split recorded in note §8.1. 6. Result bit-identical across two runs (determinism). |
 | FEM-05 | Simulation workspace UI: workspace + toolbar, study browser tree (`BrowserProvider`), new-study dialog, study materials dialog, constraint and load dialogs for fixed, pin, frictionless, symmetry, force, pressure, bearing, gravity (QUESTIONS #3 first set), glyph overlays, edit/suppress/delete, load-case switcher | UI-02, UI-04, UI-05, RND-07, FEM-01, FEM-13 | P1 | Todo | 1. Kittest: create a static study, fix one face, add a 100 N force on another → the study record contains exactly those items (one undo entry each). 2. Glyphs (arrows for force, hatching for fixed, rings for pin) follow the target faces after an upstream edit (snapshot). 3. Selection filter allows only faces for pressure and only cylindrical faces for pin and bearing (kittest). 4. The browser shows an "out of date" badge after a geometry edit (kittest on FEM-01 status). 5. All dialogs accept expressions with units (`10 N`, `2 MPa`). |
 | FEM-06 | Results core: `Field::nodal` for all `Quantity`s, safety factor (`VonMisesYield`, `MaxPrincipalUltimate`, P1 directional rule), `FieldSurface`, `probe`, `TetFieldSampler`/`resample_grid`, fringe display via RND-08 (colormap, range, bands, deformation, min/max markers) | FEM-04, RND-08 | P1 | Todo | 1. Von Mises, principal and max shear of random tensors match a reference implementation within 1e-12. 2. Safety factor on the cantilever equals σ_y / max σ_vM; a material without yield falls back to UTS with a warning. 3. `probe` and `TetFieldSampler` reproduce a quadratic field exactly (1e-10) inside TET10s and return `None` outside. 4. `resample_grid` of 128³ on a 500 k DOF result < 2 s. 5. RND-08 readback of the fringe on the cantilever matches `colormap_rgb` of the CPU value within 2/255 at 100 sampled pixels. |
 | FEM-07 | Modal: consistent mass (11-pt rule), shift-invert Lanczos via CMP-04, rigid-mode handling (σ < 0), participation factors and effective mass, `solve_modal`, mode-shape display (animated deformation) | FEM-04, FEM-06, CMP-04 | P1 | Todo | 1. Free-free bar: 6 modes < 0.01 Hz, first bending (β₁L = 4.730) and first axial within 1 %. 2. NAFEMS FV32 modes 1–6 within 3 %. 3. Total effective mass in each direction ≥ 90 % of the model mass when 30 modes are requested on the cantilever. 4. 500 k DOF, 8 modes < 60 s (bench `budget/fem-modal-500k`). |
-| FEM-08 | GPU iterative static path: p-multigrid preconditioner (TET10 Chebyshev–Jacobi smoother, TET4 coarse Cholesky), CMP-05 PCG in f32, f64 iterative refinement, `SolverChoice::Auto` switch from `Estimate` | FEM-04, CMP-05 | P1 | Todo | 1. On the FEM-04 golden models the GPU result matches the direct one within 1e-6 (relative energy norm). 2. 2 M DOF static (mesh cached) < 60 s on the reference GPU (bench `budget/fem-static-2m`), iteration counts recorded in note §8.3. 3. `Auto` picks GPU when `direct_bytes` exceeds 60 % of free RAM (unit test with a fake budget). 4. Device loss mid-solve returns an error, not a hang. |
+| FEM-08 | GPU iterative static path: p-multigrid preconditioner (TET10 Chebyshev–Jacobi smoother, TET4 coarse Cholesky), operators and preconditioner generic over `R: GpuReal`, run through S15 `solve_gpu` (f64 kernels where `SHADER_F64`, else f32 plus f64 iterative refinement), `SolverChoice::Auto` switch from `Estimate` | FEM-04, CMP-08 | P1 | Todo | 1. On the FEM-04 golden models the GPU result matches the direct one within 1e-6 (relative energy norm). 2. 2 M DOF static (mesh cached) < 60 s on the reference GPU (bench `budget/fem-static-2m`), iteration counts recorded in note §8.3. 3. `Auto` picks GPU when `direct_bytes` exceeds 60 % of free RAM (unit test with a fake budget). 4. Device loss mid-solve returns an error, not a hang. 5. Both precision paths pass item 1: f32 + refinement on any device (CI WARP included) and f64 via S15's local f64 gate (`AMG_COMPUTE_PRECISION=f64`; skipped with a log line on devices without `SHADER_F64`). |
 | FEM-09 | Steady-state thermal: scalar TET10 conduction, `ThermalCase` BCs (temperature, heat flux, heat source, convection, radiation by Picard iteration), `solve_thermal`, temperature and heat-flux results and display | FEM-04, FEM-06 | P2 | Todo | 1. Slab with fixed end temperatures: linear profile within 1e-8 K. 2. Pin fin with convection, adiabatic tip: tip temperature within 1 % of cosh(m(L−x))/cosh(mL). 3. Radiation-only plate converges in ≤ 20 Picard iterations to the analytic balance within 1 %. 4. Study UI gains the thermal BC dialogs. |
 | FEM-10 | Linear buckling: geometric stiffness from a static pre-stress, generalised eigen (CMP-04 with LDLᵀ), buckling factors and shapes, study type and UI | FEM-07 | P2 | Todo | 1. Fixed-free column L/r = 100: first factor within 2 % of π²EI/(4L²). 2. A plate in shear gives a positive first factor and the expected wrinkle shape (snapshot). 3. Tensile pre-stress reports "no buckling in range" instead of negative factors. |
 | FEM-11 | Nonlinear static: Newton–Raphson with load stepping and cut-back, total Lagrangian large displacement, J2 plasticity with bilinear hardening (radial return, consistent tangent), plastic strain results | FEM-04, FEM-06 | P2 | Todo | 1. Elastica cantilever PL²/EI = 2: tip deflection/L within 2 % of 0.4934. 2. Thick cylinder, elastic–perfectly plastic: collapse pressure within 2 % of (2σ_y/√3) ln(b/a). 3. Uniaxial bar with bilinear hardening matches the analytic stress–strain curve within 0.5 %. 4. Quadratic Newton convergence observed (residual ratio log table recorded). |
@@ -728,8 +729,8 @@ note §10. "Corpus" = `testdata/fem/corpus/` (note §11).
 ## Performance targets
 | Scenario | Target | WP |
 |---|---|---|
-| Linear static, ~500 k DOF, mesh cached (vision budget) | < 30 s (assembly ≤ 3 s, factor + solve ≤ 20 s, recovery ≤ 3 s) | FEM-04 |
-| Tet meshing of the same model (≈ 120 k TET10) | < 30 s (QUESTIONS #70) | FEM-02, FEM-14 |
+| Linear static, ~500 k DOF, assembly + solve + recovery with the mesh cached (vision budget; QUESTIONS #70) | < 30 s (assembly ≤ 3 s, factor + solve ≤ 20 s, recovery ≤ 3 s) | FEM-04 |
+| Tet meshing of the same model (≈ 120 k TET10), own budget, cached (QUESTIONS #70, decided) | < 30 s | FEM-02, FEM-14 |
 | Modal, 500 k DOF, 8 modes | < 60 s | FEM-07 |
 | Static, 2 M DOF, GPU iterative | < 60 s | FEM-08 |
 | Field resample 128³ | < 2 s | FEM-06 |
@@ -750,12 +751,13 @@ note §10. "Corpus" = `testdata/fem/corpus/` (note §11).
 4. (from S17, 2026-10-20) The orthotropic/printed FEM WP should depend on MAT-04. P1 solvers use `Elastic::as_isotropic()` or an explicit `isotropic_equivalent(IsoPolicy)` with a UI warning. Unassigned bodies are an error (no default material). Voigt order is `(11,22,33,23,13,12)` (`VOIGT_ORDER`), not the CalculiX order. Material axis 3 = build direction from the S16 print setup (plate +Z, `d_local = R⁻¹·Z`, `docs/notes/am-build-prep.md`).
    **Applied 2026-11-08:** FEM-22 depends on MAT-04; `SolidMaterial::from_material`; FEM-01
    pre-check; note §1.
-5. Does the 30 s static budget include meshing? → QUESTIONS #70 (*recommended:* no, mesh
-   cached; meshing has its own 30 s target).
-6. Default mesher for clean input (fTetWild only, or TetGen `Auto`)? → QUESTIONS #71
-   (*recommended:* `Auto` with `tetgen` on in the owner's build).
-7. Gmsh/HXT as a third mesher if FEM-02 measurements are poor? → QUESTIONS #72
-   (*recommended:* decide after FEM-02).
+5. Does the 30 s static budget include meshing? **Resolved 2026-11-09 (owner, QUESTIONS #70):** no; the
+   30 s covers assembly + solve (+ recovery) with a cached mesh, meshing has its own < 30 s budget.
+   Vision budgets updated.
+6. Default mesher for clean input? **Resolved 2026-11-09 (owner, QUESTIONS #71):** `MesherChoice::Auto`:
+   TetGen for clean closed input (feature `tetgen`, on in the owner's build), fTetWild otherwise.
+7. Gmsh/HXT as a third mesher? **Resolved 2026-11-09 (owner, QUESTIONS #72):** not now; decide on
+   FEM-02's measurements (an ADR would be needed).
 8. (resolved 2026-11-08) Where results live: in the `.amg` `ext/` blobs, with "save without
    results". Fusion keeps them in the cloud; a sidecar file would break "one file" sharing.
 9. (resolved 2026-11-08) Remote force default: distributing coupling (RBE3-style, no added
@@ -796,8 +798,8 @@ note §10. "Corpus" = `testdata/fem/corpus/` (note §11).
     FV32, LE11 values from *The Standard NAFEMS Benchmarks* (TNSB Rev. 3, 1990).
   - Solvers: faer supernodal Cholesky (ADR-006); shift-invert Lanczos (Ericsson–Ruhe);
     p-multigrid for quadratic elements as the GPU preconditioner because CMP-05's geometric
-    multigrid assumes structured grids; mixed-precision refinement because wgpu DX12 has no f64
-    (S15 OQ 1). Tie constraints follow CalculiX/Abaqus `*TIE`; remote loads follow the RBE3
+    multigrid assumes structured grids; precision follows the ADR-004 note (f64 kernels where
+    `SHADER_F64`, else f32 with f64 refinement; S15 OQ 1). Tie constraints follow CalculiX/Abaqus `*TIE`; remote loads follow the RBE3
     distributing-coupling idea. `fenris` (Rust FEM, MIT/Apache-2.0) is a reference for TET10
     quadrature, not a dependency.
 - **Decided:**
@@ -824,6 +826,10 @@ note §10. "Corpus" = `testdata/fem/corpus/` (note §11).
   storage location, remote-force coupling type (OQ 8, 9).
 - **Roadmap:** Phase 3 F gains FEM-13, FEM-14; Phase 4 F gains FEM-15..19; Phase 5 F gains
   FEM-20..25; lane F crate list gains `amg-tetwild-sys`.
+
+### 2026-11-09 - owner answers moved in
+- QUESTIONS #81 (precision policy): FEM-08 and the p-multigrid are generic over `R: GpuReal`; f64 kernels where the device has `SHADER_F64`, else f32 plus f64 CPU iterative refinement via `solve_gpu`; FEM-08 Done-when 5 covers both paths. Wording "f32 only / DX12 has no f64" removed.
+- QUESTIONS #70 (30 s = assembly + solve, cached mesh; meshing < 30 s own budget; vision budgets rewritten), #71 (`Auto` mesher: TetGen for clean closed input), #72 (no Gmsh/HXT now; FEM-02 Done-when 3 reports whether it is needed). Open questions 5-7 resolved.
 
 ## Interface changes
 None yet (spec not implemented). Requests this spec makes of other specs are listed under

@@ -24,7 +24,7 @@ Status: **Written** (refinement output; revisit after FEM-02 and FEM-04 land).
 | Voigt order | `(11, 22, 33, 23, 13, 12)`, engineering shear strains, = `amg_materials::VOIGT_ORDER`. Never the CalculiX order `(11,22,33,12,13,23)`; the CalculiX export (FEM-25) maps explicitly. |
 | Material axes | Axis 3 = build direction for printed materials (S17, S16 `d_local = R⁻¹·Z`). P1 is isotropic, so axes do not matter until FEM-22. |
 | Stress sign | Tension positive. Principal stresses sorted σ1 ≥ σ2 ≥ σ3. |
-| Precision | f64 everywhere on the CPU. The GPU path (FEM-08) runs f32 inner iterations with f64 outer residuals (§8.3). Results are stored in f64. |
+| Precision | f64 everywhere on the CPU. The GPU path (FEM-08) runs f64 kernels where the device has `SHADER_F64`, else f32 inner iterations with f64 outer residuals (§8.3; ADR-004 note). Results are stored in f64. |
 
 ## 2. Fusion behaviour (prior art) and our choices
 
@@ -88,6 +88,9 @@ Rules:
 ### 4.1 Mesher choice
 ADR-008 (accepted): fTetWild via FFI is the default; TetGen (AGPL) is the fallback for
 quality-constrained meshing. Both sit behind cargo features (`tetwild`, `tetgen`).
+Decided (owner, 2026-11-09, QUESTIONS #71): `MesherChoice::Auto` uses TetGen for clean closed input
+(`tetgen` on in the owner's build, personal use per ADR-012) and fTetWild otherwise; FEM-02
+measures both on the corpus and reports.
 
 - **fTetWild** (Hu et al., SIGGRAPH 2020, MPL-2.0) works on triangle soups with
   self-intersections and gaps. Its output boundary lies within an envelope ε of the input
@@ -98,7 +101,7 @@ quality-constrained meshing. Both sit behind cargo features (`tetwild`, `tetgen`
 - **TetGen** (AGPL-3.0) is a constrained Delaunay mesher. It keeps the input triangles exactly
   (with Steiner points) and is fast on clean, closed input. It fails on self-intersecting input.
 - Gmsh/HXT (GPL-2.0+) was considered (parallel, very fast, conforms to the surface). It would
-  need a new ADR, so it is listed only as an option in QUESTIONS #72.
+  need a new ADR. Owner decision 2026-11-09 (QUESTIONS #72): not now; decide on FEM-02's measurements.
 
 `TetMesher` is a small trait so the backends are swappable and testable:
 
@@ -254,7 +257,8 @@ Sparse Cholesky (faer, supernodal) on K̂. One factorisation serves every load c
 same constraint set (multiple right-hand sides). Practical limit on the reference machine: about
 1.5 M DOF for TET10 (fill grows superlinearly; the estimate decides). Budget: linear static
 ~500 k DOF < 30 s (vision), split: assembly ≤ 3 s, factor + solve ≤ 20 s, recovery ≤ 3 s, with
-the mesh taken from the cache. Meshing is timed separately (QUESTIONS #70).
+the mesh taken from the cache. Meshing has its own budget, < 30 s for the 120 k-tet model
+(owner decision 2026-11-09, QUESTIONS #70), measured by FEM-02/FEM-14.
 
 ### 8.2 Eigen (modal, buckling; CMP-04)
 Generalised problem K φ = ω² M φ. Shift-invert Lanczos with a shift σ < 0 (σ = −(2π · 1 Hz)²
@@ -263,14 +267,16 @@ by default) so free-free models factor and rigid modes come out near 0 Hz. Defau
 direction. Buckling solves K φ = −λ K_G(σ₀) φ with the stress from a static solve (FEM-10).
 
 ### 8.3 Iterative GPU (FEM-08, CMP-05)
-For models past the direct limit. wgpu has no f64 on DX12 (S15 OQ 1), so:
-- PCG in f32 on the GPU with a **p-multigrid** preconditioner: smoother on TET10 (Chebyshev-
+For models past the direct limit. Precision follows the ADR-004 note (S15 OQ 1): everything below is generic over `R: GpuReal`,
+f64 where the device reports `SHADER_F64` (in practice Vulkan), else f32 plus refinement. Both paths are tested.
+- PCG on the GPU (`R = f32` on DX12/WARP, `R = f64` on Vulkan) with a **p-multigrid** preconditioner: smoother on TET10 (Chebyshev-
   Jacobi, 2 sweeps), coarse level = the TET4 mesh of the same vertices (≈ 1/7 the DOFs), solved
   by a CPU Cholesky in f64 (or, if the TET4 level is still too big, by smoothed-aggregation AMG
   with the 6 rigid-body modes as near-null space, in a later step).
-- Mixed-precision iterative refinement outside: residual r = f − K u in f64 on the CPU, correction
-  solved on the GPU in f32, until ‖r‖/‖f‖ < 1e-8.
-- The matrix stays in CSR (f32 values, u32 columns) on the GPU. Matrix-free element-by-element
+- On the f32 path, mixed-precision iterative refinement outside: residual r = f − K u in f64 on the
+  CPU, correction solved on the GPU in f32, until ‖r‖/‖f‖ < 1e-8. The f64 path converges to
+  1e-8 directly (normally one outer step).
+- The matrix stays in CSR (`R` values, u32 columns) on the GPU. Matrix-free element-by-element
   products are a later optimisation.
 Target: 2 M DOF static < 60 s; result matches the direct solve within 1e-6 (relative energy
 norm) on models where both fit.

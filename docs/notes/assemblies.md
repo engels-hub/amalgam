@@ -1,13 +1,14 @@
 # Assemblies: components, placements, joints and the joint solver
 
 Design note for S06 (`docs/specs/S06-assemblies.md`). Written by the S06 refinement
-(2026-11-08). Needed before ASM-01 (§1–§3) and ASM-03/ASM-04 (§4–§8).
+(2026-11-08); §3 rewritten 2026-11-09 after the owner chose Fusion's pending/capture model
+(QUESTIONS #59). Needed before ASM-01/ASM-13 (§1–§3) and ASM-03/ASM-04 (§4–§8).
 
 ## 0. Prior art
 
 | Source | What it does | What we take | What we reject |
 |---|---|---|---|
-| Autodesk Fusion (help "Joint types", "Capture or Revert", tutorials on motion links, motion studies and contact sets) | Components + occurrences in one design. Seven joint types: rigid, revolute, slider, cylindrical, pin-slot, planar, ball. Joint origins snap to geometry. As-built joints, rigid groups, motion links (ratio between two joint values), drive joints, motion studies (per-joint keyed values over steps), contact sets (stop motion at contact; slow on cams and gears, Autodesk itself suggests limits or motion links instead). Moving a component leaves a *pending* position until Capture Position (a timeline entry) or Revert. | Data model, joint vocabulary and DOF table, joint-origin snaps, limits with rest value, motion links, motion study shape, contact sets as an opt-in, per-pair feature. | Pending positions and Capture Position timeline entries (§3; owner question QUESTIONS #59). |
+| Autodesk Fusion (help "Joint types", "Capture or Revert", tutorials on motion links, motion studies and contact sets) | Components + occurrences in one design. Seven joint types: rigid, revolute, slider, cylindrical, pin-slot, planar, ball. Joint origins snap to geometry. As-built joints, rigid groups, motion links (ratio between two joint values), drive joints, motion studies (per-joint keyed values over steps), contact sets (stop motion at contact; slow on cams and gears, Autodesk itself suggests limits or motion links instead). Moving a component leaves a *pending* position until Capture Position (a timeline entry) or Revert. | Data model, joint vocabulary and DOF table, joint-origin snaps, limits with rest value, motion links, motion study shape, contact sets as an opt-in, per-pair feature. Pending positions, Capture Position timeline entries and Revert (§3; owner, QUESTIONS #59). | — |
 | Onshape mates and mate connectors | Mates (fastened, revolute, slider, planar, cylindrical, pin slot, ball, parallel) between two mate connectors (frames on geometry, implicit or explicit). Mates live in an assembly feature list, not in the part history. | "A joint relates two frames" as the only primitive. Frames derived from geometry with a deterministic x-axis rule. | Separate assembly documents (we keep Fusion's single design). |
 | FreeCAD 1.0 Assembly workbench + OndselSolver (LGPL-2.1, C++) | Joints between two "joint connector" placements, grounded parts, a multibody/assembly constraint solver with Euler parameters and Newton–Raphson. The FreeCAD wiki notes that long chains need help from the user to find "a sensible solution", which is a warm-start problem. | Joints as constraints on maximal coordinates (6 per part), grounded set, warm start from the current placements. | Taking OndselSolver as a dependency: C++, LGPL, another FFI, and we already have the S03 equation-system layer in Rust. |
 | FreeCAD Assembly3 (uses SolveSpace `libslvs`) and SolveSpace | 3D constraints on points/normals with quaternion parameters plus a unit-norm constraint per quaternion. | Primitive constraints (coincident point, point on line, point on plane, parallel normals, locked rotation) as the residual vocabulary. | Quaternions with norm rows: we use increments on SE(3) instead (§6.1), so there are no redundant rows and no normalisation drift. `libslvs` is GPL and only an S03 test oracle (ADR-007). |
@@ -26,9 +27,10 @@ Design note for S06 (`docs/specs/S06-assemblies.md`). Written by the S06 refinem
   DOC-03's cache key hashes the context id but not any occurrence transform. Moving an
   occurrence therefore never invalidates the geometry of the moved component.
 - Features that read geometry from another component use `EntityRef::InContext { path, target }`.
-  DOC-03 hashes the *authored* transforms of every occurrence on such a path. Such features see
-  authored transforms, not solved placements (§2). This is deterministic and avoids a cycle
-  (features → geometry → joint solve → placements → in-context features). After a commit, the
+  DOC-03 hashes the *captured* transforms (§3: base overridden by capture nodes before the
+  feature) of every occurrence on such a path. Such features see captured transforms, not
+  pending moves and not solved placements (§2). This is deterministic and avoids a cycle
+  (features → geometry → joint solve → placements → in-context features). After a capture the
   two are equal unless a geometry edit moved a joint origin (§3).
 
 **Transforms must be rigid or mirrored.** `amg_core::Transform` is a `DAffine3`, so it can hold
@@ -39,34 +41,130 @@ solver moves occurrences by a rigid increment applied on the left (§6.1), so mi
 
 ## 2. Authored transforms vs solved placements
 
-- **Authored** (`Design`): `Occurrence::transform` (last committed position), `grounded`, and
-  the joint states of §5.5. Undo/redo works on these.
+- **Authored** (`Design`): `Occurrence::transform` (base position), the capture nodes in the
+  timeline, the pending moves (`Design::pending_positions`), `grounded`, and the joint states of
+  §5.5 (layered the same way). Undo/redo works on these.
 - **Evaluated** (`Evaluated::placements`): the placement of every occurrence after the
-  assembly stage of recompute (§7). Display, picking, measure, mass properties (INS-10),
-  interference (INS-04) and STEP export (IO-06) use placements.
-- Without joints the two are equal: ASM-01 copies authored transforms into placements, and
-  ASM-04 adds the solve.
+  assembly stage of recompute (§7), seeded from `Design::seed_transform`. Display, picking,
+  measure, mass properties (INS-10), interference (INS-04) and STEP export (IO-06) use
+  placements, so they include pending moves (what the user sees is what is measured and
+  exported, as in Fusion).
+- Without joints the two are equal: ASM-01 copies authored transforms into placements, ASM-13
+  adds the layers, and ASM-04 adds the solve.
 
-## 3. Moving occurrences: no pending positions (QUESTIONS #59)
+## 3. Moving occurrences: pending positions, Capture Position, Revert (QUESTIONS #59)
 
-Fusion marks a moved component as pending until Capture Position adds a timeline entry or
-Revert throws the move away. Autodesk's own advice is to use captures sparingly because they
-"load up the timeline". We propose a simpler model:
+The owner chose Fusion's model (2026-11-09). The 2026-11-08 proposal (every move committed at
+once, undo as revert) is dropped.
 
-- Every move (gizmo, drag, drive, motion-study "capture frame") ends in one
-  `Command::SetOccurrenceTransforms` (one undo entry). Undo is the revert.
-- There are no position entries in the timeline. Positions are authored state, like body
-  visibility.
-- A geometry edit that moves a joint origin changes the solved placements at the next
-  recompute. The authored transforms stay as they were until the next move commits. The
-  browser shows a "positions out of date" badge on the root when placements and authored
-  transforms differ by more than the model tolerance. Its action, "Update positions", commits
-  the placements (one command). This matters only for in-context features, which read authored
-  transforms (§1).
+### 3.1 Fusion's documented behaviour
+From the Fusion help page "Capture or revert position of components", Autodesk's blog post
+"How to use Capture or Revert" and the Autodesk forum:
+- After components are moved or rotated, the Position panel (Capture Position, Revert) appears
+  in the toolbar. "Positions are captured silently as you move them until you activate a
+  command that requires you to decide."
+- Capture Position keeps the current positions and adds a Position entry to the timeline.
+  Editing a captured position affects everything after it in the timeline. Autodesk advises
+  using captures sparingly because they load up the timeline.
+- Revert returns the components to their most recently captured position. It has no dialog.
+- A position-dependent command (the help names Joint Origin) shows a message that components
+  have moved, with Capture Position (keep) and Continue (revert).
+- Uncaptured positions are lost when the timeline marker is rolled back and forward.
+- Joints place components themselves; creating a joint does not leave a pending position.
+- Not documented: whether uncaptured positions are saved with the file. We save them (below).
 
-The owner decides between this and Fusion's pending/capture model (QUESTIONS #59). The rest of
-this note does not depend on the answer: capture would only add a "pending" flag in the UI
-that holds the commit back.
+### 3.2 Three authored layers
+The local transform of occurrence `o` (relative to its parent) is defined by layers, each
+overriding the one below:
+1. **Base**: `Occurrence::transform`. Set by `NewComponent`, `AddOccurrence`,
+   `MoveOccurrence { keep_world }`, create-components-from-bodies, paste, STEP import, and by
+   `SetOccurrenceTransforms` when no capture node supplies `o` (and always in Direct mode).
+2. **Capture nodes**: built-in timeline feature `assembly.capture_position`
+   (`CapturePositionFeature { moves, joint_states }`), implemented in `amg-doc` like `core.base`,
+   because the recompute engine must read it without `amg-features`. Root context, no inputs,
+   no bodies. A node applies only if it is before the marker, not suppressed and healthy.
+   `Design::captured_transform_at(o, i)` = base overridden by every applying capture node
+   before index `i` that lists `o` (last wins).
+3. **Pending**: `Design::pending_positions: PendingPositions { moves, joint_states }` (persistent
+   maps, `#[serde(default)]`). Pending moves sit on top at the marker:
+   `Design::seed_transform(o)` = pending, else `captured_transform_at(o, marker)`.
+
+Joint states (§5.5) use the same three layers (base `Design::joint_states`, capture nodes,
+pending); `Design::joint_state(j)` returns the effective one at the marker.
+
+### 3.3 Who reads which layer
+- **Features** (in-context refs, `Dependency::Occurrence`, DOC-03 key bits) read
+  `captured_transform_at(o, own index)`. The timeline pass keeps a running position table and
+  updates it when it passes an applying capture node, so this costs nothing per lookup.
+  Pending moves are never visible to features, so a move re-runs no feature; capturing re-runs
+  only the in-context features after the new node whose paths include a captured occurrence.
+- **The assembly stage** (§7) seeds from `seed_transform` and its key includes the pending
+  layer. A pending move costs one assembly-stage solve, nothing more.
+- **Display and everything that uses placements** see the solved result of the seeds, so a
+  pending move is visible, measurable and exported.
+
+### 3.4 Commands (all in `amg-doc`, ASM-13; one undo entry each)
+- `SetPendingPositions { moves, joint_states }`: merged into pending. Written by every
+  interactive move: Move tool, joint-aware drag (`AsmDrag::finish`), rest values, Drive
+  Joints, motion study "use this frame". Refused for grounded occurrences and in Direct mode.
+- `CapturePositions { moves, joint_states, name }`: inserts an `assembly.capture_position` node
+  at the marker and clears pending. The values are built by `joints::capture_command(design,
+  eval)` from the solved placements (local transforms) and joint states of every pending
+  occurrence and every out-of-date one (§3.6); the command carries the values, so the journal
+  replays it without a solve. Capturing the solved placements (not the raw pending seeds) means
+  a dragged mechanism is captured exactly as displayed, including occurrences moved by joints.
+- `RevertPositions`: clears pending. The occurrences go back to their captured positions and
+  the joints re-solve. Refused when nothing is pending.
+- `SetOccurrenceTransforms { moves, joint_states }`: a direct placement that leaves nothing
+  pending. It writes the layer effective at the marker: the latest applying capture node before
+  the marker that lists `o` (the node's data is replaced in the same snapshot), else the base.
+  Used by joint creation (ASM-11 snap), scripts and Direct mode. It also removes pending
+  entries for those occurrences.
+- `SetMarker` clears pending in the same undo entry (Fusion loses uncaptured positions on
+  rollback; the UI asks first, §3.5). Other commands keep pending moves.
+- `DeleteOccurrences` drops pending entries of deleted occurrences; a capture node that lists
+  a missing occurrence ignores it and gets `Health::Warning`. Deleting a joint drops its pending
+  and captured joint states the same way.
+- `DocEvent::PendingPositionsChanged` on every change of the pending layer (including undo).
+
+### 3.5 Undo, save, prompts
+- **Undo** is snapshot-based (ADR-014): each move, capture and revert is one entry. Undo of a
+  capture removes the node and restores the pending moves; undo of a revert restores them.
+- **Save**: pending moves are authored state, so they are in `design.json` and the crash
+  journal; reopening a file shows the same positions and the Position panel. Adding the field
+  with `serde(default)` needs no `FORMAT_VERSION` bump.
+- **Prompt** (UI, ASM-02): while `has_pending_positions()`, actions that depend on positions ask
+  "Capture Position / Revert / Cancel" first: Joint Origin, a feature dialog with an in-context
+  pick, dragging the timeline marker, reordering or editing a timeline node, Direct/History
+  mode switch. The S11 framework calls a guard hook that `amg-ui::assembly` registers (S11
+  request). Joint, As-built Joint, Rigid Group, Motion Link, Drive Joints and Motion Study need
+  no prompt: their origins are in component space and pending moves are just seeds.
+
+### 3.6 Joints, grounding, recompute and motion while moves are pending
+- **Joint creation** commits `AddFeature` + `SetOccurrenceTransforms` (the snap) in one
+  transaction, so the joint leaves nothing pending (Fusion behaviour). Joints constrain the
+  solve whatever the seed, so a pending move on a jointed occurrence only picks the branch and
+  the free DOF values.
+- **Editing a joint or recompute** with pending moves: the pending seeds stay; the solver starts
+  from them (same branch as on screen). Pending entries are not rewritten by recompute.
+- **Out of date**: when the solved placement of an occurrence differs from its seed by more
+  than the model tolerance (a geometry edit moved a joint origin, a joint was edited), the
+  browser shows "positions out of date"; its action is Capture Position, which captures those
+  occurrences too (`joints::out_of_date`).
+- **Grounding**: a grounded occurrence cannot get pending moves. Grounding one that has a
+  pending move keeps it there (it is still pending until capture or revert). The solver treats a
+  grounded occurrence as fixed at its seed.
+- **Motion**: Drive Joints and "use this frame" give pending moves. Motion-study playback is
+  transient (frames in memory) and seeds from the current placements, so it includes pending
+  moves.
+- **Direct mode**: no timeline, so no capture nodes and no pending layer; moves commit to the
+  base with `SetOccurrenceTransforms` (Fusion's "do not capture design history").
+
+### 3.7 Editing capture nodes
+v1 has no edit dialog. A capture node can be renamed, suppressed, deleted and reordered like
+any node (reordering re-runs the in-context features it moves past). To change it: roll the
+marker after it, move, capture again, delete the old node. A dedicated edit (move while the
+marker sits after the node, then fold pending into it) can be added later without data changes.
 
 ## 4. Joints are timeline features
 
@@ -161,9 +259,10 @@ drag tool drives the value back to `rest` before committing (Fusion "Rest").
 ### 5.5 Joint states (authored)
 Revolute angles beyond ±π, limits such as −720°..720° and motion links (§8.1) need the
 unwrapped value, which a transform does not hold. `Design::joint_states:
-PMap<FeatureId, JointState>` stores the last committed unwrapped values. It is written by the
-same `SetOccurrenceTransforms` command that commits a move. Missing entries are extracted from
-the placements (wrapped to (−π, π]).
+PMap<FeatureId, JointState>` stores the base unwrapped values; capture nodes and the pending
+layer override them as for positions (§3.2). Each layer is written by the same command as the
+move (`SetOccurrenceTransforms`, `CapturePositions`, `SetPendingPositions`). Missing entries are
+extracted from the placements (wrapped to (−π, π]).
 
 ## 6. Joint solver (`amg-doc::joints`, ASM-04)
 
@@ -198,7 +297,8 @@ the placements (wrapped to (−π, π]).
    with no joint (it simply keeps its authored transform).
 
 ### 6.3 Solve
-- Seed: the authored transforms. LM with min-norm steps: under-constrained systems move as
+- Seed: `Design::seed_transform` (captured at the marker, overridden by pending, §3.2). LM with
+  min-norm steps: under-constrained systems move as
   little as possible from the seed (the S03 rule), so free chains stay where the user left
   them. This is the warm start the FreeCAD wiki asks the user to help with.
 - Convergence: max |row| ≤ 1e-9 mm (rows in mm); at most 50 iterations.
@@ -225,7 +325,8 @@ the placements (wrapped to (−π, π]).
    constraints. Limits clamp with the active set.
 3. Contact sets (§8.3) shorten the step if enabled.
 4. The frame result is a `Placements` overlay for display only. Mouse-up gives one
-   `SetOccurrenceTransforms` command (with joint states and, if set, rest values applied).
+   `SetPendingPositions` command (`SetOccurrenceTransforms` in Direct mode) with every
+   occurrence that moved, the joint states and, if set, rest values applied.
 
 Drag runs synchronously on the UI thread: a 50-occurrence mechanism costs well under 1 ms per
 frame (§9). Systems above 2 000 unknowns run each frame step as a job and show the last
@@ -236,8 +337,9 @@ finished frame (never blocks > 16 ms).
 After the timeline pass, `amg-doc` runs the assembly stage:
 1. Collect the `AsmItem`s of every computed (not suppressed, not failed) node before the
    marker, in timeline order.
-2. Key: blake3 over the items, authored transforms, grounded flags and joint states. If the key
-   equals the previous evaluated key, reuse the previous placements.
+2. Key: blake3 over the items, seed transforms (captured at the marker + pending), grounded
+   flags and effective joint states. If the key equals the previous evaluated key, reuse the
+   previous placements.
 3. Solve (§6) and store `Evaluated::placements` and `Evaluated::asm_diagnostics`.
 4. `DocEvent::OccurrenceTransformChanged(o)` is emitted for every occurrence whose placement
    changed in the swap (in addition to authored changes, as today).
@@ -255,13 +357,14 @@ pair stays in phase over many turns.
 
 ### 8.2 Drive joints and motion studies
 - **Drive joint** (tool): sets one joint value (field or slider), solves with a temporary
-  equality row, commits on OK.
+  equality row; OK gives a pending move (§3).
 - **Motion study** (`ExtRecord` kind `assembly.motion_study`, not a timeline feature, as in
   Fusion): `{ name, steps: u32 (default 100), tracks: [{ joint, value: ValueSel, keys:
   [(step, Expr)] }] }`, linear between keys. Playback samples every step: drive rows for all
   tracks, solve warm-started from the previous step, contact if enabled. A job computes all
-  frames into an in-memory `Vec<Placements>` (not saved); the panel plays them. "Capture this
-  frame" commits that frame's transforms.
+  frames into an in-memory `Vec<Placements>` (not saved); the panel plays them. "Use this
+  frame" turns that frame's transforms into a pending move (§3), which the user captures or
+  reverts.
 
 ### 8.3 Contact sets
 `ExtRecord` kind `assembly.contact`: `{ mode: Off | Sets | All, sets: [{ name, members:

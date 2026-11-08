@@ -41,7 +41,8 @@ reference*, *Holes and threads*, and the Fusion API (`ExtrudeFeatureInput`,
   centerline, closed, tangent-edge merge, point mapping. S20 owns the builder.
 - **Fillet**: edge sets with constant, chord-length or variable radius; tangent chain;
   corner type rolling ball or setback. Rule fillet and full-round fillet are separate
-  commands. G2 (curvature-continuous) fillets are an option in Fusion (QUESTIONS #55).
+  commands. G2 (curvature-continuous) fillets are an option in Fusion; they are needed (owner, QUESTIONS #55) and
+  planned with the Phase 7 Rust fillet engine (S20 KH-10). SOL-05 ships G1 only.
 - **Chamfer**: equal distance, two distances, distance and angle; corner type.
 - **Shell**: faces to remove (none = hollow body), inside and outside thickness, direction
   inside/outside/both, tangent chain.
@@ -272,8 +273,10 @@ A *feature pattern* repeats what a feature did, not its result.
 - The values are facts from published standards and drill charts, not copied text. Sources
   are listed in the file header. The SOL-12 test recomputes every derived column from the
   formulas, so a typo fails the test.
-- **UNC/UNF** come with the Thread feature (SOL-25); scope depends on QUESTIONS #54.
-- Print allowances for FFF parts are QUESTIONS #53.
+- **UNC/UNF** come with the Thread feature (SOL-25); ISO metric + UNC/UNF; pipe threads (BSP/NPT) only on request (owner, QUESTIONS #54).
+- Print allowances (QUESTIONS #53, decided): a per-feature radial `clearance` field on Hole and Thread,
+  default 0, parameter-drivable; a per-technology default from the S16 printer profile comes only
+  once printer profiles exist.
 
 ## 8. Recompute budget
 The vision budget is < 500 ms for a typical 50-feature part after an early sketch edit. That

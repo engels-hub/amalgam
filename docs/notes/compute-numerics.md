@@ -1,6 +1,7 @@
 # Compute and numerics (S15, `amg-compute`)
 
-Written during the S15 refinement (2026-11-08). It holds the evidence and reasoning behind the
+Written during the S15 refinement (2026-11-08); §1, §2.1, §7.1 and §8 updated on 2026-11-09
+for the owner's answers to QUESTIONS #80 and #81. It holds the evidence and reasoning behind the
 S15 Interfaces and work packages. Specs that use `amg-compute` (S08, S13, S14, S16) should read
 §1 (GPU constraints) and §2 (precision and determinism) first.
 
@@ -13,7 +14,7 @@ every kernel in `amg-compute`.
 |---|---|---|
 | Backend is DX12 on Windows; Vulkan only with `AMG_WGPU_BACKEND=vulkan` | `GpuConfig::default`, S00 FND-09 | Kernels must run on DX12. |
 | DX12 shader compiler is FXC (Shader Model 5.1) | `GpuConfig::dx12_compiler` default, S00 | No subgroup (wave) operations: wgpu exposes `SUBGROUP` on DX12 only with DXC (SM 6.0+). No `f16` shader type: `SHADER_F16` needs DXC (SM 6.2). |
-| `SHADER_F64` is Vulkan-only in wgpu 30 | S00 FND-09 log (RTX 5060 Ti, driver 32.0.16.1714), S10 | No f64 in kernels on the default device. |
+| `SHADER_F64` is Vulkan-only in wgpu 30 | S00 FND-09 log (RTX 5060 Ti, driver 32.0.16.1714), S10; wgpu-hal 30.0.1 sets it only in `vulkan/adapter.rs` (from `shaderFloat64`); naga's MSL backend rejects f64 | No f64 on the default DX12 device, on WARP or on Metal. f64 kernels run only on a Vulkan device with `shaderFloat64`; everywhere else the f32 fallback runs (§2.1). |
 | WGSL atomics are `atomic<u32>` / `atomic<i32>` only | WGSL spec | No float atomics. Sums use tree reductions, never atomic adds. |
 | `max_compute_workgroups_per_dimension` = 65 535 | WebGPU default, also the DX12 value | Large 1-D launches fold into a 2-D grid (§3.1). |
 | `max_storage_buffer_binding_size` is adapter-specific (WARP is smaller) | wgpu `Limits` | One binding never exceeds the device limit; `GpuVec` checks it and returns `ComputeError::TooLarge` instead of a wgpu validation panic. |
@@ -21,8 +22,10 @@ every kernel in `amg-compute`.
 
 Reference machine (checked on the owner's machine, 2026-11-08): AMD Ryzen 7 5700X3D (8 cores,
 16 threads, AVX2, no AVX-512), 32 GB RAM, RTX 5060 Ti with 16 GB VRAM (driver 617.14 /
-32.0.16.1714). GeForce Blackwell runs FP64 at 1/64 of the FP32 rate, so even with
-`SHADER_F64` (Vulkan) f64 kernels would be slow.
+32.0.16.1714). GeForce Blackwell runs FP64 at 1/64 of the FP32 rate (≈ 0.37 of ≈ 23.7
+TFLOPS), so with `SHADER_F64` (Vulkan) compute-bound f64 kernels are slow, while
+bandwidth-bound ones (CSR SpMV at ≈ 0.17 flop/byte against 448 GB/s) mainly pay for the larger
+values (12 instead of 8 bytes per non-zero, about 1.5×). See §2.1.
 
 Decisions:
 - Kernels are written for FXC/SM 5.1 semantics: workgroup shared memory and barriers only, no
@@ -35,20 +38,47 @@ Decisions:
 
 ## 2. Precision and determinism
 
-### 2.1 Precision policy (resolves S15 open question 1)
-- **GPU kernels are f32 only.** No f64 kernels, and no emulated double ("double-float", pairs of
-  f32 with error-free transforms) for solvers. Reasons: error-free transforms need either a
-  fused multiply-add or strict IEEE evaluation order. WGSL `fma` lowers to HLSL `mad`, which DX12
-  does not guarantee to be fused, and FXC may reorder float expressions (naga does not emit
-  HLSL `precise`). A df64 kernel that silently loses its extra bits is worse than an honest f32
-  one. df64 costs 10–20 f32 operations per add or multiply, so it would also be slow.
-- **Accuracy comes from mixed-precision iterative refinement** (Carson and Higham 2018, three-
-  precision refinement; the classic form is Wilkinson's). The residual `r = b − A·x` is computed
-  in f64 on the CPU, the correction `A·d ≈ r` is solved on the GPU in f32 to a loose tolerance
-  (1e-4 relative), and `x += d` is applied in f64. Each outer step gains about
+### 2.1 Precision policy (S15 open question 1; owner policy 2026-11-09, ADR-004 note)
+The 2026-11-08 refinement proposed f32-only kernels (QUESTIONS #81). The owner did not accept
+that. The policy is:
+- **f64 kernels where the device supports `SHADER_F64`.** In wgpu 30 that is a Vulkan device
+  whose driver reports `shaderFloat64` (most desktop GPUs, including the reference RTX 5060 Ti).
+  DX12 (the Windows default), WARP and Metal never report it (§1).
+- **f32 kernels plus f64 iterative refinement on the CPU everywhere else** (the default DX12
+  device, WARP in CI). This is mixed-precision iterative refinement (Carson and Higham 2018,
+  three-precision refinement; the classic form is Wilkinson's). The residual `r = b − A·x` is
+  computed in f64 on the CPU, the correction `A·d ≈ r` is solved on the GPU in f32 to a loose
+  tolerance (1e-4 relative), and `x += d` is applied in f64. Each outer step gains about
   `−log10(inner tolerance)` digits while `κ(A)·ε₃₂ < 1` holds (ε₃₂ ≈ 6e-8). That covers
   elasticity with condition numbers up to ~1e7. Topology optimisation only needs about 1e-5
   relative accuracy, so it can skip the outer loop.
+- **Chosen at runtime, per device.** `PrecisionPolicy::Auto` resolves to F64 exactly when
+  `Gpu::has(SHADER_F64)` (FND-09's `GpuConfig` already requests it as optional). `ForceF32`
+  runs the fallback on an f64-capable device (tests compare both paths on one device);
+  `RequireF64` errors on devices without it (the f64 test gate). `AMG_COMPUTE_PRECISION`
+  overrides the policy. Precision is never a Cargo feature.
+- **One kernel source, two instantiations.** WGSL has no generics, so numeric kernels are
+  written over `alias real`, which the prelude binds to f32 or f64 (naga 30 needs no `enable`
+  directive for f64; literals take the `lf` suffix, so kernels write `real(…)`). Rust types are
+  generic over `R: GpuReal`. `solve_gpu` is the single place that picks the path: on F64, PCG
+  runs to the final tolerance (with a CPU f64 residual check, normally one outer step); on F32,
+  `refine` wraps a loose f32 PCG.
+- **Both paths are tested.** CI (WARP, DX12) runs the F32 path; the F64 path runs on the
+  reference machine with Vulkan (the "f64 gate", S15 Testing) and is reported as skipped, with
+  a reason, on devices without `SHADER_F64`. A Mesa lavapipe job could bring it into CI (S15
+  open question 9).
+- **Still no emulated double** ("double-float", pairs of f32 with error-free transforms).
+  Error-free transforms need either a fused multiply-add or strict IEEE evaluation order. WGSL
+  `fma` lowers to HLSL `mad`, which DX12 does not guarantee to be fused, and FXC may reorder
+  float expressions (naga does not emit HLSL `precise`). A df64 kernel that silently loses its
+  extra bits is worse than an honest f32 one. df64 costs 10–20 f32 operations per add or
+  multiply, so it would also be slow.
+- **The backend default decides which path users get.** With the Windows default (DX12), no
+  Windows user gets the F64 path unless they select Vulkan. And because GeForce GPUs run FP64 at
+  1/64 rate (§1), the F64 path may be slower than F32 + refinement for compute-bound kernels.
+  Budgets are therefore measured on the F32 path on the default device, and F64 numbers are
+  recorded beside them; whether to change the default or let a solver prefer F32 on f64 devices
+  is S15 open question 8.
 - The CPU is the f64 reference everywhere: every GPU primitive and solver has a CPU
   implementation with the same semantics, and tests compare them.
 
@@ -89,11 +119,11 @@ Requested by S16 (AM-13: sort, prefix scan, segmented reduce, atomic counter buf
 
 | Primitive | Algorithm | Why |
 |---|---|---|
-| Reduce (sum, min, max; f32, u32, i32) | Two-level tree: each workgroup reduces 256 × 8 elements in shared memory, a second pass reduces the partials | Fixed order, no atomics, ~memory bandwidth. |
-| Dot product, squared norm (f32) | Same tree, fused multiply in the first level | PCG needs 2 dots per iteration. |
+| Reduce (sum, min, max; f32, f64 where supported, u32, i32) | Two-level tree: each workgroup reduces 256 × 8 elements in shared memory, a second pass reduces the partials | Fixed order, no atomics, ~memory bandwidth. |
+| Dot product, squared norm (f32; f64 where supported) | Same tree, fused multiply in the first level | PCG needs 2 dots per iteration. |
 | Exclusive / inclusive scan (u32) | Reduce-then-scan (3 passes: tile sums, scan of sums, tile scan with offset) | Portable. Single-pass decoupled look-back (Merrill and Garland 2016) needs forward-progress guarantees that WebGPU does not give; it can hang on some GPUs (Levien, "Prefix sum on portable compute shaders", 2021). The fallback variant (Smith, Levien, Owens, "Decoupled fallback", 2025) is a later optimisation. |
 | Stream compaction | Mark → scan → scatter | Deterministic order. |
-| Segmented reduce (f32 sum/min/max) | Segments given by an offsets array; one workgroup per segment for long segments, a flag-scan for short ones | AM-13 per-direction scores. |
+| Segmented reduce (f32 or f64 sum/min/max) | Segments given by an offsets array; one workgroup per segment for long segments, a flag-scan for short ones | AM-13 per-direction scores. |
 | Radix sort (u32 keys, optional u32 values), stable | LSD, 4 passes of 8 bits; each pass = per-tile histogram, scan of histograms, stable scatter with per-tile ranking in shared memory | Onesweep (Adinets and Merrill 2022) and `wgpu_sort` use look-back and subgroups (see the scan row). Reduce-then-scan radix sort works on FXC. `key_bits` skips unneeded passes. |
 | Atomic counter buffer | `GpuVec<u32>` of length 1 + reset | S16 A-buffer fragment allocation. |
 
@@ -204,19 +234,19 @@ uploaded as a plain `GpuVec<T>` plus a 16-byte dims uniform. No tree, no apron.
 - ARPACK (BSD-3) was rejected as a dependency: Fortran toolchain on Windows. Spectra (MPL-2.0,
   C++) and SLEPc are references only.
 - **LOBPCG** (Knyazev 2001), CMP-09, P2: block, preconditioned, matrix-free; runs with the GPU
-  operator and preconditioner (f32 products, f64 Rayleigh–Ritz on the CPU). For models past the
-  direct limit and for GEN-09 frequency constraints. `linfa-linalg`'s LOBPCG (MIT/Apache) is a
-  reference.
+  operator and preconditioner (f32 or f64 products by §2.1, f64 Rayleigh–Ritz on the CPU). For
+  models past the direct limit and for GEN-09 frequency constraints. `linfa-linalg`'s LOBPCG
+  (MIT/Apache) is a reference.
 
 ## 7. Iterative solvers (CMP-08, CMP-05, CMP-11)
 
 ### 7.1 PCG and the backend trait (CMP-08)
-- Public traits: `LinearOperator` (CPU, f64), `GpuOperator` and `GpuPreconditioner` (f32 on the
-  GPU). S13 plugs its p-multigrid in as a `GpuPreconditioner`; S14 implements its H8 elasticity
-  as a `GpuOperator`.
-- GPU matrices: `GpuCsr` with f32 values and u32 columns, **full** (both triangles) storage.
-  Symmetric SpMV from upper storage would need float atomics, which WGSL does not have.
-  2 M DOF TET10 (≈ 160 M non-zeros full) is ≈ 1.3 GB, fine on 16 GB.
+- Public traits: `LinearOperator` (CPU, f64), `GpuOperator<R>` and `GpuPreconditioner<R>` (on
+  the GPU, generic over `R: GpuReal` = f32 or f64, §2.1). S13 plugs its p-multigrid in as a
+  `GpuPreconditioner`; S14 implements its H8 elasticity as a `GpuOperator`.
+- GPU matrices: `GpuCsr<R>` with f32 or f64 values and u32 columns, **full** (both triangles)
+  storage. Symmetric SpMV from upper storage would need float atomics, which WGSL does not have.
+  2 M DOF TET10 (≈ 160 M non-zeros full) is ≈ 1.3 GB in f32 and ≈ 1.9 GB in f64, fine on 16 GB.
 - Preconditioners shipped: Jacobi, 3×3 block Jacobi (one node's DOFs; much better for
   elasticity), and Chebyshev–Jacobi (polynomial smoother; eigen bounds from a few Lanczos steps;
   Adams et al. 2003 for its use as an MG smoother). The same Chebyshev type is the smoother for
@@ -227,8 +257,8 @@ uploaded as a plain `GpuVec<T>` plus a 16-byte dims uniform. No tree, no apron.
 - Convergence checks need a readback. PCG reads the residual norm every `check_every`
   iterations (default 8), asynchronously, so the GPU is not idle while the CPU waits.
 - ADR-004 amendment: the PCG loop is generic over a crate-private `VectorBackend` trait (alloc,
-  copy, axpy, dot, scale) with a wgpu implementation; CMP-06 adds a CUDA one. Callers only see
-  `SolverDevice`.
+  copy, axpy, dot, scale) with a wgpu implementation per precision; CMP-06 adds a CUDA one.
+  Callers only see `SolverDevice`, `GpuSystem` and `solve_gpu`.
 
 ### 7.2 Geometric multigrid on structured grids (CMP-05)
 For voxel FE (S14 topology optimisation, S16 AM-09): vertex-centred grids, coarsening by 2 per
@@ -257,8 +287,12 @@ the backend split.
 `cudarc` (MIT/Apache-2.0) behind feature `cuda`, never required. It implements the crate-private
 `VectorBackend` and the CSR SpMV / Chebyshev kernels, with CUDA kernels compiled at runtime by
 NVRTC so no CUDA toolkit is needed to build. ADR-004's amendment makes CUDA the first
-optimisation to pursue once the wgpu solvers are benchmarked; the roadmap still has CMP-06 in
-Phase 6, so QUESTIONS #80 asks the owner to confirm the timing.
+optimisation to pursue once the wgpu solvers are benchmarked. **Timing (owner, 2026-11-09,
+QUESTIONS #80 (b)):** CMP-06 is P2 in Phase 5 and starts only if the wgpu solver benchmarks
+(CMP-08 bench 3, CMP-05 bench 2, or the FEM-08 / GEN-03 budget benches) miss their budgets; it
+becomes the default only if ≥ 1.5× faster than wgpu on the same precision path. CUDA devices
+always have f64, so CMP-06 implements both precisions and follows §2.1's policy through
+`SolverDevice::precision`.
 
 ## 9. Test problems
 `amg_compute::testprob` (public, used by S13/S14 benchmarks too) generates structured problems
@@ -274,6 +308,9 @@ Sizes used by the Done-when items: 500 k DOF elasticity is the 55³-node grid (4
 ## Sources
 - WGSL and WebGPU specs (atomics, limits, `pack2x16float`); wgpu 30 `Features` docs (`SUBGROUP`,
   `SHADER_F16`, `SHADER_F64` backend notes).
+- wgpu-hal 30.0.1 source (`vulkan/adapter.rs` is the only backend that sets `SHADER_F64`) and
+  naga 30.0.1 source (WGSL `lf` literals, no `enable` needed for f64; the MSL backend rejects
+  f64), read from the cargo registry on 2026-11-09.
 - E. Carson, N. Higham, "Accelerating the solution of linear systems by iterative refinement in
   three precisions", SIAM J. Sci. Comput. 2018.
 - D. Merrill, M. Garland, "Single-pass parallel prefix scan with decoupled look-back", NVIDIA

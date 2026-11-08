@@ -238,9 +238,10 @@ With `s` the body SDF (negative inside), `L` the lattice and `t` the skin thickn
   mesh. For implicit bodies we propose: solid or mesh combined with implicit **stays implicit**
   (the other operand enters as a `MeshSdf`). Meshing happens once, at export or when a mesh-only
   feature reads it. A lattice would lose most of its value if every boolean meshed it at once.
-  This needs owner agreement (QUESTIONS #63) because it narrows an architecture rule.
-- Until the owner answers, `ImplicitCombineFeature` only accepts implicit targets, and MESH-27
-  combine keeps its "converted to mesh" warning for implicit inputs.
+  Owner decision 2026-11-09 (QUESTIONS #63); architecture §Geometry representations carries the
+  exception.
+- `ImplicitCombineFeature` accepts implicit, solid and mesh operands; MESH-27 combine keeps its
+  "converted to mesh" warning when the target is a mesh body.
 
 ## 11. Later: conformal lattices and automated modeling
 - **Conformal (IMP-09).** A `UvwMap` trait maps world points to lattice coordinates. First maps:
@@ -251,7 +252,9 @@ With `s` the body SDF (negative inside), `L` the lattice and `t` the skin thickn
 - **Automated modeling (IMP-10).** Fusion generates connecting shapes between chosen faces while
   avoiding obstacle bodies. An implicit heuristic: smooth-union capsules or swept tubes between
   the connect faces, subtract obstacles with a clearance offset, then smooth. The topology
-  optimiser (S14) is the heavier alternative. QUESTIONS #62 asks the owner which.
+  optimiser (S14) is the heavier alternative. Decided (owner, QUESTIONS #62, 2026-11-09): the implicit
+  heuristic ships first; a small topology-optimisation mode (connect faces as preserves, obstacles
+  as keep-outs) is added later as an option.
 
 ## References
 - fidget: https://github.com/mkeeter/fidget (README, docs.rs 0.4.x)

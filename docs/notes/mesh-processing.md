@@ -171,8 +171,8 @@ Reasons:
 re-checks this: if the vcpkg route fails on MSVC, the fallback is `manifold-csg-sys` with
 `MANIFOLD_CSG_LIB_DIR` pointing at a CMake build of a pinned tag.
 
-*Build flags.* `MANIFOLD_CBIND=ON`, `MANIFOLD_PAR=ON` (vcpkg `tbb`), `MANIFOLD_CROSS_SECTION=OFF`
-(avoids Clipper2; we do 2D in `amg-sketch`), Python/JS bindings off, static CRT matched to the
+*Build flags.* `MANIFOLD_CBIND=ON`, `MANIFOLD_PAR=ON` (vcpkg `tbb`), `MANIFOLD_CROSS_SECTION=ON`
+(pulls in Clipper2; the C API needs it, ADR-003 amended 2026-11-09, QUESTIONS #52; we do 2D in `amg-sketch` and never call it), Python/JS bindings off, static CRT matched to the
 Rust MSVC target (`/MD`). Licences: Manifold Apache-2.0, oneTBB Apache-2.0.
 
 *Data path.* `IndexedMesh` → `MeshGL64` (interleaved `vertProperties` with 3 position channels,
