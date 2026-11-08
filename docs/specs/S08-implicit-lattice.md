@@ -533,3 +533,10 @@ Reference cases (generators and data in `amg-implicit` tests and `testdata/`):
 
 ## Interface changes
 None yet (the spec has not reached `Ready`).
+### 2026-11-08: from the S14 refinement (lane F, additive; needed by GEN-07)
+- GEN-07 calls `SampledGrid::from_dense` with signed distances in mm (negative inside) on a cubic
+  grid (S14 resamples and redistances the density first, `docs/notes/generative-design.md` §8.1).
+  The result must be a `GridKind::Distance` grid, or `from_dense` takes a `kind: GridKind`
+  argument (IMP-12 picks one).
+- GEN-07 builds a graph `Grid ∪_blend MeshSdf(preserves) − (MeshSdf(obstacles) ⊕ offset)` and
+  meshes it with `to_mesh` (IMP-04). No other change.

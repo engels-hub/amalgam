@@ -827,3 +827,10 @@ note §10. "Corpus" = `testdata/fem/corpus/` (note §11).
 ## Interface changes
 None yet (spec not implemented). Requests this spec makes of other specs are listed under
 Interfaces → "Needed from other specs".
+### 2026-11-08: from the S14 refinement (same lane, additive)
+- The FEM-05 constraint and load dialogs take a `&mut LoadCaseDef` and a target filter, so
+  `amg-ui::generative` (GEN-13) reuses them with "preserve bodies only".
+- GEN-10 (shape optimisation, P2) adds a `sim.shape_optimization` command to `amg-ui::sim`; the
+  study itself is a `gen.study` record (S14), not a new `StudyType`.
+- GEN-17 builds a `SurfaceInput`/`FeModel` for converted outcome bodies directly with `amg-fem`
+  types and `target_triangles` (FEM-13). No new API.

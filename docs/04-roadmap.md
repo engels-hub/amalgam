@@ -101,7 +101,7 @@ joints, direct mode, Python API.
 ## Phase 4 — Simulation & generative design (the "paid Fusion" milestone)
 Linear static + modal FEA, GPU topology optimization with AM overhang constraint, outcome →
 printable body, orientation optimization and plate arrangement.
-- F: FEM-04..08, FEM-15..19, GEN-01..07
+- F: FEM-04..08, FEM-15..19, GEN-01..07, GEN-13..18 (S14 refined 2026-11-08: workspace UI, CPU reference FE, voxel BCs, stress, validation FEA, run job)
 - G: AM-04, AM-05, AM-13 (GPU orientation scoring), AM-08 (support preview, now P1)
 - C: IMP-07 (stress-driven lattice density)
 - E: SCR-12 (studies from script/CLI; S13 refined 2026-11-08, runs on FEM-17)
@@ -109,7 +109,7 @@ printable body, orientation optimization and plate arrangement.
 ## Phase 5 — Advanced parity
 Thermal, buckling, nonlinear, outcome explorer, shape optimization, conformal lattices,
 automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
-- F: FEM-09..11, FEM-20..25, GEN-08..10
+- F: FEM-09..11, FEM-20..25, GEN-08..10, GEN-19 (frequency limit)
 - C: IMP-09, IMP-10, IMP-14 (stochastic lattice), FRM-01..06
 - A: SOL-15, SOL-16, SOL-28
 - E: DOC-10, SCR-04, SCR-06, SCR-13, SCR-14, ASM-06, ASM-07

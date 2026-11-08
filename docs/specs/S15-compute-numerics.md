@@ -30,3 +30,15 @@ matrices, iterative and direct solvers, eigen solvers, voxel/brick grids.
 3. (integration, 2026-10-20) Agreed earlier-wave repoint applied: CMP-01 now depends on FND-09 (`amg-jobs::gpu`) instead of FND-04.
 4. (from S08, 2026-11-08) IMP-02 and IMP-12 need from CMP-02 a sparse brick grid with brick edge 8, `half::f16` (and f32) storage, insert/lookup by brick coordinate, and a GPU layout (brick table + hash or dense index) that WGSL can read. S08 wraps it as `SdfBricks` / `SampledGrid`, so the CMP-02 type name can still change.
 5. (from S13, 2026-11-08) S13 lists what FEM needs from CMP-03 (symbolic/numeric Cholesky, multi-RHS, pivot report, memory estimate, LDLᵀ), CMP-04 (shift-invert Lanczos with a factorisation callback) and CMP-05 (f32 CSR PCG with a `Preconditioner` trait for p-multigrid) under Interfaces → "Needed from other specs"; see `docs/notes/simulation-fem.md` §8.
+
+## Interface changes
+### 2026-11-08: from the S14 refinement (lane F; inputs to the S15 refinement)
+See `docs/specs/S14-generative-design.md` Interfaces and `docs/notes/generative-design.md` §5.
+- CMP-05: a PCG driver over a caller-supplied matrix-free operator and preconditioner on GPU f32
+  buffers (S14 owns the H8 operator and the multigrid V-cycle), with warm start, a relative-residual
+  stop and cancellation; kept behind the ADR-004 backend trait.
+- CMP-01: typed buffers, dispatch, and deterministic fixed-order reductions (dot, norm, max); no
+  float atomics, so topology-optimisation runs are bit-identical.
+- CMP-03: Cholesky with separate symbolic and numeric phases (the multigrid coarse level, ≤ 40 k
+  DOF, is refactored every design iteration). Same request as S13.
+- CMP-02: GEN-02 does not need it (dense per-element arrays only); its done-when can drop GEN-02.
