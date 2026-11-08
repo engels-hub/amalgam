@@ -896,3 +896,8 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   shared α convention. No change requested.
 - Optional, later: `amg_features::sim::generative::OutcomeBodyFeature::build` records an additive
   outcome's build direction, so AM-01 could pre-orient a new print item for that body.
+### 2026-11-08: from the S09 refinement
+- Form (SubD) build items resolve through `amg_features::form::mesh_for_export(subd, chord_tol,
+  ctx)` (FRM-16; cached per cage hash and tolerance), like implicit items. Until FRM-16 lands
+  they keep `UnresolvedReason::NotAMesh`. Forms converted to B-rep (`form.convert`) are solid
+  bodies and need nothing new.

@@ -27,3 +27,4 @@ that depends on it starts.
 | `simulation-fem.md` | S13 refinement (2026-11-08) | FEM-02, FEM-04, FEM-15 | Written |
 | `compute-numerics.md` | S15 refinement (2026-11-08) | CMP-07, CMP-01, CMP-02, CMP-03 | Written |
 | `generative-design.md` | S14 refinement (2026-11-08) | GEN-02, GEN-03, GEN-04, GEN-14 | Written |
+| `subd-modeling.md` | S09 refinement (2026-11-08) | FRM-01, FRM-15, FRM-16, FRM-06 | Written |
