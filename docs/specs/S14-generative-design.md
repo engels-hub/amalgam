@@ -614,7 +614,6 @@ targets in note §11.
 5. Default resolution: 1 M voxels or coarser for speed? (QUESTIONS #92.)
 6. Budget scope for stress-constrained and robust studies. (QUESTIONS #93.)
 7. Validation FEA: automatic after every outcome, or on demand? (QUESTIONS #94.)
-
 8. (from S15, 2026-11-08) GEN-03 implements `amg_compute::mg::GridLevelOperator` for H8 elasticity (apply, diagonal, fixed mask, density-coarsened `coarsen`, coarsest `assemble`) and uses `Gmg` + `pcg_gpu` (CMP-05, which now builds on the new CMP-08). CMP-05's bar is a 17 M-DOF scalar Q1 MGPCG solve < 2 s, as headroom for GEN-03's 1 M voxels < 2 s. Density fields can use `amg_compute::grid::DenseGrid`; `testprob::simp_field` gives SIMP-like test coefficients.
 
 ## Refinement log
