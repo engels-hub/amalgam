@@ -158,9 +158,11 @@ fn quantity_display_and_serde() {
 fn table_order_and_all() {
     assert!(table::table_is_ordered());
     let all = Unit::all();
-    assert_eq!(all.len(), 49);
+    assert_eq!(all.len(), 58);
     assert_eq!(all[0], Unit::Micrometre);
-    assert_eq!(all[all.len() - 1], Unit::DeltaCelsius);
+    // The first 49 rows are FND-10; MAT-01 appends (additive).
+    assert_eq!(all[48], Unit::DeltaCelsius);
+    assert_eq!(all[all.len() - 1], Unit::Ratio);
 }
 
 #[test]
@@ -970,4 +972,63 @@ fn temperature_is_affine() {
     assert_relative_eq!(dk, 10.0, epsilon = 1e-12);
     assert_relative_eq!(b.offset_k(dk).get(), a.get(), epsilon = 1e-12);
     assert!(b < a);
+}
+
+// ---- MAT-01 thermal-transport rows (units note §2.5) ----------------------------------
+
+#[test]
+fn thermal_rows_parse_to_canonical() {
+    let k = canon("0.2 W/(m*K)");
+    assert_eq!(k.dim, Dimension::THERMAL_CONDUCTIVITY);
+    assert_relative_eq!(k.value, 0.2);
+    assert_relative_eq!(canon("0.2 W/mK").value, 0.2);
+    let c = canon("1800 J/(kg*K)");
+    assert_eq!(c.dim, Dimension::SPECIFIC_HEAT);
+    assert_relative_eq!(c.value, 1.8e9);
+    assert_relative_eq!(canon("1800 J/kgK").value, 1.8e9);
+    // Steel, 460 J/(kg*K), is 4.6e8 mm^2/(s^2*K) (CalculiX/Abaqus mm-t-s tables).
+    assert_relative_eq!(canon("460 J/(kg*K)").value, 4.6e8);
+    let a = canon("68 ppm/K");
+    assert_eq!(a.dim, Dimension::THERMAL_EXPANSION);
+    assert_relative_eq!(a.value, 6.8e-5);
+    assert_relative_eq!(canon("68 um/(m*K)").value, 6.8e-5);
+    assert_relative_eq!(canon("2 /K").value, 2.0);
+    let w = canon("5 W");
+    assert_eq!(w.dim, Dimension::POWER);
+    assert_relative_eq!(w.value, 5e3);
+    assert_relative_eq!(canon("5 mW").value, 5.0);
+    let p = canon("12 %");
+    assert_eq!(p.dim, Dimension::NONE);
+    assert_relative_eq!(p.value, 0.12);
+    assert_relative_eq!(canon("12%").value, 0.12);
+}
+
+#[test]
+fn thermal_typed_quantities() {
+    assert_relative_eq!(ThermalConductivity::w_per_m_k(0.2).get(), 0.2);
+    assert_relative_eq!(SpecificHeat::j_per_kg_k(460.0).get(), 4.6e8);
+    assert_relative_eq!(SpecificHeat::j_per_kg_k(460.0).to_j_per_kg_k(), 460.0);
+    assert_relative_eq!(ThermalExpansion::ppm_per_k(23.0).get(), 2.3e-5);
+    assert_relative_eq!(ThermalExpansion::per_k(2.3e-5).to_ppm_per_k(), 23.0);
+    let q: Quantity = SpecificHeat::from_canonical(1.0).into();
+    assert_eq!(q.dim, Dimension::SPECIFIC_HEAT);
+    assert!(ThermalExpansion::try_from(q).is_err());
+}
+
+#[test]
+fn thermal_rows_format_round_trip() {
+    for (v, u) in [
+        (0.2, Unit::WattPerMetreKelvin),
+        (1800.0, Unit::JoulePerKilogramKelvin),
+        (68.0, Unit::PpmPerKelvin),
+        (12.5, Unit::Percent),
+    ] {
+        let s = fmt(v, u, &FormatSpec::EXACT);
+        let back = parse(&s).resolve(u);
+        assert_eq!(
+            back.value.to_bits(),
+            Quantity::from_unit(v, u).value.to_bits(),
+            "{s}"
+        );
+    }
 }

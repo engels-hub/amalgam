@@ -31,7 +31,8 @@ pub use format::{FormatSpec, FormatStyle, format_quantity};
 pub use parse::{ParseQuantityError, ParsedQuantity, parse_quantity};
 pub use table::{LengthUnit, Unit};
 pub use typed::{
-    Angle, Area, Density, Energy, Force, Length, Mass, Pressure, Temperature, Time, Volume,
+    Angle, Area, Density, Energy, Force, Length, Mass, Pressure, SpecificHeat, Temperature,
+    ThermalConductivity, ThermalExpansion, Time, Volume,
 };
 
 use crate::error::{Error, Result};
@@ -92,6 +93,14 @@ impl Dimension {
     pub const ENERGY: Dimension = Dimension::new(2, 1, -2, 0, 0);
     /// Absolute temperature, canonical K.
     pub const TEMPERATURE: Dimension = Dimension::new(0, 0, 0, 1, 0);
+    /// Thermal conductivity, canonical W/(m·K) (t·mm/(s³·K)). MAT-01.
+    pub const THERMAL_CONDUCTIVITY: Dimension = Dimension::new(1, 1, -3, -1, 0);
+    /// Specific heat, canonical mm²/(s²·K); 1 J/(kg·K) = 1e6. MAT-01.
+    pub const SPECIFIC_HEAT: Dimension = Dimension::new(2, 0, -2, -1, 0);
+    /// Thermal expansion coefficient, canonical 1/K. MAT-01.
+    pub const THERMAL_EXPANSION: Dimension = Dimension::new(0, 0, 0, -1, 0);
+    /// Power, canonical mW (mJ/s). MAT-01.
+    pub const POWER: Dimension = Dimension::new(2, 1, -3, 0, 0);
 
     /// Every exponent multiplied by `n` (`LENGTH.pow(2) == AREA`).
     pub fn pow(self, n: i8) -> Dimension {

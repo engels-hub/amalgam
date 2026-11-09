@@ -1,0 +1,174 @@
+# Test fixture: every property kind of format v1.
+format = "amalgam-materials"
+format_version = 1
+
+[library]
+id = "user.fixture"
+name = "Fixture library"
+version = "1.0"
+data_licence = "CC0-1.0"
+description = "Uses every property kind."
+
+[[source]]
+key = "tds-a"
+kind = "datasheet"
+title = "Fixture datasheet A"
+publisher = "Acme"
+version = "V2.0"
+date = "2026-01-01"
+url = "https://example.invalid/a"
+accessed = "2026-10-20"
+licence = "all rights reserved"
+
+[[source]]
+key = "std-iso-527"
+kind = "standard"
+title = "ISO 527-2"
+
+[[source]]
+key = "handbook-b"
+kind = "handbook"
+title = "Fixture handbook"
+
+[[appearance]]
+id = "plastic.red"
+revision = 2
+name = "Red plastic"
+base_color = "#CC2211"
+metallic = 0.0
+roughness = 0.65
+
+[[appearance]]
+id = "metal.steel"
+name = "Steel"
+base_color = "#B0B4B8CC"
+metallic = 1.0
+roughness = 0.3
+
+# Isotropic with every optional block.
+[[material]]
+id = "iso.full"
+revision = 3
+name = "Isotropic, everything"
+category = "polymer"
+family = "petg"
+condition = "printed, dry"
+description = "A \"quoted\" description\nwith a newline."
+default_source = "tds-a"
+appearance = "user.fixture/plastic.red"
+tags = ["fff", "test"]
+density = { v = "1.27 g/cm^3", std = "ISO 1183" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "12 %", src = "handbook-b", q = "typical", note = "range 8-15 %" }
+elongation_at_break.z = "0.04"
+hardness = { scale = "shore_d", v = 78.0, q = "typical", std = "ISO 868" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "1500 MPa", spec = "XYZ", std = "ISO 527-2" }
+poisson = { v = "0.38", q = "typical", src = "handbook-b" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "47 MPa", spec = "XYZ" }
+yield_tensile.z = { v = "40 MPa", spec = "ZXY" }
+ultimate_tensile.xy = "50 MPa"
+ultimate_compressive.xy = "55 MPa"
+shear = "30 MPa"
+flexural = { v = "70 MPa", std = "ISO 178" }
+
+[material.mechanical.plasticity]
+model = "table"
+points = [
+    { strain = 0.0, stress = "47 MPa" },
+    { strain = 0.02, stress = "52 MPa" },
+    { strain = 0.1, stress = "58 MPa" },
+]
+
+[material.thermal]
+conductivity.xy = "0.2 W/(m*K)"
+conductivity.z = "0.18 W/mK"
+specific_heat = "1800 J/(kg*K)"
+expansion.xy = "68 ppm/K"
+expansion.z = "70 um/(m*K)"
+expansion_reference = "23 degC"
+glass_transition = "80 degC"
+melting = "353.15 K"
+heat_deflection_045 = { v = "68 degC", std = "ISO 75" }
+max_service = "75 degC"
+
+[material.am]
+process = "material_extrusion"
+slicer_type = "PETG"
+nozzle_temp = { min = "230 degC", max = "250 degC" }
+bed_temp = { min = "70 degC", max = "90 degC" }
+chamber_temp = { min = "20 degC", max = "40 degC" }
+shrinkage.xy = "0.3 %"
+shrinkage.z = "0.4 %"
+cost = { per_kg = 24.5, currency = "EUR" }
+
+# Transversely isotropic, bilinear plasticity.
+[[material]]
+id = "ti.fff"
+name = "Transversely isotropic"
+category = "polymer_composite"
+family = "pa_cf"
+default_source = "tds-a"
+density = "1.3 g/cm^3"
+
+[material.mechanical.elastic]
+model = "transversely_isotropic"
+e_p = "6000 MPa"
+e_t = { v = "4200 MPa", spec = "ZXY" }
+nu_p = "0.3"
+nu_pt = { v = "0.35", q = "derived", note = "from literature" }
+g_pt = "1.4 GPa"
+
+[material.mechanical.plasticity]
+model = "bilinear"
+yield_stress = "70 MPa"
+tangent_modulus = "800 MPa"
+
+# Orthotropic, other hardness scales and family fallbacks.
+[[material]]
+id = "ortho.metal"
+name = "Orthotropic"
+category = "metal"
+family = "other:my-alloy"
+default_source = "handbook-b"
+density = "7.85 g/cm^3"
+
+[material.mechanical]
+hardness = { scale = "vickers", v = 330 }
+
+[material.mechanical.elastic]
+model = "orthotropic"
+e = ["210 GPa", "205 GPa", { v = "190 GPa", spec = "ZXY" }]
+nu = ["0.3", "0.29", "0.28"]
+g = ["80 GPa", "78 GPa", "75 GPa"]
+
+[material.thermal]
+specific_heat = "460 J/(kg*K)"
+expansion.xy = "12e-6 /K"
+
+[[material]]
+id = "bare.minimum"
+name = "Density only"
+category = "other"
+density = "1 g/cm^3"
+
+[[material]]
+id = "shore.a"
+name = "Elastomer"
+category = "elastomer"
+family = "tpu"
+density = "1.2 g/cm^3"
+default_source = "tds-a"
+
+[material.mechanical]
+hardness = { scale = "shore_a", v = 95 }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = "26 MPa"
+poisson = "0.45"

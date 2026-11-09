@@ -573,7 +573,7 @@ S01.
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| MAT-01 | `amg-materials` core: ids, `Material` + all sub-types (three elastic models with validation, `Directional`, strength, plasticity, thermal, `AmInfo`), minimal `Appearance` + `Srgba8`, `Provenance`, TOML format v1 reader/writer (unit strings, inline provenance tables, migration hook, `TooNew`), `Library` (in-memory, load/save atomic), `builtin()` embedding with a 2-material fixture, `MaterialError` + `Diagnostic`. Additive `amg-core::units` rows and typed quantities from note §2.5 (PR flagged as S00 interface change). | FND-10 | P0 | Todo | Tests pass. (a) A fixture library using every property kind loads; load→save→load keeps all values within 2 ulp, and a second save is byte-identical. (b) `serde_json` round-trip of every `Material` is bit-exact. (c) Each validation rule in note §2.1–2.4 has a failing fixture giving the expected error with the TOML key path: ν = 0.5 isotropic, transversely isotropic `(1+ν_p)(1−ν_p−2ν_ptν_tp) ≤ 0`, orthotropic determinant ≤ 0, negative E, non-monotone plasticity table, `z` value with an `XZY` specimen. (d) `density = "1.24 MPa"` gives `Dimension` naming `material[0].density`. `density = "1.24"` gives `MissingUnit`. (e) An unknown `src` gives `UnknownSource`. `format_version = 2` gives `TooNew`. (f) New unit rows parse: `0.2 W/(m*K)`, `1800 J/(kg*K)` = 1.8e9 canonical, `68 ppm/K` = 6.8e-5, `12 %` = 0.12. (g) `Srgba8` hex round-trips for all 2^24 colours (alpha FF), and sRGB→linear→sRGB is identity for all 256 levels. (h) A 1000-material generated library parses in < 20 ms (criterion). `clippy -D warnings` is clean. |
+| MAT-01 | `amg-materials` core: ids, `Material` + all sub-types (three elastic models with validation, `Directional`, strength, plasticity, thermal, `AmInfo`), minimal `Appearance` + `Srgba8`, `Provenance`, TOML format v1 reader/writer (unit strings, inline provenance tables, migration hook, `TooNew`), `Library` (in-memory, load/save atomic), `builtin()` embedding with a 2-material fixture, `MaterialError` + `Diagnostic`. Additive `amg-core::units` rows and typed quantities from note §2.5 (PR flagged as S00 interface change). | FND-10 | P0 | Review | Tests pass. (a) A fixture library using every property kind loads; load→save→load keeps all values within 2 ulp, and a second save is byte-identical. (b) `serde_json` round-trip of every `Material` is bit-exact. (c) Each validation rule in note §2.1–2.4 has a failing fixture giving the expected error with the TOML key path: ν = 0.5 isotropic, transversely isotropic `(1+ν_p)(1−ν_p−2ν_ptν_tp) ≤ 0`, orthotropic determinant ≤ 0, negative E, non-monotone plasticity table, `z` value with an `XZY` specimen. (d) `density = "1.24 MPa"` gives `Dimension` naming `material[0].density`. `density = "1.24"` gives `MissingUnit`. (e) An unknown `src` gives `UnknownSource`. `format_version = 2` gives `TooNew`. (f) New unit rows parse: `0.2 W/(m*K)`, `1800 J/(kg*K)` = 1.8e9 canonical, `68 ppm/K` = 6.8e-5, `12 %` = 0.12. (g) `Srgba8` hex round-trips for all 2^24 colours (alpha FF), and sRGB→linear→sRGB is identity for all 256 levels. (h) A 1000-material generated library parses in < 20 ms (criterion). `clippy -D warnings` is clean. |
 | MAT-05 | Built-in library v1 data: the 17 materials of §Design "Built-in library v1" with cited `[[source]]` records, per-value provenance, conditions, AM info (Orca `slicer_type`, temperature ranges) and one default appearance each, plus ~12 generic appearances (plastics in common filament colours, brushed aluminium, steel, titanium, grey and clear resin) | MAT-01 | P0 | Todo | `builtin()` loads and validates. Provenance tests (note §3.2) pass: density, in-plane E and one tensile strength are `measured` for every material; no `estimate` on density; every `src` resolves; every material has a `condition`. Plausibility-bounds test (note §3.4) passes for every material. Each FFF material whose TDS reports Z specimens has `z` strengths. Every material's `appearance` resolves. The PR description lists 10 randomly chosen values (seeded) next to the page or table of the cited document, checked by the reviewer. No source is MatWeb, CAMPUS, Granta or the Fusion library. |
 | MAT-07 | `LibrarySet`: user library directory (load, create, skip-and-report bad files), `library_mut` + `upsert`/`remove` with revision bump, `search`, `match_name` (3MF/STEP import), `drift` | MAT-01 | P0 | Todo | Tests pass. (a) A temp dir with 3 valid files and 1 broken file loads 3 libraries and returns exactly one error naming the broken file. (b) Editing a value via `upsert_material` bumps `revision` by 1; an unchanged upsert does not. (c) `save` with a simulated crash between write and rename (test hook) leaves the old file intact. (d) `match_name("PLA")`, `("pla")` and `("PETG Basic")` (via `slicer_type`/family) return the expected built-ins; a user material with the same name wins. (e) `drift` returns each of the 4 variants in a fixture. (f) `search` over 5000 materials < 1 ms median (criterion). (g) The built-in library rejects `library_mut`. |
 | MAT-06 | Document integration (additive `amg-doc` change, flagged): `Design` material/appearance tables, 4 commands + 2 events, `body_material`/`body_appearance`/`material_users`, `assign_material`/`assign_appearance`/`remove_unused_materials`, "Update from library" command builder, `default_material` preference read by mass-property callers; minimal Phase 1 assignment (Python/CLI command + body context-menu combo if UI-07 is done, else deferred to MAT-03) | MAT-07, DOC-05, DOC-07 | P0 | Todo | Tests pass. (a) `assign_material` of a built-in to 3 bodies applied as one transaction; one undo restores both the props and the table. (b) Save→load→save of the `.amg` keeps byte-identical `design.json` including materials. Loading with an empty `LibrarySet` resolves all body materials. (c) `RemoveMaterial` of a referenced material gives `CommandError::InUse`; `remove_unused_materials` removes exactly the unreferenced ones. (d) Bumping the library revision gives `Drift::LibraryNewer`, and the update command replaces the copy, undoable. (e) `BodyPropsChanged`/`MaterialChanged` events fire minimally (no `BodyGeometryChanged`). (f) A `Design` with 100 materials clones in < 1 µs (persistent map). |
@@ -698,6 +698,63 @@ here.
       because the helpers live in `amg-doc`.
   - **Status.** Draft → Refined.
 
+### 2026-11-09 - MAT-01 `amg-materials` core (lane G; status Review)
+**Landed** (`crates/amg-materials`, additive `amg-core::units`, no commit; see the handoff
+report for the evidence per Done-when item):
+- Ids (`MaterialId`, `AppearanceId`, `MaterialKey`/`AppearanceKey`), `Material` and all
+  sub-types, `Elastic` (three models with Lempriere admissibility, `as_isotropic`,
+  `isotropic_equivalent(IsoPolicy)`, `engineering_constants`), `Directional<T>`, `Strength`,
+  `Hardness`, `Plasticity`, `Thermal`, `AmInfo`, `Provenance` (+ `Source`, `Quality`,
+  `SpecimenOrientation` with the Z** rule), `Appearance` + `Srgba8`, `MaterialError` +
+  `Diagnostic`.
+- TOML format v1 reader and writer (unit strings, inline provenance tables, migration hook,
+  `TooNew`), `Library` (in-memory edit with revision bump, atomic `save`), embedded `builtin()`
+  with a two-material fixture (`pla.fff`, `ti6al4v.lpbf`; clearly labelled placeholders, values
+  flagged `typical`, one `estimate` source; MAT-05 replaces them).
+- `amg-core::units`: thermal-transport rows and typed quantities; recorded in S00 Interface
+  changes (2026-11-09).
+
+**Deviations and clarifications**
+- **Own TOML front end.** The `toml` crate alone needs 15-20 ms to parse the 1000-material
+  library (Done-when (h) budget: 20 ms for the whole load), so `format/doc.rs` has a borrowing
+  parser for the subset the writer emits (and hand editing needs). It falls back to the `toml`
+  crate for anything else (multi-line strings, datetimes, `inf`, hex numbers, reopened tables,
+  any syntax error), which also supplies all syntax-error messages and spans. A differential unit
+  test checks that both paths build the same tree. Load: 13.6 ms (criterion, release).
+- `Material::content_hash` excludes `id` and `revision` as well as `provenance`. Otherwise the
+  hash would change when a library re-keys the id or bumps the revision, and "bump `revision`
+  if the hash changed" would be circular. Values only.
+- `MaterialFamily` is serialised as a string (`pla`, `pa_cf`, `ti6al4v`, `other:<name>`) in JSON
+  and TOML; the derived externally tagged form was unusable for `Other(String)`.
+- `Appearance` has the MAT-01 core only (`#[non_exhaustive]`, `Appearance::new`);
+  `to_3mf`/`from_3mf` and the MAT-02 fields are MAT-02. `MaterialError` gained `NoPath`
+  (`Library::save` without a path); `Library` gained `set_path` and `sources()`.
+- `Library::load` requires the `user.` library-id prefix; `from_toml_str` does not (it is also
+  the built-in reader).
+- Strict reader: unknown keys are errors (`Invalid`, with the key path). Structural errors reuse
+  `Invalid` with the file as `id`. `Dimension`/`MissingUnit`/`Quantity` errors name the property
+  (`material[0].density`), also for `{ v = ... }` tables. Validation errors from the loader are
+  `Invalid { property: "material[0].mechanical.elastic.poisson", .. }`.
+- TOML shapes the note left open: orthotropic `e`/`nu`/`g` are 3-element arrays (provenance
+  paths `mechanical.elastic.e.1`, `nu.12`, `g.23`); `hardness = { scale = "shore_a", v = 95 }`;
+  plasticity table `points = [{ strain = 0.0, stress = "47 MPa" }, ...]` (no per-point
+  provenance); `cost = { per_kg = 24.5, currency = "EUR" }`; temperature ranges are inline
+  tables `{ min = "190 degC", max = "230 degC" }`. A directional value is `k.xy`/`k.z`, or a
+  plain value (isotropic).
+- Writer: every quantity is written in the library unit through `FormatSpec::EXACT`, so load,
+  save and load is bit-exact (stronger than the 2 ulp requirement) and the second save is
+  byte-identical; where no `f64` in the library unit maps back exactly the value is written in
+  the canonical unit.
+- `Material::is_anisotropic` is true for a non-isotropic elastic model or any directional value
+  whose `z` differs from its `xy`.
+- `serde_json` is used with `float_roundtrip` (as in `amg-doc`), which `design.json` needs for a
+  bit-exact copy.
+
+**Leftovers.** Not in MAT-01 by design: `compliance_voigt`/`stiffness_voigt`,
+`rotate_stiffness`, `TsaiWu` (MAT-04); `LibrarySet`, `MaterialQuery`, `Drift` (MAT-07);
+`to_3mf`/`from_3mf` (MAT-02); the real built-in data and `tests/golden/materials/builtin.toml`
+hash golden (MAT-05). The `Interface changes` entry of S00 documents the unit-table additions.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -712,3 +769,8 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   design default material (QUESTIONS #28).
 - **From S12 (import/export).** IO-14 depends on MAT-06 (S17's IO-03 request retargeted to the
   document adapter); S12 converts `Srgba8` ↔ `amg_mesh::Rgba8`.
+
+### 2026-11-09: MAT-01 landed (additive `amg-core::units` rows)
+The unit rows, `Dimension` constants and typed quantities of note §2.5 are in `amg-core`, with
+the one deviation (`/K` instead of `1/K`) and the two extra canonical-unit rows. Details are in
+the S00 spec's Interface changes (2026-11-09 - MAT-01).

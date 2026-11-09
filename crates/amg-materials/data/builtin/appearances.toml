@@ -1,0 +1,17 @@
+# Built-in appearances, MAT-01 fixture. MAT-05 adds the ~12 generic appearances.
+
+[[appearance]]
+id = "plastic.white-matte"
+revision = 1
+name = "Plastic - white, matte"
+base_color = "#F2F2F0FF"
+metallic = 0.0
+roughness = 0.8
+
+[[appearance]]
+id = "metal.titanium"
+revision = 1
+name = "Titanium"
+base_color = "#8A8D8FFF"
+metallic = 1.0
+roughness = 0.35

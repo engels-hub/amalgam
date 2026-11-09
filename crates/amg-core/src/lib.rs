@@ -28,8 +28,8 @@ pub use math::{
 pub use tolerance::Tolerance;
 pub use units::{
     Angle, Area, Density, Dimension, Energy, Force, FormatSpec, FormatStyle, Length, LengthUnit,
-    Mass, ParseQuantityError, ParsedQuantity, Pressure, Quantity, Temperature, Time, Unit, Volume,
-    format_quantity, parse_quantity,
+    Mass, ParseQuantityError, ParsedQuantity, Pressure, Quantity, SpecificHeat, Temperature,
+    ThermalConductivity, ThermalExpansion, Time, Unit, Volume, format_quantity, parse_quantity,
 };
 
 #[doc(hidden)]

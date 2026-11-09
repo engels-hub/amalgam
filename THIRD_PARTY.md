@@ -63,7 +63,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | dxf | DXF import, `amg-sketch::import` (S03 SK-11); pulls `image`, `chrono`, `uuid`, `num`, `encoding_rs` ((Apache-2.0 OR MIT) AND BSD-3-Clause), all permissive | MIT | no | no | In use (0.6.2) |
 | usvg | SVG import, `amg-sketch::import` (S03 SK-11); `default-features = false` (no text/font/raster stack); pulls `roxmltree`, `svgtypes`, `kurbo`, `simplecss`, `tiny-skia-path` (BSD-3-Clause), all permissive | MIT / Apache-2.0 (>= 0.38; older releases MPL-2.0) | no | no | In use (0.48.1) |
 | criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only) |
-| blake3 | cache keys and manifest hashes, `amg-doc` (S01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | In use (1.8.7) |
+| blake3 | cache keys and manifest hashes, `amg-doc` (S01); material and appearance content hashes for drift detection, `amg-materials` (S17, MAT-01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | In use (1.8.7) |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.1.20) |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.5.17) |
 | parking_lot | locks, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.12.5) |
@@ -73,7 +73,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | tracing-tracy (+ tracy-client 0.19.0, tracy-client-sys 0.30.1 which builds the bundled Tracy C++ client) | optional profiler layer, `amg-jobs::diag` (S00); its default features minus `crash-handler` (the diag panic hook and FND-12 own crash handling) | tracing-tracy, tracy-client: MIT / Apache-2.0; tracy-client-sys: (MIT OR Apache-2.0) AND BSD-3-Clause | no | yes (`tracy` on `amg-jobs` / `amg-cli`) | In use (0.12.0, feature-gated) |
 | clap | `amg-cli` (S00) | MIT / Apache-2.0 | no | no | In use (4.6.7) |
 | approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | In use (0.5.1, dev-only) |
-| toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07); machine library files, `amg-am` runtime (S16); material libraries, `amg-materials` (S17) | MIT / Apache-2.0 | no | no | In use (1.1.8; `amg-testkit` golden files) |
+| toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07); machine library files, `amg-am` runtime (S16); material libraries, `amg-materials` (S17) | MIT / Apache-2.0 | no | no | In use (1.1.8; `amg-testkit` golden files; `amg-materials` library reader/writer, MAT-01) |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |
 | smallvec | small inline vectors, `amg-sketch`, `amg-mesh`, `amg-brep` history, `amg-nurbs` (S03, S07, S02, S20) | MIT / Apache-2.0 | no | no | In use (1.16.3, `amg-sketch`) |
 | fontdb | system font discovery for sketch text (S03, SK-10); not added in SK-10, which takes parsed font bytes; the UI/document layer resolves families | MIT | no | no | Planned |
