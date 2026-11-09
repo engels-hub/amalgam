@@ -754,7 +754,7 @@ answered.
 7. ~~Accept the no-f64-on-GPU policy (note §2.1) as an ADR-004 note? (QUESTIONS #81.)~~
    **Resolved 2026-11-09 (owner, QUESTIONS #81):** not accepted; the ADR-004 note states the
    owner's policy instead (open question 1).
-8. (2026-11-09, QUESTIONS #103) **Default backend and the f64 path.** In
+8. ~~(2026-11-09, QUESTIONS #103) **Default backend and the f64 path.** In
    wgpu 30 only Vulkan reports `SHADER_F64`, and the Windows default device is DX12 (FND-09), so
    with default settings no Windows user ever gets the F64 path. Options: (a) keep DX12 as the
    default; the F64 path runs only with `AMG_WGPU_BACKEND=vulkan` (or a later setting), and the
@@ -766,7 +766,11 @@ answered.
    iteration. Should `Auto` stay "F64 whenever available" for every solver, or may a solver
    pick F32 + refinement on F64 devices when its F64 bench misses budget? *Recommended:* (a) now,
    and decide the second part from the CMP-08 / CMP-05 bench tables (both paths recorded).
-   Refinement log 2026-11-09.
+   Refinement log 2026-11-09.~~
+   **Resolved 2026-11-10 (owner, QUESTIONS #103 (a)):** DX12 stays the Windows default; the F64
+   path runs only with `AMG_WGPU_BACKEND=vulkan`, and the budgets bind on the F32 path. Still
+   open, decided from the CMP-08 / CMP-05 bench tables: whether a solver may pick F32 +
+   refinement on an F64 device when its F64 bench misses budget.
 9. (2026-11-09, request to lane E / S00) Optional CI job with a Vulkan software adapter (Mesa
    lavapipe) so the F64 path runs in CI; until then the f64 gate is local (Testing).
 
