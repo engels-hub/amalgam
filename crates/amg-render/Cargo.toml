@@ -10,6 +10,28 @@ publish.workspace = true
 [dependencies]
 amg-core.workspace = true
 amg-jobs.workspace = true
+bytemuck.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+wgpu.workspace = true
+egui = { workspace = true, optional = true }
+egui-wgpu = { workspace = true, optional = true }
+
+[features]
+default = ["egui"]
+# `amg_render::egui_glue`: the viewport widget and paint callback.
+egui = ["dep:egui", "dep:egui-wgpu"]
+# Builds `wgpu::Dx12Compiler::StaticDxc` so the `spin` example can measure it (RND-01, note §16).
+static-dxc = ["wgpu/static-dxc"]
+
+[dev-dependencies]
+amg-testkit.workspace = true
+eframe.workspace = true
+log = "0.4.34"
+
+[[example]]
+name = "spin"
+required-features = ["egui"]
 
 [lints]
 workspace = true

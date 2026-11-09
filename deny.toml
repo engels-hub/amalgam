@@ -38,6 +38,8 @@ unused-allowed-license = "allow"
 exceptions = [
     # S03 SK-13: SolveSpace libslvs, dev/test oracle behind amg-sketch feature `slvs` only.
     { allow = ["GPL-3.0"], crate = "slvs" },
+    # S10 RND-01: egui default fonts (Ubuntu-Light, NotoEmoji, emoji-icon-font); data only.
+    { allow = ["OFL-1.1", "Ubuntu-font-1.0"], crate = "epaint_default_fonts" },
 ]
 
 [licenses.private]
