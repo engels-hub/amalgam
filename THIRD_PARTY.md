@@ -20,7 +20,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | FreeCAD Sketcher test scenarios (commit 33adf618) | **test data only**: hand-ported scenarios, `testdata/sketch/corpus/planegcs/` (S03, SK-14); no FreeCAD file copied verbatim | LGPL-2.1-or-later | weak (data) | no | In use (test data) |
 | fidget | `amg-implicit` CPU evaluator (S08, under evaluation) | MPL-2.0 | weak | — | Planned (undecided) |
 | wgpu 30.0.1 | `amg-jobs`, `amg-render`, `amg-compute` (ADR-004) | MIT / Apache-2.0 | no | no | In use (30.0.1; `amg-jobs::gpu` and the `amg-testkit` GPU probe, both behind feature `gpu`, default on) |
-| egui, eframe, egui-wgpu 0.37.0 (or 0.36.2, QUESTIONS #23) | `amg-ui`, `amg-app`, `amg-render` (feature `egui`; eframe as dev-dep for the spin example) (ADR-005, S10, S11) | MIT / Apache-2.0 | no | no | Planned |
+| egui, eframe, egui-wgpu 0.36.2 (pinned until egui_dock supports 0.37, QUESTIONS #23) | `amg-render` feature `egui` (RND-01; eframe is a dev-dep for the `spin` example); `amg-ui`, `amg-app` later (ADR-005, S10, S11) | MIT / Apache-2.0 | no | no | In use (0.36.2; `amg-render`) |
 | egui_extras 0.37.0 (features `svg`, `serde`) | `amg-ui` tables and SVG icons (S11) | MIT / Apache-2.0 | no | no | Planned |
 | resvg 0.45.x (via egui_extras `svg`) | SVG icon rasterisation (S11) | Apache-2.0 / MIT | no | no | Planned |
 | egui_kittest 0.37.0 (+ transitive kittest 0.5.0) | `amg-ui` UI tests, dev-only (S11) | MIT / Apache-2.0 | no | no | Planned (dev-only) |
@@ -33,7 +33,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | meshopt 0.7.0 (meshoptimizer) | `amg-render` clusters/LOD (S10 RND-14) | MIT / Apache-2.0 (meshoptimizer: MIT) | no | no | Planned (P2) |
 | Viridis colormap table (data) | `amg-render` (S10 RND-08) | CC0-1.0 (matplotlib colormaps) | no | no | Planned |
 | Turbo colormap table (data) | `amg-render` (S10 RND-08) | Apache-2.0 (Google) | no | no | Planned |
-| mach-dxcompiler-rs (via wgpu `static-dxc`) | DX12 shader compiler, only if RND-01 adopts StaticDxc (S10) | MIT wrapper; bundled DXC under University of Illinois/NCSA (verify in RND-01) | no | yes (`static-dxc`) | Planned (conditional) |
+| mach-dxcompiler-rs (via wgpu `static-dxc`) | DX12 shader compiler, not adopted by RND-01 (FXC is inside the budget; only behind `amg-render` feature `static-dxc` for measuring, which needs the MSVC ATL component to link) (S10) | MIT wrapper; bundled DXC under University of Illinois/NCSA (verify in RND-01) | no | yes (`static-dxc`) | Planned (conditional) |
 | glam | geometry math (ADR-006) | MIT / Apache-2.0 | no | no | In use (0.34.1) |
 | nalgebra | small dense linear algebra, sketch solver (ADR-006); `amg-nurbs` internal dense solves (S20) | Apache-2.0 | no | no | Planned |
 | faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | In use (=0.23.2, `std` + `sparse-linalg`, `amg-mesh` hole-fill fairing, MESH-20; `amg-sketch` sparse solver blocks, SK-03) |
@@ -41,6 +41,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
 | cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |
 | rayon | `amg-jobs` and domain crates (S00); `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
+| epaint_default_fonts 0.36.2 | default egui fonts, transitive via `egui` feature `default_fonts` (S10 RND-01); per-crate `deny.toml` exception | (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0 (font data) | no | no | In use (0.36.2) |
+| log 0.4 | dev-dep of `amg-render`: the `spin` example counts wgpu validation errors through a `log` logger (S10, RND-01); already transitive via wgpu and egui | MIT / Apache-2.0 | no | no | In use (0.4.34, dev-only) |
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |

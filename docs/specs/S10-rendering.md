@@ -597,7 +597,7 @@ pub mod egui_glue {
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| RND-01 | **Phase-0 spike: mesh spinning in an egui window.** `amg-render` skeleton (`Renderer`, `View` targets: Rgba16Float ×4 MSAA colour, Depth32Float reversed-Z, resolve, final Rgba8UnormSrgb), f64 `Camera` with RTE matrices, one Lambert+headlight pipeline (smooth normals, or flat via derivatives when normals are empty), `upload_mesh` (positions/normals/indices), `egui_glue::{install, with_renderer, Viewport}` with the `CallbackTrait` prepare/paint flow and sRGB-aware composite, `capture`. Example `crates/amg-render/examples/spin.rs` (eframe 0.37, `WgpuSetup::Existing` from `Gpu::new_blocking(GpuConfig::from_env())`): a displaced icosphere generator (`--tris N`, default 1 M), optional `--stl <file>` (binary STL, in-example reader), auto-turntable 30°/s, LMB-drag orbit, wheel dolly, side panel showing adapter, backend, triangles, CPU and GPU frame ms, an MSAA 1/4 toggle and a flat/smooth toggle; `--bench <frames>` prints p50/p99. Measures FXC vs `StaticDxc` core pipeline creation time. | FND-09 | P0 | Todo | 1. On the owner's RTX 5060 Ti / DX12, `cargo run -p amg-render --release --example spin -- --bench 600` at 1920×1080, 4× MSAA, 1 M tris prints frame-time p99 ≤ 16.7 ms (CPU wall) and GPU p50 ≤ 4 ms. The output is pasted into the PR. 2. `install` returns `DeviceMismatch` when given a different `Gpu` (test, WARP); with the same one, the example asserts `rs.device == *gpu.device()`. 3. `gpu_spin_smoke` (WARP in CI): a 256² capture of a sphere has a non-background centre pixel and background corners, and two captures are bit-identical. 4. RTE test: a 1 mm cube at the origin and at (1e5, 1e5, 0) mm, with the camera at the same relative pose, gives captures equal within 1 LSB per channel. 5. Debug build with validation: 10 s of continuous resizing plus MSAA toggling logs zero wgpu validation errors (recorded in the PR). 6. FXC vs StaticDxc timings and the resulting choice are recorded in the Refinement log. 7. fmt, clippy `-D warnings` and nextest pass. |
+| RND-01 | **Phase-0 spike: mesh spinning in an egui window.** `amg-render` skeleton (`Renderer`, `View` targets: Rgba16Float ×4 MSAA colour, Depth32Float reversed-Z, resolve, final Rgba8UnormSrgb), f64 `Camera` with RTE matrices, one Lambert+headlight pipeline (smooth normals, or flat via derivatives when normals are empty), `upload_mesh` (positions/normals/indices), `egui_glue::{install, with_renderer, Viewport}` with the `CallbackTrait` prepare/paint flow and sRGB-aware composite, `capture`. Example `crates/amg-render/examples/spin.rs` (eframe 0.37, `WgpuSetup::Existing` from `Gpu::new_blocking(GpuConfig::from_env())`): a displaced icosphere generator (`--tris N`, default 1 M), optional `--stl <file>` (binary STL, in-example reader), auto-turntable 30°/s, LMB-drag orbit, wheel dolly, side panel showing adapter, backend, triangles, CPU and GPU frame ms, an MSAA 1/4 toggle and a flat/smooth toggle; `--bench <frames>` prints p50/p99. Measures FXC vs `StaticDxc` core pipeline creation time. | FND-09 | P0 | Review | 1. On the owner's RTX 5060 Ti / DX12, `cargo run -p amg-render --release --example spin -- --bench 600` at 1920×1080, 4× MSAA, 1 M tris prints frame-time p99 ≤ 16.7 ms (CPU wall) and GPU p50 ≤ 4 ms. The output is pasted into the PR. 2. `install` returns `DeviceMismatch` when given a different `Gpu` (test, WARP); with the same one, the example asserts `rs.device == *gpu.device()`. 3. `gpu_spin_smoke` (WARP in CI): a 256² capture of a sphere has a non-background centre pixel and background corners, and two captures are bit-identical. 4. RTE test: a 1 mm cube at the origin and at (1e5, 1e5, 0) mm, with the camera at the same relative pose, gives captures equal within 1 LSB per channel. 5. Debug build with validation: 10 s of continuous resizing plus MSAA toggling logs zero wgpu validation errors (recorded in the PR). 6. FXC vs StaticDxc timings and the resulting choice are recorded in the Refinement log. 7. fmt, clippy `-D warnings` and nextest pass. |
 | RND-02 | Shading and visual-style framework: PBR-lite (GGX, studio key/fill + hemisphere), procedural matcap, oct-encoded normals, `normal` target, MSAA 1/4, optional FXAA, gradient background, pipeline variants via `override` constants and lazy variant creation on jobs, GPU timestamps (`gpu_timings`), `Material`. Bench `benches/viewport.rs` (headless). | RND-01 | P0 | Todo | 1. `cargo bench -p amg-render --bench viewport` (owner GPU, 2560×1440, 4× MSAA, Studio, a 5 M-tri displaced sphere, 600-frame orbit) reports GPU p99 ≤ 9 ms and wall p99 ≤ 16.6 ms; with 1 M tris, GPU p50 ≤ 3 ms. 2. Depth pre-pass on/off measured, and the faster one kept (recorded). 3. A flat-shaded mesh without normals uses exactly 12 B/vertex + 12 B/tri of VRAM (`gpu_bytes` test). 4. Headless tests (WARP): Lambert brightness at known normals matches the CPU reference within 2/255; MSAA 4 reduces edge-pixel aliasing (a staircase metric on a tilted quad); the core pipeline set is created in ≤ 150 ms on the owner GPU (logged). |
 | RND-03 | `RenderScene`: slotmap keys, `Instance` storage buffer with dirty tracking, shared meshes across instances, layers, visibility, CPU frustum culling and front-to-back sort, multiple views, `upload_*` helpers with `ctx.checkpoint()` and `TooLarge`/`InvalidData` checks, `CameraUniform` + `shaders/camera.wgsl`, `ExternalLayer` composite pass, `visible_bounds`, `gpu_bytes`. | RND-01 | P0 | Todo | 1. Criterion: `encode` of 10 k instances over 100 meshes takes ≤ 2 ms p99 CPU. 2. Changing one transform rewrites exactly 128 B (upload counter). 3. `upload_mesh` of 5 M tris on a job thread ≤ 300 ms (owner machine); `insert_mesh` ≤ 50 µs. Cancelling mid-upload returns `Cancelled` within 20 ms. 4. ExternalLayer test: a synthetic layer whose depth plane cuts a cube composites with correct occlusion on both sides (pixel assertions). 5. Two views with different cameras render one scene in one frame. 6. 1000 add/remove cycles return `gpu_bytes` to baseline. 7. `InvalidData` for an index out of range and for a NaN position. |
 | RND-04 | GPU picking: id + depth pick passes (B-rep face-id attribute; mesh `primitive_index` or vertex-pulling fallback; edges and points widened by the radius), scissored point pick, priority resolution, f64 world reconstruction, rectangle window/crossing via compute flags, hover/selection highlight (instance tint, face-range redraw with `depth_compare: Equal`, edge/point state buffers). | RND-12, RND-03 | P0 | Todo | 1. On a synthetic box-with-hole test part (edges known): 1000 random cursor positions within 3 px of a projected 1-px edge return that edge in ≥ 99.5 %, and positions > 6 px from every edge or vertex return no edge in ≥ 99.5 %. 2. 1000 random interior face pixels (≥ 2 px from edges) return the correct face (100 %), and mesh triangle sub-ids are correct (100 %). 3. `PrimitiveIndex` and `VertexPulling` give identical results on the same scenes (WARP). 4. Results arrive ≤ 2 `encode` calls after the request (counted). 5. World position is within 1e-6 × distance of the analytic hit. 6. The rectangle test on a 3×3 box grid gives the expected window vs crossing sets. 7. Highlighted faces show the highlight colour with no z-fighting pixels (pixel test). 8. The pick pass costs ≤ 2 ms GPU at 5 M tris (owner bench). |
@@ -775,7 +775,75 @@ Reference machine (vision doc: RTX 5060 Ti, DX12), release build. Primary resolu
   - IMP-05 keeps RND-03 (`ExternalLayer`).
 - Requests to S00, S02, S07 and S11: §Interfaces "Needed from other specs".
 
+### 2026-11-09 - RND-01 mesh spinning in an egui window (spike)
+
+*Landed in `crates/amg-render`:* `Renderer` with per-view targets (Rgba16Float ×1/×4, Depth32Float
+reversed-Z, resolve, final Rgba8UnormSrgb), f64 `Camera` with RTE matrices and `CameraUniform`,
+Lambert + headlight pipeline (smooth, or flat from derivatives), `upload_mesh`, minimal
+`RenderScene`, `capture`, GPU timestamps, `egui_glue::{install, with_renderer, shares_device,
+Viewport}`, the `spin` example and `tests/gpu.rs`. egui/eframe/egui-wgpu are **0.36.2** wherever
+this spec says 0.37 (QUESTIONS #23).
+
+*Measured on the owner machine (RTX 5060 Ti, DX12, release, 1920×1080, 4× MSAA, 1 003 520 tris,
+600 frames, `AutoNoVsync`, other builds running on the machine):*
+- frame wall p50 0.522 ms, p99 1.029 ms; GPU p50 0.228 ms, p99 0.242 ms (opaque start to final
+  end, so egui's own pass is excluded); 17.9 % of the frame covered.
+- 5 M tris: wall p99 1.580 ms, GPU p50 0.597 ms, so GPU time does scale with triangle count.
+- Stress (debug, `VALIDATION` flag, 10 s, 200 k tris): 1786 frames, 1766 target-size changes,
+  29 MSAA toggles, 0 wgpu validation errors. Whether the DX12 debug layer itself was active was
+  not confirmed; the count covers wgpu's validation and any errors it logs.
+
+*Shader compilers (Done-when 6, core set at MSAA 4, three rounds each):*
+
+| Compiler | `Renderer::new` | Slowest pipeline |
+|---|---|---|
+| FXC | 33.4–36.3 ms | 16.5 ms |
+| DynamicDxc (Windows SDK 10.0.26100 `dxcompiler.dll`) | 36.5–76.0 ms | 31.4 ms (first round) |
+
+**Choice: stay on FXC.** It is well inside the note §16 limits (150 ms total, 50 ms per
+pipeline), so `StaticDxc` is not adopted. **`StaticDxc` itself was not measured:**
+`mach-dxcompiler-rs` needs `atls.lib`, this machine's MSVC Build Tools have no ATL component, and
+the library really uses ATL symbols (`ATL::_AtlBaseModule`), so an empty stub does not link.
+DynamicDxc is the same compiler family and stands in as a proxy. To finish the item literally,
+install the MSVC ATL component and run
+`cargo run -p amg-render --release --example spin --features static-dxc -- --measure-shaders`.
+
+*Deviations:*
+- `install` compares the instance as well as the device. wgpu 30's `Device` equality only
+  compares an id local to its instance, so two separate `Gpu`s compare equal and the check in
+  Design 1 / note §1.1 cannot detect a mismatch (the `DeviceMismatch` test caught this).
+  `egui_glue::shares_device` holds the combined check.
+- Subset of §Interfaces, later WPs add the rest: `RendererConfig` has only `msaa_samples`;
+  `Instance`, `Material`, `MeshData`, `FrameStats` and `RenderScene` carry only what the spike
+  draws; `ViewStyle` is `{ background, flat_shading }`, `Background` only `Solid`; `RgbaImage` has
+  no PNG methods (RND-09). Normals are `Float32x3`, oct encoding is RND-02.
+- Additive API not in §Interfaces: `Renderer::{set_msaa_samples, msaa_samples, set_view_size,
+  core_pipeline_timings, drain_gpu_timings}`, `PipelineTiming`, `RgbaImage::pixel`,
+  `Instance::new`, `GpuMesh::has_normals`, `Camera::default_near`, `egui_glue::shares_device`,
+  cargo feature `static-dxc`.
+- `--bench` and `--stress` run uncapped (`AutoNoVsync`) so they measure frame cost and not the
+  monitor refresh; `amg-app` stays on `HIGH_THROUGHPUT` as requested above.
+- Round-trip test: `unproject` takes an f32 depth, so 1e-9 relative holds for the internal f64
+  path; the public path is limited by the depth step.
+
+*Leftovers:*
+- Done-when 6: the `StaticDxc` number (above).
+- RND-11: the orthographic depth range is a placeholder (about 1000 × distance, f32 depth step
+  about 0.02 mm at 160 mm); fit it to the visible bounds as note §3 says.
+- RND-02: oct normals, override-constant variants, `benches/viewport.rs`; MSAA pipelines not yet
+  built are compiled synchronously in `set_msaa_samples`.
+- Back faces are culled, so open or inconsistently wound STLs show holes; RND-02 decides
+  double-sided handling.
+
 ## Interface changes
+
+### 2026-11-09: RND-01 changes outside lane D's crates (minimal and additive)
+- **Root `Cargo.toml` (S00):** workspace deps `egui`, `egui-wgpu`, `eframe` 0.36.2, as this spec
+  requested; `Cargo.lock` updated.
+- **`deny.toml` (S00):** per-crate exception for `epaint_default_fonts` (OFL-1.1,
+  Ubuntu-font-1.0, font data from egui's `default_fonts`); without it `cargo deny` rejects egui.
+- **Note for S00 FND-09 / S11:** compare `Gpu` identity with
+  `amg_render::egui_glue::shares_device`, not `Device` equality alone.
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
 
