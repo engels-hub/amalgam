@@ -9,7 +9,26 @@ publish.workspace = true
 
 [dependencies]
 amg-core.workspace = true
-amg-jobs.workspace = true
+# Not `workspace = true`: this crate's own `gpu` feature decides whether `amg_jobs::gpu` exists.
+amg-jobs = { path = "../amg-jobs", default-features = false }
+bytemuck.workspace = true
+half = { version = "2.7.1", features = ["bytemuck"] }
+rayon.workspace = true
+thiserror.workspace = true
+
+[features]
+default = ["gpu"]
+# `amg_compute::gpu` and everything that needs a device. Precision is never a feature: it is
+# chosen at runtime per device (`amg_compute::precision`).
+gpu = ["amg-jobs/gpu"]
+
+[dev-dependencies]
+amg-testkit.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "gpu_layer"
+harness = false
 
 [lints]
 workspace = true
