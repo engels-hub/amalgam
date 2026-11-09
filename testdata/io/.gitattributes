@@ -1,0 +1,3 @@
+# Byte-exact fixtures: no line-ending conversion, no git-LFS (the root rules would otherwise
+# apply `text=auto eol=lf` and the *.stl/*.3mf LFS filters to some of these).
+*.fixture -text -filter -diff -merge
