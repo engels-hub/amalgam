@@ -10,10 +10,24 @@ publish.workspace = true
 [dependencies]
 amg-core.workspace = true
 amg-jobs.workspace = true
-amg-brep.workspace = true
+amg-brep = { workspace = true, optional = true }
 amg-mesh.workspace = true
 amg-sketch.workspace = true
 amg-materials.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+# STEP/IGES exchange through the OCCT-backed kernel (S12 §3). On in `amg-app` / `amg-cli`.
+brep = ["dep:amg-brep"]
+
+[dev-dependencies]
+amg-testkit.workspace = true
+serde_json.workspace = true
+sha2 = "0.10.9"
+tempfile = "3.27.0"
+toml.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,578 @@
+# Import/export corpus manifest (IO-01, S12). Format 1. One [[entry]] per file.
+#
+# Schema (note docs/notes/import-export-formats.md §11, same style as testdata/mesh/corpus.toml):
+# - `id`       unique.
+# - `file`     path relative to testdata/io/.
+# - `kind`     "file" (default): the whole file; the harness runs `probe` and `Format::sniff`.
+#              "head": only the first bytes of a larger file; `file_len` is the length of the
+#              original file. The harness runs `Format::sniff(head, file_len)`.
+# - `format`   expected format ("stl" | "3mf" | "obj" | "ply" | "step" | "iges" | "dxf" | "svg").
+#              Absent when the content must not be recognised.
+# - `expect`   "ok" or the name of the `IoError` variant `probe` must return (for example
+#              "UnknownFormat").
+# - `license`  SPDX id. `source_url` is the page the licence applies to ("synthetic: ..." for
+#              files generated for the tests).
+# - `sha256`   of the file as stored.
+# - `fetch`    true: the file is NOT in the repo (a fetch script downloads it, pinned by
+#              `fetch_url` + `fetch_sha256`). The harness skips it when absent.
+# - Optional: `triangles`, `objects`, `unit`, `warnings` (reader WPs assert these), `note`.
+#
+# Files committed here use the `.fixture` extension so that the git-LFS and line-ending rules
+# of the repository root leave them alone (see testdata/io/.gitattributes).
+#
+# The `heads/*.fixture` entries are synthetic (CC0-1.0): IO-01 sniff table. They are generated
+# by hand-written bytes, not taken from any third-party file.
+
+[corpus]
+format = 1
+
+[[entry]]
+id = "stl-binary-plain"
+file = "heads/stl-binary-plain.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "c73d2c2f4b8a3101de8a5084958008ad55f27a0f2ebe41e26db12ef178f88327"
+note = "binary, header count matches (rule 1)"
+
+[[entry]]
+id = "stl-binary-solid-header"
+file = "heads/stl-binary-solid-header.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "f1db2c94916758b8aa237a5d05d0c1b77181f698fdee0dae1a5bedcfc1d9ad33"
+note = "binary whose header starts with solid (rule 1 must win)"
+
+[[entry]]
+id = "stl-binary-solid-facet-header"
+file = "heads/stl-binary-solid-facet-header.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "3183c7cc2617785ffedab8d15558efd41e7c127ef551600d874871cede25ff53"
+note = "binary whose header holds both solid and facet"
+
+[[entry]]
+id = "stl-binary-big-head"
+file = "heads/stl-binary-big-head.fixture"
+kind = "head"
+file_len = 50084
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "cecff22ecbf49e22dcbf330963fe688c1681c5126078c4528c5a3dce6831b166"
+note = "first 4 KiB of a 1000-triangle binary STL"
+
+[[entry]]
+id = "stl-binary-count-zero"
+file = "heads/stl-binary-count-zero.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "00cdddec2ad94d43c4ce1a1d3c27989a2fac35f8fb0fff8e44e04b135950e37c"
+note = "count 0 but size fits 3 triangles (rule 3)"
+
+[[entry]]
+id = "stl-binary-truncated"
+file = "heads/stl-binary-truncated.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "6bbe2688ae7cc60f619f5cc9a0c3e12e76ebe6401b7b0beec5af634b7d92b4ed"
+note = "declares 10, holds 3 and 20 stray bytes (rule 4)"
+
+[[entry]]
+id = "stl-binary-trailing"
+file = "heads/stl-binary-trailing.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "eb807aa6e9bb1a7f4855253fd551671649e06a2c7f48bb967d848a24e3728612"
+note = "2 triangles then 7 trailing bytes (rule 4)"
+
+[[entry]]
+id = "stl-ascii-lf"
+file = "heads/stl-ascii-lf.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "d2384e94b869e8172bf1a6b91926e99a828aebe7c35eaac5495cab7afd63609c"
+note = "ASCII, LF"
+
+[[entry]]
+id = "stl-ascii-crlf"
+file = "heads/stl-ascii-crlf.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "b81662d7e63511dfa457a3a573d2e2d6914fdb1500f2f246437e6b4737e81cfa"
+note = "ASCII, CRLF"
+
+[[entry]]
+id = "stl-ascii-bom"
+file = "heads/stl-ascii-bom.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "5a97975a63cdf71af6522ad3d631f3c492e8bb8ffcad25b721ad52d563220a78"
+note = "ASCII with UTF-8 BOM"
+
+[[entry]]
+id = "stl-ascii-uppercase"
+file = "heads/stl-ascii-uppercase.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "b5ca101a7c8b0f0b0c16673a3fa44c7f55c4c329dfa139802a198d3042b4c307"
+note = "ASCII, upper case keywords"
+
+[[entry]]
+id = "stl-ascii-leading-whitespace"
+file = "heads/stl-ascii-leading-whitespace.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "20c0b652ae987b715e568bda2a7f609343cd39ade24bd97ef642243609b6beef"
+note = "ASCII with blank lines and tabs before solid"
+
+[[entry]]
+id = "stl-ascii-tabs-spaced-name"
+file = "heads/stl-ascii-tabs-spaced-name.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "9b009e069d7996ea7b8d8cfbc0b558b2cd081c933467bc8196f1702b8417cc7b"
+note = "ASCII with tabs and a name with spaces"
+
+[[entry]]
+id = "stl-ascii-multi-solid"
+file = "heads/stl-ascii-multi-solid.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "e032715554714d0e69db876b6a3f7c204c86462e72c14a789522c62de3ac8d1d"
+note = "two solid blocks"
+
+[[entry]]
+id = "stl-ascii-no-endsolid"
+file = "heads/stl-ascii-no-endsolid.fixture"
+kind = "file"
+format = "stl"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "8cb55ab889ccf16eb7709ea71e015a8200f5aaaeb51767e57afc4d7659205e4c"
+note = "ASCII without endsolid"
+
+[[entry]]
+id = "none-stl-solid-without-facet"
+file = "heads/none-stl-solid-without-facet.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "cae5bfc3f6f573c0b068c554e6f065779f715d2624a4c69a557b38750f00cf3c"
+note = "tiny ASCII STL without facets is not detectable"
+
+[[entry]]
+id = "obj-v-first"
+file = "heads/obj-v-first.fixture"
+kind = "file"
+format = "obj"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "697b00ab13410c52a542d2e9c63711fcc04e9cbf6c0d3439a9b43cc812e6e713"
+note = "starts with v"
+
+[[entry]]
+id = "obj-comment-first"
+file = "heads/obj-comment-first.fixture"
+kind = "file"
+format = "obj"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "532636733db65ee11e8c49a8d9b5930081d7847ea52cecacb6a2820e740d5a13"
+note = "comments and blank lines first"
+
+[[entry]]
+id = "obj-mtllib-first"
+file = "heads/obj-mtllib-first.fixture"
+kind = "file"
+format = "obj"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "556d48b581361e5ebb676daaab88d3c0c6ddcd694a2bd0cc0de55ca776eb56bb"
+note = "starts with mtllib"
+
+[[entry]]
+id = "obj-o-first"
+file = "heads/obj-o-first.fixture"
+kind = "file"
+format = "obj"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "d33afed58f254494a66ee8e1e54860898b72bc1593bc4ba2344e4e7f174ebf9f"
+note = "starts with o"
+
+[[entry]]
+id = "obj-g-first"
+file = "heads/obj-g-first.fixture"
+kind = "file"
+format = "obj"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "71779b68109655b14ce65f83e212c8325fbd9651dee9d22c0d07119fb874ba42"
+note = "starts with g"
+
+[[entry]]
+id = "obj-crlf-bom"
+file = "heads/obj-crlf-bom.fixture"
+kind = "file"
+format = "obj"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "68ce35ecd573aada56d5779ecf96a4f5f9960f596be46dbac7b7a5948d3c2bf0"
+note = "BOM and CRLF"
+
+[[entry]]
+id = "obj-vt-first"
+file = "heads/obj-vt-first.fixture"
+kind = "file"
+format = "obj"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "6349526f48e0c53c4e026d1f4a0ce7a9771cf2c6bfc8bf4105aad5f09e7d4d7f"
+note = "starts with vt"
+
+[[entry]]
+id = "obj-vertex-colors"
+file = "heads/obj-vertex-colors.fixture"
+kind = "file"
+format = "obj"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "685343ee8131926284f0b6b3fefaff7f8413ecbaf00bd28a42adcd2ea775d326"
+note = "vertex colours (MeshLab)"
+
+[[entry]]
+id = "ply-ascii-lf"
+file = "heads/ply-ascii-lf.fixture"
+kind = "file"
+format = "ply"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "f00fe27bcf1d2dc0daafe7bcb7585954fb8f00b44657494266aeb7acfe7a7fcb"
+note = "ASCII, LF"
+
+[[entry]]
+id = "ply-binary-le-crlf"
+file = "heads/ply-binary-le-crlf.fixture"
+kind = "file"
+format = "ply"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "95a86f1f4b1a394842fd7fdd1a6f108bf43b2fddb49936bc4d7306a367b38557"
+note = "binary LE header with CRLF"
+
+[[entry]]
+id = "ply-binary-be"
+file = "heads/ply-binary-be.fixture"
+kind = "file"
+format = "ply"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "dd8067135ffc8ffc1e1a605253dce241ad14c765c96e53f5968d7593c11f49a8"
+note = "binary BE"
+
+[[entry]]
+id = "step-lf"
+file = "heads/step-lf.fixture"
+kind = "file"
+format = "step"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "6613bf7ae75c4983b26fb41d1a57bc53246d622794ce819c451e22f66318b41e"
+note = "STEP"
+
+[[entry]]
+id = "step-leading-ws-crlf"
+file = "heads/step-leading-ws-crlf.fixture"
+kind = "file"
+format = "step"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "5c9326e5ea330f304ebfe8a0a13dce76df02ff049a75c9e4c8de2ce3c3ed1554"
+note = "STEP after blank line, CRLF"
+
+[[entry]]
+id = "iges-lf"
+file = "heads/iges-lf.fixture"
+kind = "file"
+format = "iges"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "063213fba2f0016b17bef478afd4f0f645209f72d5aef3177fb27a0154b7daba"
+note = "IGES, LF"
+
+[[entry]]
+id = "iges-crlf"
+file = "heads/iges-crlf.fixture"
+kind = "file"
+format = "iges"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "1687875051d84233bdf87d13b667ae267e274f78087a244a62add0757804d246"
+note = "IGES, CRLF"
+
+[[entry]]
+id = "none-iges-lookalike-short-line"
+file = "heads/none-iges-lookalike-short-line.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "d1247f33ecf6201901cb607b6386123351bc29d0932c72e9c58c02aa15cb707f"
+note = "first line is not 80 columns with S in column 73"
+
+[[entry]]
+id = "dxf-lf"
+file = "heads/dxf-lf.fixture"
+kind = "file"
+format = "dxf"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "d7ddad2fe291b2ab9744f206f9482529d815b7a004ebfe07f1b7008987ac87f4"
+note = "DXF, LF"
+
+[[entry]]
+id = "dxf-crlf"
+file = "heads/dxf-crlf.fixture"
+kind = "file"
+format = "dxf"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "8bb3f2906c51e3200e48a12f501a1c6d39e633e52510e7ff9fbc0ba5ffa46038"
+note = "DXF, CRLF"
+
+[[entry]]
+id = "dxf-indented"
+file = "heads/dxf-indented.fixture"
+kind = "file"
+format = "dxf"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "da8918327d8e1b09b627fd055b873a23645bf3da09e7cc768399770c53358135"
+note = "DXF with group code padded to 3 columns"
+
+[[entry]]
+id = "svg-bare"
+file = "heads/svg-bare.fixture"
+kind = "file"
+format = "svg"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "d35ec43a32f8531bae6a959d1d09b8c6e3d7e68a61050d46c4b39614f5d300c7"
+note = "bare svg element"
+
+[[entry]]
+id = "svg-xml-decl"
+file = "heads/svg-xml-decl.fixture"
+kind = "file"
+format = "svg"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "3cfe854b788577776ff9cd86367742ed44c7b0d0b73bf18ccd20d7f3c991fb24"
+note = "XML declaration first"
+
+[[entry]]
+id = "svg-doctype-comment"
+file = "heads/svg-doctype-comment.fixture"
+kind = "file"
+format = "svg"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "14358a58b7bd90c3dc381861f2e81c46e0a1aac536537b86141583a9e588454f"
+note = "comment and doctype first"
+
+[[entry]]
+id = "svg-bom"
+file = "heads/svg-bom.fixture"
+kind = "file"
+format = "svg"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "b1aa8ccaa130c32cec80bd56ff9fb113e38466455ccea886804e6364d0894faa"
+note = "UTF-8 BOM"
+
+[[entry]]
+id = "3mf-content-types-first"
+file = "heads/3mf-content-types-first.fixture"
+kind = "file"
+format = "3mf"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "2a3ea3cd55e598414f4b46e0eeba18c80deb37acbfbf9e23282b10fe215d8c5b"
+note = "3MF, content types first"
+
+[[entry]]
+id = "3mf-model-first"
+file = "heads/3mf-model-first.fixture"
+kind = "file"
+format = "3mf"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "c0811e8c7d8dbe8a9a3d990def0d89b8f4e698ff6aa9856cdc47852dd0240c69"
+note = "3MF, 3D part first"
+
+[[entry]]
+id = "3mf-slicer-project"
+file = "heads/3mf-slicer-project.fixture"
+kind = "file"
+format = "3mf"
+expect = "ok"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "50fdc2972e5e60b84bef9073ec61ad1319ef272c52b2e94085b49d3684e67e79"
+note = "3MF with Orca/Bambu project data"
+
+[[entry]]
+id = "none-amg-project-zip"
+file = "heads/none-amg-project-zip.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "30900320a797a212fc7a5431b63535c02ce5b080271057c2c3a4dfe0815eceab"
+note = "Amalgam .amg container: not an import (UnknownFormat with hint)"
+
+[[entry]]
+id = "none-docx-like-zip"
+file = "heads/none-docx-like-zip.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "449d25f250dbff428cc467f2ee18cf18dcdc905f985036c5d4455fbacb0018c3"
+note = "OPC package without a 3D part"
+
+[[entry]]
+id = "none-plain-zip"
+file = "heads/none-plain-zip.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "d058119573be0389413d67545330c7bf181f73123bbee63c0c73f827728bd6b9"
+note = "unrelated zip"
+
+[[entry]]
+id = "none-png-sized-like-binary-stl"
+file = "heads/none-png-sized-like-binary-stl.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "861b397de0ec58fe89a098a43bcec5261ffe2c2c388f58dbe64f44bcf9db8b5d"
+note = "PNG whose size satisfies the binary-STL size rule"
+
+[[entry]]
+id = "none-pdf"
+file = "heads/none-pdf.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "6ad075e90aa0b4dfd94e8971a5c603fc04a4b753822a4ab08d7b2f692baa5c86"
+note = "PDF"
+
+[[entry]]
+id = "none-empty"
+file = "heads/none-empty.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+note = "empty file"
+
+[[entry]]
+id = "none-text-note"
+file = "heads/none-text-note.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "e5a2b27b01635233ae9a91161b09e5130c10f7d10b3aefb8dda1c3c335eb2170"
+note = "plain text"
+
+[[entry]]
+id = "none-json"
+file = "heads/none-json.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "363a3935491c06cff7264f0cedc6a027518fc9acd093867dba30641f5cf51e54"
+note = "JSON"
+
+[[entry]]
+id = "none-binary-with-control-bytes"
+file = "heads/none-binary-with-control-bytes.fixture"
+kind = "file"
+expect = "UnknownFormat"
+license = "CC0-1.0"
+source_url = "synthetic: generated for IO-01 (see README.md)"
+sha256 = "0d6f48f1a65e1f52388557a944870653a8ff751edc35aef15465673e11ba7a09"
+note = "binary noise of a fitting size; header has control characters"
