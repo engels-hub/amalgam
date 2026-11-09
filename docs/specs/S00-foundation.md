@@ -1646,7 +1646,9 @@ Strictly additive: no existing unit, symbol, type or test changed behaviour (S17
   - **Two canonical-unit rows not in the note**, for the same reason `t/mm^3` was added in FND-10
     (every dimension needs a scale-1 unit for `FormatStyle::Exact`'s fallback and
     `Unit::canonical_for`): `SquareMillimetrePerSquareSecondKelvin` (`mm^2/(s^2*K)`, the
-    canonical specific heat) and `Ratio` (`ratio`, dimensionless, scale 1).
+    canonical specific heat) and `Ratio` (`unitless`, dimensionless, scale 1). The symbol was
+    `ratio` until the merge (2026-11-09): every unit symbol is a reserved parameter name in
+    `amg-doc` expressions, and `ratio` is a common parameter name.
 - **Typed quantities** (same macro, `serde(transparent)`, linear ops): `ThermalConductivity`
   (`w_per_m_k`/`to_w_per_m_k`), `SpecificHeat` (`j_per_kg_k`/`to_j_per_kg_k`),
   `ThermalExpansion` (`per_k`, `ppm_per_k` and their `to_*`). Re-exported from `amg_core` and

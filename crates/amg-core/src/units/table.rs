@@ -129,7 +129,8 @@ pub enum Unit {
     /// % (dimensionless, 0.01). MAT-01.
     Percent,
     /// A plain dimensionless ratio (scale 1). Not in the note's table; added so the
-    /// dimensionless dimension has a canonical unit for `FormatStyle::Exact`.
+    /// dimensionless dimension has a canonical unit for `FormatStyle::Exact`. Its symbol is
+    /// `unitless`, not `ratio`: unit symbols are reserved parameter names in expressions.
     Ratio,
 }
 
@@ -254,7 +255,7 @@ static TABLE: [Info; 58] = [
     row(U::Milliwatt, D::POWER, 1.0, &["mW"]),
     row(U::Watt, D::POWER, 1e3, &["W"]),
     row(U::Percent, D::NONE, 0.01, &["%"]),
-    row(U::Ratio, D::NONE, 1.0, &["ratio"]),
+    row(U::Ratio, D::NONE, 1.0, &["unitless"]),
 ];
 
 /// `Unit::all()` in declaration order.
