@@ -1629,3 +1629,28 @@ at `2026.07.29`; they should now say 8.0.1 at `2026.10.16`.
 - **Local builds:** `vcpkg install --triplet x64-windows-amg` at the repo root, or
   `--x-install-root=<dir>` plus `AMG_VCPKG_INSTALLED=<dir>` (used for worktrees, so the install
   tree stays off C:). Only needed with `--features manifold` / `--all-features`.
+
+### 2026-11-09 — MAT-01 (`amg-core::units` additions, lane G; flagged S00 interface change)
+Strictly additive: no existing unit, symbol, type or test changed behaviour (S17 note §2.5).
+- **`Dimension` constants:** `THERMAL_CONDUCTIVITY` (1,1,−3,−1,0), `SPECIFIC_HEAT`
+  (2,0,−2,−1,0), `THERMAL_EXPANSION` (0,0,0,−1,0), `POWER` (2,1,−3,0,0). `Dimension`'s
+  `Display` is unchanged (these print as base units, e.g. `mm^2/s^2/K`).
+- **New `Unit` variants (appended, so existing discriminants and `Unit::all()` order are
+  unchanged; 49 → 58 entries):**
+  - `WattPerMetreKelvin` (`W/(m*K)`, `W/mK`, scale 1), `JoulePerKilogramKelvin` (`J/(kg*K)`,
+    `J/kgK`, 1e6), `PpmPerKelvin` (`ppm/K`, `um/(m*K)`, 1e-6), `Milliwatt` (`mW`, 1),
+    `Watt` (`W`, 1e3), `Percent` (`%`, 0.01, dimensionless).
+  - `PerKelvin` has symbol `/K` (alias `K⁻¹`), not the note's `1/K`: a leading digit reads as
+    the numerator of a fraction (`1/4 in`), so `1/K` can never parse. `2.3e-5 /K` and `68 ppm/K`
+    are the spellings; an integer magnitude directly before `/K` (`2/K`) is a fraction.
+  - **Two canonical-unit rows not in the note**, for the same reason `t/mm^3` was added in FND-10
+    (every dimension needs a scale-1 unit for `FormatStyle::Exact`'s fallback and
+    `Unit::canonical_for`): `SquareMillimetrePerSquareSecondKelvin` (`mm^2/(s^2*K)`, the
+    canonical specific heat) and `Ratio` (`ratio`, dimensionless, scale 1).
+- **Typed quantities** (same macro, `serde(transparent)`, linear ops): `ThermalConductivity`
+  (`w_per_m_k`/`to_w_per_m_k`), `SpecificHeat` (`j_per_kg_k`/`to_j_per_kg_k`),
+  `ThermalExpansion` (`per_k`, `ppm_per_k` and their `to_*`). Re-exported from `amg_core` and
+  `amg_core::units`.
+- **One existing test edited** (`table_order_and_all`): it asserted `Unit::all().len() == 49`
+  and that the last unit is `DeltaCelsius`. It now asserts 58, `all()[48] == DeltaCelsius`
+  (the FND-10 rows are untouched) and the new last unit. No other existing test changed.

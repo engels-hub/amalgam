@@ -212,6 +212,25 @@ typed_quantity! {
     fahrenheit / to_fahrenheit => DegreeFahrenheit,
 }
 
+typed_quantity! {
+    /// A thermal conductivity (canonical W/(m·K) = t·mm/(s³·K)).
+    ThermalConductivity, Dimension::THERMAL_CONDUCTIVITY, "W/(m*K)";
+    w_per_m_k / to_w_per_m_k => WattPerMetreKelvin,
+}
+
+typed_quantity! {
+    /// A specific heat capacity (canonical mm²/(s²·K); steel 460 J/(kg·K) is 4.6e8).
+    SpecificHeat, Dimension::SPECIFIC_HEAT, "mm^2/(s^2*K)";
+    j_per_kg_k / to_j_per_kg_k => JoulePerKilogramKelvin,
+}
+
+typed_quantity! {
+    /// A linear thermal expansion coefficient (canonical 1/K; 68 ppm/K is 6.8e-5).
+    ThermalExpansion, Dimension::THERMAL_EXPANSION, "1/K";
+    per_k / to_per_k => PerKelvin,
+    ppm_per_k / to_ppm_per_k => PpmPerKelvin,
+}
+
 /// Linear arithmetic for every typed quantity except the affine [`Temperature`].
 macro_rules! linear_ops {
     ($($name:ident),+) => {$(
@@ -271,7 +290,19 @@ macro_rules! linear_ops {
 }
 
 linear_ops!(
-    Length, Angle, Area, Volume, Mass, Time, Force, Pressure, Density, Energy
+    Length,
+    Angle,
+    Area,
+    Volume,
+    Mass,
+    Time,
+    Force,
+    Pressure,
+    Density,
+    Energy,
+    ThermalConductivity,
+    SpecificHeat,
+    ThermalExpansion
 );
 
 impl std::ops::Sub for Temperature {

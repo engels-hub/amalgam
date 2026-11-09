@@ -9,6 +9,20 @@ publish.workspace = true
 
 [dependencies]
 amg-core.workspace = true
+serde.workspace = true
+# `float_roundtrip`: exact f64 parsing, so a material copy in `design.json` is bit-exact.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+toml.workspace = true
+blake3.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "library"
+harness = false
 
 [lints]
 workspace = true

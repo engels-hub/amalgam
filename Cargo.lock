@@ -208,6 +208,13 @@ name = "amg-materials"
 version = "0.1.0"
 dependencies = [
  "amg-core",
+ "blake3",
+ "criterion 0.8.2",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml",
 ]
 
 [[package]]

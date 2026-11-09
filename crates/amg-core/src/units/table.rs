@@ -111,6 +111,26 @@ pub enum Unit {
     DegreeFahrenheit,
     /// A temperature difference in °C (scale 1, no offset): `10 delta_degC` is 10 K.
     DeltaCelsius,
+    /// W/(m·K), the canonical thermal conductivity (t·mm/(s³·K) exactly). MAT-01.
+    WattPerMetreKelvin,
+    /// J/(kg·K) (1e6 canonical). MAT-01.
+    JoulePerKilogramKelvin,
+    /// mm²/(s²·K), the canonical specific heat (1 J/(kg·K) = 1e6 of these). Not in the
+    /// note's table; added so every dimension has a canonical unit for `FormatStyle::Exact`.
+    SquareMillimetrePerSquareSecondKelvin,
+    /// 1/K, the canonical thermal expansion coefficient. MAT-01.
+    PerKelvin,
+    /// ppm/K = µm/(m·K) (1e-6 canonical). MAT-01.
+    PpmPerKelvin,
+    /// mW, the canonical power (mJ/s). MAT-01.
+    Milliwatt,
+    /// W (1e3 canonical). MAT-01.
+    Watt,
+    /// % (dimensionless, 0.01). MAT-01.
+    Percent,
+    /// A plain dimensionless ratio (scale 1). Not in the note's table; added so the
+    /// dimensionless dimension has a canonical unit for `FormatStyle::Exact`.
+    Ratio,
 }
 
 struct Info {
@@ -138,7 +158,7 @@ use Dimension as D;
 use Unit as U;
 
 /// Indexed by `Unit as usize`; a test checks the order.
-static TABLE: [Info; 49] = [
+static TABLE: [Info; 58] = [
     row(U::Micrometre, D::LENGTH, 1e-3, &["um", "µm", "μm"]),
     row(U::Millimetre, D::LENGTH, 1.0, &["mm"]),
     row(U::Centimetre, D::LENGTH, 10.0, &["cm"]),
@@ -204,11 +224,42 @@ static TABLE: [Info; 49] = [
         )
     },
     row(U::DeltaCelsius, D::TEMPERATURE, 1.0, &["delta_degC"]),
+    row(
+        U::WattPerMetreKelvin,
+        D::THERMAL_CONDUCTIVITY,
+        1.0,
+        &["W/(m*K)", "W/mK"],
+    ),
+    row(
+        U::JoulePerKilogramKelvin,
+        D::SPECIFIC_HEAT,
+        1e6,
+        &["J/(kg*K)", "J/kgK"],
+    ),
+    row(
+        U::SquareMillimetrePerSquareSecondKelvin,
+        D::SPECIFIC_HEAT,
+        1.0,
+        &["mm^2/(s^2*K)"],
+    ),
+    // `1/K` cannot be a symbol: a leading digit reads as a fraction (`1/4 in`).
+    // Write `/K` (`2.3e-5 /K`); an integer magnitude directly before it (`2/K`) reads as a fraction.
+    row(U::PerKelvin, D::THERMAL_EXPANSION, 1.0, &["/K", "K⁻¹"]),
+    row(
+        U::PpmPerKelvin,
+        D::THERMAL_EXPANSION,
+        1e-6,
+        &["ppm/K", "um/(m*K)"],
+    ),
+    row(U::Milliwatt, D::POWER, 1.0, &["mW"]),
+    row(U::Watt, D::POWER, 1e3, &["W"]),
+    row(U::Percent, D::NONE, 0.01, &["%"]),
+    row(U::Ratio, D::NONE, 1.0, &["ratio"]),
 ];
 
 /// `Unit::all()` in declaration order.
-static ALL: [Unit; 49] = {
-    let mut all = [Unit::Millimetre; 49];
+static ALL: [Unit; 58] = {
+    let mut all = [Unit::Millimetre; 58];
     let mut i = 0;
     while i < TABLE.len() {
         all[i] = TABLE[i].unit;

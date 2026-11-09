@@ -1,0 +1,83 @@
+# Built-in material library, MAT-01 fixture (two materials).
+#
+# These entries exercise the loader and the embedded-library path. Their values are rounded
+# handbook-level numbers, flagged `typical` / `estimate`, with a source record that says so.
+# MAT-05 replaces this file with the cited v1 data (individually cited datasheets and
+# standards, note §3).
+
+format = "amalgam-materials"
+format_version = 1
+
+[library]
+id = "amg.builtin"
+name = "Amalgam built-in"
+version = "0.1-fixture"
+data_licence = "same as the code, citations kept (S17 open question 4)"
+description = "MAT-01 two-material fixture; replaced by MAT-05."
+
+[[source]]
+key = "mat01-fixture"
+kind = "estimate"
+title = "MAT-01 loader fixture: rounded textbook values, not a datasheet"
+publisher = "Amalgam"
+version = "MAT-01"
+
+[[material]]
+id = "pla.fff"
+revision = 1
+name = "PLA (FFF printed)"
+category = "polymer"
+family = "pla"
+condition = "printed, 100 % infill, dry, 23 degC (fixture values)"
+default_source = "mat01-fixture"
+appearance = "amg.builtin/plastic.white-matte"
+tags = ["fff", "fixture"]
+density = { v = "1.24 g/cm^3", q = "typical", std = "ISO 1183" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "2.7 GPa", q = "typical", spec = "XYZ", std = "ISO 527" }
+poisson = { v = "0.36", q = "typical" }
+
+[material.mechanical.strength]
+ultimate_tensile.xy = { v = "39 MPa", q = "typical", spec = "XYZ", std = "ISO 527" }
+ultimate_tensile.z = { v = "35 MPa", q = "typical", spec = "ZXY", std = "ISO 527" }
+
+[material.thermal]
+heat_deflection_045 = { v = "57 degC", q = "typical", std = "ISO 75" }
+
+[material.am]
+process = "material_extrusion"
+slicer_type = "PLA"
+nozzle_temp = { min = "190 degC", max = "230 degC" }
+bed_temp = { min = "35 degC", max = "65 degC" }
+
+[[material]]
+id = "ti6al4v.lpbf"
+revision = 1
+name = "Ti-6Al-4V (LPBF)"
+category = "metal"
+family = "ti6al4v"
+condition = "stress relieved (fixture values)"
+default_source = "mat01-fixture"
+appearance = "amg.builtin/metal.titanium"
+tags = ["lpbf", "fixture"]
+density = { v = "4.43 g/cm^3", q = "typical", std = "ISO 1183" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "110 GPa", q = "typical" }
+poisson = { v = "0.34", q = "typical" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "950 MPa", q = "typical", spec = "XYZ", std = "ISO 6892-1" }
+ultimate_tensile.xy = { v = "1100 MPa", q = "typical", spec = "XYZ", std = "ISO 6892-1" }
+
+[material.thermal]
+conductivity.xy = { v = "6.7 W/(m*K)", q = "typical" }
+specific_heat = { v = "526 J/(kg*K)", q = "typical" }
+expansion.xy = { v = "8.6 ppm/K", q = "typical" }
+melting = { v = "1604 degC", q = "typical" }
+
+[material.am]
+process = "powder_bed_fusion_metal"
