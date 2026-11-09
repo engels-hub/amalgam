@@ -662,7 +662,7 @@ harness; measured numbers go into the Refinement log.
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| CMP-07 | GPU layer: `GpuVec<T>` (binding-limit checks), `Kernel` (incl. `with_precision`), `ComputeCtx` (batched encoder, uniform arena, `dispatch_1d` 2-D folding, timestamps), `prelude_wgsl` (`real` alias), `ComputeError` + `Diagnostic`; precision selection (`Precision`, `PrecisionPolicy`, `AMG_COMPUTE_PRECISION`, `GpuReal`, `device_precision`, `SolverDevice::precision`); WARP test harness with a per-precision test matrix and the f64 skip/require rule; crate deps (`half`, `bytemuck`, `rayon`) and THIRD_PARTY rows | FND-09, FND-05 | P1 | Todo | 1. On WARP and the reference GPU, `dispatch_1d` with n ∈ {0, 1, 255, 256, 257, 65 535·256 + 1, 2²⁶ + 3} writes every index exactly once (counter test). 2. `GpuVec::zeroed` past the binding limit returns `TooLarge`, no panic. 3. A destroyed device makes `finish` return `Gpu(DeviceLost)` within 1 s (no hang). 4. Bench: 1 000 empty dispatches recorded and submitted in one `ComputeCtx` cost ≤ 20 µs CPU each. 5. `take_timings` is non-empty on the reference GPU and empty without `TIMESTAMP_QUERY`. 6. `cargo deny` passes; `half` listed in THIRD_PARTY.md. 7. `PrecisionPolicy::resolve`: `Auto` gives F64 exactly when `Gpu::has(SHADER_F64)` (WARP and the reference GPU on DX12 → F32; the reference GPU on Vulkan → F64); `ForceF32` gives F32 on every device; `RequireF64` on WARP returns `Unsupported`, no panic; `parse` accepts `auto`/`f32`/`f64` (any case, empty = `Auto`) and rejects anything else with `Config`. 8. The harness runs each numeric GPU test once per precision. On a device without `SHADER_F64` the f64 case is reported as skipped with the reason (`f64: adapter has no SHADER_F64`), and fails instead when `AMG_REQUIRE_F64=1`. CI (WARP) runs the f32 cases and reports the f64 skips. 9. f64 gate (Testing): `AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1 cargo nextest run -p amg-compute` on the reference GPU passes, including an f64 kernel (`real` = f64) for test 1 and a bit-exact f64 upload → kernel copy → readback; the run is recorded in the Refinement log before Review. |
+| CMP-07 | GPU layer: `GpuVec<T>` (binding-limit checks), `Kernel` (incl. `with_precision`), `ComputeCtx` (batched encoder, uniform arena, `dispatch_1d` 2-D folding, timestamps), `prelude_wgsl` (`real` alias), `ComputeError` + `Diagnostic`; precision selection (`Precision`, `PrecisionPolicy`, `AMG_COMPUTE_PRECISION`, `GpuReal`, `device_precision`, `SolverDevice::precision`); WARP test harness with a per-precision test matrix and the f64 skip/require rule; crate deps (`half`, `bytemuck`, `rayon`) and THIRD_PARTY rows | FND-09, FND-05 | P1 | Review | 1. On WARP and the reference GPU, `dispatch_1d` with n ∈ {0, 1, 255, 256, 257, 65 535·256 + 1, 2²⁶ + 3} writes every index exactly once (counter test). 2. `GpuVec::zeroed` past the binding limit returns `TooLarge`, no panic. 3. A destroyed device makes `finish` return `Gpu(DeviceLost)` within 1 s (no hang). 4. Bench: 1 000 empty dispatches recorded and submitted in one `ComputeCtx` cost ≤ 20 µs CPU each. 5. `take_timings` is non-empty on the reference GPU and empty without `TIMESTAMP_QUERY`. 6. `cargo deny` passes; `half` listed in THIRD_PARTY.md. 7. `PrecisionPolicy::resolve`: `Auto` gives F64 exactly when `Gpu::has(SHADER_F64)` (WARP and the reference GPU on DX12 → F32; the reference GPU on Vulkan → F64); `ForceF32` gives F32 on every device; `RequireF64` on WARP returns `Unsupported`, no panic; `parse` accepts `auto`/`f32`/`f64` (any case, empty = `Auto`) and rejects anything else with `Config`. 8. The harness runs each numeric GPU test once per precision. On a device without `SHADER_F64` the f64 case is reported as skipped with the reason (`f64: adapter has no SHADER_F64`), and fails instead when `AMG_REQUIRE_F64=1`. CI (WARP) runs the f32 cases and reports the f64 skips. 9. f64 gate (Testing): `AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1 cargo nextest run -p amg-compute` on the reference GPU passes, including an f64 kernel (`real` = f64) for test 1 and a bit-exact f64 upload → kernel copy → readback; the run is recorded in the Refinement log before Review. |
 | CMP-01 | GPU primitives: reduce (sum/min/max on f32/f64/u32/i32), dot and segmented reduce (f32/f64), exclusive/inclusive scan, compaction, stable radix sort (keys + optional values, `key_bits`), `AtomicCounter`, `cpu` references; benchmarks vs CPU | CMP-07 | P1 | Todo | 1. Every primitive equals its `cpu` reference on sizes {0, 1, 255, 256, 257, 65 537, 2²⁰ + 7, 2²⁴} with random data, on WARP and the reference GPU: integers exactly, f32 sums bit-equal to the tree-order reference on the reference GPU and within n·ε₃₂·Σ\|x\| on WARP. The f64 variants (reduce, dot, segmented reduce) pass the same sizes on the f64 gate, bit-equal to the f64 tree-order reference; on WARP they are skipped by the CMP-07 rule, and an f64 call there returns `Unsupported`. 2. Same input → bit-identical output over 3 runs (both precisions). 3. Sort is stable (equal keys keep value order; property test vs `slice::sort_by_key`). 4. Benches (reference GPU, 2²⁶ elements): reduce f32 ≥ 60 % of the measured device-to-device copy bandwidth; scan u32 ≥ 30 %; sort of 2²⁴ key-value pairs ≥ 1 G pairs/s and ≥ 3× rayon `par_sort_by_key` on the CPU; f64 reduce and dot on Vulkan recorded (no bar); numbers recorded. |
 | CMP-02 | Grids: `DenseGrid<T>`, `BrickGrid<T>` (two-level tree, `BrickLayout::{CELLS, CORNERS}`, fills, aprons, Morton `canonicalize`, `content_hash`), `GpuBrickGrid` (upload/download, deterministic scan-based `allocate`), `brick_grid_wgsl` | CMP-01 | P1 | Todo | 1. Sphere r = 50 at cell 0.5 baked as `d / cell` into `BrickGrid<f16>` (`CORNERS`, band ±4 cells, inside tiles Fill1): CPU `trilinear` error vs the analytic distance ≤ 0.01 cell inside the band; sign correct everywhere in the box (fills). 2. A GPU kernel using `bg_trilinear` at 1 M random points equals CPU `trilinear` within 1e-3 cell (WARP and reference GPU). 3. GPU `allocate` from a mask gives buffers bit-identical over 3 runs and the same brick order as CPU `canonicalize`; upload → download round-trips bit-exactly for f16, f32, u8. 4. Grids built in two insertion orders have equal `content_hash` after `canonicalize`. 5. Sphere r = 100 at cell 0.1: index (root + tiles) ≤ 10 % of brick bytes; bytes recorded. 6. Bench: ≥ 0.5 G `bg_trilinear` samples/s at random in-band points on the reference GPU. 7. A box needing > 2²⁴ root tiles returns `Shape`. |
 | CMP-03 | Sparse direct: `SymCsr` (upper CSR, validation, deterministic `spmv`, `add_scaled`), `TripletBuilder`, `SymbolicFactor` (reusable, `estimate`), `Cholesky` and `Ldlt` (faer, LBLᵀ) with multi-RHS, `PivotReport`, `Inertia`; `testprob` generators | FND-03, FND-04 | P1 | Todo | 1. `q1_elasticity(55, Clamped)` (499 125 DOF): analyse + factor + solve ≤ 20 s (S13 note §8.1 split of the vision 30 s budget), relative residual ≤ 1e-10. 2. `q1_elasticity(70, Clamped)` (1 029 000 DOF): completes on 32 GB; time and peak RSS recorded; `estimate().bytes` within 10 % of the measured factor storage. 3. `solve_many` with 6 RHS takes ≤ 2× one `solve_in_place`. 4. `q1_elasticity(_, Free)` gives `NotPositiveDefinite` with a row, or a `PivotReport` with `below_threshold`; never a panic. 5. `Ldlt::inertia` on random diagonal-plus-low-rank matrices equals the dense eigenvalue sign count (proptest). 6. Re-factoring with new values on the same pattern skips analysis (counter). 7. Factor and solve are bit-identical over 2 runs; `spmv` bit-identical across 1, 4, 16 threads. 8. `from_raw` rejects unsorted, lower or out-of-range input with `InvalidMatrix`. |
@@ -904,7 +904,78 @@ answered.
   `R`), lane E (lavapipe CI job). Listed for the coordinator; not edited here.
 - Status stays `Refined`.
 
+### 2026-11-09 - CMP-07 GPU layer and precision selection (lane F implementation)
+**Landed** in `crates/amg-compute`: `ComputeError` + `Diagnostic`, `SolverDevice`,
+`precision` (`Precision`, `PrecisionPolicy`, `PRECISION_ENV`, `GpuReal`, `device_precision`),
+`gpu` (`GpuVec`, `Kernel`, `ComputeCtx`, `UniformSlot`, `prelude_wgsl`); the per-precision harness
+in `tests/common` (`gpu_test_per_precision!`, the f64 skip/require rule); `tests/gpu_layer.rs`;
+`benches/gpu_layer.rs`. Deps: `half` 2.7.1 (MIT/Apache-2.0, new THIRD_PARTY row), `bytemuck`,
+`rayon`, `thiserror`.
+
+**Measured on the reference machine** (RTX 5060 Ti, driver 32.0.16.1714 / 617.14; WARP is
+Microsoft Basic Render Driver 10.0.26100.9711). All runs `--no-capture`, `AMG_REQUIRE_GPU=1`,
+`AMG_STRICT_TIMING=1`.
+
+| Done-when | DX12 (reference) | WARP | Vulkan (reference) |
+|---|---|---|---|
+| 1. `dispatch_1d`, n up to 2²⁶ + 3, exactly once | pass, F32; largest n 745 ms | pass, F32; 1.50 s | pass, F32 411 ms and F64 610 ms |
+| 2. `zeroed` past the limit (2 147 483 644 bytes) | `TooLarge` | `TooLarge` | `TooLarge` |
+| 3. `finish` after `destroy` | `DeviceLost` in 295 µs | 307 µs | 150 µs |
+| 5. `take_timings` | 3 entries (1.2–3.0 µs) | 3 entries | 3 entries (1.9 µs) |
+| 7. `Auto` resolves to | F32 | F32 | F64 |
+| 8. f64 cases | skipped, `f64: adapter has no SHADER_F64` | skipped, same reason | run |
+
+- Done-when 4 (release, DX12, timestamps on): **14.4 µs CPU per empty dispatch** recorded and
+  submitted (budget 20 µs; 655 batches of 1 000; criterion 14.5–16.3 ms per 1 000).
+- Done-when 5, without `TIMESTAMP_QUERY`: empty, on every device.
+- Done-when 6: `cargo deny check` and `cargo deny --all-features check` pass.
+- Done-when 7: `RequireF64` on DX12 and WARP returns `Unsupported`, no panic; `parse` unit tests.
+- Done-when 8: under `AMG_REQUIRE_F64=1` an f64 case that cannot run fails (`f64_skip_and_require_rule`).
+- Done-when 9, f64 gate: `AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1 cargo nextest run -p
+  amg-compute` (also with `AMG_REQUIRE_GPU=1 AMG_STRICT_TIMING=1 AMG_BENCH_REFERENCE=1`):
+  ```
+  adapter: NVIDIA GeForce RTX 5060 Ti (Vulkan, DiscreteGpu, driver NVIDIA 617.14), SHADER_F64: true, TIMESTAMP_QUERY: true
+  n = 16776961: every index written exactly once (F64, 127.8645ms on NVIDIA GeForce RTX 5060 Ti)
+  n = 67108867: every index written exactly once (F64, 610.0639ms on NVIDIA GeForce RTX 5060 Ti)
+  bit-exact: 1048576 of 1048576 F64 values
+  Auto resolved to F64
+  Summary [  15.473s] 40 tests run: 40 passed, 0 skipped
+  ```
+  The same device with `AMG_COMPUTE_PRECISION=f32`: 40 passed; both f64 cases report
+  `SKIP: f64: AMG_COMPUTE_PRECISION=f32`.
+
+**Decisions and deviations:**
+- Each dispatch is its own compute pass, so timestamps work with plain `TIMESTAMP_QUERY`.
+- A batch is submitted automatically at 1 024 dispatches (two timestamps each must fit one query
+  set). An automatic submission keeps uniform slots alive; only `submit` releases them.
+- `take_timings` keeps the last 256 batches, so a solver that never calls it stays bounded. It
+  waits for the timestamps, so it is job-thread only.
+- `AMG_COMPUTE_PRECISION=f32` maps to `ForceF32` and `f64` to `RequireF64`. In the harness `f32`
+  skips the f64 cases and `f64` requires them, like `AMG_REQUIRE_F64=1`.
+- `amg-compute` depends on `amg-jobs` by path with `default-features = false`, so the `gpu`
+  feature is real; `--no-default-features` builds.
+- `SolverDevice::Cuda` and the `cuda` feature are not added; they arrive with CMP-06.
+
+**Leftovers:**
+- f64 skips are printed to stderr, and nextest hides the output of passing tests, so CI needs
+  output capture to show them (Interface changes below).
+- `GpuVec::read` panics on an empty vector because `Readback` has no zero-length form. CMP-01's
+  size-0 cases must not read back, or need the additive `amg-jobs` change below.
+- GPU out-of-memory below the binding limit still reaches wgpu's error handler (a panic):
+  `ComputeError` has no variant for it. Only the binding limit is checked (Done-when 2).
+
 ## Interface changes
+### 2026-11-09: requests from CMP-07 (lane F; not applied)
+- **Lane E (`.config/nextest.toml`):** to show the f64 skips in CI (Done-when 8), add an override
+  `filter = 'test(/gpu_f64/)'` with `success-output = "immediate"` to `[profile.ci]`, or store
+  success output in the JUnit report.
+- **`amg-jobs::gpu` (S00), additive, only if CMP-01 wants it:** a zero-length `Readback` so
+  `GpuVec::read` can return an empty result for an empty vector.
+- **`amg-jobs::gpu` (S00):** `Readback::start` can panic between `Device::destroy` and the
+  lost flag being set (`map_async` validation error). `ComputeCtx` guards its own readback with an
+  error scope; a user readback in that window is still exposed. Only explicit `destroy` opens the
+  window.
+
 ### 2026-11-08: from the S14 refinement (lane F; inputs to the S15 refinement)
 See `docs/specs/S14-generative-design.md` Interfaces and `docs/notes/generative-design.md` §5.
 - CMP-05: a PCG driver over a caller-supplied matrix-free operator and preconditioner on GPU f32

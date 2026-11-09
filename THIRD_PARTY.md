@@ -40,7 +40,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
 | cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |
-| rayon | `amg-jobs` and domain crates (S00); `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
+| rayon | `amg-jobs` and domain crates (S00); `amg-mesh` (S07); `amg-compute` (S15) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
@@ -67,7 +67,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.1.20) |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.5.17) |
 | parking_lot | locks, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.12.5) |
-| bytemuck | GPU buffer casts, `amg-jobs::gpu` (S00); bulk FFI buffer casts, `amg-brep` (S02) | Zlib / MIT / Apache-2.0 | no | no | In use (1.25.2; `amg-jobs::gpu`, feature `gpu`) |
+| bytemuck | GPU buffer casts, `amg-jobs::gpu` (S00), `amg-compute` (S15); bulk FFI buffer casts, `amg-brep` (S02) | Zlib / MIT / Apache-2.0 | no | no | In use (1.25.2; `amg-jobs::gpu`, feature `gpu`; `amg-compute`) |
+| half | f16 samples in GPU grids, `amg-compute` (S15, CMP-07) | MIT / Apache-2.0 | no | no | In use (2.7.1, feature `bytemuck`) |
 | pollster | `Gpu::new_blocking`, `amg-jobs::gpu` (S00) | MIT / Apache-2.0 | no | no | In use (1.0.1; `Gpu::new_blocking` in `amg-jobs::gpu` and the `amg-testkit` GPU probe) |
 | tracing-appender | rolling log files, `amg-jobs::diag` (S00) | MIT | no | no | In use (0.2.5) |
 | tracing-tracy (+ tracy-client 0.19.0, tracy-client-sys 0.30.1 which builds the bundled Tracy C++ client) | optional profiler layer, `amg-jobs::diag` (S00); its default features minus `crash-handler` (the diag panic hook and FND-12 own crash handling) | tracing-tracy, tracy-client: MIT / Apache-2.0; tracy-client-sys: (MIT OR Apache-2.0) AND BSD-3-Clause | no | yes (`tracy` on `amg-jobs` / `amg-cli`) | In use (0.12.0, feature-gated) |
