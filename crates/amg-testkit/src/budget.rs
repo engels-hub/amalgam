@@ -89,13 +89,28 @@ pub const BUDGETS: &[Budget] = &[
     },
     Budget {
         id: "fea_linear_static_500k_dof",
-        description: "Linear static FEA, ~500 k DOF",
+        description: "Linear static FEA, ~500 k DOF: assembly + solve + stress recovery, mesh taken from the study's cache",
+        limit: Limit::MaxMillis(30_000),
+    },
+    Budget {
+        id: "fea_tet_meshing_120k_tet10",
+        description: "Tet meshing for FEA, same model (≈ 120 k TET10); cached across solves and load-case edits",
         limit: Limit::MaxMillis(30_000),
     },
     Budget {
         id: "topopt_1m_voxels_100_iter",
-        description: "Topology optimization, 1 M voxels, 100 iterations",
+        description: "Topology optimization, 1 M voxels, 100 iterations: max-stiffness",
         limit: Limit::MaxMillis(300_000),
+    },
+    Budget {
+        id: "topopt_1m_voxels_stress_constrained",
+        description: "Topology optimization, same size: stress-constrained min mass",
+        limit: Limit::MaxMillis(600_000),
+    },
+    Budget {
+        id: "topopt_1m_voxels_robust",
+        description: "Topology optimization, same size: robust (min-size, three designs)",
+        limit: Limit::MaxMillis(900_000),
     },
     Budget {
         id: "ui_max_block",
