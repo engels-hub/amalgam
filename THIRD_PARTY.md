@@ -8,7 +8,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 
 | Dependency | Used by | Licence | Copyleft? | Feature-gated? | Status |
 |---|---|---|---|---|---|
-| OpenCASCADE (OCCT) 8.0.1 (vcpkg `opencascade` 8.0.1 at baseline `2026.10.16`, `default-features: false`, no TBB; fallback 7.9.3#1; FND-13, QUESTIONS #27) | `amg-occt-sys` (ADR-002, S02); also S20 strategies (`GeomFill_Gordon`, `GeomPlate`) | LGPL-2.1-only with the OCCT exception (port installs LICENSE_LGPL_21 and OCCT_LGPL_EXCEPTION). Linked statically; relinking possible from the object files | weak | yes (`occt`, default on) | Planned |
+| OpenCASCADE (OCCT) 8.0.1 (vcpkg `opencascade` 8.0.1 at baseline `2026.10.16`, `default-features: false`, no TBB; fallback 7.9.3#1; FND-13, QUESTIONS #27) | `amg-occt-sys` (ADR-002, S02); also S20 strategies (`GeomFill_Gordon`, `GeomPlate`) | LGPL-2.1-only with the OCCT exception (port installs LICENSE_LGPL_21 and OCCT_LGPL_EXCEPTION). Linked statically; relinking possible from the object files | weak | yes (`amg-occt-sys/occt`, `amg-brep/occt`, default off) | In use (8.0.1, static, feature-gated; BREP-01) |
 | Manifold 3.5.4 (vcpkg overlay port `ports/manifold`: `MANIFOLD_PAR=ON` with oneTBB, `MANIFOLD_CBIND=ON`, no downloads; MESH-05) | `amg-manifold-sys` → `amg-mesh::boolean` (ADR-003, S07) | Apache-2.0 | no | yes (`amg-mesh/manifold`, default off; `amg-manifold-sys/native`) | In use (3.5.4, static, feature-gated) |
 | Clipper2 2.0.1 (vcpkg `clipper2`) | dependency of Manifold's CrossSection, which `MANIFOLD_CBIND` requires in 3.5.4 (MESH-05); not called by Amalgam | BSL-1.0 | no | yes (with `manifold`) | In use (2.0.1, static) |
 | fTetWild | `amg-fem` tet meshing (ADR-008) | MPL-2.0 | weak | yes | Planned |
@@ -39,7 +39,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | In use (=0.23.2, `std` + `sparse-linalg`, `amg-mesh` hole-fill fairing, MESH-20; `amg-sketch` sparse solver blocks, SK-03) |
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
-| cxx | `amg-occt-sys` bridge (ADR-002) | MIT / Apache-2.0 | no | no | Planned |
+| cxx, cxx-build | `amg-occt-sys` bridge and shim build (ADR-002, BREP-01) | MIT / Apache-2.0 | no | yes (`amg-occt-sys/occt`) | In use (1.0.205) |
 | rayon | `amg-jobs` and domain crates (S00); `amg-mesh` (S07); `amg-compute` (S15) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
 | epaint_default_fonts 0.36.2 | default egui fonts, transitive via `egui` feature `default_fonts` (S10 RND-01); per-crate `deny.toml` exception | (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0 (font data) | no | no | In use (0.36.2) |
 | log 0.4 | dev-dep of `amg-render`: the `spin` example counts wgpu validation errors through a `log` logger (S10, RND-01); already transitive via wgpu and egui | MIT / Apache-2.0 | no | no | In use (0.4.34, dev-only) |

@@ -2,3 +2,8 @@
 
 [alias]
 xt = "nextest run --workspace"
+
+[env]
+# OCCT install used by amg-occt-sys/build.rs (S02 §1): the vcpkg manifest install tree.
+# A real AMG_OCCT_DIR in the environment wins.
+AMG_OCCT_DIR = { value = "vcpkg_installed/x64-windows-amg", relative = true }
