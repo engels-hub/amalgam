@@ -15,6 +15,10 @@ inputs:
     description: Target triplet (overlay triplets come from vcpkg-configuration.json).
     required: false
     default: x64-windows-amg
+  features:
+    description: Space-separated vcpkg manifest features to install as well (e.g. `occt`).
+    required: false
+    default: ''
 
 outputs:
   enabled:
@@ -79,8 +83,9 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}\vcpkg-bin
-        key: vcpkg-${{ inputs.triplet }}-${{ steps.setup.outputs.image-version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/**') }}
+        key: vcpkg-${{ inputs.triplet }}-${{ steps.setup.outputs.image-version }}-${{ inputs.features }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/**') }}
         restore-keys: |
+          vcpkg-${{ inputs.triplet }}-${{ steps.setup.outputs.image-version }}-${{ inputs.features }}-
           vcpkg-${{ inputs.triplet }}-${{ steps.setup.outputs.image-version }}-
           vcpkg-${{ inputs.triplet }}-
           vcpkg-
@@ -90,5 +95,6 @@ runs:
       if: steps.detect.outputs.enabled == 'true'
       shell: pwsh
       run: |
-        vcpkg install --triplet ${{ inputs.triplet }} --x-buildtrees-root="$(Join-Path $env:RUNNER_TEMP 'vb')"
+        $features = @("${{ inputs.features }}".Split(' ', [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { "--x-feature=$_" })
+        vcpkg install --triplet ${{ inputs.triplet }} --x-buildtrees-root="$(Join-Path $env:RUNNER_TEMP 'vb')" @features
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

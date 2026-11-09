@@ -3,5 +3,16 @@
   "name": "amalgam",
   "version": "0.1.0",
   "builtin-baseline": "9eec002df1cd109f8f104cd966a763daf9751489",
-  "dependencies": ["manifold"]
+  "dependencies": ["manifold"],
+  "features": {
+    "occt": {
+      "description": "OpenCASCADE for amg-occt-sys (cargo feature `occt`, BREP-01). Install with `vcpkg install --x-feature=occt`.",
+      "dependencies": [
+        {
+          "name": "opencascade",
+          "default-features": false
+        }
+      ]
+    }
+  }
 }

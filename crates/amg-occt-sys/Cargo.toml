@@ -1,13 +1,25 @@
 [package]
 name = "amg-occt-sys"
-description = "FFI bridge to OpenCASCADE. Pure-Rust stub until BREP-01 adds the cxx bridge."
+description = "cxx bridge to OpenCASCADE (OCCT 8.0) over a coarse C++ shim (S02 BREP-01, ADR-002)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+links = "amg-occt"
+build = "build.rs"
 
 [dependencies]
+cxx = { version = "1.0.205", optional = true }
+
+[build-dependencies]
+cxx-build = { version = "1.0.205", optional = true }
+
+[features]
+# Compile the C++ shim and link the vcpkg-built OCCT static libraries. Off by default, so a
+# plain `cargo build --workspace` works without vcpkg (same pattern as `amg-mesh/manifold`).
+# `amg-brep/occt` turns it on.
+occt = ["dep:cxx", "dep:cxx-build"]
 
 [lints]
 workspace = true

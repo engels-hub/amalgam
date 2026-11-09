@@ -873,7 +873,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| BREP-01 | **Phase-0 spike.** OCCT 8.0.1 (8.0.0#1 fallback; QUESTIONS #27) via vcpkg manifest mode (`vcpkg.json` with `opencascade` `default-features: false`, overlay triplet `x64-windows-amg`), `amg-occt-sys` build.rs (`AMG_OCCT_DIR`, toolkit list, cxx_build flags), cxx bridge skeleton with custom `trycatch`, `OcShape` opaque type, `make_box` + `volume` + a throwing call; cargo feature `occt`; CI job uses the vcpkg `files` cache | FND-02, FND-05, FND-13 | P0 | Todo | 1. On the owner's machine and in CI (`windows-2025`), `cargo nextest run -p amg-occt-sys` passes. A Rust test creates a 10×20×30 box and reads volume 6000 ± 1e-9. 2. A shim call that triggers `Standard_Failure` (`gp_Dir` from a zero vector) returns `Err` whose message contains the OCCT exception type, and no process abort. 3. `kernel_version()` returns `occt-8.0.0;…`, checked against `OCC_VERSION_COMPLETE` at compile time. 4. The Refinement log records: cold OCCT vcpkg build time, cached CI restore time, link time and test-binary size. The second CI run restores OCCT from cache. 5. `cargo build -p amg-brep --no-default-features` works on a machine without vcpkg. 6. If 8.0.0 is rejected, the reason and the 7.9.3 override are recorded (note §1.3). |
+| BREP-01 | **Phase-0 spike.** OCCT 8.0.1 (8.0.0#1 fallback; QUESTIONS #27) via vcpkg manifest mode (`vcpkg.json` with `opencascade` `default-features: false`, overlay triplet `x64-windows-amg`), `amg-occt-sys` build.rs (`AMG_OCCT_DIR`, toolkit list, cxx_build flags), cxx bridge skeleton with custom `trycatch`, `OcShape` opaque type, `make_box` + `volume` + a throwing call; cargo feature `occt`; CI job uses the vcpkg `files` cache | FND-02, FND-05, FND-13 | P0 | Review | 1. On the owner's machine and in CI (`windows-2025`), `cargo nextest run -p amg-occt-sys` passes. A Rust test creates a 10×20×30 box and reads volume 6000 ± 1e-9. 2. A shim call that triggers `Standard_Failure` (`gp_Dir` from a zero vector) returns `Err` whose message contains the OCCT exception type, and no process abort. 3. `kernel_version()` returns `occt-8.0.0;…`, checked against `OCC_VERSION_COMPLETE` at compile time. 4. The Refinement log records: cold OCCT vcpkg build time, cached CI restore time, link time and test-binary size. The second CI run restores OCCT from cache. 5. `cargo build -p amg-brep --no-default-features` works on a machine without vcpkg. 6. If 8.0.0 is rejected, the reason and the 7.9.3 override are recorded (note §1.3). |
 | BREP-02 | `Shape` handle (immutable, `Send + Sync`, `Arc`), `SubShapeIndex` (0-based `TopExp::MapShapes`, adjacency), topology iteration, `surface()`/`curve()`/`vertex_point()`/`bbox()`/`tolerance()` to plain `geom` types, rigid `transformed`, binary + text `.brep` I/O | BREP-01, FND-03 | P0 | Todo | 1. For 10 fixture parts (`testdata/brep/*.brep`, ≥ 1 with > 500 faces): face/edge/vertex counts and per-face `GeomClass` match a checked-in expectation file. 2. Index stability: indices + per-face area computed in two separate processes and after a `write_bin`/`read_bin` round-trip are identical. 3. `write_bin`→`read_bin` is byte-identical on re-write. 4. `assert_impl_all!(Shape: Send, Sync)` compiles. 5. Adjacency invariants hold on all fixtures (every manifold edge has 2 faces, `face_edges`/`edge_faces` are mutually consistent). 6. A cylinder face reports `Surface::Cylinder` with the correct radius/axis within 1e-12. |
 | BREP-12 | Kernel infrastructure: `KernelConfig`, `init()` (OCCT message printer → `tracing`, `OSD_ThreadPool` size), progress/cancel bridge (`Message_ProgressIndicator` ↔ `JobCtx`), validation policy, `KernelError` + `Diagnostic`, `Shape::max_tolerance`, shim CATEGORY (R/N/C/G) lint test, concurrency stress-test harness, global I/O lock, serde-derive check for every op parameter type | BREP-02, FND-04 | P0 | Todo | 1. An OCCT warning appears as a `tracing` event with target `occt`, and nothing goes to stdout. 2. A test op with a progress range reports monotone progress to a `JobCtx`. Cancelling the token makes it return `KernelError::Cancelled` within 50 ms. 3. A compile-time test asserts that every op parameter type is `Clone + Debug + PartialEq + Serialize + DeserializeOwned` (S20 KH-01 prerequisite), and a forwarding decorator implementing `BrepKernel` compiles (object safety). 4. The CATEGORY lint fails when a shim function lacks a category comment. 5. Stress harness: 8 threads × 2 000 iterations of R queries on one shared shape. No crash, results are bit-identical to single-threaded ones, and the input's BinTools hash is unchanged. |
 | BREP-03 | Face and wire builders: `make_planar_faces` (from `PlanarProfile` with tags + loop validation), `make_planar_polygon`, `make_face` (analytic + B-spline surfaces; `Natural`/`UvRect`/`Loops`/`Polylines` bounds), `make_wire` | BREP-12 | P0 | Todo | 1. A profile with all 5 `Curve2d` kinds (line, circle hole, arc, ellipse arc, rational B-spline) gives a valid face whose area matches the analytic area within 1e-9 relative. Every edge has its input tag. 2. An open loop gives `OpenLoop` with the right loop/edge index. A hole outside the outer loop gives `InvalidInput`. 3. A 1000-vertex polygon with 10 holes builds in < 20 ms. A non-planar input gives `NotPlanar`. 4. `make_face` on cylinder/cone/sphere/torus with `Polylines` bounds taken from a tessellated reference face reproduces the face area within 0.1 %. A 5×5 B-spline patch with `Natural` bounds is valid. 5. 1000 random valid profiles (proptest) never crash and always give valid faces or a clean `Err`. |
@@ -998,6 +998,65 @@ These budgets back the vision's "< 500 ms recompute of a 50-feature part" (an av
   - Every WP has deps and a measurable Done-when.
 - **Design note:** [docs/notes/occt-integration.md](../notes/occt-integration.md) (new).
 
+### 2026-11-09 - BREP-01 OCCT build/link spike
+**Landed.** `vcpkg.json` gains `opencascade` (`default-features: false`). `amg-occt-sys` has the
+cxx bridge (`src/bridge.rs`), the C++ shim (`cpp/occt_shim.{hxx,cpp}`) with the custom
+`rust::behavior::trycatch`, the opaque `OcShape`, `make_box`, `volume`, `kernel_version` and the
+throwing `gp_dir_from_zero_vector`. `build.rs` reads `AMG_OCCT_DIR` and links the 27 toolkits from
+note §2, all present in the 8.0.1 install under those names. CI has a new `occt` job.
+
+**Measured** (Windows 11, 16 logical CPUs, 32 GB, `x64-windows-amg`):
+
+| What | Result |
+|---|---|
+| Cold vcpkg build of OCCT 8.0.1, `VCPKG_MAX_CONCURRENCY=8` | 16 701 s (4 h 38 min) wall |
+| Of which the serial `install` step (ninja log) | 8 557 s (2 h 23 min) |
+| Compile/link work in the ninja log | 15.3 CPU-hours including `install`, average parallelism 3.7 |
+| Local restore of all 9 ports from the `files` cache into a fresh install root | 40 min (vcpkg reports 38 min) |
+| Installed OCCT and dependencies | `lib/` 2.1 GB (includes Manifold, TBB), `include/` 36 MB |
+| First `--features occt` build of the tests, 3 cargo jobs | 18 min 59 s |
+| Test-binary rebuild after touching the test file (compile + full link, 2 runs) | 13 s, 14 s |
+| `occt_smoke` test binary | 4.17 MB exe, 31.1 MB PDB |
+
+`static:-bundle` keeps the OCCT libraries out of the `amg-occt-sys` rlib. The cold build shared the
+machine with a 5 min 43 s cargo build.
+
+**Done-when status.** 1: local part passes (box volume 6000 ± 1e-9); CI not run yet. 2: `gp_Dir`
+from a zero vector returns `Err` containing `Standard_ConstructionError`, no abort. 3:
+`amg_occt_sys::kernel_version()` returns `occt-8.0.1;shim-1`; a `static_assert` compares
+`OCC_VERSION_COMPLETE` with the pin and was confirmed to fail the build on a wrong pin. 4: local
+numbers above; cached CI restore time and the second-run cache hit are still to be taken from CI.
+5: `cargo build -p amg-brep --no-default-features` passes without vcpkg. 6: not applicable, 8.0.1
+is kept and the spike hit no regression.
+
+**Deviations.**
+- `occt` is **off by default** in `amg-brep` and `amg-occt-sys`, against §Scope's "default on", so
+  the workspace default build keeps working without vcpkg (`amg-mesh/manifold` pattern; agreed with
+  the coordinator). Turning it on later is a one-line change.
+- The version is 8.0.1 per FND-13, not the `occt-8.0.0` that Done-when 3 still names.
+- `kernel_version()` lives in `amg-occt-sys` for now. `amg_brep::kernel_version` needs
+  `FORMAT_VERSION` and `POLICY_VERSION`, which don't exist yet.
+
+**Leftovers.**
+- **CI cold-build risk.** A cache miss builds OCCT in each of the `clippy`, `test`, `occt` and
+  `bench` jobs. Timeouts are raised to 350 min, near GitHub's 360 min limit, but at 15.3 CPU-hours
+  a 4-vCPU runner may not finish a cold build within it. If the first run times out, the binary
+  cache has to be seeded another way before CI can go green.
+- The system library list (`advapi32 user32 ws2_32`) is untrimmed; these tests reference only a
+  small part of OCCT, so later WPs may need additions.
+- `unsafe impl Send + Sync for OcShape` is left to BREP-02, and OCCT logging and progress to
+  BREP-12. `docs/dev-setup.md` does not mention `AMG_OCCT_DIR` yet.
+
+### 2026-11-09 - BREP-01 merge (coordinator)
+- `opencascade` moved from the top-level `vcpkg.json` dependencies into a manifest feature `occt`
+  (`vcpkg install --x-feature=occt`). Otherwise every CI job and every local `vcpkg install`
+  for Manifold would also build OCCT (about 15 CPU-hours cold). The vcpkg action takes a
+  `features` input that is part of the binary-cache key; only the `occt` job passes `occt`.
+- The clippy, test and bench job timeouts are back to 45/45/60 min. Only the `occt` job keeps
+  350 min, for a cold build on a cache miss.
+- The workspace all-features clippy (CI and local gate) excludes `amg-occt-sys` and `amg-brep`;
+  the `occt` job lints them with `--all-features`.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1062,3 +1121,14 @@ adds it to `amg-brep` itself if the S02 WP named here is already Done (same lane
   (SOL-27).
 - S04 also relies on the naming note's Q1 (rigid `transformed` keeps index order), used by
   pattern instances.
+
+### 2026-11-09: shared files changed by BREP-01 (lane A)
+All additive except the CI timeouts:
+- `.cargo/config.toml`: `[env] AMG_OCCT_DIR` (relative to the workspace; a real environment
+  variable wins), as §1 specifies.
+- `Cargo.lock`: `cxx`, `cxx-build` and their dependencies. Both are declared in
+  `amg-occt-sys/Cargo.toml` rather than the workspace table, since only that crate uses them.
+- `.github/workflows/ci.yml`: new `occt` job. `clippy`, `test` and `bench` timeouts raised to
+  350 min, because `vcpkg install` in those jobs now includes OCCT on a cache miss.
+- The `--all-features` clippy step in CI now compiles the shim and needs the vcpkg install, which
+  that job already runs.

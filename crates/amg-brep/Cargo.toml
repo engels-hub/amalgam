@@ -13,5 +13,11 @@ amg-jobs.workspace = true
 amg-occt-sys.workspace = true
 amg-nurbs.workspace = true
 
+[features]
+default = []
+# Link the vcpkg-built OCCT through amg-occt-sys. Off by default so the workspace builds without
+# vcpkg (BREP-01, recorded in S02's Refinement log).
+occt = ["amg-occt-sys/occt"]
+
 [lints]
 workspace = true
