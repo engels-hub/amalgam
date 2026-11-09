@@ -272,9 +272,13 @@ so its limit surface lies on the input mesh.
 ## 10. Open points
 - QUESTIONS #100: own evaluator with OpenSubdiv as oracle (decided by the owner, 2026-11-09).
 - QUESTIONS #101: Finish Form adds/updates a B-rep `form.convert` (decided, 2026-11-09).
-- QUESTIONS #102: FRM-10 reads OBJ control cages and `.tsm` (decided 2026-11-09); see §11.
+- QUESTIONS #102: FRM-10 reads OBJ control cages only (decided 2026-11-09 as OBJ + `.tsm`, changed
+  2026-11-10 because no `.tsm` samples exist); see §11.
 
 ## 11. Foreign cages: OBJ and `.tsm` (FRM-10)
+**2026-11-10:** FRM-10 implements OBJ only (owner, QUESTIONS #102). The `.tsm` research below is
+kept for a later WP if sample files turn up.
+
 - **OBJ** control cages: polygon-preserving read (quads and n-gons kept), `o`/`g` per body, crease
   tags where present.
 - **`.tsm`** is the T-Splines plug-in (Rhino/Maya) model format, which Fusion's "Insert T-Spline"

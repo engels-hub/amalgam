@@ -66,9 +66,12 @@ jobs:
       # Feature-gated code (tracy, copyleft-gated backends, …) is linted too.
       # amg-sketch's `slvs` feature (SK-13 oracle) needs libclang <= 15, which the runner lacks,
       # so amg-sketch is linted with every other feature. amg-occt-sys and amg-brep (`occt`)
-      # need the OCCT install and are linted in the occt job.
+      # need the OCCT install and are linted in the occt job. amg-render's `static-dxc` downloads
+      # a prebuilt DXC at build time, so amg-render is linted with every other feature (S10).
       - name: clippy (all features)
-        run: cargo clippy --workspace --exclude amg-sketch --exclude amg-occt-sys --exclude amg-brep --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude amg-sketch --exclude amg-occt-sys --exclude amg-brep --exclude amg-render --all-targets --all-features -- -D warnings
+      - name: clippy (amg-render, all features but static-dxc)
+        run: cargo clippy -p amg-render --all-targets --features egui -- -D warnings
       - name: clippy (amg-sketch, all features but slvs)
         run: cargo clippy -p amg-sketch --all-targets --features ezpz-bench -- -D warnings
 

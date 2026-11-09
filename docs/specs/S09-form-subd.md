@@ -498,7 +498,7 @@ the reference machine (vision doc), release build. Golden tests live in `tests/g
 | FRM-13 | Match (boundary to a sketch curve or B-rep edge, position/tangent) and Repair body (validation report, fix zero-length edges and flipped faces); tools | FRM-07 | P3 | Todo | 1. Matching a plane form's boundary to a circle edge: boundary limit curve within 0.01 mm of the circle at 64 samples; tangent mode: normal angle to the target face ≤ 0.5°. 2. Repair fixes every injected defect of a 20-case table (or reports it). 3. Kittest per tool. |
 | FRM-09 | Sketch-driven form creation: extrude, revolve, sweep, loft (sketch curves → cage strips with face counts), pipe from a sketch path | FRM-02, SK-19 | P3 | Todo | 1. Revolving a sketch spline 360° with 8 faces around gives a closed cage whose limit profile is within 1 % of the sketch curve's height at 32 samples. 2. Loft of 3 circles gives an open tube; extrude of a closed sketch profile gives a capped body. 3. Golden tests per tool. 4. Kittest per tool. |
 | FRM-08 | Quad remesh (mesh → SubD cage) for organic mesh → B-rep: approach per note §9 (decided when this WP is refined), fit with the §8 solve, `form.from_mesh` feature | FRM-06, FRM-07, MESH-06 | P3 | Todo | On 10 corpus organic meshes (scans, sculpts): ≥ 95 % quads, valid closed cage for closed input, Hausdorff from the limit surface to the input ≤ 0.5 % of the bbox diagonal, target face count within ±20 %, < 30 s for a 200 k-triangle input; the result converts through FRM-06 to a valid solid. |
-| FRM-10 | Foreign SubD / T-spline import (ADR-009 note): OBJ quad cage as SubD (`o`/`g` per body, crease tags where present; needs a polygon-preserving IO-05 read option, requested from S12 when this WP is refined), and `.tsm` (the T-Splines plug-in format; owner decision QUESTIONS #102: OBJ + `.tsm`; stretch, needs owner-supplied sample files, note §11) with T-junctions resolved by local refinement into quads, with a warning | FRM-16, IO-05 | P3 | Todo | 1. An OBJ control net exported from a SubD modeler imports as a Form body whose level-3 limit mesh matches a reference export within 0.1 % of the diagonal. 2. A cage with T-junctions imports as a valid manifold cage with the warning. 3. Import is one undoable command. 4. (stretch, only when the owner has supplied `.tsm` samples under `$AMG_TESTDATA_DIR/subd/tsm/`; skipped cleanly otherwise) a `.tsm` sample exported from Fusion/Rhino imports as a Form body whose control-point count and face count match the sample's own report and whose level-3 limit mesh is within 0.5 % of the diagonal of the source application's mesh export; the reader is written from the samples and the published description in note §11, not from third-party code. |
+| FRM-10 | Foreign SubD / T-spline import (ADR-009 note): OBJ quad cage as SubD (`o`/`g` per body, crease tags where present; needs a polygon-preserving IO-05 read option, requested from S12 when this WP is refined) (owner decision QUESTIONS #102, changed 2026-11-10: OBJ only; `.tsm` is out of scope until sample files exist, note §11), with T-junctions resolved by local refinement into quads, with a warning | FRM-16, IO-05 | P3 | Todo | 1. An OBJ control net exported from a SubD modeler imports as a Form body whose level-3 limit mesh matches a reference export within 0.1 % of the diagonal. 2. A cage with T-junctions imports as a valid manifold cage with the warning. 3. Import is one undoable command. |
 | FRM-14 | Form performance and fuzz hardening: criterion benches C1–C3 for refine, stencils, patch table, conversion; cargo-fuzz target for `AMGS` decode; random op-sequence fuzz over FRM-04/FRM-18 | FRM-06, FRM-18 | P2 | Todo | 1. Benches for every budget under Performance targets run in CI (report only) and meet the targets locally. 2. `AMGS` decode fuzz runs 10 min with no panic. 3. 10 000 random op sequences never yield an invalid cage or a panic. |
 
 ## Testing
@@ -546,6 +546,8 @@ Reference cages (built in `amg-subd` tests): **C1** 6×6×6 box form with 8 crea
    `form.convert` node producing a B-rep body (Fusion behaviour; preference `FinishOutput`).
 5. Foreign formats for FRM-10. **Resolved 2026-11-09 (owner, QUESTIONS #102):** OBJ control cages plus
    `.tsm`; `.tsm` is a stretch goal gated on owner-supplied samples (note §11).
+   **Changed 2026-11-10 (owner):** no `.tsm` samples exist, so FRM-10 reads OBJ control cages
+   only (option (a)). A `.tsm` reader becomes a new WP only if sample files turn up.
 6. Packed conversion as the default once FRM-11 lands? Decide from FRM-11's fillet results;
    unpacked stays the default until then (Rhino's default is packed, Fusion's conversion gives
    one face per T-spline face region).
@@ -611,6 +613,10 @@ Reference cages (built in `amg-subd` tests): **C1** 6×6×6 box form with 8 crea
 
 ### 2026-11-09 - owner answers moved in
 - QUESTIONS #100 (own evaluator, OpenSubdiv oracle only), #101 (Finish Form adds/updates `form.convert` B-rep; FRM-17 Done-when 2 already matches), #102 (FRM-10 reads OBJ + `.tsm`). `.tsm` research: no public specification found; text-based; the only open implementation is LGPL-3.0, so FRM-10's `.tsm` part is a stretch goal that needs owner sample files and a clean-room reader (FRM-10 Done-when 4, note §11). Open questions 3-5 updated.
+
+### 2026-11-10 - owner changes QUESTIONS #102 to (a)
+- The owner has no `.tsm` files, so FRM-10 drops the `.tsm` reader and its stretch Done-when 4.
+  FRM-10 reads OBJ control cages only. Note §11 keeps the `.tsm` research for a later WP.
 
 ## Interface changes
 None yet (the spec has not reached `Ready`).

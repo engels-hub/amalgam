@@ -835,6 +835,13 @@ install the MSVC ATL component and run
 - Back faces are culled, so open or inconsistently wound STLs show holes; RND-02 decides
   double-sided handling.
 
+### 2026-11-10 - owner decisions on `static-dxc`
+- MSVC ATL is not installed for now, so RND-01 Done-when 6 (the `StaticDxc` measurement) stays
+  partial. Revisit when DX12 shader compile time matters.
+- `static-dxc` downloads a prebuilt DXC archive at build time, and one CI run failed on that
+  download. CI no longer builds it: the all-features clippy excludes amg-render, and a separate
+  step lints amg-render with every feature except `static-dxc`. It stays a local-only feature.
+
 ## Interface changes
 
 ### 2026-11-09: RND-01 changes outside lane D's crates (minimal and additive)

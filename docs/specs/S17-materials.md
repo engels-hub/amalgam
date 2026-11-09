@@ -755,6 +755,12 @@ report for the evidence per Done-when item):
 `to_3mf`/`from_3mf` (MAT-02); the real built-in data and `tests/golden/materials/builtin.toml`
 hash golden (MAT-05). The `Interface changes` entry of S00 documents the unit-table additions.
 
+### 2026-11-10 - owner keeps the MAT-01 TOML front end
+- The owner keeps the custom borrowing TOML reader (`format/doc.rs`) that MAT-01 added to meet the
+  20 ms parse budget (13.6 ms; the `toml` crate alone is 15-20 ms). The `toml` crate stays the
+  fallback for unsupported input and all syntax errors, and the differential tests that keep both
+  paths identical are required for any change to the reader.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
