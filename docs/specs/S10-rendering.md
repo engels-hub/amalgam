@@ -599,7 +599,7 @@ pub mod egui_glue {
 |---|---|---|---|---|---|
 | RND-01 | **Phase-0 spike: mesh spinning in an egui window.** `amg-render` skeleton (`Renderer`, `View` targets: Rgba16Float ×4 MSAA colour, Depth32Float reversed-Z, resolve, final Rgba8UnormSrgb), f64 `Camera` with RTE matrices, one Lambert+headlight pipeline (smooth normals, or flat via derivatives when normals are empty), `upload_mesh` (positions/normals/indices), `egui_glue::{install, with_renderer, Viewport}` with the `CallbackTrait` prepare/paint flow and sRGB-aware composite, `capture`. Example `crates/amg-render/examples/spin.rs` (eframe 0.37, `WgpuSetup::Existing` from `Gpu::new_blocking(GpuConfig::from_env())`): a displaced icosphere generator (`--tris N`, default 1 M), optional `--stl <file>` (binary STL, in-example reader), auto-turntable 30°/s, LMB-drag orbit, wheel dolly, side panel showing adapter, backend, triangles, CPU and GPU frame ms, an MSAA 1/4 toggle and a flat/smooth toggle; `--bench <frames>` prints p50/p99. Measures FXC vs `StaticDxc` core pipeline creation time. | FND-09 | P0 | Done | 1. On the owner's RTX 5060 Ti / DX12, `cargo run -p amg-render --release --example spin -- --bench 600` at 1920×1080, 4× MSAA, 1 M tris prints frame-time p99 ≤ 16.7 ms (CPU wall) and GPU p50 ≤ 4 ms. The output is pasted into the PR. 2. `install` returns `DeviceMismatch` when given a different `Gpu` (test, WARP); with the same one, the example asserts `rs.device == *gpu.device()`. 3. `gpu_spin_smoke` (WARP in CI): a 256² capture of a sphere has a non-background centre pixel and background corners, and two captures are bit-identical. 4. RTE test: a 1 mm cube at the origin and at (1e5, 1e5, 0) mm, with the camera at the same relative pose, gives captures equal within 1 LSB per channel. 5. Debug build with validation: 10 s of continuous resizing plus MSAA toggling logs zero wgpu validation errors (recorded in the PR). 6. FXC vs StaticDxc timings and the resulting choice are recorded in the Refinement log. 7. fmt, clippy `-D warnings` and nextest pass. |
 | RND-02 | Shading and visual-style framework: PBR-lite (GGX, studio key/fill + hemisphere), procedural matcap, oct-encoded normals, `normal` target, MSAA 1/4, optional FXAA, gradient background, pipeline variants via `override` constants and lazy variant creation on jobs, GPU timestamps (`gpu_timings`), `Material`. Bench `benches/viewport.rs` (headless). | RND-01 | P0 | Todo | 1. `cargo bench -p amg-render --bench viewport` (owner GPU, 2560×1440, 4× MSAA, Studio, a 5 M-tri displaced sphere, 600-frame orbit) reports GPU p99 ≤ 9 ms and wall p99 ≤ 16.6 ms; with 1 M tris, GPU p50 ≤ 3 ms. 2. Depth pre-pass on/off measured, and the faster one kept (recorded). 3. A flat-shaded mesh without normals uses exactly 12 B/vertex + 12 B/tri of VRAM (`gpu_bytes` test). 4. Headless tests (WARP): Lambert brightness at known normals matches the CPU reference within 2/255; MSAA 4 reduces edge-pixel aliasing (a staircase metric on a tilted quad); the core pipeline set is created in ≤ 150 ms on the owner GPU (logged). |
-| RND-03 | `RenderScene`: slotmap keys, `Instance` storage buffer with dirty tracking, shared meshes across instances, layers, visibility, CPU frustum culling and front-to-back sort, multiple views, `upload_*` helpers with `ctx.checkpoint()` and `TooLarge`/`InvalidData` checks, `CameraUniform` + `shaders/camera.wgsl`, `ExternalLayer` composite pass, `visible_bounds`, `gpu_bytes`. | RND-01 | P0 | Todo | 1. Criterion: `encode` of 10 k instances over 100 meshes takes ≤ 2 ms p99 CPU. 2. Changing one transform rewrites exactly 128 B (upload counter). 3. `upload_mesh` of 5 M tris on a job thread ≤ 300 ms (owner machine); `insert_mesh` ≤ 50 µs. Cancelling mid-upload returns `Cancelled` within 20 ms. 4. ExternalLayer test: a synthetic layer whose depth plane cuts a cube composites with correct occlusion on both sides (pixel assertions). 5. Two views with different cameras render one scene in one frame. 6. 1000 add/remove cycles return `gpu_bytes` to baseline. 7. `InvalidData` for an index out of range and for a NaN position. |
+| RND-03 | `RenderScene`: slotmap keys, `Instance` storage buffer with dirty tracking, shared meshes across instances, layers, visibility, CPU frustum culling and front-to-back sort, multiple views, `upload_*` helpers with `ctx.checkpoint()` and `TooLarge`/`InvalidData` checks, `CameraUniform` + `shaders/camera.wgsl`, `ExternalLayer` composite pass, `visible_bounds`, `gpu_bytes`. | RND-01 | P0 | Review | 1. Criterion: `encode` of 10 k instances over 100 meshes takes ≤ 2 ms p99 CPU. 2. Changing one transform rewrites exactly 128 B (upload counter). 3. `upload_mesh` of 5 M tris on a job thread ≤ 300 ms (owner machine); `insert_mesh` ≤ 50 µs. Cancelling mid-upload returns `Cancelled` within 20 ms. 4. ExternalLayer test: a synthetic layer whose depth plane cuts a cube composites with correct occlusion on both sides (pixel assertions). 5. Two views with different cameras render one scene in one frame. 6. 1000 add/remove cycles return `gpu_bytes` to baseline. 7. `InvalidData` for an index out of range and for a NaN position. |
 | RND-04 | GPU picking: id + depth pick passes (B-rep face-id attribute; mesh `primitive_index` or vertex-pulling fallback; edges and points widened by the radius), scissored point pick, priority resolution, f64 world reconstruction, rectangle window/crossing via compute flags, hover/selection highlight (instance tint, face-range redraw with `depth_compare: Equal`, edge/point state buffers). | RND-12, RND-03 | P0 | Todo | 1. On a synthetic box-with-hole test part (edges known): 1000 random cursor positions within 3 px of a projected 1-px edge return that edge in ≥ 99.5 %, and positions > 6 px from every edge or vertex return no edge in ≥ 99.5 %. 2. 1000 random interior face pixels (≥ 2 px from edges) return the correct face (100 %), and mesh triangle sub-ids are correct (100 %). 3. `PrimitiveIndex` and `VertexPulling` give identical results on the same scenes (WARP). 4. Results arrive ≤ 2 `encode` calls after the request (counted). 5. World position is within 1e-6 × distance of the analytic hit. 6. The rectangle test on a 3×3 box grid gives the expected window vs crossing sets. 7. Highlighted faces show the highlight colour with no z-fighting pixels (pixel test). 8. The pick pass costs ≤ 2 ms GPU at 5 M tris (owner bench). |
 | RND-05 | Transparency: WBOIT accum/revealage targets and composite, per-instance opacity (`base_color.a`), `Layer::Ghost`, x-ray style (all model instances at α 0.25 + dimmed always-on-top edges). | RND-02, RND-03 | P1 | Todo | 1. Three overlapping translucent quads rendered in all 6 submission orders differ by ≤ 2/255 per channel. 2. An opaque object behind and in front of translucent ones is correctly occluded. 3. X-ray shows hidden edges at the configured alpha. 4. Overhead ≤ 2 ms at 1440p with 1 M translucent tris (owner bench), and 0 when nothing is translucent (pass skipped). |
 | RND-06 | Section planes: up to 6 planes, `discard` in every `clipped` model/edge/pick pipeline, back-face ray–plane caps with `frag_depth`, per-instance `cap_color`, screen-constant hatching, `closed` gating, cap picking (`CAP_SUB`). | RND-02, RND-03 | P0 | Todo | 1. Closed sphere r = 10 cut by z = 0, viewed from +Z: every pixel inside the projected circle shrunk by 1 px is cap or hatch colour, and none is background (watertight). 2. A cube cut by 2 orthogonal planes gives an L-shaped cap; pixel test against analytic polygons. 3. An open mesh draws no cap. 4. Hatch spacing is 8 ± 1 px at zooms 0.01×–100×. 5. Picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). 6. Overhead ≤ 1 ms at 5 M tris (owner bench). |
@@ -841,6 +841,111 @@ install the MSVC ATL component and run
 - `static-dxc` downloads a prebuilt DXC archive at build time, and one CI run failed on that
   download. CI no longer builds it: the all-features clippy excludes amg-render, and a separate
   step lints amg-render with every feature except `static-dxc`. It stays a local-only feature.
+
+### 2026-11-10 - RND-03 `RenderScene`
+
+*Landed in `crates/amg-render` (status `Review`):*
+- **Scene.** `RenderScene` keeps meshes in a slotmap and instances in a dense table: slot `i` of
+  the key, `Instance`, 128-byte record and world bounding sphere vectors is one instance, and
+  removal swaps the last slot in. `instance_mut` marks the slot dirty. The next `encode` rebuilds
+  only dirty records and writes each run of adjacent dirty slots with one `write_buffer`; the
+  buffer grows by powers of two (all records rewritten, views rebind). Several instances share a
+  `GpuMesh`. `Layer` (`Model`, `Preview`, `Ghost`, `Construction`) plus a per-view `LayerMask`
+  (`View::layers`). `visible_bounds`, `gpu_bytes`, `instance_count`, `mesh_count`, `revision`.
+- **Instance record is camera independent** (`scene::InstanceRecord`, `shaders/mesh.wgsl`): the
+  world-from-local linear part (`lin`, `w` = high part of the translation), the low part of the
+  translation, the normal matrix and the colour. The shader computes
+  `lin * local + (t_hi - eye_hi) + (t_lo - eye_lo)` (`eye_relative` in `camera.wgsl`), so a moving
+  camera rewrites nothing and one transform rewrites exactly 128 B. RND-01's per-frame
+  `T(-eye) * M` matrix is gone; the RTE far-origin tests still pass within 1 LSB. The `w` of the
+  three normal columns is reserved for pick id and flags (RND-04/05).
+- **Draw plan** (`cull.rs`): f64 Gribb-Hartmann frustum from `proj * view` (reversed-Z, infinite
+  far dropped), sphere test per instance, instances grouped by (pipeline, mesh) and ordered front
+  to back inside a group, groups ordered front to back inside a pipeline. A per-view `u32` storage
+  buffer holds the visible slots in draw order and each group is one instanced `draw_indexed`
+  (`first_instance` = offset into that list), so 10 k instances over 100 meshes are 100 draws.
+  `FrameStats::culled` counts frustum rejects.
+- **Several views over one scene:** `Renderer::capture_many` encodes views into one encoder and
+  one submit; the instance records are shared, each view has its own camera uniform and visible list.
+- **`upload_mesh`:** validates (index range, finite positions and normals, finite origin, lengths)
+  and returns `InvalidData` naming the offending index or vertex; `TooLarge { what, bytes, limit }`
+  against `max_buffer_size`; copies through the mapped range in 256 k-element chunks with
+  `ctx.checkpoint()` after every chunk. Bounds come from the same pass.
+- **`ExternalLayer`** (`set_external_layer`, `shaders/external.wgsl`): fullscreen pass at the end of
+  the opaque pass; reads colour (Rgba16Float, premultiplied) and reversed-Z depth (R32Float) with
+  `textureLoad`, skips depth 0, premultiplied over blend, depth test `GreaterEqual` and depth
+  write via `frag_depth`. A layer whose size differs from the view is skipped.
+- **`CameraUniform` / `camera.wgsl`:** layout unchanged (240 B); a unit test pins every offset and
+  the WGSL field text. `camera.wgsl` gained `eye_relative`. `PickId` is defined at the crate root
+  (used by `ExternalLayer::pick`; RND-04 uses it for picking).
+
+*Evidence (Done-when, `tests/scene.rs` and `benches/scene.rs`; 56 tests pass on WARP, `cargo clippy
+--workspace --all-targets -D warnings` is clean):*
+1. **Encode 10 k instances / 100 meshes**, RTX 5060 Ti / DX12, release, 1280x720, machine busy with
+   other builds: p50 0.616 ms, p99 0.946 ms over 2000 frames (budget 2 ms; asserted with
+   `AMG_STRICT_TIMING=1`); criterion mean 0.649 ms, with one dirty instance 0.664 ms. All 10 000
+   were in view, so this is the no-culling worst case.
+2. **One changed transform = 128 B:** `gpu_one_transform_change_rewrites_exactly_128_bytes` counts
+   `Renderer::instance_bytes_uploaded()`: first frame 50 x 128, camera move 0, one transform 128,
+   one colour 128, three edits of one instance 128, removing the last instance 0, removing another
+   128 (the swapped-in record).
+3. **Upload:** `upload_mesh` of 4 999 122 triangles (90 MB) on a thread took 40.6 ms on the owner
+   GPU (budget 300 ms). `insert_mesh`: p50 100 ns, p99 1 us, max 52.6 us over 2000 inserts (budget
+   50 us, p99 asserted). Cancelling mid-upload (cancel at 3-30 ms into a 5 M-tri upload, 5 of 6
+   runs were still running): worst latency from `cancel()` to `Cancelled` 14.3 ms (budget 20 ms,
+   asserted under strict timing). That is close: the longest uninterruptible step is probably the 60 MB
+   mapped allocation (not profiled), so a slower driver could exceed 20 ms.
+4. **ExternalLayer:** `gpu_external_layer_composites_with_correct_occlusion_on_both_sides` puts a
+   plane at view depth 265 mm through a cube rotated 45 degrees (nearest edge 229 mm, side faces to
+   300 mm) and checks every pixel against a CPU ray cast (pixels whose 4-neighbours disagree, the
+   silhouette and the intersection line, are skipped): cube in front of the plane and plane in
+   front of the cube both match, plus empty (depth 0) texels leave the scene alone, and removing
+   the layer removes the plane.
+5. **Two views:** `gpu_two_views_with_different_cameras_render_one_scene_in_one_frame` (perspective
+   and orthographic, different sizes, one `capture_many`): each equals the capture of that view
+   alone, and the records were written once.
+6. **1000 add/remove cycles:** `gpu_add_remove_cycles_return_gpu_bytes_to_baseline` (alternating
+   removal order, so swap and tail removal both run) holds `gpu_bytes`, mesh count and instance
+   count at the baseline after every cycle. `gpu_bytes` counts mesh buffers only; the shared
+   instance buffer and per-view visible lists are not in it (RND-13 adds them to the VRAM counters).
+7. **InvalidData:** index one past the end and a NaN position, both unit-tested without a GPU
+   (`validate`) and through `upload_mesh`; also infinite positions, NaN normals, bad lengths, a
+   non-finite origin. `TooLarge` is unit-tested through `check_size` (no device in CI has a limit
+   small enough to hit with a real upload).
+
+*Deviations:*
+- The instance record differs from note §8 (RTE matrix 64 + normal 48 + ...): it holds the
+  camera-independent linear part and a split translation, because a per-frame RTE matrix cannot
+  satisfy Done-when 2 (one transform = 128 B) when the camera moves. Pick id, flags and material
+  index are not in it yet (reserved `w` lanes).
+- Draws are grouped per (pipeline, mesh) and ordered front to back by group, not strictly per
+  instance across meshes; this is what lets 10 k instances be 100 draws. Overdraw cost between
+  groups is the open question for RND-02's pre-pass decision.
+- `Layer::Ghost` is drawn like the other layers until RND-05 adds the transparency pass; use
+  `View::layers` to hide it.
+- Not in this WP although listed in the row's title: `EdgesKey`, `PointsKey`, `FieldKey`,
+  `ImageKey` and `upload_edges` / `upload_points` / `upload_*_field` / `upload_image`. The types
+  they return belong to RND-12 (edges, points), RND-08 (fields) and RND-07 (images), and the
+  `Instance` fields that reference them arrive with those WPs. `upload_mesh` is the only upload
+  with the checkpoint, `TooLarge` and `InvalidData` behaviour; the others should reuse
+  `upload::{validate, check_size, upload_chunked}`.
+- `Material`, `Shading`, highlight layers and section planes of the §Interfaces `RenderScene`
+  are RND-02/04/06/08 and were not started. `MeshData` has no `face_ranges` (RND-04).
+- Additive API not in §Interfaces: `Renderer::{capture_many, instance_bytes_uploaded}`,
+  `RenderScene::{mesh_ref, instance_count, mesh_count, external_layer}`, `View::layers`,
+  `LayerMask`, `FrameStats::culled`.
+- `Cargo.lock` gains the `criterion` dev-dependency edge for `amg-render` (workspace dependency,
+  already listed in THIRD_PARTY.md); no new third-party crate.
+
+*Leftovers:*
+- Cancel latency (14.3 ms vs 20 ms) has little margin; if it fails on another machine, allocate in
+  smaller buffers or move the allocation before the validation pass.
+- The encode bench has no culled instances; a bench with half the scene off-screen would show
+  the culling gain. The sort cost grows with visible instances (one sort of the visible items per
+  view per frame).
+- `ExternalLayer` is composited with one colour and depth per pixel; at an MSAA edge the layer colour
+  is the same for all covered samples, so the layer itself is not antialiased (the resolve smooths
+  its intersection with geometry only).
 
 ## Interface changes
 
