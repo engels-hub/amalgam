@@ -12,6 +12,7 @@
 
 #![warn(missing_docs)]
 
+pub mod assembly;
 pub mod cache;
 pub mod command;
 pub mod config;
@@ -36,6 +37,7 @@ pub mod stub;
 pub mod testing;
 pub mod timeline;
 
+pub use assembly::{BodyInstance, OccPath, Placements, Removed};
 pub use cache::{CacheStats, GeomCache};
 pub use command::{Command, CommandError, CommandOutcome, CreatedId, apply_command};
 pub use config::{Config, ConfigTable};

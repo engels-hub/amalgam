@@ -66,5 +66,9 @@ harness = false
 name = "persist"
 harness = false
 
+[[bench]]
+name = "assembly"
+harness = false
+
 [lints]
 workspace = true

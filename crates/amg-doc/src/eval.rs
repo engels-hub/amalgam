@@ -9,10 +9,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use amg_core::{Line3, Plane, Point3};
+use amg_core::{Line3, Plane, Point3, Transform};
 use serde::{Deserialize, Serialize};
 
-use crate::id::{BodyId, ComponentId, ConstructionId, FeatureId, ParamId, Revision, SketchId};
+use crate::assembly::{BodyInstance, OccPath, Placements};
+use crate::id::{
+    BodyId, ComponentId, ConstructionId, FeatureId, OccurrenceId, ParamId, Revision, SketchId,
+};
 use crate::naming::{BodyNaming, EntityRef, ResolveError};
 use crate::stub::{IndexedMesh, SdfGraph, Shape, SketchGeom, SubdMesh};
 
@@ -25,6 +28,7 @@ pub struct Evaluated {
     sketches: BTreeMap<SketchId, Arc<SketchGeom>>,
     construction: BTreeMap<ConstructionId, ConstructionGeom>,
     nodes: BTreeMap<FeatureId, NodeEval>,
+    placements: Arc<Placements>,
 }
 
 impl Evaluated {
@@ -76,6 +80,44 @@ impl Evaluated {
         self.nodes.iter().map(|(k, v)| (*k, v))
     }
 
+    /// Placements of every occurrence after the assembly stage (the authored transforms until
+    /// the joint solver exists; S06).
+    pub fn placements(&self) -> &Arc<Placements> {
+        &self.placements
+    }
+
+    /// World transform of an occurrence path from the root (the empty path is the identity).
+    /// `None` if the path is not valid.
+    pub fn world_transform(&self, path: &[OccurrenceId]) -> Option<Transform> {
+        self.placements.world(path)
+    }
+
+    /// World transform of `body` seen through `path` (from the root). `None` if the body does
+    /// not exist or the path does not end at the body's component.
+    pub fn body_to_world(&self, body: BodyId, path: &[OccurrenceId]) -> Option<Transform> {
+        let b = self.bodies.get(&body)?;
+        if !self.placements.path_ends_at(path, b.component) {
+            return None;
+        }
+        self.placements.world(path)
+    }
+
+    /// Every placement of a body (one per occurrence path of its component), in
+    /// `Design::occurrence_paths` order. Empty if the body does not exist.
+    pub fn instances(&self, body: BodyId) -> Vec<BodyInstance> {
+        let Some(b) = self.bodies.get(&body) else {
+            return Vec::new();
+        };
+        let paths: Vec<OccPath> = self.placements.paths_of(b.component);
+        paths
+            .into_iter()
+            .filter_map(|path| {
+                let world = self.placements.world(&path)?;
+                Some(BodyInstance { path, world })
+            })
+            .collect()
+    }
+
     // ---- building (recompute engine) ----------------------------------------------------
 
     /// Inserts or replaces a body.
@@ -96,6 +138,11 @@ impl Evaluated {
     /// Inserts or replaces construction geometry.
     pub fn set_construction(&mut self, id: ConstructionId, geom: ConstructionGeom) {
         self.construction.insert(id, geom);
+    }
+
+    /// Stores the placements (assembly stage).
+    pub fn set_placements(&mut self, placements: Arc<Placements>) {
+        self.placements = placements;
     }
 
     /// Records a node's evaluation.
