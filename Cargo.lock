@@ -99,6 +99,8 @@ dependencies = [
  "serde_json",
  "static_assertions",
  "thiserror 2.0.21",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -320,6 +322,7 @@ version = "0.1.0"
 dependencies = [
  "cxx",
  "cxx-build",
+ "tracing",
 ]
 
 [[package]]

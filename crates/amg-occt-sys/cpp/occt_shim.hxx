@@ -28,6 +28,10 @@ struct OcUvBounds;
 struct OcTopology;
 struct OcSurface;
 struct OcCurve;
+struct OcCheckReport;
+
+// Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
+struct ProgressSink;
 
 class OcShape {
 public:
@@ -50,7 +54,7 @@ public:
   ShapeMap solids;
 };
 
-// "<ExceptionType>: <message>".
+// CATEGORY: R (formats an exception; not bridged, used by trycatch below)
 std::string format_failure(const Standard_Failure &failure);
 
 // CATEGORY: R (reads only compile-time constants)
@@ -133,6 +137,35 @@ std::unique_ptr<std::string> shape_write_text(const OcShape &shape);
 
 // CATEGORY: R (takes no shape; OCCT 8.0.1 made Standard_Strtod thread-safe, so no G lock)
 std::unique_ptr<OcShape> shape_read_text(rust::Slice<const std::uint8_t> data);
+
+// -- kernel infrastructure (BREP-12) --
+
+// CATEGORY: G (replaces the process-wide default messenger's printers; called once under
+// amg_brep::init's OnceLock, before any kernel work)
+void install_message_printer();
+
+// CATEGORY: R (takes no shape; sends through the default messenger, whose printer list is only
+// read)
+void emit_message(std::uint8_t gravity, rust::Str text);
+
+// CATEGORY: G (creates or resizes the process-wide OSD_ThreadPool::DefaultPool; called once
+// under amg_brep::init's OnceLock)
+std::int32_t set_default_thread_pool(std::int32_t threads);
+
+// CATEGORY: R (reads the default pool's thread count)
+std::int32_t default_thread_pool_size();
+
+// CATEGORY: R (takes no shape; a progress scope of `steps` busy-waits of `step_micros` each)
+bool progress_test_op(const ProgressSink &sink, std::uint32_t steps, std::uint32_t step_micros);
+
+// CATEGORY: R (ShapeAnalysis_ShapeTolerance keeps its running maximum in itself)
+double shape_max_tolerance(const OcShape &shape);
+
+// CATEGORY: R (BRepCheck_Analyzer keeps its results in its own maps)
+OcCheckReport check_shape(const OcShape &shape, const OcIndex &index);
+
+// CATEGORY: R (takes no shape; builds a face on an open wire, which BRepCheck rejects)
+std::unique_ptr<OcShape> make_open_wire_face();
 
 } // namespace amg::occt
 

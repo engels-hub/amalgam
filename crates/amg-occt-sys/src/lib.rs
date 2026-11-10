@@ -15,7 +15,7 @@ mod bridge;
 mod fixtures;
 
 #[cfg(feature = "occt")]
-pub use bridge::ffi;
+pub use bridge::{LOG_TARGET, ProgressSink, ProgressTarget, ffi};
 
 /// The cxx version the bridge is built with, for `amg-brep`'s `UniquePtr` and `Exception`.
 #[cfg(feature = "occt")]

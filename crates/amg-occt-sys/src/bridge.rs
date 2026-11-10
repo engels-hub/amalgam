@@ -136,6 +136,38 @@ pub mod ffi {
         periodic: bool,
     }
 
+    /// One `BRepCheck` finding. `kind`: 0 face, 1 edge, 2 vertex, 3 no sub-shape (a shell, a
+    /// solid or the root shape). Wire findings are reported on the face holding the wire.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct OcCheckProblem {
+        kind: u8,
+        index: u32,
+        /// The `BRepCheck_Status` name without its prefix, for example `NotClosed`.
+        status: String,
+    }
+
+    /// `BRepCheck_Analyzer` result. `problems` is empty when `valid`.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    struct OcCheckReport {
+        valid: bool,
+        problems: Vec<OcCheckProblem>,
+    }
+
+    extern "Rust" {
+        /// The progress/cancel target of one shim call (S02 §1, occt-integration.md §3.4).
+        type ProgressSink;
+
+        /// Called from OCCT progress `Show`: `fraction` of the whole call in `[0, 1]`.
+        fn progress_show(sink: &ProgressSink, fraction: f64);
+
+        /// Called from OCCT progress `UserBreak`: whether the call should stop.
+        fn progress_user_break(sink: &ProgressSink) -> bool;
+
+        /// Called by the message printer `install_message_printer` puts in place. `gravity` is
+        /// `Message_Gravity`: 0 trace, 1 info, 2 warning, 3 alarm, 4 fail.
+        fn occt_log(gravity: u8, message: &[u8]);
+    }
+
     unsafe extern "C++" {
         include!("amg-occt-sys/cpp/occt_shim.hxx");
 
@@ -201,6 +233,84 @@ pub mod ffi {
         /// `BRepTools` ASCII, no triangulation.
         fn shape_write_text(shape: &OcShape) -> Result<UniquePtr<CxxString>>;
         fn shape_read_text(data: &[u8]) -> Result<UniquePtr<OcShape>>;
+
+        // -- kernel infrastructure (BREP-12) --
+
+        /// Replaces the default messenger's printers (stdout) with one that calls `occt_log`.
+        /// Process-global: call once, before other kernel work.
+        fn install_message_printer() -> Result<()>;
+        /// Sends `text` through the default messenger with `gravity` (0..=4).
+        fn emit_message(gravity: u8, text: &str) -> Result<()>;
+        /// Creates or resizes `OSD_ThreadPool::DefaultPool`; returns its thread count.
+        /// Process-global: call once, before other kernel work.
+        fn set_default_thread_pool(threads: i32) -> Result<i32>;
+        fn default_thread_pool_size() -> Result<i32>;
+        /// A progress scope of `steps` busy-waits of `step_micros` µs each, reporting to `sink`.
+        /// Returns `false` when `sink` asked to stop. Exists to test the progress bridge.
+        fn progress_test_op(sink: &ProgressSink, steps: u32, step_micros: u32) -> Result<bool>;
+        /// The largest tolerance of any sub-shape in mm (`ShapeAnalysis_ShapeTolerance`); 0 for
+        /// a null shape.
+        fn shape_max_tolerance(shape: &OcShape) -> Result<f64>;
+        /// `BRepCheck_Analyzer` over `shape`; `index` must be `shape`'s index.
+        fn check_shape(shape: &OcShape, index: &OcIndex) -> Result<OcCheckReport>;
+        /// A planar face bounded by an open two-edge wire, which `BRepCheck` rejects. For tests of
+        /// the validation policy.
+        fn make_open_wire_face() -> Result<UniquePtr<OcShape>>;
+    }
+}
+
+/// What an OCCT progress indicator reports to (S02 §1). `amg-brep` implements it over `JobCtx`.
+///
+/// Both methods run on whatever thread OCCT calls from, possibly several at once.
+pub trait ProgressTarget {
+    /// `fraction` of the whole call, in `[0, 1]`.
+    fn show(&self, fraction: f64);
+    /// Whether the call should stop.
+    fn user_break(&self) -> bool;
+}
+
+/// The progress/cancel target handed to one shim call.
+pub struct ProgressSink {
+    target: Box<dyn ProgressTarget>,
+}
+
+impl ProgressSink {
+    /// Wraps `target`.
+    pub fn new(target: Box<dyn ProgressTarget>) -> ProgressSink {
+        ProgressSink { target }
+    }
+}
+
+impl std::fmt::Debug for ProgressSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ProgressSink")
+    }
+}
+
+// A panic must not unwind into C++ (cxx would abort), so the callbacks swallow them: a lost
+// progress update is harmless, and a panicking cancel check counts as "stop".
+fn progress_show(sink: &ProgressSink, fraction: f64) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sink.target.show(fraction);
+    }));
+}
+
+fn progress_user_break(sink: &ProgressSink) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink.target.user_break()))
+        .unwrap_or(true)
+}
+
+/// `tracing` target of every OCCT message.
+pub const LOG_TARGET: &str = "occt";
+
+fn occt_log(gravity: u8, message: &[u8]) {
+    let text = String::from_utf8_lossy(message);
+    let text = text.trim_end();
+    match gravity {
+        0 => tracing::trace!(target: "occt", "{text}"),
+        1 => tracing::info!(target: "occt", "{text}"),
+        2 => tracing::warn!(target: "occt", "{text}"),
+        _ => tracing::error!(target: "occt", gravity, "{text}"),
     }
 }
 

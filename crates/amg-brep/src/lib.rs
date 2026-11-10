@@ -3,15 +3,28 @@
 //! Spec: S02, S20. Lane: A.
 
 mod backend;
+mod check;
+mod config;
 mod error;
 pub mod geom;
 mod index;
+mod kernel;
+mod lock;
+pub mod opts;
 mod shape;
 
 pub use amg_core::{Aabb3, Dir3, Line3, Plane, Point2, Point3, Tolerance, Transform, Vec2, Vec3};
 pub use amg_jobs::JobCtx;
 
+pub use check::{CheckOpts, CheckReport};
+pub use config::{ENV_OCCT_THREADS, ENV_VALIDATE, KernelConfig, Validate};
 pub use error::{KResult, KernelError};
+pub use kernel::{BrepKernel, OcctKernel, POLICY_VERSION, init, kernel_version};
+pub use opts::{
+    BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletShape, FilletSpec, Glue, HealOpts,
+    HelixSpec, LoftSection, OffsetJoin, PipeMode, PipeOpts, PrismExtent, PrismOpts, SewOpts,
+    ShellOpts, TessQuality, ThruSectionsOpts, Transition, UnifyOpts,
+};
 pub use shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, ShapeKind, SubKind, SubShape, VertexId};
 
 /// Whether this build links the OCCT backend (cargo feature `occt`).

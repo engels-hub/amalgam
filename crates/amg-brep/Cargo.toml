@@ -14,12 +14,15 @@ amg-occt-sys.workspace = true
 amg-nurbs.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 static_assertions = "1.1.0"
 
 [dev-dependencies]
 amg-testkit.workspace = true
 criterion.workspace = true
 serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [features]
 default = []
@@ -37,6 +40,11 @@ required-features = ["fixture-gen"]
 
 [[bench]]
 name = "brep_io"
+harness = false
+required-features = ["occt"]
+
+[[bench]]
+name = "kernel"
 harness = false
 required-features = ["occt"]
 

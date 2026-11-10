@@ -7,6 +7,7 @@ use amg_core::{Aabb3, Mat3, Point3, Transform};
 
 use crate::KResult;
 use crate::backend::Occ;
+use crate::check::CheckReport;
 use crate::error::KernelError;
 use crate::geom;
 use crate::index::SubShapeIndex;
@@ -119,6 +120,16 @@ impl Shape {
     #[doc(hidden)]
     pub fn fixture(name: &str) -> KResult<Shape> {
         Occ::fixture(name).map(Shape::from_occ)
+    }
+
+    #[cfg(all(test, feature = "occt"))]
+    pub(crate) fn test_box(dx: f64, dy: f64, dz: f64) -> Shape {
+        Shape::from_occ(Occ::test_box(dx, dy, dz))
+    }
+
+    #[cfg(all(test, feature = "occt"))]
+    pub(crate) fn test_open_wire_face() -> Shape {
+        Shape::from_occ(Occ::test_open_wire_face())
     }
 
     fn occ(&self) -> &Occ {
@@ -314,6 +325,18 @@ impl Shape {
             "{s:?} is out of range: the shape has {n} of that kind"
         );
         self.occ().tolerance(s.kind, s.index)
+    }
+
+    /// The largest tolerance of any sub-shape (faces, edges, vertices) in mm
+    /// (`ShapeAnalysis_ShapeTolerance`), for S20's validation gate. 0 for a shape with no
+    /// sub-shapes.
+    pub fn max_tolerance(&self) -> f64 {
+        self.occ().max_tolerance()
+    }
+
+    /// `BRepCheck` validity (S02 §9); [`crate::BrepKernel::check`] is the public entry.
+    pub(crate) fn check_report(&self) -> CheckReport {
+        self.occ().check()
     }
 
     /// The same shape moved by a rigid transform. Shares TShapes and keeps every index.
