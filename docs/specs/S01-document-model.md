@@ -1819,3 +1819,28 @@ See `docs/specs/S13-simulation.md` Interfaces and `docs/notes/simulation-fem.md`
 - `Evaluated::{placements, world_transform, body_to_world, instances}`, `Evaluated::set_placements`;
   recompute fills placements with the authored transforms. `Document::{active_component,
   set_active_component}`; `DocEvent::ActiveComponentChanged`.
+
+### 2026-11-10 - ASM-13 landed (lane E, additive; QUESTIONS #59)
+- `Design::pending: PendingPositions` (`#[serde(default, skip_serializing_if = "is_empty")]`, so
+  `design.json` of designs without pending moves is byte-identical and `FORMAT_VERSION` is
+  unchanged; an older build refuses a file that has pending moves with an unknown-field error, per
+  the wire-format policy). Accessors `Design::{pending_positions, has_pending_positions,
+  captured_transform_at, seed_transform, joint_state, capture_table}`; low-level edits
+  `merge_pending_positions`, `clear_pending_positions`, `place_occurrences`.
+- `Command::{SetPendingPositions, CapturePositions, RevertPositions}` (history mode only,
+  `CommandError::Invalid` otherwise). `CapturePositions` adds a built-in timeline feature and
+  returns `CreatedId::Feature`. `SetOccurrenceTransforms` now writes the layer effective at the
+  marker (the latest applying capture node that lists the occurrence, else the base) and drops the
+  pending entries of those occurrences.
+- Built-in feature kind `assembly.capture_position` v1 (`CapturePositionFeature`), registered by
+  `amg-doc` like `core.base`; module `amg_doc::positions` (`PendingPositions`, `PositionTable`),
+  `amg_doc::joints` (`ValueSel`, `JointState`, `capture_command`, `out_of_date`; ASM-04 extends it).
+- `DocEvent::PendingPositionsChanged`.
+- **Behaviour change:** `Command::SetMarker` clears the pending positions in the same undo entry when
+  the marker actually moves. Entering direct mode folds the seeds (pending over captured over base)
+  into the base transforms first, so positions stay as seen.
+- **Behaviour change (DOC-03):** the occurrence transform bits in a feature's cache key come from the
+  running position table (base overridden by the capture nodes before the node), not from
+  `Occurrence::transform`; without capture nodes the bits are identical, so existing caches stay valid.
+  `RecomputeCtx::{with_positions, occurrence_transform, path_transform}` give features the same
+  captured view for in-context resolution. Recompute fills `Placements` from the seeds.

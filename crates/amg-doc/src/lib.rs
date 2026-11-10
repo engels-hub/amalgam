@@ -25,10 +25,12 @@ pub mod feature;
 pub mod history;
 pub mod id;
 pub mod io;
+pub mod joints;
 pub mod model;
 pub mod naming;
 pub mod param;
 mod pcoll;
+pub mod positions;
 pub mod recompute;
 pub mod recovery;
 pub mod registry;
@@ -73,6 +75,9 @@ pub use naming::{
     ResolveError, Resolved, Role, TopoKind, TopoName, TopoRef,
 };
 pub use param::{Expr, ExprSrc, Param, ParamError, ParamKind, ParamTable, UnitSpec};
+pub use positions::{
+    CAPTURE_POSITION_KIND, CapturePositionFeature, PendingPositions, PositionTable,
+};
 pub use recompute::{ENGINE_FORMAT_VERSION, RecomputeResult, engine_salt, recompute};
 pub use recovery::{
     Recovered, RecoveryCandidate, RecoveryConfig, RecoverySession, find_recoverable, recover,

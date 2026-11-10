@@ -22,6 +22,7 @@ use crate::eval::BodyGeom;
 use crate::id::{BodyId, ComponentId, ExtKey, FeatureId, GroupId, JointId, OccurrenceId, Revision};
 use crate::param::ParamTable;
 use crate::pcoll::{PMap, entries};
+use crate::positions::PendingPositions;
 use crate::stub::{AppearanceKey, LengthUnit, MaterialKey};
 use crate::timeline::Timeline;
 
@@ -60,6 +61,10 @@ pub struct Design {
     pub(crate) params: ParamTable,
     /// Configurations and the active one (DOC-10); edits in [`crate::config`].
     pub(crate) configs: ConfigTable,
+    /// Pending moves of occurrences (ASM-13, S06 note §3). Authored and saved; omitted from
+    /// `design.json` while empty, so files without pending moves are unchanged.
+    #[serde(default, skip_serializing_if = "PendingPositions::is_empty")]
+    pub(crate) pending: PendingPositions,
     /// Runtime only: authored changes since the design was created or loaded.
     #[serde(skip)]
     revision: Revision,
@@ -348,6 +353,7 @@ impl Design {
             timeline: Timeline::default(),
             params: ParamTable::default(),
             configs: ConfigTable::default(),
+            pending: PendingPositions::default(),
             revision: Revision(0),
         }
     }
@@ -921,6 +927,9 @@ impl Design {
             return bad(format!("{c} is not reachable from the root {}", self.root));
         }
 
+        if let Err(m) = self.validate_pending() {
+            return bad(m);
+        }
         for (bid, p) in self.explicit_body_props() {
             if let Err(e) = p.check() {
                 return bad(format!("body {bid:?}: {e}"));
@@ -985,6 +994,9 @@ struct DesignRepr {
     /// Added by DOC-10 (format v3; the migration writes an empty table).
     #[serde(default)]
     configs: ConfigTable,
+    /// Added by ASM-13 (defaulted: no format bump).
+    #[serde(default)]
+    pending: PendingPositions,
 }
 
 impl TryFrom<DesignRepr> for Design {
@@ -1002,6 +1014,7 @@ impl TryFrom<DesignRepr> for Design {
             timeline: r.timeline,
             params,
             configs: r.configs,
+            pending: r.pending,
             revision: Revision(0),
         };
         d.validate()?;

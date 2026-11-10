@@ -17,8 +17,10 @@ use crate::feature::FeatureBox;
 use crate::id::{
     BodyId, ComponentId, ConfigId, ExtKey, FeatureId, GroupId, OccurrenceId, ParamId, Revision,
 };
+use crate::joints::JointState;
 use crate::model::{BodyProps, Design, DesignMode, ExtRecord, ModelError, UnitPrefs};
 use crate::param::{Expr, ParamError, UnitSpec};
+use crate::positions::CapturePositionFeature;
 
 /// One user-level edit. Serializes as externally tagged JSON (`{"AddParam": {..}}`), the
 /// form the crash journal, macros and the Python API share.
@@ -219,6 +221,29 @@ pub enum Command {
         /// `(occurrence, local transform relative to its parent)`.
         moves: Vec<(OccurrenceId, Transform)>,
     },
+    /// An interactive move (gizmo, drag, drive, rest, motion-study frame) merged into the
+    /// pending positions (S06 ASM-13); nothing is recomputed. Refused for a grounded
+    /// occurrence and in direct mode.
+    SetPendingPositions {
+        /// `(occurrence, local transform relative to its parent)`.
+        moves: Vec<(OccurrenceId, Transform)>,
+        /// Unwrapped values of the joints moved along.
+        joint_states: Vec<(FeatureId, JointState)>,
+    },
+    /// Capture Position: adds an `assembly.capture_position` node at the marker (root
+    /// context) with these values and clears the pending positions. Build it with
+    /// [`joints::capture_command`](crate::joints::capture_command). Creates
+    /// [`CreatedId::Feature`].
+    CapturePositions {
+        /// `(occurrence, local transform relative to its parent)`.
+        moves: Vec<(OccurrenceId, Transform)>,
+        /// Unwrapped values of the joints involved.
+        joint_states: Vec<(FeatureId, JointState)>,
+        /// Node name (`None`: "Capture Position").
+        name: Option<String>,
+    },
+    /// Revert: clears the pending positions. Refused when nothing is pending.
+    RevertPositions,
     /// Design name and/or default units (`None` keeps the current value).
     SetDesignMeta {
         /// New name.
@@ -322,6 +347,9 @@ impl Command {
             Command::SetOccurrenceGrounded { .. } => "Unground",
             Command::SetOccurrenceName { .. } => "Rename occurrence",
             Command::SetOccurrenceTransforms { .. } => "Place occurrences",
+            Command::SetPendingPositions { .. } => "Move components",
+            Command::CapturePositions { .. } => "Capture position",
+            Command::RevertPositions => "Revert position",
             Command::SetDesignMeta { .. } => "Design settings",
             Command::SetDesignMode { .. } => "Change design mode",
             Command::SetExt { .. } | Command::AddExt { .. } => "Edit extension data",
@@ -596,7 +624,13 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
             d.convert_model_params(&ids);
         }
         Command::MoveFeature { id, to } => d.move_feature(id, to)?,
-        Command::SetMarker { index } => d.set_marker(index)?,
+        Command::SetMarker { index } => {
+            // Uncaptured positions are lost when the marker moves (Fusion; S06 note §3.4).
+            if index != d.timeline().marker() {
+                d.clear_pending_positions();
+            }
+            d.set_marker(index)?;
+        }
         Command::SetSuppressed { ids, suppressed } => {
             for &id in &ids {
                 require_feature(d, id)?;
@@ -718,7 +752,65 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
             d.set_occurrence_grounded(occ, grounded)?;
         }
         Command::SetOccurrenceName { occ, name } => d.set_occurrence_name(occ, name)?,
-        Command::SetOccurrenceTransforms { moves } => d.set_occurrence_transforms(&moves)?,
+        Command::SetOccurrenceTransforms { moves } => {
+            d.place_occurrences(&moves)?;
+        }
+        Command::SetPendingPositions {
+            moves,
+            joint_states,
+        } => {
+            if d.meta().mode == DesignMode::Direct {
+                return Err(CommandError::Invalid(
+                    "direct mode has no pending positions; use SetOccurrenceTransforms".to_owned(),
+                ));
+            }
+            if moves.is_empty() && joint_states.is_empty() {
+                return Err(CommandError::Invalid("nothing to move".to_owned()));
+            }
+            for (o, _) in &moves {
+                if d.occurrence(*o).is_some_and(|occ| occ.grounded) {
+                    return Err(CommandError::Invalid(format!("{o} is grounded")));
+                }
+            }
+            d.merge_pending_positions(&moves, &joint_states)?;
+        }
+        Command::CapturePositions {
+            mut moves,
+            mut joint_states,
+            name,
+        } => {
+            if d.meta().mode == DesignMode::Direct {
+                return Err(CommandError::Invalid(
+                    "direct mode has no timeline to capture into".to_owned(),
+                ));
+            }
+            if moves.is_empty() && joint_states.is_empty() {
+                return Err(CommandError::Invalid("nothing to capture".to_owned()));
+            }
+            d.check_position_moves(&moves)?;
+            d.check_position_joints(&joint_states)?;
+            moves.sort_by_key(|(o, _)| *o);
+            joint_states.sort_by_key(|(f, _)| *f);
+            let root = d.root();
+            let feature = FeatureBox::new(CapturePositionFeature {
+                moves,
+                joint_states,
+            });
+            let id = d.add_feature(
+                None,
+                feature,
+                root,
+                Some(name.unwrap_or_else(|| "Capture Position".to_owned())),
+            )?;
+            d.clear_pending_positions();
+            created.push(CreatedId::Feature(id));
+        }
+        Command::RevertPositions => {
+            if !d.has_pending_positions() {
+                return Err(CommandError::Invalid("no pending positions".to_owned()));
+            }
+            d.clear_pending_positions();
+        }
         Command::SetDesignMeta {
             name,
             default_units,

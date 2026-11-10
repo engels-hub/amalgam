@@ -62,6 +62,9 @@ pub enum DocEvent {
     /// effective parameter expressions / suppression flags differ, and the following
     /// recompute raises the geometry and health events as usual.
     ConfigsChanged,
+    /// The pending positions changed: a move was set, captured, reverted or dropped
+    /// (ASM-13). Also raised by undo and redo of those.
+    PendingPositionsChanged,
     /// The active component (session state of the `Document`) changed.
     ActiveComponentChanged(ComponentId),
     /// A recompute job started for this revision.
@@ -178,6 +181,9 @@ fn authored_events(old: &Design, new: &Design, out: &mut Vec<DocEvent>) {
 
     if timeline_changed || eff_supp {
         out.push(DocEvent::TimelineChanged);
+    }
+    if old.pending != new.pending {
+        out.push(DocEvent::PendingPositionsChanged);
     }
     if eff_params {
         out.push(DocEvent::ParamsChanged);

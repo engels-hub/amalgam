@@ -17,7 +17,7 @@ use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
-use amg_core::{Dimension, Quantity, Tolerance};
+use amg_core::{Dimension, Quantity, Tolerance, Transform};
 use amg_jobs::JobCtx;
 use serde::de::Error as _;
 use serde::ser::Error as _;
@@ -29,6 +29,7 @@ use crate::id::{BodyId, ComponentId, ConstructionId, FeatureId, OccurrenceId, Sk
 use crate::model::Design;
 use crate::naming::{BodyNaming, EntityRef, ResolveError};
 use crate::param::Expr;
+use crate::positions::PositionTable;
 use crate::registry::registry;
 use crate::stub::SketchGeom;
 
@@ -481,6 +482,7 @@ pub struct RecomputeCtx<'a> {
     context: ComponentId,
     mode: ComputeMode,
     job: Option<&'a JobCtx>,
+    positions: Option<&'a PositionTable>,
 }
 
 impl<'a> RecomputeCtx<'a> {
@@ -501,7 +503,46 @@ impl<'a> RecomputeCtx<'a> {
             context,
             mode,
             job: None,
+            positions: None,
         }
+    }
+
+    /// Connects the running position table of the timeline pass (ASM-13). Without one,
+    /// [`occurrence_transform`](Self::occurrence_transform) scans the capture nodes.
+    #[must_use]
+    pub fn with_positions(mut self, positions: &'a PositionTable) -> RecomputeCtx<'a> {
+        self.positions = Some(positions);
+        self
+    }
+
+    /// Local transform of `o` (relative to its parent) as this feature sees it: the base
+    /// transform overridden by the capture nodes before it. Never a pending move, never a
+    /// solved placement (S06 note §1), so this is what in-context references resolve with.
+    pub fn occurrence_transform(&self, o: OccurrenceId) -> Option<Transform> {
+        match self.positions {
+            Some(t) => t
+                .get(o)
+                .or_else(|| self.design.occurrence(o).map(|occ| occ.transform)),
+            None => {
+                let index = self
+                    .design
+                    .timeline()
+                    .node(self.feature)
+                    .map_or(self.design.timeline().len(), |(i, _)| i);
+                self.design.captured_transform_at(o, index)
+            }
+        }
+    }
+
+    /// World transform of an occurrence path from the root, from
+    /// [`occurrence_transform`](Self::occurrence_transform). `None` if the path is not valid.
+    pub fn path_transform(&self, path: &[OccurrenceId]) -> Option<Transform> {
+        if !self.design.is_valid_path(self.design.root(), path) {
+            return None;
+        }
+        path.iter().try_fold(Transform::IDENTITY, |acc, o| {
+            Some(acc * self.occurrence_transform(*o)?)
+        })
     }
 
     /// Connects the context to a job for progress and cancellation.
