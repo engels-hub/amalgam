@@ -891,6 +891,7 @@ build, 8+ cores.
 | MESH-25 | Mesh→B-rep prismatic (fitted analytic surfaces, trimmed, sewn) | MESH-13, MESH-24, BREP-03 | P1 | Todo | On 20 synthetic tessellated CAD parts (boxes, holes, bosses, fillets as cylinders/tori), output is a valid solid with analytic faces, volume within 0.5 %. A fillet and an extrude-cut on the result succeed. |
 | MESH-14 | Mesh section sketch (section polylines → line/arc/spline fit → sketch) | MESH-09, SK-08 | P1 | Done | Section of a tessellated cylinder gives a circle with radius error < 0.5 %. All fitted curves are within the 0.01 mm tolerance of the polyline. The sketch is usable by extrude. |
 | MESH-15 | Direct edit: soft transform of face groups (radial/geodesic falloff) + `MeshSoftMoveFeature` + manipulator tool | MESH-12, MESH-23, UI-06 | P1 | Todo | Moving a group with smooth falloff keeps the mesh manifold and SI-free for displacements ≤ falloff radius / 2. The edit is undoable and parametric. Manipulator drag previews at ≥ 30 fps on a 1 M-tri mesh (proxy). |
+| MESH-30 | `MeshSpatial` accuracy follow-ups from IMP-03: `closest_on_tri` exact to 1e-9 mm on high-aspect faces (e.g. 12 mm × 3 µm; the Gram-determinant form loses ~2e-9 mm), a shortest-edge-normal brute-force oracle in the MESH-03 tests (the current one is wrong on slivers), and a winding tree that cannot re-enter rayon from its lazy `OnceLock` init | MESH-03 | P1 | Todo | 1. On the MESH-28 corpus (incl. thingi10k-99899 and thingi10k-90225), closest-point distance equals a robust brute-force oracle within 1e-9 mm for 10 k random points per model. 2. The fixed oracle is used by the MESH-03 tests. 3. A test calls `signed`/winding queries from inside a rayon `par_iter` on a fresh `MeshSpatial` without deadlock or re-entrant init. 4. 1 M-tri closest-point throughput no worse than 5 % vs MESH-03's bench. 5. After it lands, IMP-03's plane-distance refinement in `amg-implicit::MeshSdf` can be removed with its tests still passing (IMP-03 handoff, finding 1). |
 
 Phase placement for the new WPs is proposed in the Refinement log; the roadmap is not edited
 here.
@@ -1184,6 +1185,12 @@ Code: new crate `crates/amg-manifold-sys` (`build.rs`, `src/lib.rs`), `crates/am
   - Without the feature: `cargo nextest run -p amg-mesh` (default features) compiles and `boolean` returns `BackendUnavailable` (unit test `without_feature_backend_is_unavailable`).
 - **Deviations.** (1) `amg-mesh/manifold` is **off by default** (design decision 5 said on): a plain build and CI's default jobs must work without the native library; the app crate should enable it. (2) `MANIFOLD_CROSS_SECTION` stays **ON** (ADR-003's amendment said OFF): in Manifold 3.5.4 `MANIFOLD_CBIND` is a `cmake_dependent_option` on `MANIFOLD_CROSS_SECTION`, so the C API does not exist without it. That adds Clipper2 (BSL-1.0, permissive, static); Amalgam never calls it. ADR-003 was amended on 2026-11-09 to allow it (QUESTIONS #52 (a)). (3) Mesh attributes (vertex normals / colours, corner UVs, 3MF properties) are not carried through a boolean; the result has empty `MeshAttrs`.
 - **Leftovers.** `docs/01-architecture.md` §Crates does not list `amg-manifold-sys` (the layering test now does; see S00 Interface changes). Attribute propagation (colours/UVs as extra Manifold properties) if MESH-27 needs it. Linux build untested. CI's first run with a non-empty `vcpkg.json` will build Manifold + TBB + Clipper2 cold (about 5 min) before the binary cache takes over.
+
+### 2026-11-10 - coordinator: MESH-30 from IMP-03 findings
+- IMP-03 (S08) found three `MeshSpatial` issues while testing `MeshSdf` against the corpus: the
+  closest-point kernel loses ~2e-9 mm on long thin faces, the MESH-03 brute-force oracle is wrong
+  on slivers, and the lazy winding-tree init can re-enter rayon. `MeshSdf` works around the first
+  in amg-implicit. New WP MESH-30 fixes them in amg-mesh.
 
 ## Interface changes
 ### 2026-10-20 — MESH-01 (`IndexedMesh`, `HalfEdgeMesh`, weld, `MeshBody`; lane C)

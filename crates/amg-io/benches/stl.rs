@@ -87,8 +87,18 @@ fn stl_write_20m(c: &mut Criterion) {
 /// Done-when 6: cancelling the 1 GB import returns `Cancelled` within 100 ms.
 fn stl_cancel_latency_1gb(_c: &mut Criterion) {
     let path = common::bin_1gb();
+    // Cancel early, mid-way and late in the import: fixed delays would outrun a fast machine.
+    let t = Instant::now();
+    import(
+        Source::Path(&path),
+        Some(Format::Stl),
+        &ImportOptions::default(),
+        &JobCtx::detached(),
+    )
+    .expect("import");
+    let full_ms = t.elapsed().as_millis() as u64;
     let mut worst = Duration::ZERO;
-    for delay_ms in [50u64, 400, 1200] {
+    for delay_ms in [full_ms / 20, full_ms * 2 / 5, full_ms * 3 / 4] {
         let token = CancelToken::new();
         let ctx = JobCtx::with_token(token.clone());
         let worker = {
