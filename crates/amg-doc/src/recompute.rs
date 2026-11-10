@@ -39,6 +39,7 @@ use crate::id::{BodyId, ConstructionId, FeatureId, SketchId};
 use crate::model::{Design, DesignMode};
 use crate::naming::EntityRef;
 use crate::param::Expr;
+use crate::positions::{CapturePositionFeature, PositionTable};
 use crate::timeline::FeatureNode;
 
 /// Version of the cache-key layout and of the geometry payload format. Bump when either
@@ -153,6 +154,8 @@ struct Pass<'a> {
     feature_key: BTreeMap<FeatureId, CacheKey>,
     computed: Vec<FeatureId>,
     cached: Vec<FeatureId>,
+    /// Base transforms overridden by the capture nodes passed so far (ASM-13).
+    positions: PositionTable,
 }
 
 impl<'a> Pass<'a> {
@@ -175,6 +178,7 @@ impl<'a> Pass<'a> {
             feature_key: BTreeMap::new(),
             computed: Vec::new(),
             cached: Vec::new(),
+            positions: PositionTable::default(),
         }
     }
 
@@ -196,12 +200,16 @@ impl<'a> Pass<'a> {
             } else {
                 let sub = self.job.sub(lo, hi);
                 self.node(node, &sub)?;
+                if let Some(c) = node.feature.downcast_ref::<CapturePositionFeature>() {
+                    self.positions.apply(c, self.design);
+                }
             }
         }
-        // Assembly stage: placements are the authored transforms until the joint solver
-        // (ASM-04) solves them.
+        // Assembly stage: placements are the seeds (pending over captured over base) until the
+        // joint solver (ASM-04) solves them. The running table now holds the captured layer at
+        // the marker.
         self.out
-            .set_placements(Arc::new(Placements::from_design(self.design)));
+            .set_placements(Arc::new(Placements::seeded(self.design, &self.positions)));
         self.job.progress(1.0);
         Ok(RecomputeResult {
             evaluated: self.out,
@@ -274,7 +282,8 @@ impl<'a> Pass<'a> {
             let result = {
                 let mut ctx =
                     RecomputeCtx::new(self.design, &self.out, node.id, node.context, self.mode)
-                        .with_job(job);
+                        .with_job(job)
+                        .with_positions(&self.positions);
                 node.feature.compute(&mut ctx)
             };
             let duration = started.elapsed();
@@ -423,6 +432,19 @@ impl<'a> Pass<'a> {
             }
         }
 
+        if let Some(c) = f.downcast_ref::<CapturePositionFeature>() {
+            // Captured entries whose target is gone are ignored with a warning, so the
+            // existence of the targets is part of the key.
+            h.tag(7);
+            for o in c.missing_occurrences(self.design) {
+                h.u64(o.0);
+            }
+            h.tag(8);
+            for j in c.missing_joints(self.design) {
+                h.u64(j.0);
+            }
+        }
+
         let inputs = f.inputs();
         h.u64(u64::try_from(inputs.len()).unwrap_or(u64::MAX));
         for dep in &inputs {
@@ -495,7 +517,9 @@ impl<'a> Pass<'a> {
                 .occurrence(o)
                 .ok_or_else(|| diag(format!("occurrence {o} does not exist"), None))?;
             h.u64(o.0);
-            for x in occ.transform.to_cols_array() {
+            // The captured position at this node, never the pending one (ASM-13).
+            let t = self.positions.get(o).unwrap_or(occ.transform);
+            for x in t.to_cols_array() {
                 h.f64(x);
             }
         }

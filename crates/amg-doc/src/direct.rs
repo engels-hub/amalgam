@@ -171,6 +171,8 @@ impl Design {
             .iter()
             .filter_map(|(id, ..)| w.body_props.get(id).map(|p| (*id, (**p).clone())))
             .collect();
+        // The timeline (and with it every capture node) goes away: positions as seen stay.
+        w.fold_seeds_into_base()?;
         let ids: Vec<FeatureId> = w.timeline.nodes().map(|n| n.id).collect();
         for &id in &ids {
             w.remove_feature(id)?;

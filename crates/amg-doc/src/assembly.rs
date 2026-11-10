@@ -16,6 +16,7 @@ use crate::direct::BaseFeature;
 use crate::feature::FeatureBox;
 use crate::id::{BodyId, ComponentId, FeatureId, OccurrenceId};
 use crate::model::{Design, ModelError, check_transform};
+use crate::positions::PositionTable;
 
 /// A path of occurrences from a component downward: `[o1, .., on]` where `o1` is placed in the
 /// start component, `o2` in the component `o1` places, and so on. Empty means the start
@@ -287,6 +288,7 @@ impl Design {
                 w.replace_feature(id, FeatureBox::new(bf))?;
             }
         }
+        w.prune_pending();
         w.bump();
         let out = Removed {
             occurrences: gone.into_iter().collect(),
@@ -333,8 +335,14 @@ impl Default for Placements {
 }
 
 impl Placements {
-    /// Placements equal to the authored transforms of `design`.
+    /// Placements equal to the seeds of `design` (pending, else captured at the marker, else
+    /// base): the authored positions until the joint solver (ASM-04) solves them.
     pub fn from_design(design: &Design) -> Placements {
+        Placements::seeded(design, &design.capture_table(design.timeline().marker()))
+    }
+
+    /// [`from_design`](Self::from_design) with the position table the timeline pass built.
+    pub(crate) fn seeded(design: &Design, table: &PositionTable) -> Placements {
         let slots: Vec<(OccurrenceId, Slot)> = design
             .occurrences()
             .map(|(id, o)| {
@@ -343,7 +351,7 @@ impl Placements {
                     Slot {
                         parent: o.parent,
                         component: o.component,
-                        local: o.transform,
+                        local: design.seed_with(table, id).unwrap_or(o.transform),
                     },
                 )
             })

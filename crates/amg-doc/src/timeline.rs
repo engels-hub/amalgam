@@ -402,6 +402,7 @@ impl Design {
             tl.marker -= 1;
         }
         tl.drop_group_if_empty(node.group);
+        self.pending.joint_states.remove(&id);
         let range = crate::model::origin_range(id);
         let props: Vec<_> = self
             .body_props
