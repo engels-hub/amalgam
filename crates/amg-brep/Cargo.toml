@@ -12,12 +12,33 @@ amg-core.workspace = true
 amg-jobs.workspace = true
 amg-occt-sys.workspace = true
 amg-nurbs.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+static_assertions = "1.1.0"
+
+[dev-dependencies]
+amg-testkit.workspace = true
+criterion.workspace = true
+serde_json.workspace = true
 
 [features]
 default = []
 # Link the vcpkg-built OCCT through amg-occt-sys. Off by default so the workspace builds without
 # vcpkg (BREP-01, recorded in S02's Refinement log).
 occt = ["amg-occt-sys/occt"]
+# Adds the C++ fixture builders behind the `gen_brep_fixtures` example, which regenerates
+# testdata/brep/. Not needed to run the tests: the fixtures are checked in.
+fixture-gen = ["occt", "amg-occt-sys/fixture-gen"]
+
+[[example]]
+name = "gen_brep_fixtures"
+path = "tests/gen/generate.rs"
+required-features = ["fixture-gen"]
+
+[[bench]]
+name = "brep_io"
+harness = false
+required-features = ["occt"]
 
 [lints]
 workspace = true

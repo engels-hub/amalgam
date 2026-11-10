@@ -93,6 +93,12 @@ dependencies = [
  "amg-jobs",
  "amg-nurbs",
  "amg-occt-sys",
+ "amg-testkit",
+ "criterion 0.8.2",
+ "serde",
+ "serde_json",
+ "static_assertions",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -73,10 +73,21 @@ mod occt {
         println!("cargo:rerun-if-changed=cpp/occt_shim.hxx");
         println!("cargo:rerun-if-changed=cpp/occt_shim.cpp");
 
-        let mut shim = cxx_build::bridge("src/bridge.rs");
+        let fixtures = cfg!(feature = "fixture-gen");
+        let mut bridges = vec!["src/bridge.rs"];
+        if fixtures {
+            println!("cargo:rerun-if-changed=src/fixtures.rs");
+            println!("cargo:rerun-if-changed=cpp/occt_fixtures.hxx");
+            println!("cargo:rerun-if-changed=cpp/occt_fixtures.cpp");
+            bridges.push("src/fixtures.rs");
+        }
+        let mut shim = cxx_build::bridges(bridges);
         shim.file("cpp/occt_shim.cpp")
             .include(&include)
             .std("c++17");
+        if fixtures {
+            shim.file("cpp/occt_fixtures.cpp");
+        }
         if msvc {
             for flag in ["/EHsc", "/MD", "/utf-8", "/bigobj", "/permissive-"] {
                 shim.flag(flag);

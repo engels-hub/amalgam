@@ -11,8 +11,18 @@ pub const OCCT_ENABLED: bool = cfg!(feature = "occt");
 #[cfg(feature = "occt")]
 mod bridge;
 
+#[cfg(feature = "fixture-gen")]
+mod fixtures;
+
 #[cfg(feature = "occt")]
 pub use bridge::ffi;
+
+/// The cxx version the bridge is built with, for `amg-brep`'s `UniquePtr` and `Exception`.
+#[cfg(feature = "occt")]
+pub use cxx;
+
+#[cfg(feature = "fixture-gen")]
+pub use fixtures::fixture_ffi;
 
 /// Identifies the OCCT build and the shim, for example `occt-8.0.1;shim-1`.
 ///
