@@ -13,7 +13,8 @@ const USAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE
 
 /// Typed storage buffer. Usage always includes `STORAGE | COPY_SRC | COPY_DST`.
 ///
-/// The buffer is at least 4 bytes and a multiple of 4 bytes, as storage bindings require, so an
+/// The buffer is at least 4 bytes (and at least one element, so a binding of an `array<T>` is
+/// never smaller than one `T`) and a multiple of 4 bytes, as storage bindings require, so an
 /// empty vector can still be bound. `arrayLength` in a kernel can therefore exceed [`len`] for
 /// an empty vector or an element smaller than 4 bytes; such kernels take the count from a
 /// uniform.
@@ -66,7 +67,7 @@ impl<T: bytemuck::Pod> GpuVec<T> {
         let bytes = checked_bytes(label, len, size_of::<T>() as u64, binding_limit(gpu))?;
         let buffer = gpu.device().create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
-            size: bytes.max(wgpu::COPY_BUFFER_ALIGNMENT),
+            size: bytes.max((size_of::<T>() as u64).max(wgpu::COPY_BUFFER_ALIGNMENT)),
             usage: USAGE,
             mapped_at_creation: false,
         });

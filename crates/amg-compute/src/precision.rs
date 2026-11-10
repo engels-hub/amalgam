@@ -4,6 +4,7 @@
 //! `SHADER_F64` (in wgpu 30, Vulkan only), f32 kernels plus f64 iterative refinement on the CPU
 //! everywhere else. The choice is a runtime value per device, never a Cargo feature.
 
+use crate::prim::ReduceScalar;
 use crate::{ComputeError, ComputeResult, sealed};
 
 #[cfg(feature = "gpu")]
@@ -96,7 +97,7 @@ pub fn device_precision(gpu: &Gpu) -> Precision {
 
 /// Scalars GPU numeric kernels are instantiated for: f32 and f64.
 pub trait GpuReal:
-    bytemuck::Pod + std::fmt::Debug + Send + Sync + sealed::Sealed + 'static
+    ReduceScalar + bytemuck::Pod + std::fmt::Debug + Send + Sync + sealed::Sealed + 'static
 {
     /// The precision of this scalar.
     const PRECISION: Precision;

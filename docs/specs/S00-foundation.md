@@ -1656,3 +1656,12 @@ Strictly additive: no existing unit, symbol, type or test changed behaviour (S17
 - **One existing test edited** (`table_order_and_all`): it asserted `Unit::all().len() == 49`
   and that the last unit is `DeltaCelsius`. It now asserts 58, `all()[48] == DeltaCelsius`
   (the FND-10 rows are untouched) and the new last unit. No other existing test changed.
+
+### 2026-11-10 - CMP-01 (`amg-jobs::gpu`, lane F; flagged S00 interface change)
+- **New field `ComputePipelineDesc::zero_init_workgroup_memory: bool`**, `true` in
+  `ComputePipelineDesc::new` (unchanged WGSL semantics), passed to wgpu's
+  `zero_initialize_workgroup_memory` and part of the pipeline-cache key. CMP-01's scan and sort
+  shaders set it to `false`: on DX12 (FXC) the zeroing is unrolled per word, and those shaders
+  took about 13 s each to compile with it on. Only a shader that writes every workgroup word
+  before reading it may turn it off. Struct literals must now name the field (all in-tree uses
+  updated; prefer `..ComputePipelineDesc::new(..)`).

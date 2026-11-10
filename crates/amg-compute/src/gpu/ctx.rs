@@ -223,6 +223,11 @@ impl ComputeCtx {
         &self.gpu
     }
 
+    /// A shared handle to the device this context records for.
+    pub fn gpu_arc(&self) -> Arc<Gpu> {
+        Arc::clone(&self.gpu)
+    }
+
     /// Copies `params` into the uniform arena (256-byte slots); valid until `submit`.
     ///
     /// # Panics

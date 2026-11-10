@@ -2,15 +2,18 @@
 //!
 //! Spec: S15. Lane: F. Design note: `docs/notes/compute-numerics.md`.
 //!
-//! Today this crate has the GPU layer (CMP-07):
+//! Today this crate has the GPU layer (CMP-07) and the GPU primitives (CMP-01):
 //! - [`precision`]: which floating-point precision GPU numeric kernels run in on a device.
 //! - [`gpu`] (feature `gpu`): typed buffers, kernels, the dispatch context and the WGSL prelude.
+//! - [`prim`]: reduce, dot, segmented reduce, scan, compaction, radix sort and `AtomicCounter`
+//!   (feature `gpu`), plus their CPU references in `prim::cpu`.
 //!
 //! Numeric kernels are written once over the WGSL alias `real`, which the prelude binds to f64
 //! on a device with `SHADER_F64` and to f32 elsewhere (ADR-004 note of 2026-11-09).
 
 mod error;
 pub mod precision;
+pub mod prim;
 
 #[cfg(feature = "gpu")]
 pub mod gpu;
@@ -25,6 +28,8 @@ mod sealed {
     pub trait Sealed {}
     impl Sealed for f32 {}
     impl Sealed for f64 {}
+    impl Sealed for u32 {}
+    impl Sealed for i32 {}
 }
 
 /// Where a solver runs.
