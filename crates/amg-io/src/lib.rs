@@ -5,8 +5,8 @@
 //! This is the IO-01 foundation: the format registry and content sniffing, sources and
 //! atomic sinks, the format-independent [`Scene`], units and up-axis, options, reports and
 //! errors, and the `probe`/`import`/`export` entry points. The readers and writers of the
-//! individual formats land with IO-02 and later; until then `import` and `export` answer
-//! [`IoError::Unsupported`].
+//! individual formats land with IO-02 (STL, done) and later; until then `import` and
+//! `export` answer [`IoError::Unsupported`] for the others.
 
 #![warn(missing_docs)]
 
@@ -119,10 +119,14 @@ pub fn import(
     ctx: &JobCtx,
 ) -> Result<Imported, IoError> {
     ctx.checkpoint()?;
+    let sniffed = format.is_none();
     let format = match format {
         Some(f) => f,
         None => probe(src, &opts.limits)?.format,
     };
+    if format == Format::Stl {
+        return import_stl(src, sniffed, opts, ctx);
+    }
     Err(IoError::Unsupported {
         format,
         direction: "import",
@@ -132,6 +136,47 @@ pub fn import(
             GeometryKind::Curves2d => "2D files are read by the sketch importer",
         },
     })
+}
+
+/// STL: reads, then applies the unit, `merge_objects` and the up axis (S12 §4).
+fn import_stl(
+    src: Source<'_>,
+    sniffed: bool,
+    opts: &ImportOptions,
+    ctx: &JobCtx,
+) -> Result<Imported, IoError> {
+    let mut out = stl::read(src, opts, ctx)?;
+    // STL declares no unit.
+    let unit = opts.unit.resolve(None);
+    out.report.applied_unit = Some(unit);
+    if let UnitChoice::FromFile { fallback } = opts.unit
+        && fallback != LengthUnit::Millimetre
+    {
+        out.report.warnings.push(IoWarning::UnitAssumed(fallback));
+    }
+    if sniffed
+        && let Source::Path(p) = src
+        && let Some(ext) = p.extension().and_then(|e| e.to_str())
+        && let Some(w) = check_extension(ext, Format::Stl)
+    {
+        out.report.warnings.push(w);
+    }
+    let scene = &mut out.scene;
+    scene.rescale(unit, LengthUnit::Millimetre);
+    if opts.merge_objects && scene.objects.len() > 1 {
+        let name = scene.objects[0].name.clone();
+        let (mesh, slots) = scene.flatten(ctx)?;
+        let mut o = SceneObject::new(std::sync::Arc::new(mesh));
+        o.name = name;
+        o.face_materials = slots.map(std::sync::Arc::from);
+        scene.objects = vec![o];
+        scene.roots = vec![SceneNode::mesh(0, amg_core::Transform::IDENTITY)];
+    }
+    let up = opts.up_axis.to_z_up();
+    for r in &mut scene.roots {
+        r.transform = up;
+    }
+    Ok(out)
 }
 
 /// Validity of every placed object for `format` (MESH-02 analysis).
@@ -190,13 +235,16 @@ pub fn check_export(scene: &Scene, format: Format, ctx: &JobCtx) -> Result<Expor
 /// Any [`Scene::validate`] error, [`IoError::Unsupported`], or [`IoError::Cancelled`].
 pub fn export(
     scene: &Scene,
-    _dst: Sink<'_>,
+    dst: Sink<'_>,
     format: Format,
-    _opts: &ExportOptions,
+    opts: &ExportOptions,
     ctx: &JobCtx,
 ) -> Result<ExportReport, IoError> {
     ctx.checkpoint()?;
     scene.validate()?;
+    if format == Format::Stl {
+        return stl::write(scene, dst, opts, ctx);
+    }
     Err(IoError::Unsupported {
         format,
         direction: "export",

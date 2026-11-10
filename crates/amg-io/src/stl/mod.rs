@@ -1,5 +1,13 @@
 //! STL detection (note §5.1). The readers and writers land with IO-02.
 
+mod ascii;
+mod read;
+mod weld;
+mod write;
+
+pub use read::read;
+pub use write::write;
+
 use crate::error::{IoError, Location};
 use crate::format::{Format, contains_ci, skip_ws, strip_bom};
 
