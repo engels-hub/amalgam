@@ -383,4 +383,32 @@ mod tests {
     fn uniform_is_240_bytes() {
         assert_eq!(size_of::<CameraUniform>(), 240);
     }
+
+    /// The offsets `shaders/camera.wgsl` documents and IMP-05 copies (WGSL alignment rules:
+    /// `mat4x4` 64, `vec4` 16, `vec2` 8, scalars 4).
+    #[test]
+    fn uniform_field_offsets_match_the_wgsl_struct() {
+        use std::mem::offset_of;
+        assert_eq!(offset_of!(CameraUniform, view_rte), 0);
+        assert_eq!(offset_of!(CameraUniform, proj), 64);
+        assert_eq!(offset_of!(CameraUniform, inv_view_proj_rte), 128);
+        assert_eq!(offset_of!(CameraUniform, eye_hi), 192);
+        assert_eq!(offset_of!(CameraUniform, eye_lo), 208);
+        assert_eq!(offset_of!(CameraUniform, size_px), 224);
+        assert_eq!(offset_of!(CameraUniform, pixel_size_at_1mm), 232);
+        assert_eq!(offset_of!(CameraUniform, ortho), 236);
+        let wgsl = include_str!("shaders/camera.wgsl");
+        for field in [
+            "view_rte: mat4x4<f32>",
+            "proj: mat4x4<f32>",
+            "inv_view_proj_rte: mat4x4<f32>",
+            "eye_hi: vec4<f32>",
+            "eye_lo: vec4<f32>",
+            "size_px: vec2<f32>",
+            "pixel_size_at_1mm: f32",
+            "ortho: u32",
+        ] {
+            assert!(wgsl.contains(field), "camera.wgsl lacks `{field}`");
+        }
+    }
 }

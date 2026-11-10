@@ -13,7 +13,17 @@ pub enum RenderError {
     /// `egui_glue::install` was given a `Gpu` other than the one egui draws with.
     #[error("the egui device is not the shared Gpu device")]
     DeviceMismatch,
-    /// Input data is malformed.
+    /// A buffer would exceed the device's `max_buffer_size`.
+    #[error("{what} too large: {bytes} bytes exceeds the device limit {limit}")]
+    TooLarge {
+        /// Which buffer.
+        what: &'static str,
+        /// Requested size.
+        bytes: u64,
+        /// The device limit.
+        limit: u64,
+    },
+    /// Input data is malformed (index out of range, non-finite position, bad lengths).
     #[error("invalid mesh data: {0}")]
     InvalidData(String),
     /// The key does not name a live item.

@@ -305,6 +305,7 @@ dependencies = [
  "amg-jobs",
  "amg-testkit",
  "bytemuck",
+ "criterion 0.8.2",
  "eframe",
  "egui",
  "egui-wgpu",

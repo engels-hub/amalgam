@@ -5,12 +5,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Instant;
 
-use amg_core::{Dir3, Mat3, Mat4, Point3, SlotMap};
+use amg_core::{Dir3, Point3, SlotMap};
 use amg_jobs::gpu::{Gpu, Readback};
 
 use crate::camera::{Camera, Projection};
-use crate::scene::RenderScene;
-use crate::{MeshKey, RenderError, ViewId};
+use crate::cull::{DrawPlan, Frustum};
+use crate::scene::{LayerMask, RECORD_BYTES, RenderScene};
+use crate::{RenderError, ViewId};
 
 const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -23,6 +24,11 @@ const MESH_WGSL: &str = concat!(
     include_str!("shaders/mesh.wgsl")
 );
 pub(crate) const FULLSCREEN_WGSL: &str = include_str!("shaders/fullscreen.wgsl");
+const EXTERNAL_WGSL: &str = include_str!("shaders/external.wgsl");
+/// Instance records the buffer holds before the first growth.
+const INITIAL_INSTANCE_CAPACITY: u32 = 64;
+/// Visibility entries (`u32`) a view's list holds before the first growth.
+const INITIAL_VISIBLE_CAPACITY: u32 = 64;
 
 /// In-flight timestamp readbacks per view; a frame with none free is simply not timed.
 const TIMER_SLOTS: usize = 4;
@@ -65,6 +71,8 @@ pub struct FrameStats {
     pub instances_drawn: u32,
     /// Triangles drawn.
     pub triangles: u64,
+    /// Instances that were drawable but outside the view frustum.
+    pub culled: u32,
 }
 
 /// GPU time of one finished frame; needs `TIMESTAMP_QUERY`.
@@ -172,6 +180,8 @@ pub struct View {
     pub camera: Camera,
     /// Shading options.
     pub style: ViewStyle,
+    /// Which instance layers this view draws. Default: all.
+    pub layers: LayerMask,
     size_px: [u32; 2],
 }
 
@@ -182,19 +192,11 @@ impl View {
     }
 }
 
-/// One record of the instance storage buffer (128 bytes, `shaders/mesh.wgsl`).
-#[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct InstanceRecord {
-    model_rte: [[f32; 4]; 4],
-    normal_from_local: [[f32; 4]; 3],
-    color: [f32; 4],
-}
-
 #[derive(Debug)]
 struct MeshPipelines {
     smooth: wgpu::RenderPipeline,
     flat: wgpu::RenderPipeline,
+    external: wgpu::RenderPipeline,
 }
 
 /// Offscreen targets of one view at one size and sample count.
@@ -352,8 +354,12 @@ struct ViewSlot {
     /// Bumped whenever the targets are rebuilt, so `egui_glue` can refresh its bind groups.
     generation: u64,
     camera_buffer: wgpu::Buffer,
-    instance_buffer: wgpu::Buffer,
+    /// Instance slots of the visible instances in draw order (`u32`).
+    visible_buffer: wgpu::Buffer,
+    visible_capacity: u32,
     bind_group: wgpu::BindGroup,
+    /// The [`InstanceGpu::generation`] `bind_group` was built for.
+    bound_generation: u64,
     timer: Option<GpuTimer>,
 }
 
@@ -369,11 +375,17 @@ pub struct Renderer {
     mesh_pipelines: [Option<MeshPipelines>; 2],
     final_pipeline: wgpu::RenderPipeline,
     final_bind_layout: wgpu::BindGroupLayout,
+    external_shader: wgpu::ShaderModule,
+    external_bind_layout: wgpu::BindGroupLayout,
+    external_layout: wgpu::PipelineLayout,
     core_timings: Vec<PipelineTiming>,
     scene: RenderScene,
     views: SlotMap<ViewId, ViewSlot>,
-    records: Vec<InstanceRecord>,
-    draws: Vec<(MeshKey, u32)>,
+    instance_gpu: InstanceGpu,
+    /// Cumulative bytes written to the instance storage buffer.
+    instance_bytes_uploaded: u64,
+    runs: Vec<std::ops::Range<u32>>,
+    plan: DrawPlan,
 }
 
 impl Renderer {
@@ -408,8 +420,29 @@ impl Renderer {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
+        let external_bind_layout = external_bind_layout(device);
+        let external_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("amg external layer"),
+            source: wgpu::ShaderSource::Wgsl(EXTERNAL_WGSL.into()),
+        });
+        let external_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("amg external layer"),
+            bind_group_layouts: &[Some(&external_bind_layout)],
+            immediate_size: 0,
+        });
+        let instance_gpu = InstanceGpu::new(device, INITIAL_INSTANCE_CAPACITY, 0);
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("amg mesh"),
             source: wgpu::ShaderSource::Wgsl(MESH_WGSL.into()),
@@ -455,11 +488,16 @@ impl Renderer {
             mesh_pipelines: [None, None],
             final_pipeline,
             final_bind_layout,
+            external_shader,
+            external_bind_layout,
+            external_layout,
             core_timings,
             scene: RenderScene::default(),
             views: SlotMap::with_key(),
-            records: Vec::new(),
-            draws: Vec::new(),
+            instance_gpu,
+            instance_bytes_uploaded: 0,
+            runs: Vec::new(),
+            plan: DrawPlan::default(),
             gpu,
         };
         renderer.ensure_mesh_pipelines(cfg.msaa_samples);
@@ -488,7 +526,22 @@ impl Renderer {
         };
         let smooth = timed("mesh smooth", false);
         let flat = timed("mesh flat", true);
-        self.mesh_pipelines[slot] = Some(MeshPipelines { smooth, flat });
+        let start = Instant::now();
+        let external = external_pipeline(
+            device,
+            &self.external_layout,
+            &self.external_shader,
+            samples,
+        );
+        self.core_timings.push(PipelineTiming {
+            label: "external layer",
+            ms: start.elapsed().as_secs_f64() * 1e3,
+        });
+        self.mesh_pipelines[slot] = Some(MeshPipelines {
+            smooth,
+            flat,
+            external,
+        });
     }
 
     /// Time spent creating each core pipeline so far.
@@ -538,24 +591,32 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let instance_buffer = instance_buffer(device, 16);
+        let visible_buffer = storage_buffer(
+            device,
+            "amg visible instances",
+            u64::from(INITIAL_VISIBLE_CAPACITY) * 4,
+        );
         let bind_group = view_bind_group(
             device,
             &self.view_bind_layout,
             &camera_buffer,
-            &instance_buffer,
+            &self.instance_gpu.buffer,
+            &visible_buffer,
         );
         self.views.insert(ViewSlot {
             view: View {
                 camera: default_camera(),
                 style: ViewStyle::default(),
+                layers: LayerMask::ALL,
                 size_px,
             },
             targets: None,
             generation: 0,
             camera_buffer,
-            instance_buffer,
+            visible_buffer,
+            visible_capacity: INITIAL_VISIBLE_CAPACITY,
             bind_group,
+            bound_generation: self.instance_gpu.generation,
             timer: GpuTimer::new(&self.gpu),
         })
     }
@@ -582,8 +643,45 @@ impl Renderer {
         }
     }
 
+    /// Uploads the records of new or changed instances (one `write_buffer` per run of adjacent
+    /// changed slots) and grows the instance buffer when the scene outgrew it. A scene with no
+    /// changes writes nothing.
+    fn sync_instances(&mut self) {
+        self.scene.flush_instances(&mut self.runs);
+        let records = self.scene.table().records();
+        let len = records.len() as u32;
+        let device = self.gpu.device();
+        let queue = self.gpu.queue();
+        if len > self.instance_gpu.capacity {
+            let capacity = len.next_power_of_two().max(INITIAL_INSTANCE_CAPACITY);
+            self.instance_gpu =
+                InstanceGpu::new(device, capacity, self.instance_gpu.generation + 1);
+            queue.write_buffer(&self.instance_gpu.buffer, 0, bytemuck::cast_slice(records));
+            self.instance_bytes_uploaded += u64::from(len) * RECORD_BYTES;
+        } else {
+            for run in &self.runs {
+                let part = &records[run.start as usize..run.end as usize];
+                queue.write_buffer(
+                    &self.instance_gpu.buffer,
+                    u64::from(run.start) * RECORD_BYTES,
+                    bytemuck::cast_slice(part),
+                );
+                self.instance_bytes_uploaded += part.len() as u64 * RECORD_BYTES;
+            }
+        }
+    }
+
+    /// Total bytes written to the instance storage buffer so far. Changing one instance adds
+    /// exactly 128 on the next `encode`; an unchanged scene adds nothing.
+    pub fn instance_bytes_uploaded(&self) -> u64 {
+        self.instance_bytes_uploaded
+    }
+
     /// Records all passes for `id` into `encoder`. Never blocks. A view with a zero dimension
     /// records nothing.
+    ///
+    /// Several views may be encoded into one encoder (one submit, one frame): the scene's
+    /// instance records are shared, each view has its own camera, visibility list and targets.
     ///
     /// # Errors
     /// [`RenderError::UnknownKey`] for a removed view, [`RenderError::Gpu`] on device loss.
@@ -594,25 +692,21 @@ impl Renderer {
     ) -> Result<FrameStats, RenderError> {
         // Non-blocking: reports device loss and runs finished map callbacks.
         self.gpu.poll()?;
+        if !self.views.contains_key(id) {
+            return Err(RenderError::UnknownKey("view"));
+        }
+        self.sync_instances();
 
         let samples = self.msaa_samples;
-        let mut records = std::mem::take(&mut self.records);
-        let mut draws = std::mem::take(&mut self.draws);
-        let camera = self
-            .views
-            .get(id)
-            .ok_or(RenderError::UnknownKey("view"))?
-            .view
-            .camera;
-        collect_instances(&self.scene, &camera, &mut records, &mut draws);
-
         let gpu = Arc::clone(&self.gpu);
         let device = gpu.device();
         let queue = gpu.queue();
         let final_pipeline = &self.final_pipeline;
         let final_bind_layout = &self.final_bind_layout;
         let view_bind_layout = &self.view_bind_layout;
+        let external_bind_layout = &self.external_bind_layout;
         let scene = &self.scene;
+        let plan = &mut self.plan;
         let pipelines = self.mesh_pipelines[Self::pipeline_slot(samples)]
             .as_ref()
             .ok_or_else(|| {
@@ -635,24 +729,79 @@ impl Renderer {
                 slot.generation += 1;
             }
 
+            let camera = slot.view.camera;
             queue.write_buffer(
                 &slot.camera_buffer,
                 0,
                 bytemuck::bytes_of(&camera.uniform(size, camera.default_near())),
             );
-            let needed = (records.len().max(1) * size_of::<InstanceRecord>()) as u64;
-            if slot.instance_buffer.size() < needed {
-                slot.instance_buffer = instance_buffer(device, (records.len() * 2).max(16) as u64);
+
+            let frustum =
+                Frustum::from_view_proj(&(camera.proj_matrix(size) * camera.view_matrix()));
+            plan.build(
+                scene.table(),
+                |k| {
+                    scene
+                        .mesh(k)
+                        .filter(|m| m.index_count() > 0)
+                        .map(crate::GpuMesh::has_normals)
+                },
+                &frustum,
+                camera.eye,
+                slot.view.layers,
+                slot.view.style.flat_shading,
+            );
+            stats.culled = plan.culled;
+
+            let mut rebind = slot.bound_generation != self.instance_gpu.generation;
+            let needed = plan.slots.len() as u32;
+            if needed > slot.visible_capacity {
+                slot.visible_capacity = needed.next_power_of_two().max(INITIAL_VISIBLE_CAPACITY);
+                slot.visible_buffer = storage_buffer(
+                    device,
+                    "amg visible instances",
+                    u64::from(slot.visible_capacity) * 4,
+                );
+                rebind = true;
+            }
+            if rebind {
                 slot.bind_group = view_bind_group(
                     device,
                     view_bind_layout,
                     &slot.camera_buffer,
-                    &slot.instance_buffer,
+                    &self.instance_gpu.buffer,
+                    &slot.visible_buffer,
                 );
+                slot.bound_generation = self.instance_gpu.generation;
             }
-            if !records.is_empty() {
-                queue.write_buffer(&slot.instance_buffer, 0, bytemuck::cast_slice(&records));
+            if !plan.slots.is_empty() {
+                queue.write_buffer(&slot.visible_buffer, 0, bytemuck::cast_slice(&plan.slots));
             }
+
+            let external_bind = scene.external_layer().and_then(|layer| {
+                if layer.size_px != size {
+                    tracing::debug!(
+                        layer = ?layer.size_px,
+                        view = ?size,
+                        "external layer skipped: its size differs from the view"
+                    );
+                    return None;
+                }
+                Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("amg external layer"),
+                    layout: external_bind_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&layer.color),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&layer.depth),
+                        },
+                    ],
+                }))
+            });
 
             let timer_slot = slot.timer.as_mut().and_then(|t| {
                 t.harvest();
@@ -662,7 +811,6 @@ impl Renderer {
             let Some(targets) = slot.targets.as_ref() else {
                 return Ok(stats);
             };
-            let flat_view = slot.view.style.flat_shading;
             let Background::Solid([r, g, b]) = slot.view.style.background;
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -704,24 +852,36 @@ impl Renderer {
                     multiview_mask: None,
                 });
                 pass.set_bind_group(0, &slot.bind_group, &[]);
-                for &(key, index) in &draws {
-                    let Some(mesh) = scene.mesh(key) else {
+                let mut bound_flat = None;
+                for group in &plan.groups {
+                    let Some(mesh) = scene.mesh(group.mesh) else {
                         continue;
                     };
-                    let normals = mesh.normals.as_ref().filter(|_| !flat_view);
-                    pass.set_pipeline(if normals.is_some() {
-                        &pipelines.smooth
-                    } else {
-                        &pipelines.flat
-                    });
+                    if bound_flat != Some(group.flat) {
+                        pass.set_pipeline(if group.flat {
+                            &pipelines.flat
+                        } else {
+                            &pipelines.smooth
+                        });
+                        bound_flat = Some(group.flat);
+                    }
                     pass.set_vertex_buffer(0, mesh.positions.slice(..));
-                    if let Some(n) = normals {
+                    if let Some(n) = mesh.normals.as_ref().filter(|_| !group.flat) {
                         pass.set_vertex_buffer(1, n.slice(..));
                     }
                     pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..mesh.index_count(), 0, index..index + 1);
-                    stats.instances_drawn += 1;
-                    stats.triangles += u64::from(mesh.triangle_count());
+                    pass.draw_indexed(
+                        0..mesh.index_count(),
+                        0,
+                        group.first..group.first + group.count,
+                    );
+                    stats.instances_drawn += group.count;
+                    stats.triangles += u64::from(mesh.triangle_count()) * u64::from(group.count);
+                }
+                if let Some(bind) = &external_bind {
+                    pass.set_pipeline(&pipelines.external);
+                    pass.set_bind_group(0, bind, &[]);
+                    pass.draw(0..3, 0..1);
                 }
             }
             {
@@ -755,11 +915,6 @@ impl Renderer {
                 timer.finish(index, encoder);
             }
         }
-
-        records.clear();
-        draws.clear();
-        self.records = records;
-        self.draws = draws;
         Ok(stats)
     }
 
@@ -799,49 +954,68 @@ impl Renderer {
     /// [`RenderError::UnknownKey`] for a removed view, [`RenderError::InvalidData`] for a view
     /// with a zero dimension, [`RenderError::Gpu`] on device loss.
     pub fn capture(&mut self, id: ViewId) -> Result<Capture, RenderError> {
+        let mut captures = self.capture_many(&[id])?;
+        captures
+            .pop()
+            .ok_or_else(|| RenderError::InvalidData("no capture was produced".into()))
+    }
+
+    /// Headless: encodes every view in `ids` into one command encoder (one frame, one submit)
+    /// and starts reading back each final image, in the order of `ids`.
+    ///
+    /// # Errors
+    /// As [`Renderer::capture`]; nothing is submitted when any view fails.
+    pub fn capture_many(&mut self, ids: &[ViewId]) -> Result<Vec<Capture>, RenderError> {
         let gpu = Arc::clone(&self.gpu);
         let device = gpu.device();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("amg capture"),
         });
-        self.encode(id, &mut encoder)?;
-        let slot = self.views.get(id).ok_or(RenderError::UnknownKey("view"))?;
-        let [width, height] = slot.view.size_px;
-        let targets = slot
-            .targets
-            .as_ref()
-            .filter(|_| width != 0 && height != 0)
-            .ok_or_else(|| RenderError::InvalidData("the view has a zero dimension".into()))?;
-        let padded_row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let bytes = u64::from(padded_row) * u64::from(height);
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("amg capture"),
-            size: bytes,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-        encoder.copy_texture_to_buffer(
-            targets.final_texture.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_row),
-                    rows_per_image: Some(height),
+        let mut pending = Vec::with_capacity(ids.len());
+        for &id in ids {
+            self.encode(id, &mut encoder)?;
+            let slot = self.views.get(id).ok_or(RenderError::UnknownKey("view"))?;
+            let [width, height] = slot.view.size_px;
+            let targets = slot
+                .targets
+                .as_ref()
+                .filter(|_| width != 0 && height != 0)
+                .ok_or_else(|| RenderError::InvalidData("the view has a zero dimension".into()))?;
+            let padded_row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+            let bytes = u64::from(padded_row) * u64::from(height);
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("amg capture"),
+                size: bytes,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            encoder.copy_texture_to_buffer(
+                targets.final_texture.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(padded_row),
+                        rows_per_image: Some(height),
+                    },
                 },
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            pending.push((buffer, bytes, [width, height], padded_row));
+        }
         gpu.queue().submit([encoder.finish()]);
-        Ok(Capture {
-            readback: gpu.readback::<u8>(&buffer, 0..bytes),
-            size: [width, height],
-            padded_row,
-        })
+        Ok(pending
+            .into_iter()
+            .map(|(buffer, bytes, size, padded_row)| Capture {
+                readback: gpu.readback::<u8>(&buffer, 0..bytes),
+                size,
+                padded_row,
+            })
+            .collect())
     }
 }
 
@@ -866,41 +1040,30 @@ fn default_camera() -> Camera {
     }
 }
 
-/// Fills `records` and `draws` from the visible instances, in f64 and relative to the eye.
-fn collect_instances(
-    scene: &RenderScene,
-    camera: &Camera,
-    records: &mut Vec<InstanceRecord>,
-    draws: &mut Vec<(MeshKey, u32)>,
-) {
-    records.clear();
-    draws.clear();
-    for inst in scene.instances().filter(|i| i.visible) {
-        let Some((key, mesh)) = inst.mesh.and_then(|k| Some((k, scene.mesh(k)?))) else {
-            continue;
-        };
-        // M = T(-eye) * world_from_local * T(origin), design note §3.
-        let model = Mat4::from_translation(-camera.eye)
-            * Mat4::from(inst.transform)
-            * Mat4::from_translation(mesh.origin);
-        let normal = Mat3::from(inst.transform.matrix3).inverse().transpose();
-        draws.push((key, records.len() as u32));
-        records.push(InstanceRecord {
-            model_rte: model.as_mat4().to_cols_array_2d(),
-            normal_from_local: [
-                normal.x_axis.as_vec3().extend(0.0).to_array(),
-                normal.y_axis.as_vec3().extend(0.0).to_array(),
-                normal.z_axis.as_vec3().extend(0.0).to_array(),
-            ],
-            color: inst.material.base_color,
-        });
+/// The scene-wide instance storage buffer of 128-byte records.
+#[derive(Debug)]
+struct InstanceGpu {
+    buffer: wgpu::Buffer,
+    /// Capacity in records.
+    capacity: u32,
+    /// Bumped when `buffer` is replaced, so views rebuild their bind groups.
+    generation: u64,
+}
+
+impl InstanceGpu {
+    fn new(device: &wgpu::Device, capacity: u32, generation: u64) -> InstanceGpu {
+        InstanceGpu {
+            buffer: storage_buffer(device, "amg instances", u64::from(capacity) * RECORD_BYTES),
+            capacity,
+            generation,
+        }
     }
 }
 
-fn instance_buffer(device: &wgpu::Device, count: u64) -> wgpu::Buffer {
+fn storage_buffer(device: &wgpu::Device, label: &str, bytes: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("amg instances"),
-        size: count * size_of::<InstanceRecord>() as u64,
+        label: Some(label),
+        size: bytes,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
@@ -911,6 +1074,7 @@ fn view_bind_group(
     layout: &wgpu::BindGroupLayout,
     camera: &wgpu::Buffer,
     instances: &wgpu::Buffer,
+    visible: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("amg view"),
@@ -923,6 +1087,10 @@ fn view_bind_group(
             wgpu::BindGroupEntry {
                 binding: 1,
                 resource: instances.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: visible.as_entire_binding(),
             },
         ],
     })
@@ -1060,6 +1228,75 @@ fn mesh_pipeline(
             targets: &[Some(wgpu::ColorTargetState {
                 format: HDR_FORMAT,
                 blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// Two unfilterable 2D textures (colour at 0, depth at 1) read with `textureLoad`.
+fn external_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    let texture = |binding| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    };
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("amg external layer"),
+        entries: &[texture(0), texture(1)],
+    })
+}
+
+/// Premultiplied-alpha composite of the external layer, depth-tested and depth-writing.
+fn external_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    module: &wgpu::ShaderModule,
+    samples: u32,
+) -> wgpu::RenderPipeline {
+    let premultiplied = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+        operation: wgpu::BlendOperation::Add,
+    };
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("amg external layer"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_external"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some("fs_external"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: HDR_FORMAT,
+                blend: Some(wgpu::BlendState {
+                    color: premultiplied,
+                    alpha: premultiplied,
+                }),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
