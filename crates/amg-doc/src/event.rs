@@ -19,7 +19,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::eval::{Evaluated, Health};
-use crate::id::{BodyId, ConstructionId, ExtKey, FeatureId, OccurrenceId, Revision, SketchId};
+use crate::id::{
+    BodyId, ComponentId, ConstructionId, ExtKey, FeatureId, OccurrenceId, Revision, SketchId,
+};
 use crate::model::{Design, DesignSnapshot};
 use crate::pcoll::{PDiff, PMap};
 
@@ -37,7 +39,8 @@ pub enum DocEvent {
     BodyPropsChanged(BodyId),
     /// Components or occurrences were added, removed, renamed or re-parented.
     ComponentTreeChanged,
-    /// An occurrence's placement changed.
+    /// An occurrence's placement changed (authored transform, or solved placement after a
+    /// recompute).
     OccurrenceTransformChanged(OccurrenceId),
     /// An occurrence was shown or hidden.
     OccurrenceVisibilityChanged(OccurrenceId),
@@ -59,6 +62,8 @@ pub enum DocEvent {
     /// effective parameter expressions / suppression flags differ, and the following
     /// recompute raises the geometry and health events as usual.
     ConfigsChanged,
+    /// The active component (session state of the `Document`) changed.
+    ActiveComponentChanged(ComponentId),
     /// A recompute job started for this revision.
     RecomputeStarted(Revision),
     /// A recompute result was swapped in; `failed` nodes have an error.
@@ -114,6 +119,10 @@ impl EventState {
             revision,
             failed: u32::try_from(failed).unwrap_or(u32::MAX),
         });
+    }
+
+    pub(crate) fn push(&mut self, e: DocEvent) {
+        self.queue.push(e);
     }
 
     pub(crate) fn recompute_started(&mut self, revision: Revision) {
@@ -210,6 +219,17 @@ fn authored_events(old: &Design, new: &Design, out: &mut Vec<DocEvent>) {
 
 /// Events for the difference between two evaluated states.
 fn evaluated_events(old: &Evaluated, new: &Evaluated, out: &mut Vec<DocEvent>) {
+    // Solved placements that differ from the ones consumers saw (not already announced by
+    // the authored diff).
+    if !Arc::ptr_eq(old.placements(), new.placements()) {
+        for o in new.placements().moved_since(old.placements()) {
+            let e = DocEvent::OccurrenceTransformChanged(o);
+            if !out.contains(&e) {
+                out.push(e);
+            }
+        }
+    }
+
     let mut ids: BTreeSet<BodyId> = old.bodies().map(|(id, _)| id).collect();
     ids.extend(new.bodies().map(|(id, _)| id));
     for id in ids {

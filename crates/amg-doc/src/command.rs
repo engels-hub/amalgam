@@ -170,6 +170,55 @@ pub enum Command {
         /// New visibility.
         visible: bool,
     },
+    /// Another placement of an existing component (copy/paste, shared prototypes; S06).
+    /// Creates [`CreatedId::Occurrence`].
+    AddOccurrence {
+        /// Component to place it in.
+        parent: ComponentId,
+        /// The placed component.
+        component: ComponentId,
+        /// Placement, relative to `parent`; rigid or mirrored.
+        transform: Transform,
+        /// Optional name override.
+        name: Option<String>,
+    },
+    /// Removes occurrences. A component left without occurrences is deleted with the
+    /// occurrences inside it, its sub-components that have no other occurrence and every
+    /// timeline feature whose context was deleted, in this one command.
+    DeleteOccurrences {
+        /// The occurrences.
+        occs: Vec<OccurrenceId>,
+    },
+    /// Re-parents an occurrence; with `keep_world` its transform is recomputed so the world
+    /// placement is unchanged (needs old and new parent each placed exactly once).
+    MoveOccurrence {
+        /// The occurrence.
+        occ: OccurrenceId,
+        /// New parent component.
+        parent: ComponentId,
+        /// Keep the world placement.
+        keep_world: bool,
+    },
+    /// Grounds or ungrounds an occurrence.
+    SetOccurrenceGrounded {
+        /// The occurrence.
+        occ: OccurrenceId,
+        /// New state.
+        grounded: bool,
+    },
+    /// Sets or clears an occurrence's name override.
+    SetOccurrenceName {
+        /// The occurrence.
+        occ: OccurrenceId,
+        /// New name (`None`: the component's name).
+        name: Option<String>,
+    },
+    /// Places several occurrences at once (direct, non-pending placement; all or none).
+    /// ASM-04 adds the joint states of the joints involved.
+    SetOccurrenceTransforms {
+        /// `(occurrence, local transform relative to its parent)`.
+        moves: Vec<(OccurrenceId, Transform)>,
+    },
     /// Design name and/or default units (`None` keeps the current value).
     SetDesignMeta {
         /// New name.
@@ -266,6 +315,13 @@ impl Command {
             Command::RenameComponent { .. } => "Rename component",
             Command::SetOccurrenceTransform { .. } => "Move occurrence",
             Command::SetOccurrenceVisible { .. } => "Toggle visibility",
+            Command::AddOccurrence { .. } => "Add occurrence",
+            Command::DeleteOccurrences { .. } => "Delete occurrences",
+            Command::MoveOccurrence { .. } => "Move to component",
+            Command::SetOccurrenceGrounded { grounded: true, .. } => "Ground",
+            Command::SetOccurrenceGrounded { .. } => "Unground",
+            Command::SetOccurrenceName { .. } => "Rename occurrence",
+            Command::SetOccurrenceTransforms { .. } => "Place occurrences",
             Command::SetDesignMeta { .. } => "Design settings",
             Command::SetDesignMode { .. } => "Change design mode",
             Command::SetExt { .. } | Command::AddExt { .. } => "Edit extension data",
@@ -633,6 +689,36 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
         Command::SetOccurrenceVisible { occ, visible } => {
             d.set_occurrence_visible(occ, visible)?;
         }
+        Command::AddOccurrence {
+            parent,
+            component,
+            transform,
+            name,
+        } => {
+            if name.as_deref().is_some_and(|n| n.trim().is_empty()) {
+                return Err(CommandError::Invalid(
+                    "an occurrence name can't be empty".to_owned(),
+                ));
+            }
+            let o = d.add_occurrence(parent, component, transform)?;
+            if name.is_some() {
+                d.set_occurrence_name(o, name)?;
+            }
+            created.push(CreatedId::Occurrence(o));
+        }
+        Command::DeleteOccurrences { occs } => {
+            d.remove_occurrences(&occs)?;
+        }
+        Command::MoveOccurrence {
+            occ,
+            parent,
+            keep_world,
+        } => d.move_occurrence(occ, parent, keep_world)?,
+        Command::SetOccurrenceGrounded { occ, grounded } => {
+            d.set_occurrence_grounded(occ, grounded)?;
+        }
+        Command::SetOccurrenceName { occ, name } => d.set_occurrence_name(occ, name)?,
+        Command::SetOccurrenceTransforms { moves } => d.set_occurrence_transforms(&moves)?,
         Command::SetDesignMeta {
             name,
             default_units,

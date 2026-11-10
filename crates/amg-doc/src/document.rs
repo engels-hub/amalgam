@@ -28,7 +28,7 @@ use crate::eval::{CacheKey, Evaluated};
 use crate::event::{DocEvent, EventState};
 use crate::feature::ComputeMode;
 use crate::history::{History, Transaction};
-use crate::id::{ConfigId, FeatureId, Revision};
+use crate::id::{ComponentId, ConfigId, FeatureId, Revision};
 use crate::model::{Design, DesignMode, DesignSnapshot};
 use crate::recompute::{RecomputeResult, recompute};
 
@@ -145,6 +145,8 @@ pub struct Document {
     /// design) visited in this session, so the persisted cache covers all of them (DOC-10).
     config_keys: BTreeMap<Option<ConfigId>, Vec<CacheKey>>,
     events: EventState,
+    /// Component new features go into (session state: not undoable, not saved).
+    active: ComponentId,
 }
 
 impl std::fmt::Debug for Document {
@@ -179,6 +181,7 @@ impl Document {
     /// Like [`Document::from_design`] with a given (e.g. seeded) cache.
     pub fn with_cache(design: Design, cache: Arc<GeomCache>) -> Document {
         let evaluated = Arc::new(Evaluated::new(design.revision()));
+        let root = design.root();
         let history = History::new(design);
         let events = EventState::new(history.snapshot(), Arc::clone(&evaluated));
         Document {
@@ -192,6 +195,7 @@ impl Document {
             last_run: None,
             config_keys: BTreeMap::new(),
             events,
+            active: root,
         }
     }
 
@@ -202,7 +206,48 @@ impl Document {
     /// their net effect. Events carry ids only; read the state from `design()`/`evaluated()`.
     pub fn drain_events(&mut self) -> Vec<DocEvent> {
         self.events.sync_authored(&self.history.snapshot());
+        self.fix_active();
         self.events.take()
+    }
+
+    // ---- active component (S06, ASM-01) ---------------------------------------------------
+
+    /// The component new features go into (the UI passes it as `AddFeature::context`). Session
+    /// state: not undoable and not saved; the root after open/new, and again when the active
+    /// component is deleted.
+    pub fn active_component(&self) -> ComponentId {
+        if self.history.design().component(self.active).is_some() {
+            self.active
+        } else {
+            self.history.design().root()
+        }
+    }
+
+    /// Makes `c` the active component and emits [`DocEvent::ActiveComponentChanged`] if that
+    /// changes it. Fails if `c` does not exist.
+    pub fn set_active_component(&mut self, c: ComponentId) -> Result<(), CommandError> {
+        if self.history.design().component(c).is_none() {
+            return Err(CommandError::NotFound {
+                what: "component",
+                id: c.0,
+            });
+        }
+        self.events.sync_authored(&self.history.snapshot());
+        self.fix_active();
+        if self.active != c {
+            self.active = c;
+            self.events.push(DocEvent::ActiveComponentChanged(c));
+        }
+        Ok(())
+    }
+
+    /// Falls back to the root when the active component was deleted (or undone away).
+    fn fix_active(&mut self) {
+        let root = self.history.design().root();
+        if self.active != root && self.history.design().component(self.active).is_none() {
+            self.active = root;
+            self.events.push(DocEvent::ActiveComponentChanged(root));
+        }
     }
 
     // ---- authored state (delegates to History) ----------------------------------------

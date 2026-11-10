@@ -1807,3 +1807,15 @@ See `docs/specs/S13-simulation.md` Interfaces and `docs/notes/simulation-fem.md`
 - No other change: Form bodies stay body-level only for references (S01 §Persistent naming).
   The `form.create` feature carries its cage in feature data (base64 `AMGS`), so nothing new is
   needed in the file format.
+
+### 2026-11-10 - ASM-01 landed (lane E, additive)
+- `Command::{AddOccurrence, DeleteOccurrences, MoveOccurrence, SetOccurrenceGrounded, SetOccurrenceName,
+  SetOccurrenceTransforms { moves }}` (joint states added by ASM-04); module `amg_doc::assembly`
+  (`OccPath`, `Placements`, `BodyInstance`, `Removed`); `Design::{is_valid_path, features_in,
+  authored_world, set_occurrence_name, set_occurrence_grounded, set_occurrence_transforms,
+  move_occurrence, remove_occurrences}`.
+- **Behaviour change:** occurrence transforms must be rigid or mirrored; scaled/sheared ones are refused
+  with `ModelError::InvalidValue` (also when loading a file).
+- `Evaluated::{placements, world_transform, body_to_world, instances}`, `Evaluated::set_placements`;
+  recompute fills placements with the authored transforms. `Document::{active_component,
+  set_active_component}`; `DocEvent::ActiveComponentChanged`.

@@ -27,6 +27,7 @@ use std::time::Instant;
 use amg_core::{Cancelled, Quantity, Tolerance};
 use amg_jobs::JobCtx;
 
+use crate::assembly::Placements;
 use crate::cache::GeomCache;
 use crate::eval::{
     BodyGeom, CacheKey, Diagnostic, ErrorCause, EvalBody, Evaluated, Health, NodeEval,
@@ -197,6 +198,10 @@ impl<'a> Pass<'a> {
                 self.node(node, &sub)?;
             }
         }
+        // Assembly stage: placements are the authored transforms until the joint solver
+        // (ASM-04) solves them.
+        self.out
+            .set_placements(Arc::new(Placements::from_design(self.design)));
         self.job.progress(1.0);
         Ok(RecomputeResult {
             evaluated: self.out,

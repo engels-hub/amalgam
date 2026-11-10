@@ -284,15 +284,39 @@ pub enum ModelError {
 
 impl amg_core::Diagnostic for ModelError {}
 
-fn check_transform(t: &Transform) -> Result<(), ModelError> {
-    if t.is_finite() {
-        Ok(())
-    } else {
-        Err(ModelError::InvalidValue {
+/// Tolerance for the orthonormality and unit-determinant checks of occurrence transforms.
+pub(crate) const RIGID_TOL: f64 = 1e-9;
+
+/// An occurrence transform must be finite with an orthonormal linear part: rotation, or a
+/// mirrored rotation (`det = -1`). Scale and shear are refused (S06 §1).
+pub(crate) fn check_transform(t: &Transform) -> Result<(), ModelError> {
+    if !t.is_finite() {
+        return Err(ModelError::InvalidValue {
             field: "transform",
             msg: "contains NaN or infinity".to_owned(),
-        })
+        });
     }
+    let m = t.matrix3;
+    let cols = [m.x_axis, m.y_axis, m.z_axis];
+    for (i, a) in cols.iter().enumerate() {
+        for (j, b) in cols.iter().enumerate().skip(i) {
+            let want = if i == j { 1.0 } else { 0.0 };
+            if (a.dot(*b) - want).abs() > RIGID_TOL {
+                return Err(ModelError::InvalidValue {
+                    field: "transform",
+                    msg: "not rigid: the linear part must be orthonormal (no scale or shear)"
+                        .to_owned(),
+                });
+            }
+        }
+    }
+    if (m.determinant().abs() - 1.0).abs() > RIGID_TOL {
+        return Err(ModelError::InvalidValue {
+            field: "transform",
+            msg: "not rigid: |determinant| must be 1".to_owned(),
+        });
+    }
+    Ok(())
 }
 
 impl Design {
@@ -643,7 +667,7 @@ impl Design {
     }
 
     /// Inserts an occurrence; the caller has validated everything.
-    fn place(
+    pub(crate) fn place(
         &mut self,
         parent: ComponentId,
         component: ComponentId,
@@ -734,7 +758,7 @@ impl Design {
     }
 
     /// True if `inner` is `outer` or appears anywhere below it.
-    fn contains(&self, outer: ComponentId, inner: ComponentId) -> bool {
+    pub(crate) fn contains(&self, outer: ComponentId, inner: ComponentId) -> bool {
         let mut stack = vec![outer];
         let mut seen = BTreeSet::new();
         while let Some(c) = stack.pop() {
@@ -868,8 +892,11 @@ impl Design {
             if listed != 1 {
                 return bad(format!("{oid} is listed {listed} times in {}", occ.parent));
             }
-            if check_transform(&occ.transform).is_err() {
+            if !occ.transform.is_finite() {
                 return bad(format!("{oid} has a non-finite transform"));
+            }
+            if check_transform(&occ.transform).is_err() {
+                return bad(format!("{oid} has a non-rigid transform"));
             }
         }
         for (oid, occ) in self.occurrences() {
