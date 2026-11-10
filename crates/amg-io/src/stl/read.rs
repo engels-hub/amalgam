@@ -215,7 +215,7 @@ impl Collector {
 }
 
 /// Triangles with a repeated vertex or zero area.
-fn count_degenerate(m: &IndexedMesh) -> u64 {
+pub(crate) fn count_degenerate(m: &IndexedMesh) -> u64 {
     m.tris
         .par_iter()
         .filter(|t| {
@@ -232,7 +232,10 @@ fn count_degenerate(m: &IndexedMesh) -> u64 {
         .count() as u64
 }
 
-fn open_at<'a>(src: &Source<'a>, offset: u64) -> Result<Box<dyn Read + Send + 'a>, IoError> {
+pub(crate) fn open_at<'a>(
+    src: &Source<'a>,
+    offset: u64,
+) -> Result<Box<dyn Read + Send + 'a>, IoError> {
     match src {
         Source::Bytes(b) => {
             let start = usize::try_from(offset).unwrap_or(usize::MAX).min(b.len());
@@ -253,7 +256,7 @@ fn open_at<'a>(src: &Source<'a>, offset: u64) -> Result<Box<dyn Read + Send + 'a
 
 /// Reads `total` bytes (or to the end) in `chunk`-sized pieces on a helper thread and hands
 /// them to `consume` in order. Stops at the first error of `consume`.
-fn stream<'a, F>(
+pub(crate) fn stream<'a, F>(
     mut r: Box<dyn Read + Send + 'a>,
     total: u64,
     chunk: usize,

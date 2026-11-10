@@ -6,6 +6,7 @@ mod weld;
 mod write;
 
 pub use read::read;
+pub(crate) use read::{count_degenerate, open_at, stream};
 pub use write::write;
 
 use crate::error::{IoError, Location};
