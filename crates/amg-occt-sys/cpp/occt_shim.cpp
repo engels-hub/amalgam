@@ -3,6 +3,7 @@
 #include "amg-occt-sys/src/bridge.rs.h"
 
 #include <algorithm>
+#include <chrono>
 #include <iterator>
 #include <locale>
 #include <sstream>
@@ -10,6 +11,11 @@
 #include <vector>
 
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_Result.hxx>
+#include <BRepCheck_Status.hxx>
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepTools.hxx>
@@ -19,6 +25,7 @@
 #include <BinTools.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <Geom_Plane.hxx>
 #include <GeomAdaptor_Curve.hxx>
 #include <GeomAdaptor_Surface.hxx>
 #include <GeomConvert.hxx>
@@ -28,7 +35,17 @@
 #include <Geom_BezierSurface.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Surface.hxx>
+#include <Message.hxx>
+#include <Message_Gravity.hxx>
+#include <Message_Messenger.hxx>
+#include <Message_Printer.hxx>
+#include <Message_ProgressIndicator.hxx>
+#include <Message_ProgressScope.hxx>
+#include <OSD_ThreadPool.hxx>
+#include <ShapeAnalysis_ShapeTolerance.hxx>
+#include <TCollection_AsciiString.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
@@ -55,7 +72,7 @@ namespace {
 
 // Pinned by FND-13 (vcpkg baseline 2026.10.16). Changing OCCT must be a deliberate edit here.
 constexpr char PINNED_VERSION[] = "8.0.1";
-constexpr char SHIM_VERSION[] = "2";
+constexpr char SHIM_VERSION[] = "3";
 
 // Marks an edge end that has no vertex (infinite edges).
 constexpr std::uint32_t NO_VERTEX = 0xFFFFFFFFu;
@@ -569,6 +586,222 @@ std::unique_ptr<OcShape> shape_read_text(rust::Slice<const std::uint8_t> data) {
   TopoDS_Shape shape;
   BRepTools::Read(shape, stream, builder);
   return checked_read(std::move(shape));
+}
+
+// ---- kernel infrastructure (BREP-12) ----
+
+namespace {
+
+// Forwards every OCCT message to Rust's `occt_log`, which emits a `tracing` event with target
+// `occt` (S02 §1, occt-integration.md §3.4). The trace level is the lowest, so the `tracing`
+// subscriber alone decides what is kept.
+class TracingPrinter : public Message_Printer {
+public:
+  TracingPrinter() { SetTraceLevel(Message_Trace); }
+
+protected:
+  void send(const TCollection_AsciiString &text, const Message_Gravity gravity) const override {
+    const auto *bytes = reinterpret_cast<const std::uint8_t *>(text.ToCString());
+    occt_log(static_cast<std::uint8_t>(gravity),
+             rust::Slice<const std::uint8_t>(bytes, static_cast<std::size_t>(text.Length())));
+  }
+};
+
+// Bridges OCCT progress to a Rust `ProgressSink` (a `JobCtx` on the amg-brep side): `Show`
+// reports the indicator's position, `UserBreak` asks whether the job was cancelled.
+class SinkProgress : public Message_ProgressIndicator {
+public:
+  explicit SinkProgress(const ProgressSink &sink) : sink_(sink) {}
+
+  bool UserBreak() override { return progress_user_break(sink_); }
+
+  void Show(const Message_ProgressScope &, const bool) override {
+    progress_show(sink_, GetPosition());
+  }
+
+private:
+  const ProgressSink &sink_;
+};
+
+const char *check_status_name(BRepCheck_Status status) {
+  switch (status) {
+  case BRepCheck_NoError: return "NoError";
+  case BRepCheck_InvalidPointOnCurve: return "InvalidPointOnCurve";
+  case BRepCheck_InvalidPointOnCurveOnSurface: return "InvalidPointOnCurveOnSurface";
+  case BRepCheck_InvalidPointOnSurface: return "InvalidPointOnSurface";
+  case BRepCheck_No3DCurve: return "No3DCurve";
+  case BRepCheck_Multiple3DCurve: return "Multiple3DCurve";
+  case BRepCheck_Invalid3DCurve: return "Invalid3DCurve";
+  case BRepCheck_NoCurveOnSurface: return "NoCurveOnSurface";
+  case BRepCheck_InvalidCurveOnSurface: return "InvalidCurveOnSurface";
+  case BRepCheck_InvalidCurveOnClosedSurface: return "InvalidCurveOnClosedSurface";
+  case BRepCheck_InvalidSameRangeFlag: return "InvalidSameRangeFlag";
+  case BRepCheck_InvalidSameParameterFlag: return "InvalidSameParameterFlag";
+  case BRepCheck_InvalidDegeneratedFlag: return "InvalidDegeneratedFlag";
+  case BRepCheck_FreeEdge: return "FreeEdge";
+  case BRepCheck_InvalidMultiConnexity: return "InvalidMultiConnexity";
+  case BRepCheck_InvalidRange: return "InvalidRange";
+  case BRepCheck_EmptyWire: return "EmptyWire";
+  case BRepCheck_RedundantEdge: return "RedundantEdge";
+  case BRepCheck_SelfIntersectingWire: return "SelfIntersectingWire";
+  case BRepCheck_NoSurface: return "NoSurface";
+  case BRepCheck_InvalidWire: return "InvalidWire";
+  case BRepCheck_RedundantWire: return "RedundantWire";
+  case BRepCheck_IntersectingWires: return "IntersectingWires";
+  case BRepCheck_InvalidImbricationOfWires: return "InvalidImbricationOfWires";
+  case BRepCheck_EmptyShell: return "EmptyShell";
+  case BRepCheck_RedundantFace: return "RedundantFace";
+  case BRepCheck_InvalidImbricationOfShells: return "InvalidImbricationOfShells";
+  case BRepCheck_UnorientableShape: return "UnorientableShape";
+  case BRepCheck_NotClosed: return "NotClosed";
+  case BRepCheck_NotConnected: return "NotConnected";
+  case BRepCheck_SubshapeNotInShape: return "SubshapeNotInShape";
+  case BRepCheck_BadOrientation: return "BadOrientation";
+  case BRepCheck_BadOrientationOfSubshape: return "BadOrientationOfSubshape";
+  case BRepCheck_InvalidPolygonOnTriangulation: return "InvalidPolygonOnTriangulation";
+  case BRepCheck_InvalidToleranceValue: return "InvalidToleranceValue";
+  case BRepCheck_EnclosedRegion: return "EnclosedRegion";
+  case BRepCheck_CheckFail: return "CheckFail";
+  }
+  return "Unknown";
+}
+
+// No sub-shape: the problem is on a shell, a solid or the root shape.
+constexpr std::uint8_t CHECK_WHOLE = 3;
+
+// Appends each distinct non-NoError status of `shape` (its own and those in every context),
+// attributed to (`kind`, `i`).
+void collect_statuses(const BRepCheck_Analyzer &analyzer, const TopoDS_Shape &shape,
+                      std::uint8_t kind, std::uint32_t i, std::vector<OcCheckProblem> &out) {
+  const Handle(BRepCheck_Result) &result = analyzer.Result(shape);
+  if (result.IsNull()) {
+    return;
+  }
+  std::vector<BRepCheck_Status> seen;
+  const auto add = [&](const NCollection_List<BRepCheck_Status> &statuses) {
+    for (const BRepCheck_Status status : statuses) {
+      if (status == BRepCheck_NoError ||
+          std::find(seen.begin(), seen.end(), status) != seen.end()) {
+        continue;
+      }
+      seen.push_back(status);
+      out.push_back(OcCheckProblem{kind, i, rust::String(check_status_name(status))});
+    }
+  };
+  add(result->Status());
+  for (result->InitContextIterator(); result->MoreShapeInContext(); result->NextShapeInContext()) {
+    add(result->StatusOnShape());
+  }
+}
+
+} // namespace
+
+void install_message_printer() {
+  const Handle(Message_Messenger) &messenger = Message::DefaultMessenger();
+  messenger->ChangePrinters().Clear();
+  messenger->AddPrinter(new TracingPrinter());
+}
+
+void emit_message(std::uint8_t gravity, rust::Str text) {
+  if (gravity > static_cast<std::uint8_t>(Message_Fail)) {
+    throw std::invalid_argument("message gravity must be 0..=4");
+  }
+  const std::string owned(text.data(), text.size());
+  Message::DefaultMessenger()->Send(TCollection_AsciiString(owned.c_str()),
+                                    static_cast<Message_Gravity>(gravity));
+}
+
+std::int32_t set_default_thread_pool(std::int32_t threads) {
+  if (threads < 1) {
+    throw std::invalid_argument("thread count must be at least 1");
+  }
+  const Handle(OSD_ThreadPool) &pool = OSD_ThreadPool::DefaultPool(threads);
+  if (pool->NbThreads() != threads) {
+    pool->Init(threads);
+  }
+  return pool->NbThreads();
+}
+
+std::int32_t default_thread_pool_size() { return OSD_ThreadPool::DefaultPool()->NbThreads(); }
+
+bool progress_test_op(const ProgressSink &sink, std::uint32_t steps, std::uint32_t step_micros) {
+  Handle(SinkProgress) indicator = new SinkProgress(sink);
+  Message_ProgressScope scope(indicator->Start(), "amg progress test", steps);
+  const auto step = std::chrono::microseconds(step_micros);
+  for (std::uint32_t i = 0; i < steps; ++i) {
+    if (scope.UserBreak()) {
+      return false;
+    }
+    // Busy-wait rather than sleep: Windows sleeps in 15.6 ms ticks.
+    const auto until = std::chrono::steady_clock::now() + step;
+    while (std::chrono::steady_clock::now() < until) {
+    }
+    scope.Next();
+  }
+  return true;
+}
+
+double shape_max_tolerance(const OcShape &shape) {
+  if (shape.get().IsNull()) {
+    return 0.0;
+  }
+  ShapeAnalysis_ShapeTolerance analysis;
+  return analysis.Tolerance(shape.get(), 1);
+}
+
+OcCheckReport check_shape(const OcShape &shape, const OcIndex &index) {
+  OcCheckReport report{};
+  const BRepCheck_Analyzer analyzer(shape.get());
+  report.valid = analyzer.IsValid();
+  if (report.valid) {
+    return report;
+  }
+  std::vector<OcCheckProblem> problems;
+  for (int f = 1; f <= index.faces.Extent(); ++f) {
+    const auto face_index = static_cast<std::uint32_t>(f - 1);
+    const TopoDS_Shape &face = index.faces.FindKey(f);
+    collect_statuses(analyzer, face, 0, face_index, problems);
+    // Wires are not indexed, so their problems go to the face that holds them.
+    for (TopoDS_Iterator it(face); it.More(); it.Next()) {
+      if (it.Value().ShapeType() == TopAbs_WIRE) {
+        collect_statuses(analyzer, it.Value(), 0, face_index, problems);
+      }
+    }
+  }
+  for (int e = 1; e <= index.edges.Extent(); ++e) {
+    collect_statuses(analyzer, index.edges.FindKey(e), 1, static_cast<std::uint32_t>(e - 1),
+                     problems);
+  }
+  for (int v = 1; v <= index.vertices.Extent(); ++v) {
+    collect_statuses(analyzer, index.vertices.FindKey(v), 2, static_cast<std::uint32_t>(v - 1),
+                     problems);
+  }
+  for (const TopAbs_ShapeEnum type : {TopAbs_SHELL, TopAbs_SOLID}) {
+    for (TopExp_Explorer it(shape.get(), type); it.More(); it.Next()) {
+      collect_statuses(analyzer, it.Current(), CHECK_WHOLE, 0, problems);
+    }
+  }
+  collect_statuses(analyzer, shape.get(), CHECK_WHOLE, 0, problems);
+  if (problems.empty()) {
+    problems.push_back(OcCheckProblem{CHECK_WHOLE, 0, rust::String("CheckFail")});
+  }
+  for (OcCheckProblem &problem : problems) {
+    report.problems.push_back(std::move(problem));
+  }
+  return report;
+}
+
+std::unique_ptr<OcShape> make_open_wire_face() {
+  const gp_Pnt a(0, 0, 0);
+  const gp_Pnt b(10, 0, 0);
+  const gp_Pnt c(10, 10, 0);
+  BRepBuilderAPI_MakeWire wire(BRepBuilderAPI_MakeEdge(a, b).Edge(),
+                               BRepBuilderAPI_MakeEdge(b, c).Edge());
+  BRep_Builder builder;
+  TopoDS_Face face;
+  builder.MakeFace(face, new Geom_Plane(gp_Pln(a, gp_Dir(0, 0, 1))), 1e-7);
+  builder.Add(face, wire.Wire());
+  return std::make_unique<OcShape>(face);
 }
 
 } // namespace amg::occt

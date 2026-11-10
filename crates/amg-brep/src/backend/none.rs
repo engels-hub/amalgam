@@ -1,12 +1,26 @@
 //! The backend of a build without OCCT. `Occ` has no values, so the query bodies are unreachable.
 
+use std::num::NonZeroUsize;
+
 use amg_core::{Aabb3, Point3, Transform};
+use amg_jobs::JobCtx;
 
 use crate::KResult;
+use crate::check::CheckReport;
 use crate::error::KernelError;
 use crate::geom::{Curve3, Surface};
 use crate::index::RawTopology;
 use crate::shape::{ShapeKind, SubKind};
+
+pub(crate) fn occt_version() -> String {
+    "occt-none".to_owned()
+}
+
+pub(crate) fn init_process(_threads: NonZeroUsize) {}
+
+pub(crate) fn progress_probe(_steps: u32, _step_micros: u32, _ctx: &JobCtx) -> KResult<()> {
+    Err(KernelError::BackendUnavailable)
+}
 
 pub(crate) enum Occ {}
 
@@ -76,6 +90,14 @@ impl Occ {
     }
 
     pub(crate) fn tolerance(&self, _kind: SubKind, _index: u32) -> f64 {
+        match *self {}
+    }
+
+    pub(crate) fn max_tolerance(&self) -> f64 {
+        match *self {}
+    }
+
+    pub(crate) fn check(&self) -> CheckReport {
         match *self {}
     }
 

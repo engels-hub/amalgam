@@ -11,6 +11,7 @@ build = "build.rs"
 
 [dependencies]
 cxx = { version = "1.0.205", optional = true }
+tracing = { workspace = true, optional = true }
 
 [build-dependencies]
 cxx-build = { version = "1.0.205", optional = true }
@@ -19,7 +20,7 @@ cxx-build = { version = "1.0.205", optional = true }
 # Compile the C++ shim and link the vcpkg-built OCCT static libraries. Off by default, so a
 # plain `cargo build --workspace` works without vcpkg (same pattern as `amg-mesh/manifold`).
 # `amg-brep/occt` turns it on.
-occt = ["dep:cxx", "dep:cxx-build"]
+occt = ["dep:cxx", "dep:cxx-build", "dep:tracing"]
 # Adds the C++ builders of the testdata/brep fixture parts (amg-brep's `gen_brep_fixtures`).
 fixture-gen = ["occt"]
 

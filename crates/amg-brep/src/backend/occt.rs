@@ -1,16 +1,75 @@
 //! The OCCT backend of `Shape`. The only module that sees the bridge types.
 
+use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 
 use amg_core::{Aabb3, Dir3, Plane, Point3, Transform};
+use amg_jobs::JobCtx;
 use amg_occt_sys::cxx::UniquePtr;
-use amg_occt_sys::ffi;
+use amg_occt_sys::{ProgressSink, ProgressTarget, ffi};
 
 use crate::KResult;
+use crate::check::CheckReport;
 use crate::error::KernelError;
 use crate::geom::{BSplineCurveData, BSplineSurfaceData, Curve3, GeomClass, Surface};
 use crate::index::RawTopology;
-use crate::shape::{ShapeKind, SubKind};
+use crate::shape::{ShapeKind, SubKind, SubShape};
+
+/// `occt-<OCC_VERSION_COMPLETE>`: the OCCT part of the shim's version string.
+pub(crate) fn occt_version() -> String {
+    let full = must(amg_occt_sys::kernel_version(), "kernel_version");
+    full.split(';').next().unwrap_or(full).to_owned()
+}
+
+/// The process-global OCCT setup of `amg_brep::init` (category G, run once under the global
+/// lock): the `tracing` message printer, then the thread pool size.
+pub(crate) fn init_process(threads: NonZeroUsize) {
+    if let Err(error) = ffi::install_message_printer() {
+        tracing::error!(
+            "could not install the OCCT message printer: {}",
+            error.what()
+        );
+    }
+    let wanted = i32::try_from(threads.get()).unwrap_or(i32::MAX);
+    match ffi::set_default_thread_pool(wanted) {
+        Ok(got) => tracing::debug!("OCCT thread pool: {got} threads (asked for {wanted})"),
+        Err(error) => tracing::error!("could not size the OCCT thread pool: {}", error.what()),
+    }
+}
+
+/// Reports OCCT progress to a `JobCtx` and asks it for cancellation (S02 §1).
+struct JobProgress(JobCtx);
+
+impl ProgressTarget for JobProgress {
+    fn show(&self, fraction: f64) {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "progress needs no f64 precision"
+        )]
+        self.0.progress(fraction as f32);
+    }
+
+    fn user_break(&self) -> bool {
+        self.0.is_cancelled()
+    }
+}
+
+/// The progress/cancel bridge for one shim call that takes a `ProgressSink`.
+pub(crate) fn progress_sink(ctx: &JobCtx) -> ProgressSink {
+    ProgressSink::new(Box::new(JobProgress(ctx.clone())))
+}
+
+pub(crate) fn progress_probe(steps: u32, step_micros: u32, ctx: &JobCtx) -> KResult<()> {
+    ctx.checkpoint()?;
+    let sink = progress_sink(ctx);
+    let completed =
+        ffi::progress_test_op(&sink, steps, step_micros).map_err(|e| to_kernel_error(&e))?;
+    if !completed {
+        return Err(KernelError::Cancelled);
+    }
+    ctx.checkpoint()?;
+    Ok(())
+}
 
 pub(crate) struct Occ {
     shape: UniquePtr<ffi::OcShape>,
@@ -183,6 +242,16 @@ impl Occ {
             .get_or_init(|| must(ffi::build_index(&self.shape), "build_index"))
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_box(dx: f64, dy: f64, dz: f64) -> Occ {
+        Occ::new(must(ffi::make_box(dx, dy, dz), "make_box"))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_open_wire_face() -> Occ {
+        Occ::new(must(ffi::make_open_wire_face(), "make_open_wire_face"))
+    }
+
     #[cfg(feature = "fixture-gen")]
     pub(crate) fn fixture(name: &str) -> KResult<Occ> {
         amg_occt_sys::fixture_ffi::fixture_shape(name)
@@ -305,6 +374,43 @@ impl Occ {
             ffi::index_tolerance(self.index(), sub_kind(kind), index),
             "tolerance",
         )
+    }
+
+    pub(crate) fn max_tolerance(&self) -> f64 {
+        must(ffi::shape_max_tolerance(&self.shape), "shape_max_tolerance")
+    }
+
+    pub(crate) fn check(&self) -> CheckReport {
+        let raw = match ffi::check_shape(&self.shape, self.index()) {
+            Ok(raw) => raw,
+            Err(error) => {
+                return CheckReport {
+                    valid: false,
+                    problems: vec![(None, format!("CheckFail: {}", error.what()))],
+                };
+            }
+        };
+        let problems = raw
+            .problems
+            .into_iter()
+            .map(|problem| {
+                let kind = match problem.kind {
+                    0 => Some(SubKind::Face),
+                    1 => Some(SubKind::Edge),
+                    2 => Some(SubKind::Vertex),
+                    _ => None,
+                };
+                let sub = kind.map(|kind| SubShape {
+                    kind,
+                    index: problem.index,
+                });
+                (sub, problem.status)
+            })
+            .collect();
+        CheckReport {
+            valid: raw.valid,
+            problems,
+        }
     }
 
     pub(crate) fn estimated_bytes(&self) -> u64 {

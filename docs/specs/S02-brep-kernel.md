@@ -875,7 +875,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 |---|---|---|---|---|---|
 | BREP-01 | **Phase-0 spike.** OCCT 8.0.1 (8.0.0#1 fallback; QUESTIONS #27) via vcpkg manifest mode (`vcpkg.json` with `opencascade` `default-features: false`, overlay triplet `x64-windows-amg`), `amg-occt-sys` build.rs (`AMG_OCCT_DIR`, toolkit list, cxx_build flags), cxx bridge skeleton with custom `trycatch`, `OcShape` opaque type, `make_box` + `volume` + a throwing call; cargo feature `occt`; CI job uses the vcpkg `files` cache | FND-02, FND-05, FND-13 | P0 | Done | 1. On the owner's machine and in CI (`windows-2025`), `cargo nextest run -p amg-occt-sys` passes. A Rust test creates a 10×20×30 box and reads volume 6000 ± 1e-9. 2. A shim call that triggers `Standard_Failure` (`gp_Dir` from a zero vector) returns `Err` whose message contains the OCCT exception type, and no process abort. 3. `kernel_version()` returns `occt-8.0.0;…`, checked against `OCC_VERSION_COMPLETE` at compile time. 4. The Refinement log records: cold OCCT vcpkg build time, cached CI restore time, link time and test-binary size. The second CI run restores OCCT from cache. 5. `cargo build -p amg-brep --no-default-features` works on a machine without vcpkg. 6. If 8.0.0 is rejected, the reason and the 7.9.3 override are recorded (note §1.3). |
 | BREP-02 | `Shape` handle (immutable, `Send + Sync`, `Arc`), `SubShapeIndex` (0-based `TopExp::MapShapes`, adjacency), topology iteration, `surface()`/`curve()`/`vertex_point()`/`bbox()`/`tolerance()` to plain `geom` types, rigid `transformed`, binary + text `.brep` I/O | BREP-01, FND-03 | P0 | Done | 1. For 10 fixture parts (`testdata/brep/*.brep`, ≥ 1 with > 500 faces): face/edge/vertex counts and per-face `GeomClass` match a checked-in expectation file. 2. Index stability: indices + per-face area computed in two separate processes and after a `write_bin`/`read_bin` round-trip are identical. 3. `write_bin`→`read_bin` is byte-identical on re-write. 4. `assert_impl_all!(Shape: Send, Sync)` compiles. 5. Adjacency invariants hold on all fixtures (every manifold edge has 2 faces, `face_edges`/`edge_faces` are mutually consistent). 6. A cylinder face reports `Surface::Cylinder` with the correct radius/axis within 1e-12. |
-| BREP-12 | Kernel infrastructure: `KernelConfig`, `init()` (OCCT message printer → `tracing`, `OSD_ThreadPool` size), progress/cancel bridge (`Message_ProgressIndicator` ↔ `JobCtx`), validation policy, `KernelError` + `Diagnostic`, `Shape::max_tolerance`, shim CATEGORY (R/N/C/G) lint test, concurrency stress-test harness, global I/O lock, serde-derive check for every op parameter type | BREP-02, FND-04 | P0 | Todo | 1. An OCCT warning appears as a `tracing` event with target `occt`, and nothing goes to stdout. 2. A test op with a progress range reports monotone progress to a `JobCtx`. Cancelling the token makes it return `KernelError::Cancelled` within 50 ms. 3. A compile-time test asserts that every op parameter type is `Clone + Debug + PartialEq + Serialize + DeserializeOwned` (S20 KH-01 prerequisite), and a forwarding decorator implementing `BrepKernel` compiles (object safety). 4. The CATEGORY lint fails when a shim function lacks a category comment. 5. Stress harness: 8 threads × 2 000 iterations of R queries on one shared shape. No crash, results are bit-identical to single-threaded ones, and the input's BinTools hash is unchanged. |
+| BREP-12 | Kernel infrastructure: `KernelConfig`, `init()` (OCCT message printer → `tracing`, `OSD_ThreadPool` size), progress/cancel bridge (`Message_ProgressIndicator` ↔ `JobCtx`), validation policy, `KernelError` + `Diagnostic`, `Shape::max_tolerance`, shim CATEGORY (R/N/C/G) lint test, concurrency stress-test harness, global I/O lock, serde-derive check for every op parameter type | BREP-02, FND-04 | P0 | Review | 1. An OCCT warning appears as a `tracing` event with target `occt`, and nothing goes to stdout. 2. A test op with a progress range reports monotone progress to a `JobCtx`. Cancelling the token makes it return `KernelError::Cancelled` within 50 ms. 3. A compile-time test asserts that every op parameter type is `Clone + Debug + PartialEq + Serialize + DeserializeOwned` (S20 KH-01 prerequisite), and a forwarding decorator implementing `BrepKernel` compiles (object safety). 4. The CATEGORY lint fails when a shim function lacks a category comment. 5. Stress harness: 8 threads × 2 000 iterations of R queries on one shared shape. No crash, results are bit-identical to single-threaded ones, and the input's BinTools hash is unchanged. |
 | BREP-03 | Face and wire builders: `make_planar_faces` (from `PlanarProfile` with tags + loop validation), `make_planar_polygon`, `make_face` (analytic + B-spline surfaces; `Natural`/`UvRect`/`Loops`/`Polylines` bounds), `make_wire` | BREP-12 | P0 | Todo | 1. A profile with all 5 `Curve2d` kinds (line, circle hole, arc, ellipse arc, rational B-spline) gives a valid face whose area matches the analytic area within 1e-9 relative. Every edge has its input tag. 2. An open loop gives `OpenLoop` with the right loop/edge index. A hole outside the outer loop gives `InvalidInput`. 3. A 1000-vertex polygon with 10 holes builds in < 20 ms. A non-planar input gives `NotPlanar`. 4. `make_face` on cylinder/cone/sphere/torus with `Polylines` bounds taken from a tessellated reference face reproduces the face area within 0.1 %. A 5×5 B-spline patch with `Natural` bounds is valid. 5. 1000 random valid profiles (proptest) never crash and always give valid faces or a clean `Err`. |
 | BREP-14 | Primitives (box, cylinder, cone, sphere, torus) on a `Plane` frame; `prism` (vector, infinite, taper, `merge_coplanar`); `revol`; `gtransformed` | BREP-03 | P0 | Todo | 1. Golden volume/area/topology counts for each primitive, for prism of 5 profile types and for revol (90°, 360°) within 1e-9 relative (`tests/golden/brep/`). 2. A tapered prism of a square at 5° matches the analytic frustum volume within 1e-9. 3. Results are BRepCheck-valid. 4. Prism and revol run in the stress test. |
 | BREP-04 | Booleans: `boolean` (fuse/cut/common, N objects × M tools), `split`, `section`; non-destructive always on; fuzzy/glue/OBB/check-inverted; progress + cancel; parallel-mode determinism test and `occt_threads` benchmark | BREP-14 | P0 | Todo | 1. A 100-case boolean corpus (`testdata/brep/bool/`: primitives, coplanar, tangent, fuzzy-needed cases from OCCT/FreeCAD trackers) gives valid results, with volumes within 1e-6 relative of reference values (or the expected `Err`). 2. Proptest: 500 random primitive pairs give `Ok(valid)` or a clean `Err`, never a crash. 3. Inputs' BinTools hashes are unchanged after every op. 4. Determinism: 20 cases × 10 runs with parallel on are byte-identical, or parallel defaults off and the Refinement log says so. 5. Criterion: a cut of two 1000-face parts, timed with 1 / half / all OCCT threads; the default is set from the result. 6. Cancelling a long boolean returns `Cancelled` within 200 ms. |
@@ -1106,6 +1106,99 @@ hold on all fixtures; one-face edges are only seams, degenerated edges or open-s
 `amg_brep::kernel_version` are not done. Skipping the extra BinTools round trip for shapes with
 no reflected frames would bring a first save to the steady-state cost.
 
+### 2026-11-10 - BREP-12 kernel infrastructure
+**Landed.**
+- `amg-occt-sys` (`SHIM_VERSION` 3): an `extern "Rust"` block (`ProgressSink` with
+  `progress_show`/`progress_user_break`, and `occt_log`), and shim functions
+  `install_message_printer`, `emit_message`, `set_default_thread_pool`,
+  `default_thread_pool_size`, `progress_test_op`, `shape_max_tolerance`, `check_shape`,
+  `make_open_wire_face`. The C++ side has a `Message_Printer` subclass that forwards every message
+  (trace level lowest) to `occt_log`, which emits `tracing` events with target `occt`
+  (`LOG_TARGET`), and a `Message_ProgressIndicator` subclass over a `ProgressSink`.
+  `ProgressTarget` is the Rust trait behind the sink. Callback panics are caught, so they cannot
+  unwind into C++.
+- `amg-brep`: `KernelConfig` (`Default`, `from_env` with `AMG_KERNEL_VALIDATE` /
+  `AMG_OCCT_THREADS`, `effective_occt_threads`), `Validate` (`is_enabled`, `parse`),
+  idempotent `init` (first call wins, under the global lock), `kernel_version()`, `POLICY_VERSION`,
+  the `BrepKernel` trait (object-safe; `check` is its first method), `OcctKernel` (`new`,
+  `config`, `validate_result`, hidden `progress_probe`), `CheckOpts`/`CheckReport`, the full
+  `KernelError` (all spec variants plus `offending()`), `From<Cancelled>`, `Diagnostic` (hint per
+  variant, `Cancelled` is `Info` and `is_cancelled`), `Shape::max_tolerance`, the global I/O lock
+  (`lock::global_io_lock`, poison-free), and every op parameter type from the Interfaces in a new
+  `opts` module (`BoolOpts` … `HelixSpec`, `TessQuality` with the §8 presets).
+- Tests: `amg-occt-sys/tests/category_lint.rs`, `amg-brep/tests/{api_contract, infra, init_pool,
+  stress}.rs`, the reusable harness `tests/common/stress.rs`, and unit tests for config, errors,
+  lock, validation and `max_tolerance`. Bench `benches/kernel.rs`.
+
+**Done-when status** (`cargo nextest run -p amg-occt-sys -p amg-brep --features occt`, 78 tests,
+all pass; without the feature the OCCT-free tests pass too).
+1. `occt_messages_become_tracing_events`: messages of all five gravities arrive as `tracing`
+   events with target `occt` (trace, info, warn, error, error). `occt_messages_never_reach_stdout`
+   runs two child processes: without `init` the marker shows up on stdout (control), with `init`
+   it does not.
+2. `job_progress_is_monotone`: a 300-step probe on a `JobSystem` job gives 284 samples of
+   `JobHandle::progress`, 281 of them strictly between 0 and 1, never decreasing.
+   `bridge_reports_monotone_progress` checks the raw `Show` fractions: at least 500, monotone,
+   ending at 1. `cancel_returns_cancelled_within_50_ms`: the probe returns
+   `KernelError::Cancelled` **0.83 ms** after `cancel()` and the job ends `JobError::Cancelled`.
+   The < 50 ms assertion only runs with `AMG_STRICT_TIMING=1`.
+3. `api_contract.rs`: `assert_op_param::<T>()` (`Clone + Debug + PartialEq + Serialize +
+   DeserializeOwned`) for every op parameter type that exists (ids, `SubShape`, `Plane`,
+   `Tolerance`, the BREP-02 `geom` types, all `opts` types, `CheckOpts`), with serde round trips.
+   A `Forward<K: BrepKernel>` decorator with no default methods implements the trait, stacks,
+   erases to `Arc<dyn BrepKernel>`, moves across threads and forwards `check`.
+   `assert_obj_safe!(BrepKernel)` is in `kernel.rs`.
+4. `category_lint.rs` parses `occt_shim.hxx` and `occt_fixtures.hxx` (free functions in
+   `namespace amg::occt`) and fails for a function without `// CATEGORY: R|N|C|G <reason>`
+   directly above it, for an unknown category, and for a bridged `fn` that the header does not
+   declare. Two synthetic headers check that it fails. The real headers pass (37 functions).
+5. `stress.rs`: 8 threads × 2 000 iterations on one shared `plate_with_holes` (1 030 faces,
+   27 633 distinct R queries: surfaces, curves, points, areas, uv bounds, adjacency, tolerances,
+   `sub_shape`, `max_tolerance`, bbox, solids, `estimated_bytes`, `check`). The same runs on
+   `filleted_box` (526 queries). Each thread starts with `check`; the shared copy builds its lazy
+   index concurrently. There are 0 mismatches against the single-threaded reference, which
+   compares `Debug` strings, so every f64 bit counts. The BinTools hash is unchanged
+   (`42a46e2564f1eef4` before and after for the plate).
+
+**Budget** (`cargo bench -p amg-brep --features occt --bench kernel`, release, on a loaded shared
+machine): `budget/brep-ffi-overhead` (build and drop a 10×20×30 box through the bridge) takes
+**34.1 µs**, over the 20 µs target. The bridge crossing itself (`ffi/shape-is-null`) takes
+**7.6 ns**, so nearly all of the 34 µs is OCCT's `BRepPrimAPI_MakeBox` topology build, not the
+FFI. `ffi/max-tolerance-box` takes 3.1 µs, and `ffi/progress-100-steps` 7.2 µs (72 ns per progress
+step, including the Rust callbacks). Either the target means the call overhead (met by a wide
+margin), or it needs re-basing for a real box build; BREP-14 should re-measure on an idle machine.
+
+**Deviations.**
+- The trait has only `check` for now. Every op WP adds its methods together with its `KernelOp`
+  variant and the forwarding arm in `tests/api_contract.rs`. The decorator has no default methods,
+  so a missing arm is a compile error. The op parameter types are already in, so the serde check
+  covers them.
+- The `geom` builder inputs (`Tag`, `Curve2d`, `PlanarProfile`, `CurveSeg`, `FaceBounds`) are
+  left to BREP-03, as BREP-02 planned. BREP-03 adds them to `op_parameter_types_are_capturable`.
+- `check` runs `BRepCheck_Analyzer` only. `CheckOpts::self_interference`
+  (`BOPAlgo_ArgumentAnalyzer`) is ignored until BREP-10. A wire's problems are reported on its
+  face (wires are not indexed); shell, solid and root problems have `None`.
+- `KernelConfig::occt_threads` is `None` = auto, and `effective_occt_threads()` resolves it to
+  `max(1, cores / 2)`. `bool_parallel` defaults to `false` until BREP-04 decides. `KernelConfig`
+  also derives `Debug` and `PartialEq`.
+- `kernel_version()` drops the shim part of `amg_occt_sys::kernel_version` (shim bumps don't
+  change results): `occt-8.0.1;amg-brep-1;policy-0`, or `occt-none;…` without OCCT.
+  `POLICY_VERSION` (0) lives in `kernel.rs` until S20's `robust` module takes it over.
+- The global lock is used by `init` only. Text `.brep` reads stay unlocked on 8.0.1 (BREP-02).
+  IGES (BREP-13) is its first real user.
+- `OSD_ThreadPool::DefaultPool(n)` is resized with `Init(n)` if it already existed with another
+  size. `init_pool.rs` checks that a pool of 3 is kept when a later `init` asks for 5.
+- The stress test uses the 1 030-face plate and the 26-face filleted box rather than the note's
+  "200-face filleted part" (there is no such fixture). It runs R queries only; tessellation,
+  booleans and fillets join it in their WPs.
+
+**Leftovers.**
+- No real OCCT algorithm uses the progress bridge yet (`progress_sink` is ready in
+  `backend/occt.rs`). BREP-04/08/13/15 pass it to their `Message_ProgressRange`.
+- Architecture §Threading text change (S02 §2 consequence) is still not applied (not lane A's
+  file).
+- ThreadSanitizer CI run of the stress test (Linux, best effort) is not set up.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1191,3 +1284,17 @@ All additive:
   `cxx` dependency), the `fixture-gen` feature and `fixture_ffi` bridge; `SHIM_VERSION` is 2.
 - New dependency `static_assertions` 1.1.0 (MIT/Apache-2.0, `THIRD_PARTY.md`); `Cargo.lock`
   changes accordingly.
+
+### 2026-11-10: additions and shared files changed by BREP-12 (lane A)
+All additive:
+- `amg-brep`: `opts` module (all op parameter types of the Interfaces), `CheckOpts`,
+  `CheckReport` (+ `valid()`, `problem_kinds()`), `KernelConfig` (+ `Debug`, `PartialEq`,
+  `effective_occt_threads`), `Validate::{is_enabled, parse}`, `ENV_VALIDATE`,
+  `ENV_OCCT_THREADS`, `init`, `kernel_version`, `POLICY_VERSION`, `BrepKernel { check }`,
+  `OcctKernel::{new, config, validate_result}` (+ hidden `progress_probe`),
+  `KernelError::offending()` and the remaining spec variants, `Shape::max_tolerance`.
+- `amg-occt-sys`: `ProgressTarget`, `ProgressSink`, `LOG_TARGET`, the BREP-12 shim functions;
+  optional `tracing` dependency under `occt`; `SHIM_VERSION` 3.
+- `amg-brep` gains `tracing` (and `tracing-subscriber` as a dev-dependency), both already
+  workspace dependencies; `THIRD_PARTY.md`'s tracing row names the new users. `Cargo.lock` changes
+  accordingly.

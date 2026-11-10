@@ -47,7 +47,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
-| tracing, tracing-subscriber | logging (S00), `amg-jobs::diag`, `amg-cli` | MIT | no | no | In use (tracing 0.1.44, tracing-subscriber 0.3.23 with `env-filter`) |
+| tracing, tracing-subscriber | logging (S00), `amg-jobs::diag`, `amg-cli`; OCCT message bridge in `amg-occt-sys` (`occt` feature) and `amg-brep` (S02 BREP-12; tracing-subscriber only in `amg-brep` tests) | MIT | no | no | In use (tracing 0.1.44, tracing-subscriber 0.3.23 with `env-filter`) |
 | serde, serde_json | `.amg` file format (ADR-010) | MIT / Apache-2.0 | no | no | In use (serde 1.0.229; serde_json 1.0.154) |
 | zip (zip-rs/zip2) 9.0.5, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | In use (9.0.5; `amg-doc` .amg container, DOC-07) |
 | quick-xml 0.42.0 | `amg-io` 3MF XML (S12) | MIT | no | no | Planned |
