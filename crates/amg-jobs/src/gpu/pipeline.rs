@@ -19,6 +19,11 @@ pub struct ComputePipelineDesc<'a> {
     pub entry_point: &'a str,
     /// Values for WGSL `override` constants, by name or `@id`.
     pub constants: &'a [(&'a str, f64)],
+    /// Whether the driver zero-fills workgroup memory before the shader runs (WGSL semantics,
+    /// `true` in [`ComputePipelineDesc::new`]). Set it to `false` only for a shader that writes
+    /// every workgroup word before it reads it: on DX12 (FXC) the zeroing is unrolled per word,
+    /// and a shader with a few thousand words of workgroup memory takes seconds to compile.
+    pub zero_init_workgroup_memory: bool,
 }
 
 impl<'a> ComputePipelineDesc<'a> {
@@ -29,6 +34,7 @@ impl<'a> ComputePipelineDesc<'a> {
             wgsl,
             entry_point,
             constants: &[],
+            zero_init_workgroup_memory: true,
         }
     }
 }
@@ -41,6 +47,7 @@ struct Key {
     wgsl: String,
     entry_point: String,
     constants: Vec<(String, u64)>,
+    zero_init_workgroup_memory: bool,
 }
 
 impl Key {
@@ -53,6 +60,7 @@ impl Key {
                 .iter()
                 .map(|&(name, v)| (name.to_owned(), v.to_bits()))
                 .collect(),
+            zero_init_workgroup_memory: desc.zero_init_workgroup_memory,
         }
     }
 }
@@ -99,7 +107,7 @@ fn create(
         entry_point: Some(desc.entry_point),
         compilation_options: wgpu::PipelineCompilationOptions {
             constants: desc.constants,
-            zero_initialize_workgroup_memory: true,
+            zero_initialize_workgroup_memory: desc.zero_init_workgroup_memory,
         },
         cache: None,
     });

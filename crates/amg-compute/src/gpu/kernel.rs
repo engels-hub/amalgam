@@ -76,6 +76,31 @@ impl Kernel {
         constants: &[(&str, f64)],
         precision: Precision,
     ) -> ComputeResult<Self> {
+        Self::build(gpu, label, wgsl, entry, constants, precision, true)
+    }
+
+    /// As [`Kernel::with_precision`], for a shader that writes every workgroup word before it
+    /// reads it, so the driver need not zero-fill workgroup memory. On DX12 (FXC) that zeroing
+    /// is unrolled per word: a kernel with a few thousand words of workgroup memory takes
+    /// seconds to compile with it.
+    pub(crate) fn without_workgroup_zeroing(
+        gpu: &Gpu,
+        label: &str,
+        wgsl: &str,
+        precision: Precision,
+    ) -> ComputeResult<Self> {
+        Self::build(gpu, label, wgsl, "main", &[], precision, false)
+    }
+
+    fn build(
+        gpu: &Gpu,
+        label: &str,
+        wgsl: &str,
+        entry: &str,
+        constants: &[(&str, f64)],
+        precision: Precision,
+        zero_init_workgroup_memory: bool,
+    ) -> ComputeResult<Self> {
         if precision == Precision::F64 && device_precision(gpu) != Precision::F64 {
             return Err(ComputeError::Unsupported(format!(
                 "kernel `{label}` needs f64, but adapter `{}` ({:?}) has no SHADER_F64",
@@ -90,6 +115,7 @@ impl Kernel {
             wgsl: &source,
             entry_point: entry,
             constants,
+            zero_init_workgroup_memory,
         })?;
         Ok(Kernel {
             pipeline,

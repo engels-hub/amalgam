@@ -663,7 +663,7 @@ harness; measured numbers go into the Refinement log.
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | CMP-07 | GPU layer: `GpuVec<T>` (binding-limit checks), `Kernel` (incl. `with_precision`), `ComputeCtx` (batched encoder, uniform arena, `dispatch_1d` 2-D folding, timestamps), `prelude_wgsl` (`real` alias), `ComputeError` + `Diagnostic`; precision selection (`Precision`, `PrecisionPolicy`, `AMG_COMPUTE_PRECISION`, `GpuReal`, `device_precision`, `SolverDevice::precision`); WARP test harness with a per-precision test matrix and the f64 skip/require rule; crate deps (`half`, `bytemuck`, `rayon`) and THIRD_PARTY rows | FND-09, FND-05 | P1 | Done | 1. On WARP and the reference GPU, `dispatch_1d` with n ∈ {0, 1, 255, 256, 257, 65 535·256 + 1, 2²⁶ + 3} writes every index exactly once (counter test). 2. `GpuVec::zeroed` past the binding limit returns `TooLarge`, no panic. 3. A destroyed device makes `finish` return `Gpu(DeviceLost)` within 1 s (no hang). 4. Bench: 1 000 empty dispatches recorded and submitted in one `ComputeCtx` cost ≤ 20 µs CPU each. 5. `take_timings` is non-empty on the reference GPU and empty without `TIMESTAMP_QUERY`. 6. `cargo deny` passes; `half` listed in THIRD_PARTY.md. 7. `PrecisionPolicy::resolve`: `Auto` gives F64 exactly when `Gpu::has(SHADER_F64)` (WARP and the reference GPU on DX12 → F32; the reference GPU on Vulkan → F64); `ForceF32` gives F32 on every device; `RequireF64` on WARP returns `Unsupported`, no panic; `parse` accepts `auto`/`f32`/`f64` (any case, empty = `Auto`) and rejects anything else with `Config`. 8. The harness runs each numeric GPU test once per precision. On a device without `SHADER_F64` the f64 case is reported as skipped with the reason (`f64: adapter has no SHADER_F64`), and fails instead when `AMG_REQUIRE_F64=1`. CI (WARP) runs the f32 cases and reports the f64 skips. 9. f64 gate (Testing): `AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1 cargo nextest run -p amg-compute` on the reference GPU passes, including an f64 kernel (`real` = f64) for test 1 and a bit-exact f64 upload → kernel copy → readback; the run is recorded in the Refinement log before Review. |
-| CMP-01 | GPU primitives: reduce (sum/min/max on f32/f64/u32/i32), dot and segmented reduce (f32/f64), exclusive/inclusive scan, compaction, stable radix sort (keys + optional values, `key_bits`), `AtomicCounter`, `cpu` references; benchmarks vs CPU | CMP-07 | P1 | Todo | 1. Every primitive equals its `cpu` reference on sizes {0, 1, 255, 256, 257, 65 537, 2²⁰ + 7, 2²⁴} with random data, on WARP and the reference GPU: integers exactly, f32 sums bit-equal to the tree-order reference on the reference GPU and within n·ε₃₂·Σ\|x\| on WARP. The f64 variants (reduce, dot, segmented reduce) pass the same sizes on the f64 gate, bit-equal to the f64 tree-order reference; on WARP they are skipped by the CMP-07 rule, and an f64 call there returns `Unsupported`. 2. Same input → bit-identical output over 3 runs (both precisions). 3. Sort is stable (equal keys keep value order; property test vs `slice::sort_by_key`). 4. Benches (reference GPU, 2²⁶ elements): reduce f32 ≥ 60 % of the measured device-to-device copy bandwidth; scan u32 ≥ 30 %; sort of 2²⁴ key-value pairs ≥ 1 G pairs/s and ≥ 3× rayon `par_sort_by_key` on the CPU; f64 reduce and dot on Vulkan recorded (no bar); numbers recorded. |
+| CMP-01 | GPU primitives: reduce (sum/min/max on f32/f64/u32/i32), dot and segmented reduce (f32/f64), exclusive/inclusive scan, compaction, stable radix sort (keys + optional values, `key_bits`), `AtomicCounter`, `cpu` references; benchmarks vs CPU | CMP-07 | P1 | Review | 1. Every primitive equals its `cpu` reference on sizes {0, 1, 255, 256, 257, 65 537, 2²⁰ + 7, 2²⁴} with random data, on WARP and the reference GPU: integers exactly, f32 sums bit-equal to the tree-order reference on the reference GPU and within n·ε₃₂·Σ\|x\| on WARP. The f64 variants (reduce, dot, segmented reduce) pass the same sizes on the f64 gate, bit-equal to the f64 tree-order reference; on WARP they are skipped by the CMP-07 rule, and an f64 call there returns `Unsupported`. 2. Same input → bit-identical output over 3 runs (both precisions). 3. Sort is stable (equal keys keep value order; property test vs `slice::sort_by_key`). 4. Benches (reference GPU, 2²⁶ elements): reduce f32 ≥ 60 % of the measured device-to-device copy bandwidth; scan u32 ≥ 30 %; sort of 2²⁴ key-value pairs ≥ 1 G pairs/s and ≥ 3× rayon `par_sort_by_key` on the CPU; f64 reduce and dot on Vulkan recorded (no bar); numbers recorded. |
 | CMP-02 | Grids: `DenseGrid<T>`, `BrickGrid<T>` (two-level tree, `BrickLayout::{CELLS, CORNERS}`, fills, aprons, Morton `canonicalize`, `content_hash`), `GpuBrickGrid` (upload/download, deterministic scan-based `allocate`), `brick_grid_wgsl` | CMP-01 | P1 | Todo | 1. Sphere r = 50 at cell 0.5 baked as `d / cell` into `BrickGrid<f16>` (`CORNERS`, band ±4 cells, inside tiles Fill1): CPU `trilinear` error vs the analytic distance ≤ 0.01 cell inside the band; sign correct everywhere in the box (fills). 2. A GPU kernel using `bg_trilinear` at 1 M random points equals CPU `trilinear` within 1e-3 cell (WARP and reference GPU). 3. GPU `allocate` from a mask gives buffers bit-identical over 3 runs and the same brick order as CPU `canonicalize`; upload → download round-trips bit-exactly for f16, f32, u8. 4. Grids built in two insertion orders have equal `content_hash` after `canonicalize`. 5. Sphere r = 100 at cell 0.1: index (root + tiles) ≤ 10 % of brick bytes; bytes recorded. 6. Bench: ≥ 0.5 G `bg_trilinear` samples/s at random in-band points on the reference GPU. 7. A box needing > 2²⁴ root tiles returns `Shape`. |
 | CMP-03 | Sparse direct: `SymCsr` (upper CSR, validation, deterministic `spmv`, `add_scaled`), `TripletBuilder`, `SymbolicFactor` (reusable, `estimate`), `Cholesky` and `Ldlt` (faer, LBLᵀ) with multi-RHS, `PivotReport`, `Inertia`; `testprob` generators | FND-03, FND-04 | P1 | Todo | 1. `q1_elasticity(55, Clamped)` (499 125 DOF): analyse + factor + solve ≤ 20 s (S13 note §8.1 split of the vision 30 s budget), relative residual ≤ 1e-10. 2. `q1_elasticity(70, Clamped)` (1 029 000 DOF): completes on 32 GB; time and peak RSS recorded; `estimate().bytes` within 10 % of the measured factor storage. 3. `solve_many` with 6 RHS takes ≤ 2× one `solve_in_place`. 4. `q1_elasticity(_, Free)` gives `NotPositiveDefinite` with a row, or a `PivotReport` with `below_threshold`; never a panic. 5. `Ldlt::inertia` on random diagonal-plus-low-rank matrices equals the dense eigenvalue sign count (proptest). 6. Re-factoring with new values on the same pattern skips analysis (counter). 7. Factor and solve are bit-identical over 2 runs; `spmv` bit-identical across 1, 4, 16 threads. 8. `from_raw` rejects unsorted, lower or out-of-range input with `InvalidMatrix`. |
 | CMP-04 | Eigen: thick-restart shift-invert Lanczos (`lanczos`) with full B-reorthogonalisation, `EigenMode::{Vibration, Buckling}`, `Which::{Nearest, Band}` with Sturm check and re-shift, `ShiftInvert` callback, `CholeskyShift`, `LdltShift` | CMP-03 | P1 | Todo | 1. 50 random sparse SPD pencils (n ≤ 3 000): the 10 eigenvalues nearest σ match faer's dense generalised solver within 1e-10 relative; ‖ΦᵀBΦ − I‖∞ ≤ 1e-10. 2. Free-free `q1_elasticity(20, Free)` with σ < 0: exactly 6 values with \|λ\| ≤ 1e-8·λ₇, then the next 4 within 1e-9 of dense. 3. Band mode finds every eigenvalue in [lo, hi] on 20 pencils (vs dense), `sturm_checked` true; a band with more than `max` values returns the `max` lowest and says so. 4. Buckling mode on a pencil with known eigenvalues (indefinite K_G) within 1e-9. 5. Bench: `q1_elasticity(55, Clamped)`, 8 modes, including the factorisation, ≤ 40 s (FEM-07 budget 60 s). 6. Cancel during iterations returns `Cancelled` within 1 s after the factorisation ends. |
@@ -968,7 +968,74 @@ Microsoft Basic Render Driver 10.0.26100.9711). All runs `--no-capture`, `AMG_RE
 - GPU out-of-memory below the binding limit still reaches wgpu's error handler (a panic):
   `ComputeError` has no variant for it. Only the binding limit is checked (Done-when 2).
 
+### 2026-11-10 - CMP-01 GPU primitives (lane F implementation)
+Branch `engels-hub/wp-CMP-01-gpu-primitives`; status → `Review`. New module `amg_compute::prim`
+(`gpu` feature for the GPU parts, `prim::cpu` always available).
+
+**What landed:**
+- `Primitives` (kernel cache + methods on a `ComputeCtx`): `reduce` (sum/min/max on f32/f64/u32/i32),
+  `dot`, `segmented_reduce` (f32/f64), `scan` (exclusive/inclusive, optional total), `compact`,
+  `sort` (stable LSD radix, keys + optional values, `key_bits` 1..=32), `AtomicCounter`;
+  `prim::cpu` has a bit-exact reference of each.
+- Determinism: reductions are a fixed tree (256 threads × 8 elements per tile, halving strides,
+  one pass per level), mirrored by `cpu::reduce`; no float atomics. `dot` multiplies in its own
+  kernel (products rounded to `real`) and then reduces, so there is no FMA contraction and the
+  CPU reference is exact. Float min/max use identities ±finite MAX; NaN behaviour is unspecified.
+- Scan is reduce-then-scan with recursion on the tile totals; compaction is a flags scan plus a
+  scatter; sort is 5-bit-digit LSD passes (7 for 32 bits): per-tile histogram, scan of the
+  digit-major histogram, in-tile stable sort (4-way splits of two digit bits on packed
+  `digit << 11 | index` words) and a scatter to `offset + rank`.
+
+**Results (reference GPU RTX 5060 Ti, 2²⁶ elements; DX12 unless noted, `AMG_STRICT_TIMING=1` passes):**
+
+| Measure | Result | Bar |
+|---|---|---|
+| copy (read + write) | 1.446 ms, 371 GB/s | - |
+| reduce f32 sum | 0.917 ms, 293 GB/s = 79 % of copy | ≥ 60 % |
+| scan u32 exclusive | 2.547 ms, 211 GB/s = 57 % of copy | ≥ 30 % |
+| sort 2²⁴ pairs | 13.4 ms = 1.25 G pairs/s (Vulkan 13.4 ms, 1.25 G pairs/s) | ≥ 1 G pairs/s |
+| rayon `par_sort_by_key` 2²⁴ pairs | 160 ms (0.10 G pairs/s): GPU 12.0× | ≥ 3× |
+| f64 reduce 2²⁵ (Vulkan) | 0.930 ms, 289 GB/s | recorded |
+| f64 dot 2²⁵ (Vulkan) | 12.7 ms | recorded |
+| f32 dot 2²⁵ (Vulkan) | 7.7 ms | - |
+
+Bandwidth counts the ideal bytes (copy and scan 2 N, reduce N); the copy of the unsorted input
+is subtracted from the sort time. Sort tuning history (2²⁴ pairs): 8-bit digits 18-25 ms,
+4-bit 19 ms, 6-bit 17.5 ms, 5-bit 13.4 ms; 4 elements per thread beat 2 and 8.
+
+**Test runs:** `cargo nextest run -p amg-compute` passes 63/63 on DX12 hardware, on WARP
+(`AMG_WGPU_BACKEND=warp`, 8.5 min: the 2²⁴-element cases are slow there; f32 sums within
+n·ε₃₂·Σ|x|) and on the f64 gate (`AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1`, f64 bit-equal to
+the tree-order reference). Sizes {0, 1, 255, 256, 257, 65 537, 2²⁰+7, 2²⁴}; 3-run bit identity;
+stability property test vs `sort_by_key`. `amg-jobs` 61/61.
+
+**Findings and deviations:**
+- DX12/FXC zero-initialises workgroup memory by unrolling, and the compile time grows about
+  quadratically with the array size (13 s for the scan and the sort scatter). Every `prim`
+  kernel writes a workgroup word before reading it, so they opt out (Interface changes).
+- Scratch buffers (dot products, scan partials, sort temporaries and histograms) are allocated per
+  call, not pooled. This makes `dot` slow on large inputs (zero-filling a 2²⁵-element temporary
+  per call) and is the first thing to fix if a consumer calls it in a loop.
+- `GpuReal` gained the supertrait `ReduceScalar` (sealed) so the generic methods can pick the
+  kernel type; `u32`/`i32` implement `Sealed`.
+- `GpuVec::zeroed` now allocates at least one element (was: at least 4 bytes). Binding an empty
+  f64 vector failed validation (minimum binding size 8).
+- The CMP-07 leftover is avoided: size-0 cases never read back.
+
+**Leftovers:**
+- Pool the scratch buffers; fuse `dot` into the first reduce pass without FMA contraction.
+- Sort supports 32-bit keys with 32-bit values only; 64-bit keys and payload structs need a
+  new WP if a consumer wants them (AM-13 needs neither).
+- The WARP run takes 8.5 min; the 2²⁴ cases may want a smaller size or an `slow` filter in CI.
+
 ## Interface changes
+### 2026-11-10: from CMP-01 (lane F; applied, additive)
+- **`amg-jobs::gpu` (S00):** `ComputePipelineDesc` gains `pub zero_init_workgroup_memory: bool`
+  (`new()` sets `true`, the previous behaviour), part of the pipeline cache key and passed to wgpu's
+  `zero_initialize_workgroup_memory`. Reason: FXC compile time of large workgroup arrays (see the
+  CMP-01 log). Lane owning S00 to review.
+- **`amg-compute` (CMP-07 code, same lane):** `ComputeCtx::gpu_arc()`; `Kernel::without_workgroup_zeroing`
+  (crate-private); `GpuVec::zeroed` allocates at least one element.
 ### 2026-11-09: requests from CMP-07 (lane F; not applied)
 - **Lane E (`.config/nextest.toml`):** to show the f64 skips in CI (Done-when 8), add an override
   `filter = 'test(/gpu_f64/)'` with `success-output = "immediate"` to `[profile.ci]`, or store
