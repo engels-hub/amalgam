@@ -20,6 +20,8 @@ cxx-build = { version = "1.0.205", optional = true }
 # plain `cargo build --workspace` works without vcpkg (same pattern as `amg-mesh/manifold`).
 # `amg-brep/occt` turns it on.
 occt = ["dep:cxx", "dep:cxx-build"]
+# Adds the C++ builders of the testdata/brep fixture parts (amg-brep's `gen_brep_fixtures`).
+fixture-gen = ["occt"]
 
 [lints]
 workspace = true

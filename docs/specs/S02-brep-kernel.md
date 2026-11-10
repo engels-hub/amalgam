@@ -874,7 +874,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | BREP-01 | **Phase-0 spike.** OCCT 8.0.1 (8.0.0#1 fallback; QUESTIONS #27) via vcpkg manifest mode (`vcpkg.json` with `opencascade` `default-features: false`, overlay triplet `x64-windows-amg`), `amg-occt-sys` build.rs (`AMG_OCCT_DIR`, toolkit list, cxx_build flags), cxx bridge skeleton with custom `trycatch`, `OcShape` opaque type, `make_box` + `volume` + a throwing call; cargo feature `occt`; CI job uses the vcpkg `files` cache | FND-02, FND-05, FND-13 | P0 | Done | 1. On the owner's machine and in CI (`windows-2025`), `cargo nextest run -p amg-occt-sys` passes. A Rust test creates a 10×20×30 box and reads volume 6000 ± 1e-9. 2. A shim call that triggers `Standard_Failure` (`gp_Dir` from a zero vector) returns `Err` whose message contains the OCCT exception type, and no process abort. 3. `kernel_version()` returns `occt-8.0.0;…`, checked against `OCC_VERSION_COMPLETE` at compile time. 4. The Refinement log records: cold OCCT vcpkg build time, cached CI restore time, link time and test-binary size. The second CI run restores OCCT from cache. 5. `cargo build -p amg-brep --no-default-features` works on a machine without vcpkg. 6. If 8.0.0 is rejected, the reason and the 7.9.3 override are recorded (note §1.3). |
-| BREP-02 | `Shape` handle (immutable, `Send + Sync`, `Arc`), `SubShapeIndex` (0-based `TopExp::MapShapes`, adjacency), topology iteration, `surface()`/`curve()`/`vertex_point()`/`bbox()`/`tolerance()` to plain `geom` types, rigid `transformed`, binary + text `.brep` I/O | BREP-01, FND-03 | P0 | Todo | 1. For 10 fixture parts (`testdata/brep/*.brep`, ≥ 1 with > 500 faces): face/edge/vertex counts and per-face `GeomClass` match a checked-in expectation file. 2. Index stability: indices + per-face area computed in two separate processes and after a `write_bin`/`read_bin` round-trip are identical. 3. `write_bin`→`read_bin` is byte-identical on re-write. 4. `assert_impl_all!(Shape: Send, Sync)` compiles. 5. Adjacency invariants hold on all fixtures (every manifold edge has 2 faces, `face_edges`/`edge_faces` are mutually consistent). 6. A cylinder face reports `Surface::Cylinder` with the correct radius/axis within 1e-12. |
+| BREP-02 | `Shape` handle (immutable, `Send + Sync`, `Arc`), `SubShapeIndex` (0-based `TopExp::MapShapes`, adjacency), topology iteration, `surface()`/`curve()`/`vertex_point()`/`bbox()`/`tolerance()` to plain `geom` types, rigid `transformed`, binary + text `.brep` I/O | BREP-01, FND-03 | P0 | Review | 1. For 10 fixture parts (`testdata/brep/*.brep`, ≥ 1 with > 500 faces): face/edge/vertex counts and per-face `GeomClass` match a checked-in expectation file. 2. Index stability: indices + per-face area computed in two separate processes and after a `write_bin`/`read_bin` round-trip are identical. 3. `write_bin`→`read_bin` is byte-identical on re-write. 4. `assert_impl_all!(Shape: Send, Sync)` compiles. 5. Adjacency invariants hold on all fixtures (every manifold edge has 2 faces, `face_edges`/`edge_faces` are mutually consistent). 6. A cylinder face reports `Surface::Cylinder` with the correct radius/axis within 1e-12. |
 | BREP-12 | Kernel infrastructure: `KernelConfig`, `init()` (OCCT message printer → `tracing`, `OSD_ThreadPool` size), progress/cancel bridge (`Message_ProgressIndicator` ↔ `JobCtx`), validation policy, `KernelError` + `Diagnostic`, `Shape::max_tolerance`, shim CATEGORY (R/N/C/G) lint test, concurrency stress-test harness, global I/O lock, serde-derive check for every op parameter type | BREP-02, FND-04 | P0 | Todo | 1. An OCCT warning appears as a `tracing` event with target `occt`, and nothing goes to stdout. 2. A test op with a progress range reports monotone progress to a `JobCtx`. Cancelling the token makes it return `KernelError::Cancelled` within 50 ms. 3. A compile-time test asserts that every op parameter type is `Clone + Debug + PartialEq + Serialize + DeserializeOwned` (S20 KH-01 prerequisite), and a forwarding decorator implementing `BrepKernel` compiles (object safety). 4. The CATEGORY lint fails when a shim function lacks a category comment. 5. Stress harness: 8 threads × 2 000 iterations of R queries on one shared shape. No crash, results are bit-identical to single-threaded ones, and the input's BinTools hash is unchanged. |
 | BREP-03 | Face and wire builders: `make_planar_faces` (from `PlanarProfile` with tags + loop validation), `make_planar_polygon`, `make_face` (analytic + B-spline surfaces; `Natural`/`UvRect`/`Loops`/`Polylines` bounds), `make_wire` | BREP-12 | P0 | Todo | 1. A profile with all 5 `Curve2d` kinds (line, circle hole, arc, ellipse arc, rational B-spline) gives a valid face whose area matches the analytic area within 1e-9 relative. Every edge has its input tag. 2. An open loop gives `OpenLoop` with the right loop/edge index. A hole outside the outer loop gives `InvalidInput`. 3. A 1000-vertex polygon with 10 holes builds in < 20 ms. A non-planar input gives `NotPlanar`. 4. `make_face` on cylinder/cone/sphere/torus with `Polylines` bounds taken from a tessellated reference face reproduces the face area within 0.1 %. A 5×5 B-spline patch with `Natural` bounds is valid. 5. 1000 random valid profiles (proptest) never crash and always give valid faces or a clean `Err`. |
 | BREP-14 | Primitives (box, cylinder, cone, sphere, torus) on a `Plane` frame; `prism` (vector, infinite, taper, `merge_coplanar`); `revol`; `gtransformed` | BREP-03 | P0 | Todo | 1. Golden volume/area/topology counts for each primitive, for prism of 5 profile types and for revol (90°, 360°) within 1e-9 relative (`tests/golden/brep/`). 2. A tapered prism of a square at 5° matches the analytic frustum volume within 1e-9. 3. Results are BRepCheck-valid. 4. Prism and revol run in the stress test. |
@@ -1057,6 +1057,55 @@ is kept and the spike hit no regression.
 - The workspace all-features clippy (CI and local gate) excludes `amg-occt-sys` and `amg-brep`;
   the `occt` job lints them with `--all-features`.
 
+### 2026-11-10 - BREP-02 Shape handle, sub-shape index, queries, `.brep` I/O
+**Landed.** `amg-brep` has `Shape` (`Arc` around an `occt`/no-backend `Occ`, lazy `OnceLock`
+index and bbox), `SubShapeIndex` (plain-Rust compressed tables built from one `OcTopology` FFI
+call), the `geom` types, a `KernelError` subset, rigid `transformed`, and `write_bin`/`read_bin`
+(`AMGB` + `FORMAT_VERSION` 1 + BinTools v4, no triangles) plus `write_text`/`read_text` (BRepTools
+v3, no triangles, classic locale). `amg-occt-sys` gains the query/IO shim functions (each tagged
+`// CATEGORY:`), `OcIndex`, `unsafe impl Send + Sync` for `OcShape`/`OcIndex` with SAFETY notes,
+and a `fixture-gen` feature with 11 C++ fixture builders. `testdata/brep/` holds 11 text fixtures
+(largest `plate_with_holes`, 1030 faces, 823 KB) and `expected.json`, regenerated by
+`cargo run -p amg-brep --features fixture-gen --example gen_brep_fixtures`. The generator checks
+counts and class histograms against values derived by hand from each construction.
+
+**Done-when status** (`cargo nextest run -p amg-occt-sys -p amg-brep --features occt`, 46 tests).
+1: counts and per-face classes match `expected.json` for all 11 parts. 2: index + `face_area`
+fingerprints (exact bit patterns) match in two child processes (one with allocator churn) and
+after a `write_bin`/`read_bin` round trip. 3: re-write is byte-identical for all 11 fixtures. 4:
+`static_assertions::assert_impl_all!(Shape: Send, Sync)` in `shape.rs`. 5: adjacency invariants
+hold on all fixtures; one-face edges are only seams, degenerated edges or open-shell boundaries.
+6: the cylinder fixture reports radius 5 and axis +Z through (3, 1) within 1e-12.
+
+**Budget** (`cargo bench -p amg-brep --features occt --bench brep_io`, plate, 1030 faces):
+`budget/brep-bin-roundtrip-1000` 27.7 ms (write 12.4 ms, read 13.6 ms) for a shape that came from
+`read_bin`. The first `write_bin` of any other shape takes 37.2 ms (see below).
+
+**Findings and deviations.**
+- **BinTools is not a fixed point on reflected frames.** Its reader rebuilds each `gp_Ax3` Y
+  direction as `±(N × X)`, so a left-handed surface frame (any reflection) loses `-0.0` signs on
+  its first read and re-writes different bytes. `write_bin` therefore writes, re-reads and
+  writes again unless the shape came from `read_bin` (or shares its TShapes via `transformed`,
+  `solids`, `sub_shape`). Cost: one extra round trip on a shape's first save.
+- Frames are reported right-handed (`normal = x × y`); for a reflected surface the normal is
+  opposite to OCCT's axis and `v` runs against it.
+- An identity `transformed` returns a shape `IsSame` to the input (no identity `TopLoc_Location`).
+- Filleted-box corners are spherical patches with a degenerated pole edge: 26/56/24, not the
+  draft's 26/48/24.
+- 11 fixtures rather than 10 (`cylinder_mirrored` covers the reflection case). `.brep` is not in
+  the LFS patterns, so the fixtures are plain files (all < 1 MB).
+- No debug generation stamp on ids: `FaceId(pub u32)` is a transparent type; ids are range-checked
+  and panic when out of range.
+- Adjacency is built by one traversal of faces → wires (`BRepTools::OuterWire` first,
+  `BRepTools_WireExplorer` order with stored order as fallback) rather than
+  `MapShapesAndAncestors`; `edge_faces` is its inverse in Rust.
+- `read_text` takes no global lock on 8.0.1 (the `Strtod` race is fixed there, §9).
+
+**Leftovers.** `KernelError` is the subset BREP-02 needs (BREP-12 completes it and adds
+`Diagnostic`); `max_tolerance` (BREP-12), `gtransformed` (BREP-14) and
+`amg_brep::kernel_version` are not done. Skipping the extra BinTools round trip for shapes with
+no reflected frames would bring a first save to the steady-state cost.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1132,3 +1181,13 @@ All additive except the CI timeouts:
   350 min, because `vcpkg install` in those jobs now includes OCCT on a cache miss.
 - The `--all-features` clippy step in CI now compiles the shim and needs the vcpkg install, which
   that job already runs.
+
+### 2026-11-10: additions and shared files changed by BREP-02 (lane A)
+All additive:
+- `amg-brep`: `Shape::face_area(FaceId) -> f64` (exact area, used for index-stability checks),
+  `geom::Surface::class() -> GeomClass`, `pub const FORMAT_VERSION: u8`, `#[doc(hidden)]
+  Shape::fixture` behind the new `fixture-gen` feature.
+- `amg-occt-sys`: `pub use cxx` (so `amg-brep` names `UniquePtr`/`Exception` without its own
+  `cxx` dependency), the `fixture-gen` feature and `fixture_ffi` bridge; `SHIM_VERSION` is 2.
+- New dependency `static_assertions` 1.1.0 (MIT/Apache-2.0, `THIRD_PARTY.md`); `Cargo.lock`
+  changes accordingly.
