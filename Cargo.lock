@@ -198,6 +198,10 @@ dependencies = [
  "amg-core",
  "amg-jobs",
  "amg-mesh",
+ "amg-testkit",
+ "criterion 0.8.2",
+ "proptest",
+ "rayon",
 ]
 
 [[package]]

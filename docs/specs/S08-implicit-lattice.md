@@ -201,8 +201,12 @@ impl MeshSdf {
     pub fn unsigned(&self, p: Point3) -> f64;      // clamped to band
     pub fn closest_group(&self, p: Point3) -> Option<amg_mesh::FaceGroupId>;   // None beyond band
     pub fn content_hash(&self) -> u64;             // mesh content hash + band
+    // IMP-03 additions:
+    pub fn spatial(&self) -> &Arc<amg_mesh::MeshSpatial>;
+    pub fn is_closed(&self) -> bool;               // boundary chain empty; only then may_cross prunes
+    pub fn is_inside(&self, p: Point3) -> bool;    // winding > 0.5 (β = 1 estimate, β = 2 if ambiguous)
 }
-impl amg_mesh::iso::ScalarField for MeshSdf { /* may_cross via the 1-Lipschitz bound */ }
+impl amg_mesh::iso::ScalarField for MeshSdf { /* values: parallel, Morton order; may_cross: distance + 1-Lipschitz bound on closed meshes */ }
 
 /// Narrow-band sparse grid of f16 samples (`d / cell_size`), trilinear. CMP-02 storage.
 pub struct SampledGrid { /* amg_compute brick grid (CMP-02), origin, cell_size, band, kind */ }
@@ -405,7 +409,7 @@ the reference machine (vision doc), release build. Golden tests live in `tests/g
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| IMP-03 | Mesh SDF: `MeshSdf` (narrow-band closest point + fast-winding-number sign, clamped to ±band), `closest_group`, `ScalarField` impl | MESH-03 | P0 | Todo | On 10 k random points within the band of corpus watertight models, the absolute signed distance equals brute-force closest distance within 1e-9 mm, and the sign equals the exact winding number's for points ≥ 1 mean edge length off the surface. A property test shows the field is 1-Lipschitz (1e-9 slack) and `may_cross` never returns false for a box where 64³ dense sampling finds a crossing. 2 M signed queries on a 1 M-tri mesh (band 2 mm) < 2 s. Results identical across 1/4/16 threads. |
+| IMP-03 | Mesh SDF: `MeshSdf` (narrow-band closest point + fast-winding-number sign, clamped to ±band), `closest_group`, `ScalarField` impl | MESH-03 | P0 | Review | On 10 k random points within the band of corpus watertight models, the absolute signed distance equals brute-force closest distance within 1e-9 mm, and the sign equals the exact winding number's for points ≥ 1 mean edge length off the surface. A property test shows the field is 1-Lipschitz (1e-9 slack) and `may_cross` never returns false for a box where 64³ dense sampling finds a crossing. 2 M signed queries on a 1 M-tri mesh (band 2 mm) < 2 s. Results identical across 1/4/16 threads. |
 | IMP-01 | `SdfGraph`: nodes (primitives, similarity transforms, booleans + smooth booleans, offset, shell), `GraphBuilder`, bounds + Lipschitz bound, tape lowering, CPU f64 point/gradient/interval evaluators, `AMGI` binary encoding, blake3 hash, `ScalarField` impl; fidget oracle behind `fidget-bench` | FND-03, MESH-17 | P1 | Todo | Primitives match their closed forms within 1e-12 on 10 k points; smooth booleans with blend 0 equal min/max exactly. Interval property test (1 000 random graphs × 100 boxes): every sampled value lies in the box's interval. Finite-difference test: no graph exceeds its Lipschitz bound. Binary round trip is bit-exact and the hash is equal across runs and thread counts. `finish` rejects unbounded graphs and non-uniform scale. With `fidget-bench`, values match fidget within 1e-5 relative on random closed-form graphs. 1 M point evaluations of R1 < 200 ms on 8+ cores. |
 | IMP-11 | Implicit bodies in the timeline: swap `amg-doc` `SdfGraph` stub, body codec arm, `amg-features::implicit` base (input lookup, emit, `ImplicitFeatureError`), `ImplicitPrimitiveFeature` (`implicit.primitive`) | IMP-01, DOC-05, MESH-16 | P1 | Todo | A primitive feature is undoable (undo/redo restores the exact graph hash), parametric (editing a value recomputes it and its dependents only), hits the cache on unchanged inputs and round-trips through serialization. An implicit body survives `.amg` save/load with an equal graph hash. `cargo nextest run -p amg-doc` still passes. |
 | IMP-02 | GPU evaluator: WGSL tape interpreter, tile/brick interval pruning, f16 brick output (`SdfBricks`), `sample()` with CPU fallback | IMP-01, CMP-02, FND-09 | P1 | Todo | GPU vs CPU: on 200 random graphs × 10 k points, the difference is ≤ 1e-4 mm plus f16 quantisation. Pruning is conservative: against a dense 128³ CPU reference, no cell with a sign change within the band is pruned. R1 at 512³ effective resolution (band 2 cells) samples in < 1 s on the GPU and < 10 s on the CPU fallback. A parameter-only edit creates no new pipeline (`pipelines_created` unchanged). Tests run on WARP in CI. |
@@ -533,6 +537,59 @@ Reference cases (generators and data in `amg-implicit` tests and `testdata/`):
 
 ### 2026-11-09 - owner answers moved in
 - QUESTIONS #61 (`amg-ui::implicit` for lane C; roadmap Lanes row needs the module), #62 (IMP-10: implicit heuristic first, topology-optimisation mode later), #63 (booleans with an implicit body stay implicit; IMP-08 Done-when, design note §10). Open questions 4-6 resolved.
+
+### 2026-11-10 - IMP-03 Mesh SDF (lane C)
+- **Landed** in `crates/amg-implicit`: `src/sdf.rs` (`amg_implicit::sdf::MeshSdf`, re-exported
+  as `amg_implicit::MeshSdf`), `tests/mesh_sdf.rs`, `tests/common/mod.rs`, `benches/mesh_sdf.rs`.
+  Deps: `rayon` (already workspace / THIRD_PARTY); dev: `amg-mesh` with `corpus`, `amg-testkit`,
+  `criterion`, `proptest`. No new third-party crate, no `amg-mesh` change.
+- `ScalarField` already exists in `amg_mesh::iso` (MESH-17), so IMP-03 did not define a trait;
+  IMP-01 implements the same trait for `SdfGraph`. IMP-03 adds none of the crate-root types
+  (`ImplicitError`, `Backend`, `Interval`); IMP-01 adds them.
+- **Design as built:**
+  - `|d|` = MESH-03 `closest_point` within the band, clamped to `band`; `±band` beyond it.
+    For an interior (`Face`) closest point the distance is recomputed as the plane distance with
+    a normal from the two shortest edges: MESH-03's Gram-determinant kernel loses up to ~2e-9 mm
+    on long thin faces (corpus thingi10k-99899: 12 mm × 3 µm faces), which broke the 1e-9 mm
+    Done-when. Edge and vertex distances are kept.
+  - Sign: winding number > 0.5. On a closed mesh (boundary chain empty, checked by vertex index
+    in `new`) the winding number is an integer off the surface, so a β = 1 estimate decides when
+    within 0.2 of an integer, otherwise β = 2 (MESH-03 default). Open meshes always use β = 2.
+    About 4× cheaper than β = 2 alone near the surface.
+  - `values()` evaluates batches of ≥ 4096 points in parallel and in Morton order (scattered
+    back; no value changes). On 2 M band points spread at random this goes from 1.73 s to 1.11 s.
+  - `may_cross` (closed meshes only): false when no surface lies within `half_diagonal + |iso|`
+    of the box centre, or when `|f(centre) − iso| > half_diagonal`; always false for
+    `|iso| > band`. On open meshes it returns true for `|iso| ≤ band` (the sign can jump where the
+    winding number passes 0.5, away from the surface).
+  - `new` builds the winding tree eagerly (detached context; call `MeshSpatial::prepare_winding`
+    first to make that cancellable). This also avoids the lazy `OnceLock` initialisation running
+    rayon work from inside a parallel query loop.
+  - Negative or NaN band → 0; `-0.0` normalised so `content_hash` is equal; NaN points → NaN.
+- **Evidence** (16-thread dev machine; release for timings):
+  - Brute force (10 k points in the band per model; the oracle uses the plane projection with a
+    shortest-edge normal and is independent of the MESH-03 kernel): 5 synthetic closed meshes,
+    worst `|d|` error 2.2e-15 mm; 56 watertight committed corpus models (all ≤ 120 k faces, none
+    skipped), worst 3.9e-11 mm; 58 002 sign checks ≥ 1 mean edge
+    off the surface, all equal to the exact winding number's sign.
+  - Proptest: 1-Lipschitz (1e-9 slack) on 48 × 300 pairs straddling the surface and the band
+    edge; `may_cross` never false when 64³ dense sampling crosses `iso` (48 boxes).
+  - Budget: 2 M signed queries in the band of a 1 003 520-tri mesh (S07 benchmark sphere scaled
+    to r = 50 mm), band 2 mm: 1.11 s (criterion `mesh_sdf_1m/signed_2m_band`; 2 M uniform box
+    points 0.41 s). Asserted < 2 s by `budget_2m_queries_on_1m_tris` under `AMG_STRICT_TIMING=1`
+    (release: 1.036 s, best of 3).
+    There is no row for it in the vision budget table, so no `budget/<id>` bench.
+  - Bit-identical values, groups, `may_cross` and hash across 1/4/16 threads (120 k-tri torus).
+  - MESH-17 extraction of a torus `MeshSdf` (cell 0.25 mm) is closed, manifold, one shell,
+    volume within 2 %.
+- **Deviations:** no golden geometry test: IMP-03 produces a field, not geometry (IMP-04/IMP-12
+  carry goldens). Additive API above the spec: `spatial()`, `is_closed()`, `is_inside()`,
+  `FAST_BETA`, `FAST_MARGIN` (Interfaces updated).
+- **Leftovers:** (1) MESH-03 `closest_on_tri` precision on high-aspect faces should be fixed in
+  `amg-mesh` (a S07 follow-up; `MeshSdf` then no longer needs its plane-distance refinement).
+  (2) `may_cross` does no pruning on open meshes (wrap inputs); a winding-number bound per box
+  could add it later. (3) The closedness check is by vertex index: unwelded but geometrically
+  closed meshes count as open (conservative).
 
 ## Interface changes
 None yet (the spec has not reached `Ready`).

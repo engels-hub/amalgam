@@ -11,6 +11,18 @@ publish.workspace = true
 amg-core.workspace = true
 amg-jobs.workspace = true
 amg-mesh.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+# `corpus`: the MESH-28 corpus loader and the benchmark mesh generators (test support only).
+amg-mesh = { workspace = true, features = ["corpus"] }
+amg-testkit.workspace = true
+criterion.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "mesh_sdf"
+harness = false
 
 [lints]
 workspace = true
