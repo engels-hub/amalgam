@@ -29,8 +29,9 @@ amg-testkit.workspace = true
 amg-mesh = { workspace = true, features = ["corpus"] }
 criterion.workspace = true
 proptest.workspace = true
-# Parser oracle and peak-heap measurement, dev/bench only (THIRD_PARTY.md, S12).
+# Parser oracles (stl_io, tobj) and peak-heap measurement, dev/bench only (THIRD_PARTY.md, S12).
 stl_io = "0.11.0"
+tobj = { version = "4.0.5", default-features = false }
 dhat = "0.3.3"
 serde_json.workspace = true
 sha2 = "0.10.9"
@@ -46,4 +47,8 @@ harness = false
 
 [[bench]]
 name = "stl_heap"
+harness = false
+
+[[bench]]
+name = "obj"
 harness = false

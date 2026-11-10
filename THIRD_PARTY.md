@@ -53,7 +53,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | quick-xml 0.42.0 | `amg-io` 3MF XML (S12) | MIT | no | no | Planned |
 | memchr 2.8.3 | `amg-io` parsers (S12; already transitive) | Unlicense / MIT | no | no | Planned |
 | image 0.25.10 (png + jpeg features) | `amg-io` canvas images (S12 IO-10) | MIT / Apache-2.0 | no | no | Planned |
-| stl_io 0.11.0, tobj 4.0.5, ply-rs-bw 4.0.1 | `amg-io` parser test oracles, dev-only (S12) | MIT | no | no | stl_io 0.11.0 in use (IO-02, dev-only); tobj, ply-rs-bw planned |
+| stl_io 0.11.0, tobj 4.0.5, ply-rs-bw 4.0.1 | `amg-io` parser test oracles, dev-only (S12) | MIT | no | no | stl_io 0.11.0 in use (IO-02, dev-only); tobj 4.0.5 in use (IO-05, dev-only, `default-features = false`); ply-rs-bw planned |
 | dhat 0.3.3 | `amg-io` peak-heap bench `stl_heap`, dev-only (S12) | MIT / Apache-2.0 | no | no | In use (IO-02, dev-only) |
 | arbitrary 1.5.0, libfuzzer-sys 0.4.13, cargo-fuzz 0.13.2 | `fuzz/` crate outside the workspace (S12 IO-16) | arbitrary, cargo-fuzz: MIT / Apache-2.0; libfuzzer-sys: (MIT OR Apache-2.0) AND NCSA | no | n/a (outside workspace) | Planned (fuzz only) |
 | lib3mf 2.5.0 (PyPI, 3MF Consortium), xmlschema 4.3.2 (PyPI) | CI validation of written 3MF, not linked (S12) | lib3mf: BSD-2-Clause; xmlschema: MIT | no | n/a (tool) | Planned (CI tool) |

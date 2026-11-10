@@ -5,7 +5,7 @@
 //! This is the IO-01 foundation: the format registry and content sniffing, sources and
 //! atomic sinks, the format-independent [`Scene`], units and up-axis, options, reports and
 //! errors, and the `probe`/`import`/`export` entry points. The readers and writers of the
-//! individual formats land with IO-02 (STL, done) and later; until then `import` and
+//! individual formats land with IO-02 (STL, done), IO-05 (OBJ) and later; until then `import` and
 //! `export` answer [`IoError::Unsupported`] for the others.
 
 #![warn(missing_docs)]
@@ -13,6 +13,7 @@
 mod endpoint;
 mod error;
 mod format;
+pub mod obj;
 mod options;
 mod scene;
 pub mod stl;
@@ -124,8 +125,10 @@ pub fn import(
         Some(f) => f,
         None => probe(src, &opts.limits)?.format,
     };
-    if format == Format::Stl {
-        return import_stl(src, sniffed, opts, ctx);
+    match format {
+        Format::Stl => return import_stl(src, sniffed, opts, ctx),
+        Format::Obj => return import_obj(src, sniffed, opts, ctx),
+        _ => {}
     }
     Err(IoError::Unsupported {
         format,
@@ -145,8 +148,31 @@ fn import_stl(
     opts: &ImportOptions,
     ctx: &JobCtx,
 ) -> Result<Imported, IoError> {
-    let mut out = stl::read(src, opts, ctx)?;
-    // STL declares no unit.
+    let out = stl::read(src, opts, ctx)?;
+    finish_import(out, src, sniffed, Format::Stl, opts, ctx)
+}
+
+/// OBJ: reads, then applies the unit, `merge_objects` and the up axis (S12 §4).
+fn import_obj(
+    src: Source<'_>,
+    sniffed: bool,
+    opts: &ImportOptions,
+    ctx: &JobCtx,
+) -> Result<Imported, IoError> {
+    let out = obj::read(src, opts, ctx)?;
+    finish_import(out, src, sniffed, Format::Obj, opts, ctx)
+}
+
+/// What every unit-less mesh format shares after reading.
+fn finish_import(
+    mut out: Imported,
+    src: Source<'_>,
+    sniffed: bool,
+    format: Format,
+    opts: &ImportOptions,
+    ctx: &JobCtx,
+) -> Result<Imported, IoError> {
+    // The format declares no unit.
     let unit = opts.unit.resolve(None);
     out.report.applied_unit = Some(unit);
     if let UnitChoice::FromFile { fallback } = opts.unit
@@ -157,7 +183,7 @@ fn import_stl(
     if sniffed
         && let Source::Path(p) = src
         && let Some(ext) = p.extension().and_then(|e| e.to_str())
-        && let Some(w) = check_extension(ext, Format::Stl)
+        && let Some(w) = check_extension(ext, format)
     {
         out.report.warnings.push(w);
     }
@@ -242,8 +268,10 @@ pub fn export(
 ) -> Result<ExportReport, IoError> {
     ctx.checkpoint()?;
     scene.validate()?;
-    if format == Format::Stl {
-        return stl::write(scene, dst, opts, ctx);
+    match format {
+        Format::Stl => return stl::write(scene, dst, opts, ctx),
+        Format::Obj => return obj::write(scene, dst, opts, ctx),
+        _ => {}
     }
     Err(IoError::Unsupported {
         format,
