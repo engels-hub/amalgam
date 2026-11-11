@@ -574,7 +574,7 @@ S01.
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | MAT-01 | `amg-materials` core: ids, `Material` + all sub-types (three elastic models with validation, `Directional`, strength, plasticity, thermal, `AmInfo`), minimal `Appearance` + `Srgba8`, `Provenance`, TOML format v1 reader/writer (unit strings, inline provenance tables, migration hook, `TooNew`), `Library` (in-memory, load/save atomic), `builtin()` embedding with a 2-material fixture, `MaterialError` + `Diagnostic`. Additive `amg-core::units` rows and typed quantities from note §2.5 (PR flagged as S00 interface change). | FND-10 | P0 | Done | Tests pass. (a) A fixture library using every property kind loads; load→save→load keeps all values within 2 ulp, and a second save is byte-identical. (b) `serde_json` round-trip of every `Material` is bit-exact. (c) Each validation rule in note §2.1–2.4 has a failing fixture giving the expected error with the TOML key path: ν = 0.5 isotropic, transversely isotropic `(1+ν_p)(1−ν_p−2ν_ptν_tp) ≤ 0`, orthotropic determinant ≤ 0, negative E, non-monotone plasticity table, `z` value with an `XZY` specimen. (d) `density = "1.24 MPa"` gives `Dimension` naming `material[0].density`. `density = "1.24"` gives `MissingUnit`. (e) An unknown `src` gives `UnknownSource`. `format_version = 2` gives `TooNew`. (f) New unit rows parse: `0.2 W/(m*K)`, `1800 J/(kg*K)` = 1.8e9 canonical, `68 ppm/K` = 6.8e-5, `12 %` = 0.12. (g) `Srgba8` hex round-trips for all 2^24 colours (alpha FF), and sRGB→linear→sRGB is identity for all 256 levels. (h) A 1000-material generated library parses in < 20 ms (criterion). `clippy -D warnings` is clean. |
-| MAT-05 | Built-in library v1 data: the 17 materials of §Design "Built-in library v1" with cited `[[source]]` records, per-value provenance, conditions, AM info (Orca `slicer_type`, temperature ranges) and one default appearance each, plus ~12 generic appearances (plastics in common filament colours, brushed aluminium, steel, titanium, grey and clear resin) | MAT-01 | P0 | Todo | `builtin()` loads and validates. Provenance tests (note §3.2) pass: density, in-plane E and one tensile strength are `measured` for every material; no `estimate` on density; every `src` resolves; every material has a `condition`. Plausibility-bounds test (note §3.4) passes for every material. Each FFF material whose TDS reports Z specimens has `z` strengths. Every material's `appearance` resolves. The PR description lists 10 randomly chosen values (seeded) next to the page or table of the cited document, checked by the reviewer. No source is MatWeb, CAMPUS, Granta or the Fusion library. |
+| MAT-05 | Built-in library v1 data: the 17 materials of §Design "Built-in library v1" with cited `[[source]]` records, per-value provenance, conditions, AM info (Orca `slicer_type`, temperature ranges) and one default appearance each, plus ~12 generic appearances (plastics in common filament colours, brushed aluminium, steel, titanium, grey and clear resin) | MAT-01 | P0 | Review | `builtin()` loads and validates. Provenance tests (note §3.2) pass: density, in-plane E and one tensile strength are `measured` for every material; no `estimate` on density; every `src` resolves; every material has a `condition`. Plausibility-bounds test (note §3.4) passes for every material. Each FFF material whose TDS reports Z specimens has `z` strengths. Every material's `appearance` resolves. The PR description lists 10 randomly chosen values (seeded) next to the page or table of the cited document, checked by the reviewer. No source is MatWeb, CAMPUS, Granta or the Fusion library. |
 | MAT-07 | `LibrarySet`: user library directory (load, create, skip-and-report bad files), `library_mut` + `upsert`/`remove` with revision bump, `search`, `match_name` (3MF/STEP import), `drift` | MAT-01 | P0 | Review | Tests pass. (a) A temp dir with 3 valid files and 1 broken file loads 3 libraries and returns exactly one error naming the broken file. (b) Editing a value via `upsert_material` bumps `revision` by 1; an unchanged upsert does not. (c) `save` with a simulated crash between write and rename (test hook) leaves the old file intact. (d) `match_name("PLA")`, `("pla")` and `("PETG Basic")` (via `slicer_type`/family) return the expected built-ins; a user material with the same name wins. (e) `drift` returns each of the 4 variants in a fixture. (f) `search` over 5000 materials < 1 ms median (criterion). (g) The built-in library rejects `library_mut`. |
 | MAT-06 | Document integration (additive `amg-doc` change, flagged): `Design` material/appearance tables, 4 commands + 2 events, `body_material`/`body_appearance`/`material_users`, `assign_material`/`assign_appearance`/`remove_unused_materials`, "Update from library" command builder, `default_material` preference read by mass-property callers; minimal Phase 1 assignment (Python/CLI command + body context-menu combo if UI-07 is done, else deferred to MAT-03) | MAT-07, DOC-05, DOC-07 | P0 | Todo | Tests pass. (a) `assign_material` of a built-in to 3 bodies applied as one transaction; one undo restores both the props and the table. (b) Save→load→save of the `.amg` keeps byte-identical `design.json` including materials. Loading with an empty `LibrarySet` resolves all body materials. (c) `RemoveMaterial` of a referenced material gives `CommandError::InUse`; `remove_unused_materials` removes exactly the unreferenced ones. (d) Bumping the library revision gives `Drift::LibraryNewer`, and the update command replaces the copy, undoable. (e) `BodyPropsChanged`/`MaterialChanged` events fire minimally (no `BodyGeometryChanged`). (f) A `Design` with 100 materials clones in < 1 µs (persistent map). |
 | MAT-02 | Full appearance: emissive, transmission/IOR, clearcoat, `TextureSet` refs; appearance library entries; `to_3mf`/`from_3mf` incl. `pbmetallic` and `translucent`; per-face appearance overrides (`BodyProps.face_appearances`, additive S01 request) for solids (`EntityRef`) and meshes (face groups); render adapter conversion in `amg-ui::materials` | MAT-06, DOC-06 | P1 | Todo | Tests pass. (a) MAT-01 appearance files still load unchanged. (b) `to_3mf`→`from_3mf` round-trips colour exactly and metallic/roughness within 1/255. (c) A per-face override on a fillet face survives an upstream sketch edit (DOC-06 resolution) in a golden test. (d) The mesh face-group override survives save/load. (e) The adapter output for a fixture appearance matches expected linear floats within 1e-6. |
@@ -792,6 +792,54 @@ hash golden (MAT-05). The `Interface changes` entry of S00 documents the unit-ta
 - No new dependency; the custom TOML reader is untouched.
 
 **Leftovers.** None for MAT-07. MAT-05 data lets the `PETG Basic` check run on the real built-in.
+
+### 2026-11-11 - MAT-05 built-in library v1 data (lane G; status Review)
+**Landed** (`crates/amg-materials/data/builtin/{materials,appearances}.toml`,
+`tests/builtin_data.rs`, `tests/golden/materials/builtin.toml`; no commit, no new dependency):
+- The 17 materials of §Design "Built-in library v1" with 27 `[[source]]` records (URL of the copy
+  actually fetched, accessed 2026-11-11) and a page/table note on almost every value; 18 generic
+  appearances (8 plastic colours, carbon-black, SLS white, grey/dark-grey/clear resin, titanium,
+  brushed and as-built aluminium, steel, stainless).
+- Primary documents: Bambu Lab TDS (PLA Basic V2.0, PETG HF V1.0, ABS V2.0, ASA V2.0, PAHT-CF
+  V2.0, TPU 95A V3.0; XY and Z specimens), Stratasys FDM Nylon 12 (XZ/ZX), EOS PA 2200 Balance
+  PDS, Formlabs Grey Resin V5 and Tough 2000 V2 TDS plus the Formlabs density white paper, EOS
+  MDS for Ti64 (07.2022), AlSi10Mg (12.2017) and 316L, AddUp AlSi10Mg (modulus only),
+  thyssenkrupp S235Jxx and 1.4404, Ovako S235JR (ν), Smiths Metal Centres 6061 and Ti-6Al-4V,
+  ATI Ti-6Al-4V (density); ν of PLA, PETG and ABS from open-access papers (Gaweł 2023, Wikło
+  2025, Cantrell et al.).
+- Tests: v1 id set and validation, note §3.2 provenance rules, §3.4 bounds, Z strengths for all 7
+  FFF entries (all their TDS have Z specimens), appearance resolution, no aggregator/Fusion source,
+  content-hash golden (`AMG_BLESS=1`; a changed hash without a revision bump fails), the seeded
+  10-value review sample (`test(seeded_review_sample) --no-capture`), `match_name("PETG Basic")`
+  on the real built-in (MAT-07 leftover), and the < 5 ms parse budget under `AMG_STRICT_TIMING=1`
+  (0.57 ms median, test profile).
+
+**Deviations and clarifications**
+- **Poisson's ratio.** No fetched datasheet gives ν. PLA, PETG, ABS and S235 use cited values
+  (`typical`). The other 13 use `q = "estimate"` with the `amg-estimate` source record and a note
+  (ASA reuses the ABS paper value, also flagged `estimate`). The test only allows `estimate` on ν.
+  MAT-04, or a later data pass, can replace them with cited values.
+- **Sources other than note §3.3.** The S17 candidates are not all freely fetchable: the
+  Eurocodes, EN 10025/10088 and ASTM B348/F-series are paywalled, so producer datasheets that
+  quote them replace them. The EOS AlSi10Mg and current 316L sheets give no modulus, so E comes
+  from AddUp (AlSi10Mg, FormUp 350) and the EOS 316L 05.2014 sheet. Formlabs Grey V5 has no
+  post-cured density, so the green-state value (1.21 g/cm³) is used, and the note says so.
+  The Smiths 6061 sheet does not name the temper; its values are the T6 level, and the condition
+  says so. Neat PA12 filament data is Stratasys FDM Nylon 12; in-plane values come from on-edge
+  (`XZY`) specimens and have no nozzle/bed temperature (Stratasys printers only).
+- **Extra plausibility row.** Sintered PA12 (0.93 g/cm³) is below the unfilled-FFF density bound,
+  so the test adds a "PBF polymer" row (ρ 0.85-1.10, E 1.0-2.5 GPa, ν 0.30-0.42, UTS 30-60 MPa).
+  The note's §3.4 table is not edited here; the owner may copy the row into the note.
+- "One tensile strength" is the in-plane ultimate strength, or the yield strength where only that
+  is given (PA12 FFF, S235, 1.4404; the steel values are specified minimums, flagged in the note).
+- `pla.fff` and `ti6al4v.lpbf` keep `revision = 1`: no document can hold a copy of the MAT-01
+  fixture before MAT-06, so the v1 data starts the revision history (golden).
+- Two MAT-01 tests in `tests/library.rs` asserted fixture specifics and were updated: material
+  count 2 → 17, and the PLA source key `mat01-fixture` → `bambu-pla-basic-tds-v2`. Everything else
+  is unchanged.
+
+**Leftovers.** Cited ν for the 13 `estimate` entries; per-material AM defaults (S16 request);
+`cost` (no cited prices). MAT-04 upgrades the FFF entries to transversely isotropic.
 
 ## Interface changes
 

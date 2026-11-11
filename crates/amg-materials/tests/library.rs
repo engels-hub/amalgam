@@ -641,7 +641,7 @@ fn upsert_rekeys_and_bumps_revision_on_change_only() {
     assert_eq!(stored.id.as_str(), "user.edit/pla.fff");
     assert_eq!(stored.revision, 1);
     assert!(
-        lib.source(&"mat01-fixture".into_key()).is_some(),
+        lib.source(&"bambu-pla-basic-tds-v2".into_key()).is_some(),
         "sources copied in"
     );
     // Unchanged upsert: same revision.
@@ -691,7 +691,8 @@ fn builtin_fixture_loads_and_is_read_only() {
     let lib = builtin();
     assert!(lib.is_read_only());
     assert_eq!(lib.meta().id, "amg.builtin");
-    assert_eq!(lib.materials().count(), 2);
+    // MAT-05 replaced the two-material MAT-01 fixture with the 17-material v1 data.
+    assert_eq!(lib.materials().count(), 17);
     let pla = lib.material(&default_material_id()).unwrap();
     assert!((pla.density.to_g_per_cm3() - 1.24).abs() < 1e-12);
     for m in lib.materials() {

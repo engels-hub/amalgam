@@ -13,7 +13,8 @@ const APPEARANCES: &str = include_str!("../data/builtin/appearances.toml");
 
 /// The embedded, validated, read-only built-in library (parsed lazily, once).
 ///
-/// MAT-01 ships a two-material fixture; MAT-05 replaces it with the cited v1 data.
+/// Library v1 (MAT-05): 17 materials and 18 appearances, every value cited per value
+/// (`data/builtin/materials.toml`); data rules are tested in `tests/builtin_data.rs`.
 pub fn builtin() -> &'static Library {
     static LIB: OnceLock<Library> = OnceLock::new();
     LIB.get_or_init(|| {

@@ -1,4 +1,6 @@
-# Built-in appearances, MAT-01 fixture. MAT-05 adds the ~12 generic appearances.
+# Built-in appearances (MAT-05): generic glTF metallic-roughness looks. The colours are chosen
+# by eye as generic filament, resin and metal looks; they are not measured product colours.
+# base_color is sRGB as authored (3MF displaycolor), metallic/roughness as in glTF 2.0.
 
 [[appearance]]
 id = "plastic.white-matte"
@@ -9,9 +11,137 @@ metallic = 0.0
 roughness = 0.8
 
 [[appearance]]
+id = "plastic.black"
+revision = 1
+name = "Plastic - black"
+base_color = "#1E1E20FF"
+metallic = 0.0
+roughness = 0.6
+
+[[appearance]]
+id = "plastic.grey"
+revision = 1
+name = "Plastic - grey"
+base_color = "#8C8F92FF"
+metallic = 0.0
+roughness = 0.65
+
+[[appearance]]
+id = "plastic.red"
+revision = 1
+name = "Plastic - red"
+base_color = "#C8232CFF"
+metallic = 0.0
+roughness = 0.55
+
+[[appearance]]
+id = "plastic.blue"
+revision = 1
+name = "Plastic - blue"
+base_color = "#1F5FBFFF"
+metallic = 0.0
+roughness = 0.5
+
+[[appearance]]
+id = "plastic.yellow"
+revision = 1
+name = "Plastic - yellow"
+base_color = "#F2C230FF"
+metallic = 0.0
+roughness = 0.6
+
+[[appearance]]
+id = "plastic.green"
+revision = 1
+name = "Plastic - green"
+base_color = "#2E9E4AFF"
+metallic = 0.0
+roughness = 0.6
+
+[[appearance]]
+id = "plastic.orange"
+revision = 1
+name = "Plastic - orange"
+base_color = "#F07820FF"
+metallic = 0.0
+roughness = 0.6
+
+[[appearance]]
+id = "plastic.carbon-black"
+revision = 1
+name = "Plastic - carbon-fibre filled, matte black"
+base_color = "#2A2B2DFF"
+metallic = 0.0
+roughness = 0.9
+
+[[appearance]]
+id = "plastic.sls-white"
+revision = 1
+name = "Plastic - sintered nylon, off-white"
+base_color = "#E8E4DAFF"
+metallic = 0.0
+roughness = 0.95
+
+[[appearance]]
+id = "resin.grey"
+revision = 1
+name = "Resin - grey"
+base_color = "#7E8185FF"
+metallic = 0.0
+roughness = 0.45
+
+[[appearance]]
+id = "resin.dark-grey"
+revision = 1
+name = "Resin - dark grey, matte"
+base_color = "#3A3C3FFF"
+metallic = 0.0
+roughness = 0.7
+
+[[appearance]]
+id = "resin.clear"
+revision = 1
+name = "Resin - clear"
+base_color = "#E6EEF2B3"
+metallic = 0.0
+roughness = 0.1
+
+[[appearance]]
 id = "metal.titanium"
 revision = 1
 name = "Titanium"
 base_color = "#8A8D8FFF"
 metallic = 1.0
 roughness = 0.35
+
+[[appearance]]
+id = "metal.aluminium-brushed"
+revision = 1
+name = "Aluminium - brushed"
+base_color = "#C9CCCFFF"
+metallic = 1.0
+roughness = 0.4
+
+[[appearance]]
+id = "metal.aluminium-cast"
+revision = 1
+name = "Aluminium - as built, matte"
+base_color = "#A9ACAEFF"
+metallic = 1.0
+roughness = 0.7
+
+[[appearance]]
+id = "metal.steel"
+revision = 1
+name = "Steel"
+base_color = "#8F9399FF"
+metallic = 1.0
+roughness = 0.45
+
+[[appearance]]
+id = "metal.stainless"
+revision = 1
+name = "Stainless steel"
+base_color = "#B4B7BAFF"
+metallic = 1.0
+roughness = 0.3

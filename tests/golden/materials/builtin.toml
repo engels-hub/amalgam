@@ -1,0 +1,87 @@
+# Content hash of every built-in material (MAT-05). A changed hash needs a revision bump.
+# Regenerate: AMG_BLESS=1 cargo nextest run -p amg-materials -E 'test(golden)'
+
+[[material]]
+id = "amg.builtin/316l.lpbf"
+revision = 1
+hash = "3c6b39e3a31d44e4cf3697b673e74c1c75518cec69e1dc40cef9b3a62740466a"
+
+[[material]]
+id = "amg.builtin/abs.fff"
+revision = 1
+hash = "56d750fb8e5bd5372ec1bff6dedb834c6cc729838be5f955c092b564004711f1"
+
+[[material]]
+id = "amg.builtin/alsi10mg.lpbf"
+revision = 1
+hash = "eea4a1f1e050ebf9e65342bd83b2e01f42a620e0c34dd4b2d7645992be15c68c"
+
+[[material]]
+id = "amg.builtin/aluminium.6061-t6"
+revision = 1
+hash = "0c5e0a73927473b7030d5ee6c7d88d2543fde37985f134eabf295aebc6c69f73"
+
+[[material]]
+id = "amg.builtin/asa.fff"
+revision = 1
+hash = "11d2233a09838e790e00fea7781c85bf2a9d2144edd15972d61913f4956e084b"
+
+[[material]]
+id = "amg.builtin/pa-cf.fff"
+revision = 1
+hash = "8ed1325bef7a6dfff1c61457fafd8d849610977f30712843a788a835cbb50008"
+
+[[material]]
+id = "amg.builtin/pa12.fff"
+revision = 1
+hash = "4211afe8f199b17d44ac3a6850851036592d0606361c5ef1875a6d315f248455"
+
+[[material]]
+id = "amg.builtin/pa12.pbf"
+revision = 1
+hash = "42cf01bc6f2dda5ed93056eebc2d772094ebd0eb769de564038355750ccd9629"
+
+[[material]]
+id = "amg.builtin/petg.fff"
+revision = 1
+hash = "45f46ac866bf207d7b9d2e0195a63cc58970fbf2d489a8c4d659b5d3fadfef26"
+
+[[material]]
+id = "amg.builtin/pla.fff"
+revision = 1
+hash = "35580f508f3e1fe149bb2f2579ccf096abe3f16c63407538a42dbe40d3fad31c"
+
+[[material]]
+id = "amg.builtin/resin.standard"
+revision = 1
+hash = "467a8bff17ef0d01ebd2a7c8995c8fcb61d5ce0c27ea86ba70a849762b011d58"
+
+[[material]]
+id = "amg.builtin/resin.tough"
+revision = 1
+hash = "5743e970c9d2af206c94ce2e8a06b9c1125921818235fac6984679ad97d2ac85"
+
+[[material]]
+id = "amg.builtin/stainless.1.4404"
+revision = 1
+hash = "9d1b5f640bb15fd1380c27202d914438c47a7da930ae58195e515fc3f8f4379f"
+
+[[material]]
+id = "amg.builtin/steel.s235"
+revision = 1
+hash = "97571506874d563806c9c0b48437595dfdbb47c23372a7b65741fe607ad5699c"
+
+[[material]]
+id = "amg.builtin/ti6al4v.lpbf"
+revision = 1
+hash = "a24567d8844426534c3d5415519fb876d73af9bcdfd45b0405dbbb292f02e6e1"
+
+[[material]]
+id = "amg.builtin/ti6al4v.wrought"
+revision = 1
+hash = "61ed5a914d8d8f32ae294fe1e749a5060d11b5ba798cd89daa656e06b02ca66a"
+
+[[material]]
+id = "amg.builtin/tpu-95a.fff"
+revision = 1
+hash = "1e1ff98e75b6578e8e18a7ec71801ba287849e41d14fb11bafd23137442f1ca6"
