@@ -783,7 +783,7 @@ pub mod display {
 | INS-09 | Section Analysis tool + persistence: `SectionAnalysis` ExtRecord (`inspect.section` v1, migration hook), hand-built dialog (origin plane / picked planar region, offset expression + slider, tilt, flip, hatch, cap colour, scope), browser "Analysis" folder entries, combining visible analyses, cap jobs feeding RND-06, stats panel | INS-02, INS-08, DOC-05, DOC-07, UI-07, RND-06 | P0 | Todo | Creating, editing, hiding and deleting a section are each one undo step and survive save/load byte-identically. Two visible analyses combine (box-corner cut visible in a screenshot test with RND-09, or a manual check before RND-09). Dragging the offset slider on a 1 M-tri body keeps ≥ 60 fps (GPU clip), and caps catch up ≤ 100 ms after the drag stops. Phase 1 manual script: open STL → section at XY + 10 mm → read the section area → flip → hatch on → save → reopen. |
 | INS-03 | Physical properties of mesh bodies: `props::mesh_mass_props`, `combine`, density from material with default material, Properties panel, CoM glyph | INS-01, INS-08, MAT-06 | P0 | Todo | 1. A 10×20×30 box rotated by 20 random rotations and translated: volume 6000 ± 1e-9, CoM within 1e-9 mm, inertia = R·diag(m(b²+c²)/12, …)·Rᵀ within 1e-9 relative. 2. Icosphere r = 10: volume and inertia converge to the analytic sphere values (error falls ≥ 3.5× per subdivision level). 3. Translating a body changes `inertia_com` by < 1e-9 relative. 4. Non-watertight → volume-based fields `None` with a reason; area still given. 5. `combine` of two halves equals the whole within 1e-9 relative. 6. 1 M tris < 30 ms; 10 M < 300 ms; bit-identical across thread counts. 7. Mass of a 1000 mm³ PLA cube shows 1.24 g. |
 | CON-01 | Construction framework + planes: `RefInput`/`OriginEntity`/`RefGeom`/`ConstructError`, `construct::math` plane functions (all 8 variants) and helpers, `ConstructPlane` feature registered (`construct.plane` v1) with inputs, `exprs`, compute against pre-resolved `RefGeom` (test resolver) | DOC-02, DOC-03, DOC-04 | P0 | Review | Table-driven tests: ≥ 5 analytic cases per variant plus every error in note §6. Examples: offset XY by 5 → z = 5. At-angle 30° about +X from XY → normal (0, −sin 30°, cos 30°) (right-hand rule). Tangent to cylinder r = 3 on Z at 0° from XZ → normal +Y, through (0, 3, 0). Midplane of z = 0 and z = 10 → z = 5. Three collinear points → `Collinear`. Results within 1e-12. The same inputs give a bit-identical frame. The feature serialises round-trip, recomputes from the cache, and an `Expr` parameter edit recomputes only it and its dependants (DOC-03 counter). |
-| CON-02 | Axes (6 variants) and points (6 variants): math + `ConstructAxis`/`ConstructPoint` features | CON-01 | P0 | Todo | Same table-driven standard as CON-01 (≥ 5 analytic cases per variant, all errors). Point through three planes on random non-degenerate triples matches a 3×3 solve within 1e-9. Line–line on skew lines with a 0.01 mm gap → `Skew { distance: 0.01 ± 1e-12 }`. The features register, serialise and recompute. |
+| CON-02 | Axes (6 variants) and points (6 variants): math + `ConstructAxis`/`ConstructPoint` features | CON-01 | P0 | Review | Same table-driven standard as CON-01 (≥ 5 analytic cases per variant, all errors). Point through three planes on random non-degenerate triples matches a 3×3 solve within 1e-9. Line–line on skew lines with a 0.01 mm gap → `Skew { distance: 0.01 ± 1e-12 }`. The features register, serialise and recompute. |
 | CON-03 | Reference resolution: `EntityRef`/`RefInput` → `ResolvedRef` for origin entities (with component transform), construction geometry, B-rep faces/edges/vertices (S02 analytic types, `CurveEval`/`SurfaceEval` adapters, context plane), sketch curves/points (S03 world mapping), planar mesh face groups (plane fit); `resolve_in` for tools; health mapping (FingerprintOnly → warning) | CON-01, DOC-06, BREP-09, SK-01, MESH-16 | P0 | Todo | On a test part (box with a hole, built with S04 or with direct `BrepKernel` calls): the planar face resolves to a `Plane` matching the face within 1e-9; the hole face resolves to a `Cylinder` with the exact radius; a circular edge resolves to a `Circle`; a sketch line resolves to a `Line` with `context_plane` = the sketch plane. Offset plane on a face survives an upstream extrude-distance edit (with DOC-06 naming) and moves with the face. A deleted referenced face gives a feature `Error` whose `Diagnostic.entities` contains the ref. |
 | CON-04 | Construct UI: commands in the Construct menu (`amg-ui::construct`), UI-05 dialog schemas for all variants, construction display via `display::display_extent` + RND-07 with pick ids, browser "Construction" / "Origin" folders | CON-02, CON-03, UI-05, UI-07, RND-07 | P0 | Todo | Each of the 20 variants can be created from the menu and S-key search, edited and deleted, all undoable. `display_extent` unit tests follow the note §6 sizing rules. Construction planes are pickable as sketch planes and as section-analysis bases. Manual script: offset plane → sketch on it → extrude → edit the offset → the extrude follows. |
 | INS-07 | Measure on B-rep, construction, origin and sketch entities: `Operand::Ref`/`Operand::Brep`, exact B-rep distance/length/area via S02, analytic radius/angle via `RefGeom`, mixed mesh–B-rep via tessellation (`Exactness::Tessellated`), tool filters extended | INS-01, INS-08, CON-03, BREP-08, BREP-09 | P0 | Todo | On analytic solids: box edge length, face area, distance between parallel faces within 1e-9; cylinder face radius exact; circular edge diameter exact; angle between two planar faces at 30° ± 1e-12 rad. Distance from a sphere (r = 10, centre 25 mm away) to a plane: 15 ± 1e-7. Distance between a construction plane and a vertex is exact. A mesh–solid distance is marked "≈" and lies within the tessellation deflection of the exact value. |
@@ -975,6 +975,71 @@ dependencies):
   S06 note below), and `Diagnostic.entities` on feature errors (today the engine's error
   diagnostic carries only the message).
 - CON-04: `display` module.
+
+### 2026-11-11 - CON-02 construction axes and points (lane A)
+
+*Landed* in `amg-features::construct` (no changes outside the module and this spec; no new
+dependencies):
+- `math`: `axis_of`, `axis_perpendicular_at_point`, `axis_two_planes`, `axis_two_points`,
+  `point_two_lines`, `point_three_planes`, `center_of`, `point_curve_plane`. Signatures as in
+  Interfaces. `line_of`, `plane_of`, `point_of` and `path_param` are reused from CON-01.
+- `axis`: `AxisDef` (6 variants) and `ConstructAxis`, registered as `construct.axis` v1, with
+  no parameters.
+- `point`: `PointDef` (6 variants) and `ConstructPoint`, registered as `construct.point` v1.
+  `exprs`/`exprs_mut` expose the path position (fraction: dimensionless, distance: length).
+- Both compute through the CON-01 `ConstructInputs` seam. `AxisDef::evaluate` returns
+  `(Line3, Vec<Diagnostic>)` and `PointDef::evaluate` returns `(Point3, Vec<Diagnostic>)`.
+  Both have `refs()`. A `FingerprintOnly` input adds the same warning as for planes.
+- Tests: `construct/tests/axes_points.rs` (a child of the CON-01 test module, so it uses the
+  same test resolver) has one table per variant, 5–9 analytic cases each. Every case is
+  evaluated twice and compared bit for bit. The tables include every error the
+  axis and point constructions can raise. Also:
+  - 1 000 random non-degenerate plane triples (|det| ≥ 0.05, origins within ±100 mm),
+    checked against an independent Gaussian-elimination solve within 1e-9;
+  - 200 random skew line pairs with a 0.01 mm gap, plus the oblique Done-when example, all
+    giving `Skew { distance: 0.01 ± 1e-12 }`;
+  - 200 random circle × plane crossings, which lie on the circle and on the plane within
+    1e-9.
+
+  `tests/construct_axes_points.rs` checks in a `Document`: registration, a chain of axes and
+  points built from origin, plane, axis and point inputs, error health, the DOC-03 counter on
+  a parameter edit (only dependants recompute), the registry round-trip, and save/load with and
+  without the cache (bit-identical).
+
+*Conventions fixed where note §6 left a choice:*
+- Axis through cylinder / cone / torus / circle: a cone's axis passes through its apex. Planes,
+  spheres and free-form faces give `Unsupported`. A non-positive radius or a cone angle
+  outside (0, π/2) gives `Degenerate`.
+- Perpendicular axes: the direction is the outward normal at the closest face point. As for
+  `plane_tangent_at_point`, analytic faces point away from the axis or centre, so a hole needs
+  orientation from CON-03. "At point" (`on_face = true`) keeps the picked point, which must
+  be within `linear` of the face (`NotOnFace { distance }`). "To face at point" passes through
+  the closest point.
+- Axis through two planes: identical planes give `Parallel`, the same error as parallel
+  planes.
+- Point through two edges: the result is the midpoint of the two closest points. The gap
+  formula is the one `plane_two_lines` uses. **Addition:** the same line twice gives
+  `Coincident`, where the note lists only `Parallel`.
+- Point through three planes: Cramer's rule in triple-product form, solved relative to the
+  first plane's origin. `Degenerate` if `|det| ≤ angular`.
+- Point at centre: planes, cylinders, cones and free-form faces give `Unsupported`.
+- Point at edge and plane:
+  - Circles and arcs are solved analytically. The root with the smallest arc parameter wins,
+    in the frame of `RefGeom::Circle`.
+  - A segment must reach the plane within `linear`.
+  - Free-form curves are scanned over 64 equal parameter intervals for the first sign change,
+    which is then bisected. A curve that only touches the plane between two samples is
+    missed.
+  - **Addition:** a line, segment or circle lying in the plane gives `Coincident`, where the
+    note lists only `NoIntersection`.
+- Point along path: `C(t)` with the CON-01 `path_param` (arc-length fraction or distance).
+  As for planes, an infinite line is not a path.
+
+*Leftovers:*
+- CON-03: B-rep / sketch / mesh resolution and face orientation for the perpendicular axes,
+  as already listed for CON-01.
+- CON-04: UI and `display`.
+- Note §6 could list the two `Coincident` additions in its error column.
 
 ## Interface changes
 
