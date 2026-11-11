@@ -11,8 +11,20 @@
 #               states exact); split triangles are counted under their dominant state
 #   approximated  optional: number of split (approximated) painted triangles
 #
-# No fixture is listed yet: no slicer CLI was available on the machine that implemented IO-03
-# (see the S12 refinement log, 2026-11-11). The test skips while this list is empty, unless
-# AMG_REQUIRE_TESTDATA=1.
+# OrcaSlicer 2.4.0-alpha CLI exports (2026-11-11); values checked against the build items in
+# 3D/3dmodel.model and the names in Metadata/model_settings.config. Bambu Studio and PrusaSlicer
+# fixtures and the painted fixture are still missing (S12 refinement log, 2026-11-11).
 
-fixture = []
+[[fixture]]
+file = "orca-single.3mf"
+slicer = "orca 2.4.x"
+objects = 1
+names = ["97160.stl"]
+translations = [[55.55, 93.650001, 0]]
+
+[[fixture]]
+file = "orca-three.3mf"
+slicer = "orca 2.4.x"
+objects = 3
+names = ["97160.stl", "97162.stl", "217025.stl"]
+translations = [[55.55, 99.984001, 0], [91.441363, 88.459001, 0], [120.10776, 87.316001, 0]]

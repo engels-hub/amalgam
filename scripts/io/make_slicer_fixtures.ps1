@@ -50,7 +50,7 @@ function Export([string]$name, [string]$exe, [string[]]$argsBefore) {
   & $exe @argsBefore @extra $three @inputs
   if ($LASTEXITCODE -ne 0) { throw "$name three-object export failed" }
   $painted = Join-Path $out "$name-painted.3mf"
-  if (-not (Test-Path -LiteralPath $painted)) { Write-Host "TODO     $painted: paint in the GUI (see header)" }
+  if (-not (Test-Path -LiteralPath $painted)) { Write-Host "TODO     ${painted}: paint in the GUI (see header)" }
 }
 
 Export 'orca' $Orca @('--export-3mf')

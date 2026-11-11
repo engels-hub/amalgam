@@ -1141,6 +1141,8 @@ budget row yet; the refinement report proposes adding "1 GB binary STL import < 
   - **Deviations / notes:** no `max_header_bytes` field in `ReadLimits` (constant instead, as allowed in the IO-01 log). The bench input is written by the bench itself (our writer cannot reach 1 GB with 20 M triangles and the properties of a scanner file). The writer does not write face colours or UVs.
   - **Left over:** PLY `tristrips` and `edge` elements are ignored with a warning; writing face colours/UVs; fuzz target `ply` for IO-16 can call `ply::read`.
 
+- **2026-11-11 - IO-03 Done-when 2, OrcaSlicer fixtures (coordinator).** The owner allowed OrcaSlicer only (their installed 2.4.0-alpha, `D:/OrcaSlicer/orca-slicer.exe`). `scripts/io/make_slicer_fixtures.ps1` (a PowerShell `$painted:` parse error fixed) exported `orca-single.3mf` and `orca-three.3mf` (git-LFS, CC0-1.0 inputs); both are listed in `testdata/io/slicer/fixtures.toml` with counts, names and build translations checked against `3D/3dmodel.model` and `Metadata/model_settings.config`, and `threemf_slicer_fixtures` passes with `AMG_REQUIRE_TESTDATA=1`. Orca writes `Application = BambuStudio-02.06.00.51`, so these files also stand for the Bambu Studio structure. Still open for Done-when 2: a painted fixture (needs one GUI step) and PrusaSlicer exports; until then the synthetic Orca/Bambu and Prusa packages in `threemf_quirks` cover painting and `mmu_segmentation`. IO-03 stays `Review` until those land or the owner narrows the item.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
