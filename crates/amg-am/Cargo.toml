@@ -13,6 +13,12 @@ amg-jobs.workspace = true
 amg-mesh.workspace = true
 amg-implicit.workspace = true
 amg-io.workspace = true
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

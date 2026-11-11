@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 631ee3b29fb15d6632298f4206fb74ff1ce11ecdd28b137af466be41fb8fee21 # shrinks to m = Machine { key: MachineKey("a:a"), name: " ", vendor: None, model: None, technology: Fff, volume: BuildVolume { bed: Rect { size: DVec2(1.0, 1.0) }, height: 1.0, exclude: [], slicer_origin: DVec2(0.0, 0.0) }, process: Fff(FffParams { nozzle_diameters: [0.1], filament_slots: 1, layer_height: 0.05, first_layer_height: 0.05, layer_height_range: (0.01, 0.2) }), min_feature: 0.001, default_critical_angle: 0.01, slicer: None, source: Builtin }

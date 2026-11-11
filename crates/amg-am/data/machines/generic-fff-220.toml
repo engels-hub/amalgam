@@ -1,0 +1,28 @@
+# Generic FFF printer, 220 x 220 x 220 mm bed, 0.4 mm nozzle. A neutral default, not a product.
+key = "builtin:generic/fff-220"
+name = "Generic FFF 220³"
+vendor = "Generic"
+model = "FFF 220"
+technology = "fff"
+min_feature = 0.4
+default_critical_angle = 0.7853981633974483
+
+[volume]
+height = 220.0
+slicer_origin = [0.0, 0.0]
+exclude = []
+
+[volume.bed]
+shape = "rect"
+size = [220.0, 220.0]
+
+[process]
+kind = "fff"
+nozzle_diameters = [0.4]
+filament_slots = 1
+layer_height = 0.2
+first_layer_height = 0.2
+layer_height_range = [0.08, 0.32]
+
+[source]
+type = "builtin"

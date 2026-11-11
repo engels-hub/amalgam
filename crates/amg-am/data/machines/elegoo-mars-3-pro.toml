@@ -1,0 +1,32 @@
+# ELEGOO Mars 3 Pro (4K mono LCD MSLA).
+# Source: ELEGOO product page / spec table: LCD 4098 x 2560 px, XY resolution 35 um,
+# layer thickness 0.01-0.2 mm, build height 175 mm. Width/depth 143.43 x 89.60 mm
+# (= 4098 x 2560 px at 35 um; also the owner's Chitubox config). ELEGOO's own table lists
+# 143.36 (= 4096 px) on some pages; see the S16 refinement log.
+key = "builtin:elegoo/mars-3-pro"
+name = "ELEGOO Mars 3 Pro"
+vendor = "ELEGOO"
+model = "Mars 3 Pro"
+technology = "msla"
+min_feature = 0.07
+default_critical_angle = 0.5235987755982988
+slicer = "chitubox"
+
+[volume]
+height = 175.0
+slicer_origin = [0.0, 0.0]
+exclude = []
+
+[volume.bed]
+shape = "rect"
+size = [143.43, 89.6]
+
+[process]
+kind = "resin"
+resolution = [4098, 2560]
+pixel_size = [0.035, 0.035]
+layer_height = 0.05
+default_elevation = 5.0
+
+[source]
+type = "builtin"

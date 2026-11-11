@@ -179,6 +179,10 @@ dependencies = [
  "amg-io",
  "amg-jobs",
  "amg-mesh",
+ "proptest",
+ "serde",
+ "thiserror 2.0.21",
+ "toml",
 ]
 
 [[package]]
