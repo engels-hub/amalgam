@@ -37,7 +37,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | mach-dxcompiler-rs (via wgpu `static-dxc`) | DX12 shader compiler, not adopted by RND-01 (FXC is inside the budget; only behind `amg-render` feature `static-dxc` for measuring, which needs the MSVC ATL component to link) (S10) | MIT wrapper; bundled DXC under University of Illinois/NCSA (verify in RND-01) | no | yes (`static-dxc`) | Planned (conditional) |
 | glam | geometry math (ADR-006) | MIT / Apache-2.0 | no | no | In use (0.34.1) |
 | nalgebra | small dense linear algebra, sketch solver (ADR-006); `amg-nurbs` internal dense solves (S20) | Apache-2.0 | no | no | Planned |
-| faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | In use (=0.23.2, `std` + `sparse-linalg`, `amg-mesh` hole-fill fairing, MESH-20; `amg-sketch` sparse solver blocks, SK-03) |
+| faer | sparse/large linear algebra: FEA, sketch solver blocks, mesh fairing (ADR-006; S03, S07) | MIT | no | no | In use (=0.23.2, `std` + `sparse-linalg`, `amg-mesh` hole-fill fairing, MESH-20; `amg-sketch` sparse solver blocks, SK-03; `amg-compute` sparse Cholesky / LBLᵀ, CMP-03, which also enables faer's `rayon` feature: adds `spindle` 0.2.6 (MIT) with `atomic-wait` 1.1.0 (BSD-2-Clause), `crossbeam` 0.8.5 (MIT / Apache-2.0) and `windows-sys` 0.42 (MIT / Apache-2.0)) |
 | pyo3 | `amg-script` (ADR-011) | MIT / Apache-2.0 | no | no | Planned |
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
 | cxx, cxx-build | `amg-occt-sys` bridge and shim build (ADR-002, BREP-01) | MIT / Apache-2.0 | no | yes (`amg-occt-sys/occt`) | In use (1.0.205) |
@@ -67,6 +67,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | dxf | DXF import, `amg-sketch::import` (S03 SK-11); pulls `image`, `chrono`, `uuid`, `num`, `encoding_rs` ((Apache-2.0 OR MIT) AND BSD-3-Clause), all permissive | MIT | no | no | In use (0.6.2) |
 | usvg | SVG import, `amg-sketch::import` (S03 SK-11); `default-features = false` (no text/font/raster stack); pulls `roxmltree`, `svgtypes`, `kurbo`, `simplecss`, `tiny-skia-path` (BSD-3-Clause), all permissive | MIT / Apache-2.0 (>= 0.38; older releases MPL-2.0) | no | no | In use (0.48.1) |
 | criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only) |
+| memory-stats | process working-set / private-memory readings in the `amg-compute` 1 M DOF factor-storage bench (S15 CMP-03; dev-only) | MIT / Apache-2.0 | no | no | In use (1.2.0, dev-only) |
 | blake3 | cache keys and manifest hashes, `amg-doc` (S01); material and appearance content hashes for drift detection, `amg-materials` (S17, MAT-01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | In use (1.8.7) |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.1.20) |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.5.17) |

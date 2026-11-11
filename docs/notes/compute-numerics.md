@@ -210,9 +210,15 @@ uploaded as a plain `GpuVec<T>` plus a 16-byte dims uniform. No tree, no apron.
   CMP-10 (P2) adds a geometric nested dissection (node coordinates are always known in FE) or
   METIS (Apache-2.0, vcpkg) behind a feature, and is only needed if CMP-03's 500 k DOF benchmark
   misses budget.
-- Rough size on the reference machine: 3-D elasticity at 1 M DOF has a factor of a few hundred
-  million non-zeros (several GB) and needs ~10¹² flops, so roughly 10–30 s on 8 cores. S13's
-  practical direct limit of about 1.5 M DOF is consistent with 32 GB RAM.
+- Measured size (CMP-03, 2026-11-10/11; Q1 hex elasticity on a cube, analysis-only estimates):
+  at 499 k DOF the factor has 1.79e9 non-zeros (17.1 GiB, 2.5e13 flops) with AMD and 8.7e8
+  (7.7 GiB, 4.9e12 flops) with geometric nested dissection; at 1.03 M DOF 4.3e9 (40.4 GiB,
+  8.9e13 flops) with AMD and 2.3e9 (20.6 GiB, 2.1e13 flops) with ND. The earlier guess of "a few
+  hundred million non-zeros" at 1 M DOF was ~10× too low. faer reached ≈ 120 GFLOP/s on the
+  reference machine (500 k, ND: 42.6 s analyse + factor + solve). So a direct solve on 32 GB
+  stops near 1 M DOF even with ND; owner decision 2026-11-11: faer for small and medium
+  problems, ND (CMP-10), and S13 cases of 500 k DOF and more on the GPU iterative solver
+  (FEM-08).
 
 ## 6. Eigen solvers (CMP-04, CMP-09)
 
