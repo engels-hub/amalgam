@@ -1,0 +1,31 @@
+# Creality Ender-3 V3 KE with a CoPrint KCM 4-slot filament changer (one nozzle).
+# Owner decision (QUESTIONS #34): KCM = 4 slots, one nozzle. Printer data: Creality product specification (creality.com / Ender-3 V3 series tech specs):
+# build volume 220 x 220 x 240 mm, layer height 0.1-0.35 mm, 0.4 mm nozzle.
+key = "builtin:creality/ender-3-v3-ke-kcm"
+name = "Creality Ender-3 V3 KE - Connected KCM"
+vendor = "Creality"
+model = "Ender-3 V3 KE KCM"
+technology = "fff"
+min_feature = 0.4
+default_critical_angle = 0.7853981633974483
+slicer = "orca_slicer"
+
+[volume]
+height = 240.0
+slicer_origin = [0.0, 0.0]
+exclude = []
+
+[volume.bed]
+shape = "rect"
+size = [220.0, 220.0]
+
+[process]
+kind = "fff"
+nozzle_diameters = [0.4]
+filament_slots = 4
+layer_height = 0.2
+first_layer_height = 0.2
+layer_height_range = [0.1, 0.35]
+
+[source]
+type = "builtin"

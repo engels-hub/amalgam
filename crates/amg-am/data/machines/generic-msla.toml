@@ -1,0 +1,28 @@
+# Generic MSLA resin printer: 192 x 120 x 200 mm, 3840 x 2400 px (50 um). A neutral default
+# typical of 8.9" 4K mono-LCD printers, not a product.
+key = "builtin:generic/msla"
+name = "Generic MSLA"
+vendor = "Generic"
+model = "MSLA"
+technology = "msla"
+min_feature = 0.1
+default_critical_angle = 0.5235987755982988
+
+[volume]
+height = 200.0
+slicer_origin = [0.0, 0.0]
+exclude = []
+
+[volume.bed]
+shape = "rect"
+size = [192.0, 120.0]
+
+[process]
+kind = "resin"
+resolution = [3840, 2400]
+pixel_size = [0.05, 0.05]
+layer_height = 0.05
+default_elevation = 5.0
+
+[source]
+type = "builtin"

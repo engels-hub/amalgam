@@ -697,7 +697,7 @@ Testing).
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| AM-01 | `amg-am::machine` (`Machine`, `BuildVolume`, `MachineLibrary`, TOML (de)serialisation, built-ins: Ender-3 V3 KE, Ender-3 V3 KE KCM 4-slot, ELEGOO Mars 3 Pro, generic FFF 220³, generic MSLA) + `amg-features::am` `PrintSetup` record, registration, `next_setup_key`, `setups` | DOC-05, DOC-07, FND-03 | P0 | Todo | 1. Every built-in profile validates, and TOML round-trip is lossless (proptest over random valid `Machine`s). 2. An invalid user TOML gives a `LoadWarning` naming file and field, and the library still loads. 3. A `PrintSetup` with 2 plates and 3 items round-trips `to_record`/`from_record` and a `.amg` save→load→save with byte-identical `design.json`. 4. `SetExt` edits undo/redo to equal records. 5. A v0 fixture record is rejected with `TooNew`/`Decode` (no panic). 6. `next_setup_key` never reuses a deleted key within a session. |
+| AM-01 | `amg-am::machine` (`Machine`, `BuildVolume`, `MachineLibrary`, TOML (de)serialisation, built-ins: Ender-3 V3 KE, Ender-3 V3 KE KCM 4-slot, ELEGOO Mars 3 Pro, generic FFF 220³, generic MSLA) + `amg-features::am` `PrintSetup` record, registration, `next_setup_key`, `setups` | DOC-05, DOC-07, FND-03 | P0 | Review (wp/AM-01-am-machine) | 1. Every built-in profile validates, and TOML round-trip is lossless (proptest over random valid `Machine`s). 2. An invalid user TOML gives a `LoadWarning` naming file and field, and the library still loads. 3. A `PrintSetup` with 2 plates and 3 items round-trips `to_record`/`from_record` and a `.amg` save→load→save with byte-identical `design.json`. 4. `SetExt` edits undo/redo to equal records. 5. A v0 fixture record is rejected with `TooNew`/`Decode` (no panic). 6. `next_setup_key` never reuses a deleted key within a session. |
 | AM-03 | `amg-am::place`: `Placement`/`ZMode`, `effective_transform`, `face_down_rotation`, `rotate_about_build_axis`, `centre_on_plate`, `pick_plane_normal`, `check_fit` (hull vs bed polygon, excludes, height), `hulls_overlap`, `build_volume_geometry` | AM-01, MESH-01 | P0 | Todo | 1. For 1 000 random rotations of corpus meshes: min z after `effective_transform` = elevation ± 1e-9 mm, and the footprint-AABB centre = `xy` ± 1e-9 mm. 2. Face-down on each face of a cube and of a tessellated 12-gon prism puts that face's normal at −Z within 1e-12 rad, with the anti-parallel case covered. 3. `check_fit` matches brute-force vertex containment on 200 random placements over rect, non-convex polygon and circle beds with excludes, and reports `max_outside_xy` within 1e-6 mm. 4. Modifying the mesh (scale 1.1 about an off-centre point) keeps the item on the plate at the same `xy`. 5. `effective_transform` + `check_fit` on 1 M tris < 15 ms; `footprint_hull` 1 M < 40 ms. |
 | AM-02 | `amg-am::overhang`: `classify_faces`, `analyze_overhang` (column support estimate + centroid fallback, islands, contact, stability), `vertex_severity`, `shader_params`, golden classification file for S10 | MESH-02, MESH-03, AM-03 | P0 | Todo | 1. Golden tests in `tests/golden/am/` reproduce note §3.3: T-shape and shelf volumes within 0.5 % at 0.25 mm cells; the sphere cap area, projected area and support volume converge (error at least halves per 4× triangles / ½ cell, < 1 % at 320 k tris and 0.1 mm); the cube cases are exact (1e-9). 2. Strict-threshold behaviour at α = 45° vs 46° on the edge-balanced cube. 3. Rotation about Z by 37° changes area metrics by < 1e-9 relative and support volume by ≤ the documented cell bound. 4. An open mesh gives `approximate = true` with `FaceCentroids`. 5. `overhang_classes.toml` (5 000 cases) is generated and checked. 6. Results are identical across 1/4/16 threads. 7. Benchmarks: `classify_faces` 1 M tris < 15 ms; `analyze_overhang` 1 M tris with default support (≤ 512² rays) < 300 ms, coarse (≤ 128² rays) < 40 ms. |
 | AM-06 | Slicer hand-off library: `detect_slicers` (registry via `winreg`, known dirs, PATH), `parse_registry_exe`, `SlicerConfig`, `export_plate` (via IO-03, 3MF/STL, slicer-origin offset, atomic write), `launch` (detached), `prune_handoff_dir`; `amg-features::am::handoff_plate` | AM-03, IO-11, IO-04 | P0 | Todo | 1. `parse_registry_exe` handles the owner's `D:\OrcaSlicer\D:\OrcaSlicer\orca-slicer.exe`, quoted paths and `,0` suffixes (unit fixtures). 2. Exported 3MF of a 3-item plate (two filament slots) re-imported through IO-03 gives the same plate-frame vertex positions within 1e-6 mm, names and extruders. 3. **Manual check (documented in PR):** on the owner's machine, one click opens the file in OrcaSlicer 2.4.0 with all items at the Amalgam plate positions (± 0.1 mm, read off the Orca object list), assigned to the right filament slots on the KCM preset, without a re-arrange prompt. The same file opens in Chitubox, and the chosen Chitubox format (3MF or STL) is recorded in the Refinement log. 4. A missing exe gives `SlicerNotFound` with a hint. 5. Export + spawn of a 1 M-tri plate < 3 s, and the UI is not blocked (runs as a job). |
@@ -866,6 +866,49 @@ generator. Anything above 16 ms runs as a job.
 
 *Design note created:* `docs/notes/am-build-prep.md`.
 
+### 2026-11-11 - AM-01 machine library and PrintSetup record
+
+Landed in `amg-am` (`machine`, plus minimal `place::{Placement, ZMode}`, `overhang::AnalysisSettings`
+and `AmError`) and `amg-features::am` (`PrintSetup` record).
+- **TOML:** the `toml` crate already in the workspace (used by `amg-materials`, licence checked)
+  with serde. The custom fast-path reader of `amg-materials` exists for a 1 000-material budget;
+  machine files are tiny, so it is not reused. No new dependency, no `THIRD_PARTY.md` change.
+  Wire format = the serde form of `Machine` (`key` and `source` optional in hand-written files:
+  default key `user:<slug of name>`, default source `User { path: "" }`, overwritten by
+  `load_user_dir`). `deny_unknown_fields` at the top level, so a typo gives a warning naming
+  the field. f64 values round-trip exactly (proptest, 256 random valid machines of all
+  technologies).
+- **Built-ins** (`crates/amg-am/data/machines/*.toml`, `include_str!`): Ender-3 V3 KE (Creality
+  specs: 220 x 220 x 240 mm, 0.4 mm nozzle, layer 0.1-0.35 mm), Ender-3 V3 KE KCM (same plus
+  4 filament slots, one nozzle, owner decision QUESTIONS #34), ELEGOO Mars 3 Pro (ELEGOO specs:
+  4098 x 2560 px, 35 um, layers 0.01-0.2 mm, 175 mm high; 143.43 x 89.60 mm = 4098/2560 px at
+  35 um, also the owner's Chitubox config; some ELEGOO tables list 143.36, i.e. 4096 px, so the
+  4098-px figure was kept for consistency with AM-10's test values), generic FFF 220^3 and
+  generic MSLA (192 x 120 x 200 mm, 3840 x 2400 px, 50 um; neutral defaults, not a product).
+  Resin critical angle default 30 deg and FFF 45 deg (open question 3 still with the owner;
+  the field is per machine so it is a one-line change). Layer-height defaults are slicer-neutral
+  choices (0.2 mm FFF, 0.05 mm resin).
+- **`PrintSetup`** (`am.print_setup` v1) matches the Interfaces sketch. `from_record` rejects
+  version 0 (`Decode`), versions above 1 (`TooNew`), wrong kind, bad JSON, duplicate or
+  out-of-range ids, a missing active plate and an invalid machine snapshot.
+- **Deviations / leftovers:**
+  - `amg-doc` has no `ExtRegistration`, `inventory` table for ext kinds or
+    `Design::exts_of_kind` yet. `setups()` filters `Design::exts()`; the version check and the
+    `migrate_print_setup` hook (v1 = identity; AM-04 adds v1 to v2) run inside `from_record`.
+    When amg-doc grows the registration, the `submit!` line is a one-liner (see Interface
+    changes below).
+  - `next_setup_key(d)` returns the key the next `Command::AddExt` will allocate (clone of
+    `Design` + `new_ext_key`, cheap persistent maps). `SetExt` cannot create a record under a
+    fresh key (`key.id >= next_id` is rejected), so creation is `PrintSetup::add_command()`
+    (`AddExt`); edits use `command(key)` (`SetExt`). Keys come from the design's monotonic id
+    counter, so a deleted key is never reused (tested, incl. undo).
+  - `resolve_plate` / `handoff_plate` / `ItemGeom` are AM-06 glue and not part of this WP row.
+  - `Placement` / `ZMode` / `AnalysisSettings` are only the stored data types and
+    `AnalysisSettings::for_machine`; AM-02/AM-03 own the algorithms and may add fields to them
+    (additive, `#[serde(default)]` needed for v1 records).
+  - Byte-identical `design.json` is checked by serialising the `Design` (what `save` writes)
+    before save and after save, load, save; the `.amg` zip itself carries timestamps.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -901,3 +944,10 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   ctx)` (FRM-16; cached per cage hash and tolerance), like implicit items. Until FRM-16 lands
   they keep `UnresolvedReason::NotAMesh`. Forms converted to B-rep (`form.convert`) are solid
   bodies and need nothing new.
+
+### 2026-11-11: from AM-01 (print setup record)
+- **S01 (amg-doc), additive, not blocking:** an ext-kind registration (`ExtRegistration { kind,
+  version, migrate }`) so `am.print_setup` and other kinds get version checks and migration from
+  the container loader, and `Design::exts_of_kind(&self, kind) -> impl Iterator<Item = (&ExtKey,
+  &ExtRecord)>`. AM-01 works without both (see its log entry).
+

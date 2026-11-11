@@ -1,0 +1,31 @@
+# Creality Ender-3 V3 KE, 0.4 mm nozzle.
+# Source: Creality product specification (creality.com / Ender-3 V3 series tech specs):
+# build volume 220 x 220 x 240 mm, layer height 0.1-0.35 mm, 0.4 mm nozzle.
+key = "builtin:creality/ender-3-v3-ke"
+name = "Creality Ender-3 V3 KE"
+vendor = "Creality"
+model = "Ender-3 V3 KE"
+technology = "fff"
+min_feature = 0.4
+default_critical_angle = 0.7853981633974483
+slicer = "orca_slicer"
+
+[volume]
+height = 240.0
+slicer_origin = [0.0, 0.0]
+exclude = []
+
+[volume.bed]
+shape = "rect"
+size = [220.0, 220.0]
+
+[process]
+kind = "fff"
+nozzle_diameters = [0.4]
+filament_slots = 1
+layer_height = 0.2
+first_layer_height = 0.2
+layer_height_range = [0.1, 0.35]
+
+[source]
+type = "builtin"
