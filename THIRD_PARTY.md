@@ -42,7 +42,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | cudarc | optional CUDA solver backend (ADR-004) | MIT / Apache-2.0 | no | yes | Planned (only if needed) |
 | cxx, cxx-build | `amg-occt-sys` bridge and shim build (ADR-002, BREP-01) | MIT / Apache-2.0 | no | yes (`amg-occt-sys/occt`) | In use (1.0.205) |
 | static_assertions | compile-time `Send + Sync` check on `amg_brep::Shape` (S02 BREP-02); already transitive via wgpu | MIT / Apache-2.0 | no | no | In use (1.1.0) |
-| rayon | `amg-jobs` and domain crates (S00); `amg-mesh` (S07); `amg-compute` (S15) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
+| rayon | `amg-jobs` and domain crates (S00); `amg-mesh` (S07); `amg-compute` (S15); `amg-am` (S16) | MIT / Apache-2.0 | no | no | In use (1.12.0) |
 | epaint_default_fonts 0.36.2 | default egui fonts, transitive via `egui` feature `default_fonts` (S10 RND-01); per-crate `deny.toml` exception | (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0 (font data) | no | no | In use (0.36.2) |
 | log 0.4 | dev-dep of `amg-render`: the `spin` example counts wgpu validation errors through a `log` logger (S10, RND-01); already transitive via wgpu and egui | MIT / Apache-2.0 | no | no | In use (0.4.34, dev-only) |
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
