@@ -13,6 +13,24 @@ amg-jobs.workspace = true
 amg-doc.workspace = true
 amg-features.workspace = true
 amg-render.workspace = true
+egui.workspace = true
+egui-wgpu.workspace = true
+egui_dock.workspace = true
+inventory.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+directories.workspace = true
+egui_kittest = { workspace = true, optional = true }
+
+[features]
+# `amg_ui::testing`: AppHarness (egui_kittest), NullViewport, CpuPickService stub. Dev/test only.
+testing = ["dep:egui_kittest"]
+
+[dev-dependencies]
+amg-ui = { path = ".", features = ["testing"] }
+amg-testkit.workspace = true
 
 [lints]
 workspace = true

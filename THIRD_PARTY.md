@@ -20,14 +20,15 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | FreeCAD Sketcher test scenarios (commit 33adf618) | **test data only**: hand-ported scenarios, `testdata/sketch/corpus/planegcs/` (S03, SK-14); no FreeCAD file copied verbatim | LGPL-2.1-or-later | weak (data) | no | In use (test data) |
 | fidget | `amg-implicit` CPU evaluator (S08, under evaluation) | MPL-2.0 | weak | — | Planned (undecided) |
 | wgpu 30.0.1 | `amg-jobs`, `amg-render`, `amg-compute` (ADR-004) | MIT / Apache-2.0 | no | no | In use (30.0.1; `amg-jobs::gpu` and the `amg-testkit` GPU probe, both behind feature `gpu`, default on) |
-| egui, eframe, egui-wgpu 0.36.2 (pinned until egui_dock supports 0.37, QUESTIONS #23) | `amg-render` feature `egui` (RND-01; eframe is a dev-dep for the `spin` example); `amg-ui`, `amg-app` later (ADR-005, S10, S11) | MIT / Apache-2.0 | no | no | In use (0.36.2; `amg-render`) |
+| egui, eframe, egui-wgpu 0.36.2 (pinned until egui_dock supports 0.37, QUESTIONS #23) | `amg-render` feature `egui` (RND-01; eframe is a dev-dep for the `spin` example); `amg-ui` (egui, egui-wgpu) and `amg-app` (eframe with `accesskit`, UI-01) (ADR-005, S10, S11) | MIT / Apache-2.0 | no | no | In use (0.36.2; `amg-render`, `amg-ui`, `amg-app`) |
 | egui_extras 0.37.0 (features `svg`, `serde`) | `amg-ui` tables and SVG icons (S11) | MIT / Apache-2.0 | no | no | Planned |
 | resvg 0.45.x (via egui_extras `svg`) | SVG icon rasterisation (S11) | Apache-2.0 / MIT | no | no | Planned |
-| egui_kittest 0.37.0 (+ transitive kittest 0.5.0) | `amg-ui` UI tests, dev-only (S11) | MIT / Apache-2.0 | no | no | Planned (dev-only) |
-| egui_dock 0.21.1 (needs egui ^0.36; 0.22.x expected for 0.37) | `amg-ui::dock` behind `DockHost` (ADR-005, S11) | MIT | no | no | Planned |
+| egui_kittest 0.36.2 (features `snapshot`, `wgpu`; + transitive kittest 0.4.0, dify 0.8 (snapshot diff), image 0.25, open 5, tempfile 3; 0.37.0 once egui moves) | `amg-ui` feature `testing` (`testing::AppHarness`, UI-01) and its tests; never enabled by `amg-app` (S11) | MIT / Apache-2.0 (kittest, dify, open, image, tempfile: MIT or MIT / Apache-2.0) | no | yes (`amg-ui/testing`, test-only) | In use (0.36.2, test-only) |
+| egui_dock 0.21.1 (feature `serde`; needs egui ^0.36; 0.22.x expected for 0.37) | `amg-ui::dock` behind `DockHost` (ADR-005, S11, UI-01) | MIT | no | no | In use (0.21.1) |
+| accesskit 0.24 (+ accesskit_winit, accesskit_windows, accesskit_consumer) | transitive: eframe feature `accesskit` in `amg-app` (screen readers, spec §1) and egui_kittest queries (UI-01) | MIT / Apache-2.0 | no | no | In use (0.24) |
 | egui_tiles 0.18.0 | `amg-ui::dock` fallback if egui_dock lags egui (S11, QUESTIONS #23) | MIT / Apache-2.0 | no | no | Planned (fallback only) |
 | rfd 0.17.2 | `amg-ui` native file dialogs (S11) | MIT | no | no | Planned |
-| directories 6.0.0 | `amg-ui` prefs and layout paths (S11) | MIT / Apache-2.0 | no | no | Planned |
+| directories 6.0.0 (+ transitive dirs-sys 0.5, option-ext 0.2) | `amg-ui` `%APPDATA%\Amalgam\layout.json` (UI-01); later prefs and shortcuts (S11) | MIT / Apache-2.0 (option-ext: MPL-2.0, weak copyleft, unmodified) | weak (option-ext) | no | In use (6.0.0) |
 | bitflags 2 | `amg-render` `PickFilter`, `amg-features::dialog` `EntityFilter` (S10, S11; already transitive via wgpu) | MIT / Apache-2.0 | no | no | Planned |
 | png 0.18.1 | `amg-render` headless capture, goldens, thumbnails; `amg-io` 3MF thumbnails (S10, S12) | MIT / Apache-2.0 | no | no | Planned |
 | meshopt 0.7.0 (meshoptimizer) | `amg-render` clusters/LOD (S10 RND-14) | MIT / Apache-2.0 (meshoptimizer: MIT) | no | no | Planned (P2) |
