@@ -18,6 +18,11 @@ amg-doc.workspace = true
 amg-features.workspace = true
 amg-render.workspace = true
 amg-ui.workspace = true
+anyhow.workspace = true
+eframe = { workspace = true, features = ["accesskit"] }
+egui.workspace = true
+egui-wgpu.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true

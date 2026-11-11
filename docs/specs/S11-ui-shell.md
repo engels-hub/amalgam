@@ -897,7 +897,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| UI-01 | App shell: `amg-app` start-up (diag, UI-thread mark, `Gpu` → `WgpuSetup::Existing`, `JobSystem` notifier → repaint), eframe 0.37 frame loop (`logic`/`ui`, end-of-frame `CommandQueue`), fixed panels + `DockHost` facade (egui_dock), theme tokens (light/dark/system), workspace/tab registry + `UiModule` inventory + stub modules for every domain lane, document tabs, undo/redo buttons, status bar, `amg_ui::testing::AppHarness` (kittest, `NullViewport`, `CpuPickService` stub) | RND-01, FND-07 | P0 | Todo | 1. `amg-app` opens on the owner's machine showing the Fusion layout (app bar, toolbar, browser, timeline, status bar, viewport tab with the RND-01 mesh). Cold start to first interactive frame < 2 s (tracing span `startup`). 2. Kittest: switching workspace via the switcher changes the visible tabs (`get_by_label`). A test module registering a workspace + tab through `inventory` appears without editing framework files. 3. Light/dark snapshot tests pass on WARP. 4. With no input and no jobs, the app does not repaint (frame counter stays constant over 1 s). 5. A test job's notifier wakes the UI within one frame. 6. Two document tabs keep independent undo stacks (kittest). |
+| UI-01 | App shell: `amg-app` start-up (diag, UI-thread mark, `Gpu` → `WgpuSetup::Existing`, `JobSystem` notifier → repaint), eframe 0.37 frame loop (`logic`/`ui`, end-of-frame `CommandQueue`), fixed panels + `DockHost` facade (egui_dock), theme tokens (light/dark/system), workspace/tab registry + `UiModule` inventory + stub modules for every domain lane, document tabs, undo/redo buttons, status bar, `amg_ui::testing::AppHarness` (kittest, `NullViewport`, `CpuPickService` stub) | RND-01, FND-07 | P0 | Review | 1. `amg-app` opens on the owner's machine showing the Fusion layout (app bar, toolbar, browser, timeline, status bar, viewport tab with the RND-01 mesh). Cold start to first interactive frame < 2 s (tracing span `startup`). 2. Kittest: switching workspace via the switcher changes the visible tabs (`get_by_label`). A test module registering a workspace + tab through `inventory` appears without editing framework files. 3. Light/dark snapshot tests pass on WARP. 4. With no input and no jobs, the app does not repaint (frame counter stays constant over 1 s). 5. A test job's notifier wakes the UI within one frame. 6. Two document tabs keep independent undo stacks (kittest). |
 | UI-02 | Command registry (`CommandDef`, `Placement`, `Enabler`, dynamic registration), toolbar tabs/groups/dropdowns, menus, `ShortcutMap` with scopes and `shortcuts.toml` overrides, S-key search (own fuzzy scorer, recency) | UI-01 | P0 | Todo | 1. Kittest: pressing `S`, typing "remsh" lists a registered `test.remesh` first, and Enter runs it. 2. Disabled commands show their reason in the tooltip and are skipped by Enter. 3. A duplicate `CmdId` panics in debug (unit test). 4. Shortcut scope test: `L` in sketch scope and `L` in global scope resolve correctly. Single letters are ignored while a text field has focus. 5. Search over 1 000 synthetic commands < 1 ms per keystroke (criterion). 6. `register_dynamic` rejects ids without the `script.` prefix. |
 | UI-03 | `Tool` trait + router (priority chain, Esc/Enter, replace semantics), `ViewportEvent` synthesis from egui input, `PickService` trait + S10 implementation + latest-wins hover, Fusion navigation preset over S10 camera, `PreviewDriver`, `spawn_tracked`, `SelectTool` (click only) | UI-02, RND-04, RND-11 | P0 | Todo | 1. Kittest with a scripted test tool: events arrive in order, Esc cancels (`FinishReason::Cancel`), Enter commits one undo entry, and starting another command gives `Replaced`. 2. Middle-drag orbits even while a tool is active that ignores the event. 3. Hover pick → highlight within ≤ 2 frames on the owner's GPU and with `CpuPickService`. 4. `PreviewDriver`: 20 rapid `set` calls → exactly one preview computed (test counter feature), and none enters the undo stack. 5. No UI-thread frame > 16 ms while a 2 s test job runs (tracing assertion). |
 | UI-20 | Scene adapter: `DocEvent` → `RenderScene` (RND-03), `RenderEntityKey` allocation, `PickMap`, `BodyTessellator` registry with Mesh tessellator, highlight layers, preview layer feed, `CpuPickService` real implementation | UI-01, RND-03, DOC-09 | P0 | Todo | 1. Scripted test: add/edit/delete 3 mesh bodies → the RenderScene contains exactly the live bodies, and an unchanged body is never re-uploaded (upload counter). 2. `DocumentReplaced` rebuilds the scene, and keys are not reused within a session. 3. `PickMap` round-trips every face index of a 10 k-triangle body. 4. A registered test tessellator for a stub `BodyGeom` variant is used. 5. Updating 1 changed body in a 100-body scene < 1 ms of UI-thread time. |
@@ -1135,6 +1135,102 @@ This was raised with S01 and S03.
 - Phase 2 lane D adds UI-13, UI-14, UI-16, UI-17 and UI-22.
 - Phase 3 lane D adds UI-18.
 
+### 2026-11-10 - UI-01 app shell
+
+*Landed (status `Review`):*
+- **`amg-app`** (`src/main.rs`, `src/demo.rs`, `build.rs` for the git SHA): `diag::init` +
+  `install_panic_hook`, `mark_ui_thread`, `Gpu::new_blocking` with `amg_render::OPTIONAL_FEATURES`
+  handed to eframe as `WgpuSetup::Existing` (`HIGH_THROUGHPUT`, multisampling 0, no depth), the
+  `JobSystem` whose notifier is `amg_ui::app::repaint_notifier` (an `Arc<OnceLock<egui::Context>>`
+  filled in the creation callback), `amg_features::{mesh,sketch}::link()`, `UiRegistry::build()`,
+  `egui_glue::install` + one view, then `AmalgamApp`. The RND-01 displaced icosphere (1 M tris,
+  `--tris N`, `--no-demo`) is generated and uploaded on a job and inserted when it finishes.
+  The whole start-up is the span `startup`; its event `first interactive frame` carries
+  `elapsed_ms` (`--exit-after-first-frame` for repeat measurements). The dock layout is saved
+  on exit.
+- **`amg-ui` framework:** `module` (`UiModule` + `inventory::collect!`, `Registrar` with
+  `workspace`/`toolbar_tab`/`toolbar_group`/`panel`, the id newtypes, `WorkspaceDef`, `TabDef`,
+  `GroupDef`), `registry::UiRegistry` (`build`, `from_modules`, sorted queries, contextual-tab
+  filtering; duplicate ids panic in debug and are logged and dropped in release), `panel`
+  (`PanelDef`, `DockSlot`, `Panel`), `dock::DockHost` (the only file naming `egui_dock`: open in a
+  slot, focus, close, retain, JSON round trip with unknown panels dropped), `theme` (`Theme`,
+  `ThemeTokens` light/dark, applied to `egui::Visuals` only when the resolved theme changes, and
+  to the S10 view background), `viewport` (`ViewportBackend`, `NullViewport`, `RenderViewport`
+  over `egui_glue::Viewport`), `app` (`AmalgamApp` with `logic` / `ui` / `end_frame`, `DocTab`,
+  `CommitBatch` applied as one `Document::transaction` each and rolled back as a whole on error,
+  `CmdEnv`, `AppCx`, per-workspace dock layouts persisted to `%APPDATA%\Amalgam\layout.json`),
+  `shell` (app bar: File menu, Undo/Redo with the step labels as tooltips, document tabs, `+`,
+  Theme menu; toolbar: workspace switcher menu, tabs, group menus; browser; timeline strip;
+  status bar with status/error text, recompute status, `Jobs: N`, units and the device-lost
+  banner), `design` (the framework's Design workspace: Solid, Surface, Inspect, Utilities,
+  contextual Sketch, and their groups) and `testing` (`AppHarness`, `AppHarnessBuilder` with an
+  optional wgpu setup, `drive_until_idle`, `CpuPickService` stub).
+- **Lane stubs** `amg_ui::{inspect, mesh, form, sim, generative, am, io, materials}`, each with
+  `register` + `inventory::submit!`. Following QUESTIONS #25, `mesh` registers the MESH tab of
+  Design, `form` the contextual FORM tab (`form.edit`), and `sim`, `generative` and `am` register
+  the Simulation, Generative Design and Manufacture workspaces with one tab each; `inspect`, `io`
+  and `materials` are empty. The owning lanes edit these files from now on. `amg_ui::link()`
+  keeps every module's submit in the binary (called by `UiRegistry::build`).
+
+*Evidence (Done-when):*
+1. `amg-app` (debug build, RTX 5060 Ti / DX12) opens with the Fusion layout and the 1 003 520-tri
+   RND-01 mesh in the viewport tab (screenshot for the owner's confirmation). `startup` →
+   `first interactive frame` with the final binary: 721, 674, 642, 640 and 649 ms over five
+   launches (earlier builds: 663-777 ms), all while other workers were compiling (budget 2 s). One launch while the disk was saturated took 4 812 ms,
+   and the very first launch spent 90 s in `Gpu::new_blocking` (first driver use under heavy
+   I/O) before the measuring script's timeout killed it. The mesh arrives about 60-110 ms after
+   the first frame.
+2. `tests/shell.rs`: `switching_workspace_changes_the_visible_tabs` clicks `DESIGN ⏷` →
+   `Test Workspace`; its `TEST TAB` appears and `SOLID` disappears, then Simulation shows
+   `SETUP`. The test module is an `inventory::submit!` in the test file
+   (`inventory_module_is_collected_without_framework_edits`).
+3. `tests/snapshots.rs`: `shell_dark` and `shell_light` rendered by kittest's wgpu renderer on a
+   WARP device (`force_fallback_adapter`), threshold 0.6, at most 64 differing pixels; images in
+   `crates/amg-ui/tests/snapshots/`.
+4. `tests/idle.rs`: the real app on a raw `egui::Context`; a frame runs only when a requested
+   repaint is due (as in eframe). After settling, the frame counter is unchanged over 1 s and no
+   repaint is scheduled; a finished job wakes it, and it settles again.
+5. `job_notifier_wakes_the_ui_within_one_frame`: a gated job shows `Jobs: 1`; after its release
+   the notifier requests a repaint and the very next `step` shows `Jobs: 0`.
+6. `two_document_tabs_keep_independent_undo_stacks`: with two tabs, undo/redo through the
+   toolbar buttons only ever changes the active document.
+
+*Deviations:*
+- egui/eframe/egui-wgpu 0.36.2, egui_dock 0.21.1 and egui_kittest 0.36.2 (QUESTIONS #23).
+  egui 0.36.2 already has `Panel`, `CentralPanel::show(ui)` and eframe's `App::logic`/`App::ui`,
+  so the frame loop is as specified.
+- Interfaces §A is implemented as the UI-01 subset: `Registrar` has no `command`,
+  `browser_provider`, `marking_menu`, `context_menu`, `feature_ui`, `tessellator`,
+  `overlay_provider`, `prefs_page` or `icon` yet; `CmdEnv` lacks `selection`, `hovered`,
+  `active_tool` and `prefs`; `AppCx` lacks `start_tool`, `run_command`, `selection_mut`, `notify`,
+  `notify_error`, `camera` and `spawn_tracked`. Each arrives additively with its WP (UI-02, -03,
+  -04, -07, -10, -11, -20, -21). Additive extras: `AppCx::{registry, doc_tab}`,
+  `AmalgamApp::{frame, with_cx, submit, request_undo, request_redo, layouts_json,
+  restore_layouts, save_layout, status_message}`, `UiRegistry::{from_modules, panel_by_str,
+  workspace_owner, tab_owner}`.
+- `AppHarness` adds `builder()`, `app()`, `app_mut()` and `picks()`; `run_command`,
+  `world_to_screen`, `click_world`, `drag_world` and `selection` come with UI-02/03/04.
+  `CpuPickService` is a stub with a pending counter until UI-03 defines `PickService`.
+- Errors of a commit batch are shown in the status bar until UI-10's notifications exist.
+- `end_frame` and the UI-state setters (workspace, tab, document, theme) request one more
+  frame, because the frame that made the change drew its widgets before it; without this an
+  error or the new undo state only appeared on the next input.
+- Selected-label text is white on the accent colour in both themes (egui's light default was
+  unreadable on it).
+- Undo/redo also react to Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z outside text fields; UI-02 moves them
+  into the `ShortcutMap`.
+- Group and workspace dropdowns are labelled `CREATE ⏷`: egui's default fonts have no `▾`.
+- egui_dock writes never-laid-out rects as ±∞, which JSON cannot hold; `DockHost::to_json`
+  stores those coordinates as 0 (egui_dock recomputes rects on the next layout).
+- Navigation is not part of UI-01 (UI-03/RND-11): the demo mesh is shown from a fixed home view.
+
+*Leftovers:*
+- The owner confirms the layout on the screenshot (`D:/coding/amalgam-handoff/UI-01.png`).
+- Start-up was measured on a debug build on a busy machine; a release build on an idle machine
+  would show the real cold start.
+- The S10 background is the midpoint of the theme gradient (`Background` has only `Solid`);
+  RND-02 adds the gradient.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1191,3 +1287,10 @@ additive pieces UI-05 should render:
   picked outside the active component in `EntityRef::InContext { path, .. }`.
 - The assembly module would be `amg-ui::assembly`, owned by lane E if the owner agrees
   (QUESTIONS #60).
+
+### 2026-11-10: UI-01 (lane D)
+- Workspace `Cargo.toml` (shared): new `[workspace.dependencies]` `egui_dock` 0.21.1 (`serde`),
+  `egui_kittest` 0.36.2 (`snapshot`, `wgpu`) and `directories` 6.0.0, listed in
+  `THIRD_PARTY.md`. `amg-app` enables eframe's `accesskit` feature for itself only.
+- No change to `amg-render`, `amg-jobs`, `amg-doc` or `amg-features`: `amg-app` calls the
+  existing `amg_features::{mesh, sketch}::link()` (there is no crate-level `link()` yet).
