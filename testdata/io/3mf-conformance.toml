@@ -1,0 +1,94 @@
+# 3MF Consortium conformance cases that IO-03 leaves out of scope (S12 IO-03 Done-when 1).
+# `tests/threemf_conformance.rs` loads every P_* case of suites 2, 3, 5 and 6 in strict mode
+# and expects every N_* case to fail with a specific IoError; the cases below are skipped,
+# each with the reason. Paths are relative to the suites checkout (fetch-3mf-suites.ps1).
+#
+# Format: one case table per entry with `file` (path under the checkout) and `reason`.
+
+[[case]]
+file = "suite2_core_prod_matl/negative_test_cases/N_XPM_0421_01.3mf"
+reason = "printable-area check: needs the printer's build volume (AM-01 print setup); the file itself is valid"
+
+[[case]]
+file = "suite3_core/negative_test_cases/N_XXX_0421_01.3mf"
+reason = "printable-area check: needs the printer's build volume (AM-01 print setup); the file itself is valid"
+
+[[case]]
+file = "suite5_core_prod/negative_test_cases/N_XPX_0421_01.3mf"
+reason = "printable-area check: needs the printer's build volume (AM-01 print setup); the file itself is valid"
+
+[[case]]
+file = "suite6_core_matl/negative_test_cases/N_XXM_0421_01.3mf"
+reason = "printable-area check: needs the printer's build volume (AM-01 print setup); the file itself is valid"
+
+[[case]]
+file = "suite3_core/negative_test_cases/N_XXX_0420_01.3mf"
+reason = "the published fixture has no DTD (it is a valid file); DTD rejection is tested synthetically in threemf_quirks.rs"
+
+[[case]]
+file = "suite5_core_prod/negative_test_cases/N_XPX_0420_01.3mf"
+reason = "the published fixture has no DTD (it is a valid file); DTD rejection is tested synthetically in threemf_quirks.rs"
+
+[[case]]
+file = "suite6_core_matl/negative_test_cases/N_XXM_0420_01.3mf"
+reason = "the published fixture has no DTD (it is a valid file); DTD rejection is tested synthetically in threemf_quirks.rs"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_01.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_02.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_03.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_04.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_05.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_06.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_07.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_08.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_09.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_10.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0720_11.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0722_01.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0722_02.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0722_03.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"
+
+[[case]]
+file = "suite5_core_prod/positive_test_cases_prod_alt/P_XPX_0722_04.3mf"
+reason = "requires the Production alternatives extension (2021/04), not in S12 Phase 1 scope; refused with UnsupportedRequiredExtension"

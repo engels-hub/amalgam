@@ -16,3 +16,12 @@
 Larger corpora are added by the reader WPs: the MESH-28 mesh corpus (`testdata/mesh/`), the
 3MF Consortium suites and slicer fixtures (IO-03), STEP files (IO-06). See
 `docs/notes/import-export-formats.md` §11.
+
+3MF (IO-03):
+- `fetch-3mf-suites.ps1` checks out the 3MF Consortium conformance suites 2, 3, 5 and 6
+  (BSD-2-Clause, about 600 MB) at a pinned commit into `fetch/3mf-test-suites/` (git-ignored) and
+  verifies every case file against `3mf-suites.sha256`. `AMG_3MF_SUITES` points the tests at
+  another checkout.
+- `3mf-conformance.toml`: the out-of-scope cases, each with its reason.
+- `slicer/fixtures.toml`: slicer-produced fixtures made by `scripts/io/make_slicer_fixtures.ps1`
+  (CC0-1.0 outputs of CC0 inputs).
