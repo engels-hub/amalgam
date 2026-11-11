@@ -98,7 +98,25 @@ impl Library {
             .path
             .as_deref()
             .ok_or_else(|| MaterialError::NoPath(self.meta.id.clone()))?;
-        atomic_write(path, self.to_toml_string().as_bytes())?;
+        atomic_write(path, self.to_toml_string().as_bytes(), &mut |_| Ok(()))?;
+        Ok(())
+    }
+
+    /// [`save`](Library::save) with a fault-injection hook for crash tests. `hook` runs once
+    /// per [`SavePhase`]; an `Err` aborts the save at that point, like a crash would.
+    #[doc(hidden)]
+    pub fn save_with_hook(
+        &self,
+        hook: &mut dyn FnMut(SavePhase) -> std::io::Result<()>,
+    ) -> Result<(), MaterialError> {
+        if self.read_only {
+            return Err(MaterialError::ReadOnly(self.meta.id.clone()));
+        }
+        let path = self
+            .path
+            .as_deref()
+            .ok_or_else(|| MaterialError::NoPath(self.meta.id.clone()))?;
+        atomic_write(path, self.to_toml_string().as_bytes(), hook)?;
         Ok(())
     }
 
@@ -226,8 +244,20 @@ impl Library {
     }
 }
 
+/// Points of [`Library::save_with_hook`] where a test can inject a failure.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SavePhase {
+    /// The temp file is written and synced; the rename has not happened yet.
+    TempWritten,
+}
+
 /// Writes `bytes` to `path` via a sibling temp file, fsync and rename.
-fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+fn atomic_write(
+    path: &Path,
+    bytes: &[u8],
+    hook: &mut dyn FnMut(SavePhase) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
@@ -236,6 +266,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         f.write_all(bytes)?;
         f.sync_all()?;
         drop(f);
+        hook(SavePhase::TempWritten)?;
         std::fs::rename(&tmp, path)
     })();
     if result.is_err() {
