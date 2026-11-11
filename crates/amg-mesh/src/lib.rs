@@ -24,6 +24,7 @@ mod hash;
 mod holefill;
 mod indexed;
 pub mod iso;
+mod offset;
 mod remesh;
 mod repair;
 mod segment;
@@ -53,6 +54,9 @@ pub use groups::{
 pub use halfedge::{ConversionReport, HalfEdgeMesh, NonManifoldPolicy};
 pub use holefill::{Fairing, HoleFillOpts, HoleFillReport, fill_holes, fill_holes_indexed};
 pub use indexed::{IndexedMesh, NormalWeighting, Remap, RenderBuffers, WeldOpts};
+pub use offset::{
+    MAX_STRETCH, NormalOffsetOpts, ShellReport, offset_shell_normal, offset_shell_normal_unchecked,
+};
 pub use remesh::{EdgeLength, RemeshOpts, Sizing, remesh};
 pub use repair::{
     RepairOpts, RepairReport, RepairStep, RepairStepKind, SmallShellFilter, UnresolvedIssue,

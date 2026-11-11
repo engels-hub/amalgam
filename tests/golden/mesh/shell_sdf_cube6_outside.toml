@@ -1,0 +1,28 @@
+# Golden metrics for mesh/shell_sdf_cube6_outside. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 276.05276402693016
+area = 555.8335343123882
+vertices = 1736
+triangles = 3464
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 4
+
+[metrics.bbox]
+min = [
+    0.10000000000000009,
+    1.2000000000000002,
+    2.3,
+]
+max = [
+    8.1,
+    9.2,
+    10.3,
+]
