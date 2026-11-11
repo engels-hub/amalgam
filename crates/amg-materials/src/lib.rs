@@ -23,6 +23,7 @@ mod error;
 mod format;
 mod id;
 mod library;
+mod library_set;
 mod material;
 mod provenance;
 
@@ -31,7 +32,8 @@ pub use builtin::{BUILTIN_LIBRARY_ID, builtin, default_material_id};
 pub use elastic::{Elastic, EngineeringConstants, IsoPolicy};
 pub use error::MaterialError;
 pub use id::{AppearanceId, AppearanceKey, MaterialId, MaterialKey};
-pub use library::{FORMAT_VERSION, Library, LibraryMeta};
+pub use library::{FORMAT_VERSION, Library, LibraryMeta, SavePhase};
+pub use library_set::{Drift, LibrarySet, MaterialQuery};
 pub use material::{
     AmInfo, AmProcess, Category, Cost, Directional, Hardness, Material, MaterialFamily, Mechanical,
     Plasticity, Strength, TempRange, Thermal,
