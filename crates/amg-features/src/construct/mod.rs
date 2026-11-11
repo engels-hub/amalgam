@@ -9,15 +9,18 @@
 //!   entities and other construction geometry; B-rep, sketch and mesh references join with
 //!   CON-03.
 //!
-//! [`ConstructPlane`] (`construct.plane` v1) is the feature. Its compute goes through
-//! [`ConstructInputs`], so tests can evaluate any [`PlaneDef`] against pre-resolved geometry
-//! (cylinders, curves, ...) without a B-rep kernel.
+//! [`ConstructPlane`] (`construct.plane` v1, CON-01), [`ConstructAxis`] (`construct.axis` v1)
+//! and [`ConstructPoint`] (`construct.point` v1, CON-02) are the features. Their compute goes
+//! through [`ConstructInputs`], so tests can evaluate any [`PlaneDef`], [`AxisDef`] or
+//! [`PointDef`] against pre-resolved geometry (cylinders, curves, ...) without a B-rep kernel.
 //!
 //! Call [`link`] from a binary or test so the registrations are linked in.
 
+mod axis;
 pub mod curves;
 pub mod math;
 mod plane;
+mod point;
 pub mod resolve;
 #[cfg(test)]
 mod tests;
@@ -29,7 +32,9 @@ use amg_core::{Dir3, Line3, Plane, Point2, Point3, Segment3, Tolerance, Vec3};
 use amg_doc::{Diagnostic, EntityRef, Expr, FeatureError, MatchQuality};
 use serde::{Deserialize, Serialize};
 
+pub use axis::{AxisDef, ConstructAxis};
 pub use plane::{ConstructPlane, PlaneDef};
+pub use point::{ConstructPoint, PointDef};
 
 /// Forces this module's feature registrations to be linked (registry `link()` convention).
 pub fn link() {}

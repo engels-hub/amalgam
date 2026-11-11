@@ -21,6 +21,8 @@ use amg_doc::{
 use super::curves::{CircleCurve, SegmentCurve};
 use super::*;
 
+mod axes_points;
+
 const EPS: f64 = 1e-12;
 
 // ---- test resolver -------------------------------------------------------------------
