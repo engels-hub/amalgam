@@ -105,6 +105,10 @@ impl Occ {
         match *self {}
     }
 
+    pub(crate) fn volume(&self) -> KResult<f64> {
+        match *self {}
+    }
+
     pub(crate) fn moved(&self, _transform: &Transform) -> KResult<Occ> {
         match *self {}
     }

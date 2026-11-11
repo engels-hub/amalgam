@@ -415,6 +415,16 @@ pub enum BodyChangeKind {
     },
     /// The body no longer exists after this feature.
     Deleted,
+    /// The existing body now belongs to `component` (S06 ASM-09) and keeps its id. `geom` is
+    /// the body's geometry already expressed in `component`'s space.
+    Moved {
+        /// The component the body belongs to from this feature on.
+        component: ComponentId,
+        /// Geometry in `component`'s space.
+        geom: BodyGeom,
+        /// Element map.
+        naming: Option<BodyNaming>,
+    },
 }
 
 /// Full compute or a cheap interactive preview (separate cache keys, never persisted).

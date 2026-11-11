@@ -29,5 +29,10 @@ serde_json.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 
+[features]
+# Links the OCCT backend of amg-brep, for tests on real B-rep solids (S06 ASM-09). Needs
+# AMG_OCCT_DIR like amg-brep's own `occt` feature.
+occt = ["amg-brep/occt"]
+
 [lints]
 workspace = true
