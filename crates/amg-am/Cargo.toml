@@ -13,12 +13,20 @@ amg-jobs.workspace = true
 amg-mesh.workspace = true
 amg-implicit.workspace = true
 amg-io.workspace = true
+rayon.workspace = true
 serde.workspace = true
 toml.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+amg-mesh = { workspace = true, features = ["corpus"] }
+amg-testkit.workspace = true
+criterion.workspace = true
 proptest.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "place"
+harness = false
