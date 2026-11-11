@@ -12,6 +12,9 @@ amg-core.workspace = true
 # Not `workspace = true`: this crate's own `gpu` feature decides whether `amg_jobs::gpu` exists.
 amg-jobs = { path = "../amg-jobs", default-features = false }
 bytemuck.workspace = true
+# The workspace pin (ADR-006; same as amg-mesh and amg-sketch). `rayon` for the parallel
+# supernodal factorisation (it adds faer's `spindle` dependency).
+faer = { version = "=0.23.2", default-features = false, features = ["std", "sparse-linalg", "rayon"] }
 half = { version = "2.7.1", features = ["bytemuck"] }
 rayon.workspace = true
 thiserror.workspace = true
@@ -25,6 +28,8 @@ gpu = ["amg-jobs/gpu"]
 [dev-dependencies]
 amg-testkit.workspace = true
 criterion.workspace = true
+memory-stats = "1.2.0"
+proptest.workspace = true
 
 [[bench]]
 name = "gpu_layer"
@@ -32,6 +37,10 @@ harness = false
 
 [[bench]]
 name = "primitives"
+harness = false
+
+[[bench]]
+name = "sparse_direct"
 harness = false
 
 [lints]

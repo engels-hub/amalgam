@@ -665,13 +665,13 @@ harness; measured numbers go into the Refinement log.
 | CMP-07 | GPU layer: `GpuVec<T>` (binding-limit checks), `Kernel` (incl. `with_precision`), `ComputeCtx` (batched encoder, uniform arena, `dispatch_1d` 2-D folding, timestamps), `prelude_wgsl` (`real` alias), `ComputeError` + `Diagnostic`; precision selection (`Precision`, `PrecisionPolicy`, `AMG_COMPUTE_PRECISION`, `GpuReal`, `device_precision`, `SolverDevice::precision`); WARP test harness with a per-precision test matrix and the f64 skip/require rule; crate deps (`half`, `bytemuck`, `rayon`) and THIRD_PARTY rows | FND-09, FND-05 | P1 | Done | 1. On WARP and the reference GPU, `dispatch_1d` with n ∈ {0, 1, 255, 256, 257, 65 535·256 + 1, 2²⁶ + 3} writes every index exactly once (counter test). 2. `GpuVec::zeroed` past the binding limit returns `TooLarge`, no panic. 3. A destroyed device makes `finish` return `Gpu(DeviceLost)` within 1 s (no hang). 4. Bench: 1 000 empty dispatches recorded and submitted in one `ComputeCtx` cost ≤ 20 µs CPU each. 5. `take_timings` is non-empty on the reference GPU and empty without `TIMESTAMP_QUERY`. 6. `cargo deny` passes; `half` listed in THIRD_PARTY.md. 7. `PrecisionPolicy::resolve`: `Auto` gives F64 exactly when `Gpu::has(SHADER_F64)` (WARP and the reference GPU on DX12 → F32; the reference GPU on Vulkan → F64); `ForceF32` gives F32 on every device; `RequireF64` on WARP returns `Unsupported`, no panic; `parse` accepts `auto`/`f32`/`f64` (any case, empty = `Auto`) and rejects anything else with `Config`. 8. The harness runs each numeric GPU test once per precision. On a device without `SHADER_F64` the f64 case is reported as skipped with the reason (`f64: adapter has no SHADER_F64`), and fails instead when `AMG_REQUIRE_F64=1`. CI (WARP) runs the f32 cases and reports the f64 skips. 9. f64 gate (Testing): `AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1 cargo nextest run -p amg-compute` on the reference GPU passes, including an f64 kernel (`real` = f64) for test 1 and a bit-exact f64 upload → kernel copy → readback; the run is recorded in the Refinement log before Review. |
 | CMP-01 | GPU primitives: reduce (sum/min/max on f32/f64/u32/i32), dot and segmented reduce (f32/f64), exclusive/inclusive scan, compaction, stable radix sort (keys + optional values, `key_bits`), `AtomicCounter`, `cpu` references; benchmarks vs CPU | CMP-07 | P1 | Done | 1. Every primitive equals its `cpu` reference on sizes {0, 1, 255, 256, 257, 65 537, 2²⁰ + 7, 2²⁴} with random data, on WARP and the reference GPU: integers exactly, f32 sums bit-equal to the tree-order reference on the reference GPU and within n·ε₃₂·Σ\|x\| on WARP. The f64 variants (reduce, dot, segmented reduce) pass the same sizes on the f64 gate, bit-equal to the f64 tree-order reference; on WARP they are skipped by the CMP-07 rule, and an f64 call there returns `Unsupported`. 2. Same input → bit-identical output over 3 runs (both precisions). 3. Sort is stable (equal keys keep value order; property test vs `slice::sort_by_key`). 4. Benches (reference GPU, 2²⁶ elements): reduce f32 ≥ 60 % of the measured device-to-device copy bandwidth; scan u32 ≥ 30 %; sort of 2²⁴ key-value pairs ≥ 1 G pairs/s and ≥ 3× rayon `par_sort_by_key` on the CPU; f64 reduce and dot on Vulkan recorded (no bar); numbers recorded. |
 | CMP-02 | Grids: `DenseGrid<T>`, `BrickGrid<T>` (two-level tree, `BrickLayout::{CELLS, CORNERS}`, fills, aprons, Morton `canonicalize`, `content_hash`), `GpuBrickGrid` (upload/download, deterministic scan-based `allocate`), `brick_grid_wgsl` | CMP-01 | P1 | Todo | 1. Sphere r = 50 at cell 0.5 baked as `d / cell` into `BrickGrid<f16>` (`CORNERS`, band ±4 cells, inside tiles Fill1): CPU `trilinear` error vs the analytic distance ≤ 0.01 cell inside the band; sign correct everywhere in the box (fills). 2. A GPU kernel using `bg_trilinear` at 1 M random points equals CPU `trilinear` within 1e-3 cell (WARP and reference GPU). 3. GPU `allocate` from a mask gives buffers bit-identical over 3 runs and the same brick order as CPU `canonicalize`; upload → download round-trips bit-exactly for f16, f32, u8. 4. Grids built in two insertion orders have equal `content_hash` after `canonicalize`. 5. Sphere r = 100 at cell 0.1: index (root + tiles) ≤ 10 % of brick bytes; bytes recorded. 6. Bench: ≥ 0.5 G `bg_trilinear` samples/s at random in-band points on the reference GPU. 7. A box needing > 2²⁴ root tiles returns `Shape`. |
-| CMP-03 | Sparse direct: `SymCsr` (upper CSR, validation, deterministic `spmv`, `add_scaled`), `TripletBuilder`, `SymbolicFactor` (reusable, `estimate`), `Cholesky` and `Ldlt` (faer, LBLᵀ) with multi-RHS, `PivotReport`, `Inertia`; `testprob` generators | FND-03, FND-04 | P1 | Todo | 1. `q1_elasticity(55, Clamped)` (499 125 DOF): analyse + factor + solve ≤ 20 s (S13 note §8.1 split of the vision 30 s budget), relative residual ≤ 1e-10. 2. `q1_elasticity(70, Clamped)` (1 029 000 DOF): completes on 32 GB; time and peak RSS recorded; `estimate().bytes` within 10 % of the measured factor storage. 3. `solve_many` with 6 RHS takes ≤ 2× one `solve_in_place`. 4. `q1_elasticity(_, Free)` gives `NotPositiveDefinite` with a row, or a `PivotReport` with `below_threshold`; never a panic. 5. `Ldlt::inertia` on random diagonal-plus-low-rank matrices equals the dense eigenvalue sign count (proptest). 6. Re-factoring with new values on the same pattern skips analysis (counter). 7. Factor and solve are bit-identical over 2 runs; `spmv` bit-identical across 1, 4, 16 threads. 8. `from_raw` rejects unsorted, lower or out-of-range input with `InvalidMatrix`. |
+| CMP-03 | Sparse direct: `SymCsr` (upper CSR, validation, deterministic `spmv`, `add_scaled`), `TripletBuilder`, `SymbolicFactor` (reusable, `estimate`), `Cholesky` and `Ldlt` (faer, LBLᵀ) with multi-RHS, `PivotReport`, `Inertia`; `testprob` generators | FND-03, FND-04 | P1 | Review | (1–3 narrowed by the owner, 2026-11-11: measurements recorded, no bar; the 20 s / 1 M targets move to CMP-10 + FEM-08, see Refinement log.) 1. `q1_elasticity(55, Clamped)` (499 125 DOF): analyse + factor + solve time recorded for AMD and for a geometric nested-dissection ordering, relative residual ≤ 1e-10. 2. `q1_elasticity(70, Clamped)` (1 029 000 DOF): `SymbolicFactor::estimate()` recorded from the analysis alone (AMD and ND); factored only where the estimate fits in RAM. 3. `solve_many` with 6 RHS vs one `solve_in_place`: ratio recorded. 4. `q1_elasticity(_, Free)` gives `NotPositiveDefinite` with a row, or a `PivotReport` with `below_threshold`; never a panic. 5. `Ldlt::inertia` on random diagonal-plus-low-rank matrices equals the dense eigenvalue sign count (proptest). 6. Re-factoring with new values on the same pattern skips analysis (counter). 7. Factor and solve are bit-identical over 2 runs; `spmv` bit-identical across 1, 4, 16 threads. 8. `from_raw` rejects unsorted, lower or out-of-range input with `InvalidMatrix`. |
 | CMP-04 | Eigen: thick-restart shift-invert Lanczos (`lanczos`) with full B-reorthogonalisation, `EigenMode::{Vibration, Buckling}`, `Which::{Nearest, Band}` with Sturm check and re-shift, `ShiftInvert` callback, `CholeskyShift`, `LdltShift` | CMP-03 | P1 | Todo | 1. 50 random sparse SPD pencils (n ≤ 3 000): the 10 eigenvalues nearest σ match faer's dense generalised solver within 1e-10 relative; ‖ΦᵀBΦ − I‖∞ ≤ 1e-10. 2. Free-free `q1_elasticity(20, Free)` with σ < 0: exactly 6 values with \|λ\| ≤ 1e-8·λ₇, then the next 4 within 1e-9 of dense. 3. Band mode finds every eigenvalue in [lo, hi] on 20 pencils (vs dense), `sturm_checked` true; a band with more than `max` values returns the `max` lowest and says so. 4. Buckling mode on a pencil with known eigenvalues (indefinite K_G) within 1e-9. 5. Bench: `q1_elasticity(55, Clamped)`, 8 modes, including the factorisation, ≤ 40 s (FEM-07 budget 60 s). 6. Cancel during iterations returns `Cancelled` within 1 s after the factorisation ends. |
 | CMP-08 | Iterative core: `LinearOperator`, `CpuPreconditioner`, `GpuOperator<R>`, `GpuPreconditioner<R>`; `GpuCsr<R>` (full storage, `update_values`); `Jacobi`, `BlockJacobi3`, `Chebyshev` (Lanczos bounds, `smooth`), all generic over f32/f64; `pcg_cpu`, `pcg_gpu<R>` (async convergence checks) on a crate-private `VectorBackend`; `refine`; `GpuSystem` + `solve_gpu` (precision-path selection) | CMP-01, CMP-03 | P1 | Todo | 1. `pcg_gpu` and `pcg_cpu` on `q1_poisson(65)` and `q1_elasticity(40)` reach 1e-5 relative residual with iteration counts within 2 % of each other: f32 on WARP and the reference GPU (DX12), f64 on the f64 gate. 2. `solve_gpu` with `BlockJacobi3` on `q1_elasticity(70)` reaches ‖r‖/‖b‖ ≤ 1e-8 (f64 CPU residual) on both paths, and both solutions match CMP-03 Cholesky within 1e-7 in relative energy norm: the F32 path on the reference GPU (DX12) and the F64 path on the f64 gate, where it needs exactly one outer step; on the same Vulkan device with `ForceF32` the F32 path meets the same bounds (both paths on one device). 3. Bench: `q1_elasticity(70)` with `BlockJacobi3` ≥ 250 PCG iterations/s on the F32 path on the default (DX12) reference device (the budget bar); GPU idle between submissions ≤ 10 % (timestamps). F64-path iterations/s and total `solve_gpu` time on Vulkan recorded next to the F32 numbers (no bar; input to open question 8). 4. Iteration counts and results bit-identical over 3 runs, on each path. 5. `Chebyshev` λmax estimate within 5 % of the dense value on a 3 000-DOF problem (both precisions). 6. Cancel returns `Cancelled` within 100 ms; device loss returns an error. 7. A `GpuSystem` built from `PrecisionPolicy::Auto` takes the F32 path on WARP and the F64 path on the f64 gate (`GpuSolveStats::precision`); building an f64 `GpuCsr` on WARP returns `Unsupported`. |
 | CMP-05 | Geometric multigrid for structured grids: `GridLevelOperator<R>`, `Gmg<R>` (Chebyshev–Jacobi smoothing, trilinear transfer, re-discretised coarse levels, padding to `2^k·m + 1`, fixed masks, coarse CPU Cholesky, `update`), `Q1Poisson<R>` reference operator, all generic over f32/f64; MGPCG | CMP-08, CMP-02 | P1 | Todo | 1. `Q1Poisson` with a `simp_field` coefficient (contrast 1e3), clamped on one face: MGPCG reaches 1e-6 relative residual in ≤ 25 iterations at 129³ nodes, and the 257³ count is ≤ 1.2× the 129³ count (h-independence); on the F32 path (reference GPU, DX12) and the F64 path (f64 gate). 2. Bench: 257³ nodes (16 974 593 DOF) solve < 2 s on the reference GPU on the F32 path (default DX12 device; headroom for GEN-03's 1 M-voxel elasticity < 2 s). F64-path time on Vulkan recorded (no bar; input to open question 8). 3. Contrast 1e6: iteration counts recorded for both paths (no limit). 4. Non-`2^k·m + 1` dims (e.g. 100³) converge within 1.3× the padded power-of-two case. 5. `update` after a coefficient change reuses all buffers (allocation counter) and gives the same iterations as a fresh `build`. 6. Matches `pcg_cpu` + Cholesky reference within 1e-5 relative on 33³, on both paths (f32 also on WARP). |
 | CMP-06 | Optional CUDA backend (`cudarc`, NVRTC at runtime) behind feature `cuda`: `VectorBackend` impl, CSR SpMV, Chebyshev, `SolverDevice::Cuda`, f32 and f64 (precision chosen by `SolverDevice::precision`); Phase 5, started only if the wgpu solver benchmarks miss their budgets (QUESTIONS #80 (b), ADR-004) | CMP-05, CMP-08 | P2 | Todo | Gate: scheduled only if CMP-08 bench 3 or CMP-05 bench 2, or the FEM-08 / GEN-03 budget benches built on them, miss their budgets on wgpu; otherwise it stays Todo. 1. Builds and tests pass with and without `cuda`; without a CUDA driver `SolverDevice::Cuda` creation returns an error, not a crash. 2. CMP-08 test 1 and CMP-05 test 1 pass on CUDA in f32 and f64. 3. Bench table CUDA vs wgpu for CMP-08 bench 3 and CMP-05 bench 2, per precision path, recorded; CUDA becomes the default only if ≥ 1.5× faster than wgpu on the same path (owner decides). |
 | CMP-09 | LOBPCG (`lobpcg<R>`): block, preconditioned, GPU operators (f32 or f64), f64 Rayleigh–Ritz on the CPU, soft locking | CMP-08, CMP-04 | P2 | Todo | 1. On `q1_elasticity(40, Clamped)`, 8 smallest eigenvalues within 1e-6 relative of CMP-04 Lanczos, on the F32 path (reference GPU, DX12) and the F64 path (f64 gate). 2. `q1_elasticity(88, Clamped)` (2 044 416 DOF), 8 modes with `BlockJacobi3`, < 120 s on the reference GPU on the F32 path; iterations recorded for both paths. 3. Deterministic over 2 runs. |
-| CMP-10 | Nested-dissection ordering: geometric ND from node coordinates (`Ordering::NestedDissection`), or METIS behind `metis` if geometric ND is not enough | CMP-03 | P2 | Todo | 1. On `q1_elasticity(55)` and the S13 500 k DOF bracket, factor nnz ≥ 25 % lower than AMD. 2. Becomes the default only if factor time drops ≥ 20 %; numbers recorded either way. Only scheduled if CMP-03 test 1 misses its budget or S13 FEM-04 bench 5 does. |
+| CMP-10 | Nested-dissection ordering: geometric ND from node coordinates (`Ordering::NestedDissection`), or METIS behind `metis` if geometric ND is not enough | CMP-03 | P2 | Todo | 1. On `q1_elasticity(55)` and the S13 500 k DOF bracket, factor nnz ≥ 25 % lower than AMD. 2. Becomes the default only if factor time drops ≥ 20 %; numbers recorded either way. Only scheduled if CMP-03 test 1 misses its budget or S13 FEM-04 bench 5 does (CMP-03 missed it; owner, 2026-11-11: CMP-10 goes ahead and takes over the direct-solve targets that fit on 32 GB, with S13 500 k+ cases routed to the GPU iterative solver, FEM-08). |
 | CMP-11 | Smoothed-aggregation AMG preconditioner: CPU setup (strength of connection, aggregation, rigid-body near-null space for 3-DOF nodes), GPU V-cycle with `Chebyshev` smoothing, `GpuPreconditioner<R>` (f32 and f64) | CMP-08 | P2 | Todo | 1. Unstructured test (`q1_elasticity` with randomly perturbed nodes and a random symmetric renumbering): iterations to 1e-6 ≤ 2× `Gmg` on the unperturbed grid of equal size, on both precision paths. 2. Setup for 1 M DOF < 5 s CPU. 3. Iterations grow ≤ 1.5× from 125 k to 1 M DOF. |
 
 Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Review`, `Done`, `Blocked (reason)`.
@@ -706,7 +706,7 @@ Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Revie
 ## Performance targets
 | Target | Value | Tied to |
 |---|---|---|
-| Direct solve, 499 k DOF 3-D elasticity (CMP-03) | ≤ 20 s analyse + factor + solve | vision FEA 500 k DOF < 30 s (S13 note §8.1 split) |
+| Direct solve, 499 k DOF 3-D elasticity (CMP-03 measured; target moved to CMP-10 + FEM-08, owner 2026-11-11) | ≤ 20 s analyse + factor + solve (CMP-03: AMD 413 s under load, ND 42.6 s idle) | vision FEA 500 k DOF < 30 s (S13 note §8.1 split) |
 | Modal, 499 k DOF, 8 modes (CMP-04) | ≤ 40 s | FEM-07 < 60 s |
 | GPU PCG throughput, 1.03 M DOF elasticity (CMP-08) | ≥ 250 iterations/s | FEM-08 2 M DOF < 60 s |
 | MGPCG, 17 M DOF scalar Q1 (CMP-05) | < 2 s, ≤ 25 iterations at 129³ | GEN-03 1 M voxels < 2 s; vision topopt 1 M voxels × 100 iterations < 5 min |
@@ -1028,7 +1028,101 @@ stability property test vs `sort_by_key`. `amg-jobs` 61/61.
   new WP if a consumer wants them (AM-13 needs neither).
 - The WARP run takes 8.5 min; the 2²⁴ cases may want a smaller size or an `slow` filter in CI.
 
+### 2026-11-10 - CMP-03 sparse direct solvers (lane F implementation)
+- **Landed** (`crates/amg-compute`): `sparse` (`SymCsr` with validated `from_raw`, `diagonal`,
+  `get`, deterministic row-parallel `spmv` through a lazily built lower-triangle index,
+  `add_scaled`, `same_pattern`; `TripletBuilder`; `Ordering`, `FactorOpts`, `FactorEstimate`,
+  `PivotReport`, `Inertia`; `SymbolicFactor` (reusable `Arc`, exact `estimate`, `permutation`);
+  `Cholesky` (faer supernodal LLᵀ, `pivots`, `solve_in_place`, `solve_many`); `Ldlt` (faer
+  intranode Bunch–Kaufman LBLᵀ, `inertia`, solves)); `testprob` (`q1_poisson`, `q1_elasticity`
+  with stiffness + consistent mass + body load, `simp_field`). Tests: 18 in
+  `tests/sparse_direct.rs` (2 proptests, 1 ignored large analysis) + unit tests; bench `benches/sparse_direct.rs`.
+- **faer details** (0.23.2, workspace pin, now with its `rayon` feature): the analysis always asks
+  for the supernodal factorisation (`SupernodalThreshold::FORCE_SUPERNODAL`) so `Ldlt` always
+  pivots; faer still picks simplicial when `L` has no off-diagonal entries (diagonal matrices),
+  which is handled. faer's `SymmetricOrdering::Identity` ignores `Side::Lower` in the symbolic
+  phase, so `Ordering::Identity` is passed as an explicit identity permutation. Indices are
+  `usize` (a 1 M DOF factor overflows u32 value offsets), so the column indices are copied once
+  per analysis; values are passed without a copy. faer does not report the failing pivot's value:
+  `NotPositiveDefinite::pivot` is NaN (row is in the original numbering).
+- **Additions beyond the Interfaces block** (additive): `SymCsr::get`, `SymbolicFactor::n`,
+  `SymbolicFactor::numeric_factorizations`, `Cholesky::symbolic`, `Ldlt::symbolic`,
+  `sparse::analyses_on_this_thread` (Done-when 6 counter; thread-local so parallel tests do not
+  interfere), `Support: PartialEq + Eq`.
+- **Deviation:** `q1_poisson(nodes, coeff: Option<&[f32]>)` and `simp_field(..) -> Vec<f32>`
+  take/return a per-cell slice instead of CMP-02's `DenseGrid<f32>`, which does not exist yet.
+  CMP-02 (or its first consumer) switches the signature when `DenseGrid` lands.
+- **Dirichlet handling in `testprob`:** constrained DOFs stay in the system (3·55³ = 499 125
+  rows) with zero off-diagonals and the assembled diagonal, so Clamped and Free share a pattern.
+- **Done-when results** (reference machine, shared with 5 other build workers during the run):
+  1. **Not met.** `q1_elasticity(55, Clamped)`, AMD, 16 threads, release: analyse 3.61 s +
+     factor 372.7 s + solve 36.9 s (first solve; best of 5 later: 1.56 s) = 413 s vs the 20 s
+     bar; relative residual 4.15e-12 (≤ 1e-10 met). Factor: 1.79e9 non-zeros, 17.11 GiB,
+     2.53e13 flops (≈ 68 GFLOP/s achieved under load). Peak working set 17.3 GiB. The design
+     note's "few hundred million non-zeros at 1 M DOF" was off by ~10× for AMD on a 3-D grid.
+     Geometric nested dissection (test helper, estimate only): 8.66e8 non-zeros, 7.71 GiB,
+     4.89e12 flops (5.2× fewer) — still ≈ 70 s at the measured rate, so ND alone (CMP-10) does
+     not reach 20 s with faer on this machine.
+  2. **Not met (not run).** Analysis only: `q1_elasticity(70, Clamped)` AMD estimate 4.29e9
+     non-zeros, 40.43 GiB, 8.88e13 flops; above ~28 GB of usable RAM, so per the coordinator the
+     1 M case was not factored. ND estimate: 2.32e9 non-zeros, 20.62 GiB, 2.10e13 flops (would
+     fit). `estimate().bytes` vs measured storage: not measured at 1 M; at 500 k the estimate
+     (17.11 GiB) is 6 % below the whole-process peak private memory sampled from outside
+     (18.18 GiB, which also holds K and M, ≈ 0.44 GiB, the vectors and faer's transient
+     workspace); the in-process before/after-factor reading needs a bench run.
+  3. **Not met** at 500 k: `solve_many(6)` 7.61 s vs `solve_in_place` 1.56 s, ratio 4.87 (bar
+     2). Correctness of multi-RHS checked (6 columns, residual ≤ 1e-10; small-problem test).
+     faer's supernodal solve is memory-bound per column at this size; a blocked solve would need
+     changes in faer.
+  4. Met: `q1_elasticity(n, Free)` for n = 2..12 gives `NotPositiveDefinite` with a row or a
+     `PivotReport` with `below_threshold`; the clamped matrix on the same analysis does not flag.
+  5. Met: proptest (96 cases, n ≤ 59, diagonal + up to 3 signed rank-1 updates) — `inertia`
+     equals faer's dense eigenvalue sign counts.
+  6. Met: `analyses_on_this_thread` unchanged and `numeric_factorizations` = 3 after three
+     re-factorisations (`Cholesky` ×2, `Ldlt`) on one `Arc<SymbolicFactor>`.
+  7. Met: factor + solve (Cholesky and LBLᵀ) bit-identical over 2 runs for threads None / 1 / 4;
+     `spmv` bit-identical across 1, 4, 16 threads.
+  8. Met: unit test + proptest — unsorted, duplicate, lower, out-of-range and malformed
+     `row_ptr` input all give `InvalidMatrix`.
+- **Gates:** `cargo fmt --all --check`, `cargo clippy -p amg-compute --all-targets
+  --all-features -- -D warnings`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo nextest run -p amg-compute` (89 passed, 1 skipped: the `#[ignore]` large analysis-only
+  test `large_analysis_estimates`, which produced the estimates above) all pass. No numeric GPU
+  kernel was touched, so the f64 gate does not apply.
+- **Leftovers / decisions for the owner:** the 20 s budget for 500 k DOF is out of reach with
+  faer + AMD here (≈ 20× over). Options: (a) CMP-10 ND (≈ 5× fewer flops, ≈ 2.2× less memory;
+  makes the 1 M case fit), (b) reconsider CHOLMOD/MUMPS-class supernodal (design note: only if
+  CMP-03 misses by > 2× — it does), (c) move the S13 500 k path to the iterative solver
+  (CMP-08 / FEM-08) and keep direct for smaller models. Re-measure on an idle machine before
+  deciding (`AMG_BENCH_1M=1` only with ND).
+
+### 2026-11-11 - CMP-03 owner decision on the missed budgets; ND 500 k measurement
+- **Measurement** (`benches/sparse_direct.rs` with `AMG_BENCH_ORDERING=nd`, release, 16 rayon
+  threads, idle machine, run once; criterion repeats skipped): `q1_elasticity(55, Clamped)` with
+  the geometric nested dissection of the node grid: analyse 1.45 s + factor 40.23 s + solve
+  0.93 s = **42.6 s**, residual 3.74e-12. Factor 8.66e8 non-zeros, `estimate().bytes` 7.71 GiB,
+  4.89e12 flops (≈ 122 GFLOP/s). Peak working set 8.42 GiB, peak private 8.50 GiB (sampled from
+  outside; includes K, f and vectors). `solve_many(6)` 1.97 s vs `solve_in_place` 0.84 s, ratio
+  **2.34**. The AMD case was not re-run: its ≈ 18 GiB peak did not fit in the 14 GiB then free.
+- **Recorded numbers for CMP-03 Done-when 1–3:** AMD 500 k 413 s on the loaded machine
+  (residual 4.15e-12, 17.11 GiB est.); ND 500 k 42.6 s idle; 1 M analysis-only estimate AMD
+  40.43 GiB / ND 20.62 GiB (not factored); `solve_many(6)` ratio 4.87 (AMD, loaded) and 2.34
+  (ND, idle).
+- **Owner decision (2026-11-11):** keep faer for small and medium problems; add nested
+  dissection (CMP-10); route S13 cases of 500 k DOF and more to the GPU iterative solver
+  (FEM-08). CMP-03 Done-when 1–3 are narrowed to the recorded measurements above. The 20 s
+  (500 k) and 1 M-on-32 GB targets move to CMP-10 (ordering, direct path) and FEM-08 (iterative
+  path for large models). No CHOLMOD/MUMPS.
+- `docs/notes/compute-numerics.md` §5 corrected: the 1 M factor is ≈ 4.3e9 (AMD) / 2.3e9 (ND)
+  non-zeros, not "a few hundred million".
+
 ## Interface changes
+### 2026-11-10: from CMP-03 (lane F; applied, additive)
+- **faer feature unification (S03 `amg-sketch`, S07 `amg-mesh`):** `amg-compute` enables faer's
+  `rayon` feature (same `=0.23.2` pin). In any build that contains `amg-compute`, faer's global
+  parallelism defaults to the rayon pool, so `amg-mesh`'s hole-fill fairing (`sp_cholesky`, which
+  uses the global setting) runs in parallel; it stays deterministic for a fixed thread count.
+  `amg-sketch` passes `Par::Seq` explicitly and is unaffected. Owners of S07 to review.
 ### 2026-11-10: from CMP-01 (lane F; applied, additive)
 - **`amg-jobs::gpu` (S00):** `ComputePipelineDesc` gains `pub zero_init_workgroup_memory: bool`
   (`new()` sets `true`, the previous behaviour), part of the pipeline cache key and passed to wgpu's
