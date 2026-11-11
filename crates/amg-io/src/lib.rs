@@ -5,7 +5,7 @@
 //! This is the IO-01 foundation: the format registry and content sniffing, sources and
 //! atomic sinks, the format-independent [`Scene`], units and up-axis, options, reports and
 //! errors, and the `probe`/`import`/`export` entry points. The readers and writers of the
-//! individual formats land with IO-02 (STL, done), IO-05 (OBJ) and later; until then `import` and
+//! individual formats land with IO-02 (STL), IO-03 (3MF read), IO-05 (OBJ) and IO-13 (PLY); until then `import` and
 //! `export` answer [`IoError::Unsupported`] for the others.
 
 #![warn(missing_docs)]
@@ -16,6 +16,7 @@ mod format;
 pub mod obj;
 mod options;
 pub mod paint;
+pub mod ply;
 mod scene;
 pub mod stl;
 pub mod threemf;
@@ -130,6 +131,7 @@ pub fn import(
     match format {
         Format::Stl => return import_stl(src, sniffed, opts, ctx),
         Format::Obj => return import_obj(src, sniffed, opts, ctx),
+        Format::Ply => return import_ply(src, sniffed, opts, ctx),
         Format::ThreeMf => return import_3mf(src, sniffed, opts, ctx),
         _ => {}
     }
@@ -164,6 +166,17 @@ fn import_obj(
 ) -> Result<Imported, IoError> {
     let out = obj::read(src, opts, ctx)?;
     finish_import(out, src, sniffed, Format::Obj, opts, ctx)
+}
+
+/// PLY: reads, then applies the unit, `merge_objects` and the up axis (S12 §4).
+fn import_ply(
+    src: Source<'_>,
+    sniffed: bool,
+    opts: &ImportOptions,
+    ctx: &JobCtx,
+) -> Result<Imported, IoError> {
+    let out = ply::read(src, opts, ctx)?;
+    finish_import(out, src, sniffed, Format::Ply, opts, ctx)
 }
 
 /// 3MF: reads, then applies the declared (or chosen) unit, `merge_objects` and the up axis
@@ -312,6 +325,7 @@ pub fn export(
     match format {
         Format::Stl => return stl::write(scene, dst, opts, ctx),
         Format::Obj => return obj::write(scene, dst, opts, ctx),
+        Format::Ply => return ply::write(scene, dst, opts, ctx),
         _ => {}
     }
     Err(IoError::Unsupported {

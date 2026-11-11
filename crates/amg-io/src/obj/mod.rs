@@ -13,6 +13,9 @@ pub use mtl::{Mtl, MtlMaterial, parse_mtl};
 pub use read::read;
 pub use write::write;
 
+// Shared with the PLY reader (IO-13).
+pub(crate) use triangulate::{Method, triangulate};
+
 #[cfg(test)]
 pub(crate) use read::{Tuning, read_tuned};
 
