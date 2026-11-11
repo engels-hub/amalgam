@@ -464,7 +464,7 @@ fn export_is_memory_or_path_and_flavours_stay_unsupported() {
     let e = export(
         &i.scene,
         Sink::Memory(&mut Vec::new()),
-        Format::Ply,
+        Format::Step,
         &ExportOptions::default(),
         &JobCtx::detached(),
     );
