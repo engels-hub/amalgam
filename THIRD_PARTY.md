@@ -49,16 +49,16 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
 | tracing, tracing-subscriber | logging (S00), `amg-jobs::diag`, `amg-cli`; OCCT message bridge in `amg-occt-sys` (`occt` feature) and `amg-brep` (S02 BREP-12; tracing-subscriber only in `amg-brep` tests) | MIT | no | no | In use (tracing 0.1.44, tracing-subscriber 0.3.23 with `env-filter`) |
-| serde, serde_json | `.amg` file format (ADR-010) | MIT / Apache-2.0 | no | no | In use (serde 1.0.229; serde_json 1.0.154) |
-| zip (zip-rs/zip2) 9.0.5, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | In use (9.0.5; `amg-doc` .amg container, DOC-07) |
-| quick-xml 0.42.0 | `amg-io` 3MF XML (S12) | MIT | no | no | Planned |
-| memchr 2.8.3 | `amg-io` parsers (S12; already transitive) | Unlicense / MIT | no | no | Planned |
+| serde, serde_json | `.amg` file format (ADR-010); `amg-io` Orca `project_settings.config` (IO-03) | MIT / Apache-2.0 | no | no | In use (serde 1.0.229; serde_json 1.0.154) |
+| zip (zip-rs/zip2) 9.0.5, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | In use (9.0.5; `amg-doc` .amg container, DOC-07; `amg-io` 3MF reader, IO-03) |
+| quick-xml 0.42.0, `default-features = false` | `amg-io` 3MF XML (S12) | MIT | no | no | In use (0.42.0; IO-03 reader) |
+| memchr 2.8.3 | `amg-io` parsers (S12; already transitive) | Unlicense / MIT | no | no | In use (2.8.3; IO-03 3MF scanner) |
 | image 0.25.10 (png + jpeg features) | `amg-io` canvas images (S12 IO-10) | MIT / Apache-2.0 | no | no | Planned |
 | stl_io 0.11.0, tobj 4.0.5, ply-rs-bw 4.0.1 | `amg-io` parser test oracles, dev-only (S12) | MIT | no | no | stl_io 0.11.0 in use (IO-02, dev-only); tobj 4.0.5 in use (IO-05, dev-only, `default-features = false`); ply-rs-bw planned |
-| dhat 0.3.3 | `amg-io` peak-heap bench `stl_heap`, dev-only (S12) | MIT / Apache-2.0 | no | no | In use (IO-02, dev-only) |
+| dhat 0.3.3 | `amg-io` peak-heap bench `stl_heap` and test `threemf_hostile`, dev-only (S12) | MIT / Apache-2.0 | no | no | In use (IO-02, IO-03; dev-only) |
 | arbitrary 1.5.0, libfuzzer-sys 0.4.13, cargo-fuzz 0.13.2 | `fuzz/` crate outside the workspace (S12 IO-16) | arbitrary, cargo-fuzz: MIT / Apache-2.0; libfuzzer-sys: (MIT OR Apache-2.0) AND NCSA | no | n/a (outside workspace) | Planned (fuzz only) |
 | lib3mf 2.5.0 (PyPI, 3MF Consortium), xmlschema 4.3.2 (PyPI) | CI validation of written 3MF, not linked (S12) | lib3mf: BSD-2-Clause; xmlschema: MIT | no | n/a (tool) | Planned (CI tool) |
-| 3MF Consortium test_suites (pinned commit) | `amg-io` test data, fetch-only (optional ≤ 50 MB LFS subset) (S12) | BSD-2-Clause | no | n/a (data) | Planned (test data) |
+| 3MF Consortium test_suites (pinned commit) | `amg-io` test data, fetch-only (optional ≤ 50 MB LFS subset) (S12) | BSD-2-Clause | no | n/a (data) | In use (test data, fetch-only: suites 2/3/5/6 at commit f483d3be via `testdata/io/fetch-3mf-suites.ps1`; IO-03) |
 | winreg 0.56 | `amg-am` slicer detection, Windows-only (S16) | MIT | no | no | Planned |
 | inventory | feature registry, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.3.25) |
 | imbl | persistent collections, `amg-doc` (S01; DOC-01 bench confirmed; `im` is unmaintained). Pulls in `imbl-sized-chunks` (MPL-2.0+), `archery` (MIT), `wide`/`safe_arch` (Zlib/Apache-2.0/MIT), `rand_xoshiro`, `rand_core` 0.9 (MIT/Apache-2.0) | MPL-2.0 (crates.io: `MPL-2.0+`) | weak | no | In use (7.0.2) |

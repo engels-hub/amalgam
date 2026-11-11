@@ -18,6 +18,11 @@ serde.workspace = true
 thiserror.workspace = true
 rayon.workspace = true
 crossbeam-channel.workspace = true
+# 3MF (IO-03): OPC zip with the shared workspace configuration, XML pull parser, byte search.
+zip.workspace = true
+quick-xml = { version = "0.42.0", default-features = false }
+memchr = "2.8.3"
+serde_json.workspace = true
 
 [features]
 default = []
@@ -33,7 +38,6 @@ proptest.workspace = true
 stl_io = "0.11.0"
 tobj = { version = "4.0.5", default-features = false }
 dhat = "0.3.3"
-serde_json.workspace = true
 sha2 = "0.10.9"
 tempfile = "3.27.0"
 toml.workspace = true
@@ -51,4 +55,8 @@ harness = false
 
 [[bench]]
 name = "obj"
+harness = false
+
+[[bench]]
+name = "threemf"
 harness = false

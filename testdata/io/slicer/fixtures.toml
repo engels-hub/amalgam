@@ -1,0 +1,18 @@
+# Slicer-produced 3MF fixtures (S12 IO-03 Done-when 2), made by scripts/io/make_slicer_fixtures.ps1
+# from CC0-1.0 models; the outputs are CC0-1.0. Read by crates/amg-io/tests/threemf_slicer_fixtures.rs.
+#
+# One [[fixture]] per file:
+#   file        path relative to testdata/io/slicer/
+#   slicer      "orca 2.4.x" | "bambu 2.8.x" | "prusa 2.9.x" (as reported by the CLI)
+#   objects     number of build items (scene roots)
+#   names       root names in build order
+#   translations  build-item translations in mm, [[x, y, z], ...] (within 1e-6)
+#   painted     optional: [[filament, faces], ...] histogram of painted faces (whole-triangle
+#               states exact); split triangles are counted under their dominant state
+#   approximated  optional: number of split (approximated) painted triangles
+#
+# No fixture is listed yet: no slicer CLI was available on the machine that implemented IO-03
+# (see the S12 refinement log, 2026-11-11). The test skips while this list is empty, unless
+# AMG_REQUIRE_TESTDATA=1.
+
+fixture = []

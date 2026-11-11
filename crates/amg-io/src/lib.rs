@@ -15,8 +15,10 @@ mod error;
 mod format;
 pub mod obj;
 mod options;
+pub mod paint;
 mod scene;
 pub mod stl;
+pub mod threemf;
 mod units;
 mod zipdir;
 
@@ -128,6 +130,7 @@ pub fn import(
     match format {
         Format::Stl => return import_stl(src, sniffed, opts, ctx),
         Format::Obj => return import_obj(src, sniffed, opts, ctx),
+        Format::ThreeMf => return import_3mf(src, sniffed, opts, ctx),
         _ => {}
     }
     Err(IoError::Unsupported {
@@ -161,6 +164,44 @@ fn import_obj(
 ) -> Result<Imported, IoError> {
     let out = obj::read(src, opts, ctx)?;
     finish_import(out, src, sniffed, Format::Obj, opts, ctx)
+}
+
+/// 3MF: reads, then applies the declared (or chosen) unit, `merge_objects` and the up axis
+/// on top of the build transforms.
+fn import_3mf(
+    src: Source<'_>,
+    sniffed: bool,
+    opts: &ImportOptions,
+    ctx: &JobCtx,
+) -> Result<Imported, IoError> {
+    let mut out = threemf::read(src, opts, ctx)?;
+    let declared = out.report.declared_unit;
+    let unit = opts.unit.resolve(declared);
+    out.report.applied_unit = Some(unit);
+    if sniffed
+        && let Source::Path(p) = src
+        && let Some(ext) = p.extension().and_then(|e| e.to_str())
+        && let Some(w) = check_extension(ext, Format::ThreeMf)
+    {
+        out.report.warnings.push(w);
+    }
+    let scene = &mut out.scene;
+    scene.rescale(unit, LengthUnit::Millimetre);
+    if opts.merge_objects && scene.instances().len() > 1 {
+        let name = scene.metadata.get("Title").cloned();
+        let (mesh, slots) = scene.flatten(ctx)?;
+        let mut o = SceneObject::new(std::sync::Arc::new(mesh));
+        o.name = name;
+        o.face_materials = slots.map(std::sync::Arc::from);
+        scene.objects = vec![o];
+        scene.roots = vec![SceneNode::mesh(0, amg_core::Transform::IDENTITY)];
+        scene.plates.clear();
+    }
+    let up = opts.up_axis.to_z_up();
+    for r in &mut scene.roots {
+        r.transform = up * r.transform;
+    }
+    Ok(out)
 }
 
 /// What every unit-less mesh format shares after reading.

@@ -87,7 +87,7 @@ const fn info(
         kind,
         units,
         // The readers and writers land with IO-02..IO-13; each of those flips its flags.
-        can_import: matches!(format, Format::Stl | Format::Obj),
+        can_import: matches!(format, Format::Stl | Format::Obj | Format::ThreeMf),
         can_export: matches!(format, Format::Stl | Format::Obj),
         multi_object,
         colors,
