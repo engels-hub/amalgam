@@ -1,9 +1,18 @@
-# Built-in material library, MAT-01 fixture (two materials).
+# Amalgam built-in material library v1 (MAT-05).
 #
-# These entries exercise the loader and the embedded-library path. Their values are rounded
-# handbook-level numbers, flagged `typical` / `estimate`, with a source record that says so.
-# MAT-05 replaces this file with the cited v1 data (individually cited datasheets and
-# standards, note §3).
+# Every value is taken from one individually cited document ([[source]] below; page or table
+# in the `note` or in the comments). Nothing is copied from MatWeb, CAMPUS, Granta, Total
+# Materia, the Fusion library or slicer profile packs (docs/notes/materials-data.md §3.1).
+#
+# Quality flags (note §3.2):
+# - plain string = `measured` from the material's `default_source` (verbatim, unit-converted only);
+# - `typical`    = a value from a cited paper or a "typical values" table of another document;
+# - `estimate`   = engineering judgement, shown with a warning in the UI. Used only for Poisson's
+#                  ratio where none of the fetched documents gives one (source `amg-estimate`).
+#
+# These are typical datasheet values, not design allowables. FFF entries are isotropic (XY
+# values) with Z strengths where the TDS has Z specimens; MAT-04 upgrades them to
+# transversely isotropic.
 
 format = "amalgam-materials"
 format_version = 1
@@ -11,16 +20,261 @@ format_version = 1
 [library]
 id = "amg.builtin"
 name = "Amalgam built-in"
-version = "0.1-fixture"
+version = "2026.1"
 data_licence = "same as the code, citations kept (S17 open question 4)"
-description = "MAT-01 two-material fixture; replaced by MAT-05."
+description = "Built-in library v1: 17 materials with per-value citations (MAT-05)."
+
+# ---------------------------------------------------------------------------------------------
+# Sources (all accessed 2026-11-11; the URL is the copy that was actually fetched)
+# ---------------------------------------------------------------------------------------------
 
 [[source]]
-key = "mat01-fixture"
+key = "bambu-pla-basic-tds-v2"
+kind = "datasheet"
+title = "Bambu Filament Technical Data Sheet: PLA Basic"
+publisher = "Bambu Lab"
+version = "V2.0"
+url = "https://cdn.shopify.com/s/files/1/0380/5149/files/Bambu_PLA_Basic_Technical_Data_Sheet.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "bambu-petg-hf-tds-v1"
+kind = "datasheet"
+title = "Bambu Filament Technical Data Sheet: PETG HF"
+publisher = "Bambu Lab"
+version = "V1.0"
+url = "https://store.bblcdn.com/ce12d65176a94f1086e6aefa238e62e2.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "bambu-abs-tds-v2"
+kind = "datasheet"
+title = "Bambu Filament Technical Data Sheet: ABS"
+publisher = "Bambu Lab"
+version = "V2.0"
+url = "https://www.additive-x.com/shop/mpattachments/file/viewonline/id/566/product_id/2315"
+accessed = "2026-11-11"
+
+[[source]]
+key = "bambu-asa-tds-v2"
+kind = "datasheet"
+title = "Bambu Filament Technical Data Sheet: ASA"
+publisher = "Bambu Lab"
+version = "V2.0"
+url = "https://www.additive-x.com/shop/mpattachments/file/viewonline/id/612/product_id/2399"
+accessed = "2026-11-11"
+
+[[source]]
+key = "bambu-paht-cf-tds-v2"
+kind = "datasheet"
+title = "Bambu Filament Technical Data Sheet: PAHT-CF"
+publisher = "Bambu Lab"
+version = "V2.0"
+url = "https://cdn.shopify.com/s/files/1/0380/5149/files/Bambu_PAHT-CF_Technical_Data_Sheet.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "bambu-tpu-95a-tds-v3"
+kind = "datasheet"
+title = "Bambu Filament Technical Data Sheet: TPU 95A"
+publisher = "Bambu Lab"
+version = "V3.0"
+url = "https://cdn.shopify.com/s/files/1/0645/5876/0155/files/Bambu_TPU_95A_Technical_Data_Sheet.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "stratasys-fdm-nylon12-ds"
+kind = "datasheet"
+title = "FDM Nylon 12 Data Sheet (Stratasys data, distributor copy)"
+publisher = "Stratasys (distributed by GoEngineer)"
+url = "https://cdn.goengineer.com/Stratasys%20FDM%20Nylon%2012%20material%20Data%20Sheet.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "eos-pa2200-balance-pds"
+kind = "datasheet"
+title = "Process Data Sheet PA 2200 Balance"
+publisher = "EOS GmbH"
+date = "status as of 2026-11-10"
+url = "https://www.eos.info/polymer-solutions/data-sheets/pds-pa-2200-balance"
+accessed = "2026-11-11"
+
+[[source]]
+key = "formlabs-grey-v5-tds"
+kind = "datasheet"
+title = "Grey Resin V5 Technical Data Sheet (FLGPGR05)"
+publisher = "Formlabs"
+version = "Rev. 01"
+date = "2024-03-20"
+url = "https://formlabs-media.formlabs.com/datasheets/2401898-TDS-ENUS-0.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "formlabs-resin-density"
+kind = "datasheet"
+title = "White paper: Density of selected Formlabs SLA resins"
+publisher = "Formlabs"
+url = "https://formlabs.com/support/Density-of-selected-Formlabs-SLA-resins/"
+accessed = "2026-11-11"
+
+[[source]]
+key = "formlabs-tough-2000-v2-tds"
+kind = "datasheet"
+title = "Tough 2000 Resin V2 Technical Data Sheet (FLTO2002)"
+publisher = "Formlabs"
+version = "Rev. 01"
+date = "2025-10-06"
+url = "https://formlabs-media.formlabs.com/datasheets/25011072-TDS-ENUS-0.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "eos-ti64-mds-2022"
+kind = "datasheet"
+title = "Material data sheet EOS Titanium Ti64 400W (EOSINT M 280 / EOS M 290 400W)"
+publisher = "EOS GmbH"
+version = "07.2022"
+url = "https://EOS.info/05-datasheet-images/Assets_MDS_Metal/EOS_Titanium_Ti64/Material_DataSheet_EOS_Titanium_Ti64_EOSM290_EOSM300-4_EOSM400_EOSM400-4_en.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "eos-alsi10mg-mds-2017"
+kind = "datasheet"
+title = "Materialdatenblatt FlexLine EOS Aluminium AlSi10Mg (EOS M 290)"
+publisher = "EOS GmbH"
+version = "CR507 v01"
+date = "2017-12"
+url = "https://cdn.techpilot.com/public/132713/documents/4b7c1a54-6356-48a4-9cda-7a02f7f11853/alsi10mg_9011-0024_m290_material_data_sheet_12-17_de.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "eos-alsi10mg-pds-m290-30um"
+kind = "datasheet"
+title = "Process Data Sheet EOS Aluminium AlSi10Mg for EOS M 290, 30 um"
+publisher = "EOS GmbH"
+date = "last changed 2026-10-30"
+url = "https://www.eos.info/metal-solutions/data-sheets/aluminium/pds-eos-aluminium-alsi10mg-eos-m-290-30um"
+accessed = "2026-11-11"
+
+[[source]]
+key = "addup-alsi10mg-mds"
+kind = "datasheet"
+title = "Material Data Sheet AlSi10Mg (FormUp 350)"
+publisher = "AddUp"
+version = "US-10252023-0129"
+url = "https://addupsolutions.com/wp-content/uploads/2023/10/AlSi10Mg-Material-Data-Sheet.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "eos-316l-mds"
+kind = "datasheet"
+title = "EOS StainlessSteel 316L Material Data Sheet (EOS M 290, 20 um process, TRL 8)"
+publisher = "EOS GmbH"
+version = "HHE/05.2014 (process section)"
+url = "https://www.eos.info/03_system-related-assets/material-related-contents/metal-materials-and-examples/metal-material-datasheet/stainlesssteel/material_datasheet_eos_stainlesssteel_316l_en_web.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "eos-316l-mds-2014"
+kind = "datasheet"
+title = "Material data sheet EOS StainlessSteel 316L (EOSINT M 280 / EOS M 290-400W)"
+publisher = "EOS GmbH"
+version = "HHE / 05.2014"
+url = "https://pro.sculpteo.com/media/imagecontent/EOSStainlessSteel316L%20copy.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "tk-s235-mds"
+kind = "datasheet"
+title = "Material Data Sheet S235Jxx (S235JR 1.0038)"
+publisher = "thyssenkrupp Materials Services"
+version = "MX/TIS_11.2016"
+url = "https://ucpcdn.thyssenkrupp.com/_legacy/UCPthyssenkruppBAMXFrance/assets.files/product_pdf/carbon_flat_steel_/plates_and_slabs_carbon_steel/s235jr_1_0038_11_2016_engl.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "ovako-s235-mds"
+kind = "datasheet"
+title = "Material Data Sheet, steel grade S235JR"
+publisher = "Ovako"
+date = "last revised 2025-01-31"
+url = "https://steelnavigator.ovako.com/steel-grades/s235/pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "smiths-6061-ds"
+kind = "datasheet"
+title = "6061 Aluminium Technical Datasheet"
+publisher = "Smiths Metal Centres"
+date = "2023"
+url = "https://www.smithmetal.com/pdf/aluminium/6xxx/6061.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "tk-14404-mds"
+kind = "datasheet"
+title = "Material Data Sheet Stainless Steel 1.4404"
+publisher = "thyssenkrupp Materials (UK)"
+date = "2017-11"
+url = "https://ucpcdn.thyssenkrupp.com/_legacy/UCPthyssenkruppBAMXUK/assets.files/material-data-sheets/stainless-steel/stainless-steel-1.4404-316l.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "smiths-ti64-ds"
+kind = "datasheet"
+title = "Ti-6Al-4V (Grade 5) Technical Datasheet"
+publisher = "Smiths Metal Centres"
+date = "2023"
+url = "https://www.smithmetal.com/pdf/titanium/ti-6al-4v-grade-5.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "ati-ti64-tds"
+kind = "datasheet"
+title = "ATI Ti-6Al-4V, Grade 5 Technical Data Sheet"
+publisher = "ATI"
+version = "v1"
+url = "https://www.atimaterials.com/Products/Documents/datasheets/titanium/alloyed/ati_6-4_tds_en_v1.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "gawel-2023-pla"
+kind = "paper"
+title = "Gawel et al., Examination of Low-Cyclic Fatigue Tests and Poisson's Ratio Depending on the Different Infill Density of Polylactide (PLA) Produced by the FDM Method, Polymers 15(7):1651, doi:10.3390/polym15071651"
+publisher = "MDPI"
+date = "2023-03-26"
+url = "https://pmc.ncbi.nlm.nih.gov/articles/PMC10096656/"
+accessed = "2026-11-11"
+licence = "CC BY 4.0"
+
+[[source]]
+key = "wiklo-2025-petg"
+kind = "paper"
+title = "Mechanical Characterization of FDM 3D-Printed Components Using Advanced Measurement and Modeling Techniques, Materials 18(5):1086, doi:10.3390/ma18051086"
+publisher = "MDPI"
+date = "2025-02-28"
+url = "https://pmc.ncbi.nlm.nih.gov/articles/PMC11901100/"
+accessed = "2026-11-11"
+licence = "CC BY 4.0"
+
+[[source]]
+key = "cantrell-abs-pc"
+kind = "paper"
+title = "Cantrell et al., Experimental Characterization of the Mechanical Properties of 3D-Printed ABS and Polycarbonate Parts (Rapid Prototyping Journal), author manuscript"
+publisher = "University of Florida"
+url = "https://web.mae.ufl.edu/rapidpro/pages/3D%20Printing%20Paper%20Final%20Manuscript.pdf"
+accessed = "2026-11-11"
+
+[[source]]
+key = "amg-estimate"
 kind = "estimate"
-title = "MAT-01 loader fixture: rounded textbook values, not a datasheet"
+title = "Amalgam engineering judgement (MAT-05): Poisson's ratio where no fetched document gives one"
 publisher = "Amalgam"
-version = "MAT-01"
+version = "MAT-05"
+
+# ---------------------------------------------------------------------------------------------
+# FFF (material extrusion). Bambu TDS: properties table on page 2, printing settings on page 1;
+# specimens printed at 100 % infill and annealed and dried before testing (page 3).
+# ---------------------------------------------------------------------------------------------
 
 [[material]]
 id = "pla.fff"
@@ -28,29 +282,364 @@ revision = 1
 name = "PLA (FFF printed)"
 category = "polymer"
 family = "pla"
-condition = "printed, 100 % infill, dry, 23 degC (fixture values)"
-default_source = "mat01-fixture"
+condition = "printed, 100 % infill, annealed and dried 8 h at 55 degC before testing (Bambu Lab PLA Basic)"
+default_source = "bambu-pla-basic-tds-v2"
 appearance = "amg.builtin/plastic.white-matte"
-tags = ["fff", "fixture"]
-density = { v = "1.24 g/cm^3", q = "typical", std = "ISO 1183" }
+tags = ["fff", "pla"]
+density = { v = "1.24 g/cm^3", std = "ISO 1183", note = "TDS p.2" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "12.2 %", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 12.2 +/- 0.4 %" }
+elongation_at_break.z = { v = "7.5 %", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 7.5 +/- 0.3 %" }
 
 [material.mechanical.elastic]
 model = "isotropic"
-youngs = { v = "2.7 GPa", q = "typical", spec = "XYZ", std = "ISO 527" }
-poisson = { v = "0.36", q = "typical" }
+youngs = { v = "2680 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, X-Y, 2680 +/- 130 MPa; Z: 2160 +/- 90 MPa" }
+poisson = { v = "0.35", src = "gawel-2023-pla", q = "typical", note = "Table 1, 100 % infill FDM PLA (0.38 at 75 %, 0.41 at 50 %)" }
 
 [material.mechanical.strength]
-ultimate_tensile.xy = { v = "39 MPa", q = "typical", spec = "XYZ", std = "ISO 527" }
-ultimate_tensile.z = { v = "35 MPa", q = "typical", spec = "ZXY", std = "ISO 527" }
+ultimate_tensile.xy = { v = "39 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 39 +/- 2 MPa" }
+ultimate_tensile.z = { v = "35 MPa", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 35 +/- 3 MPa" }
+flexural = { v = "76 MPa", std = "ISO 178", note = "TDS p.2, X-Y, 76 +/- 3 MPa" }
 
 [material.thermal]
-heat_deflection_045 = { v = "57 degC", q = "typical", std = "ISO 75" }
+glass_transition = { v = "60 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+melting = { v = "160 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+heat_deflection_045 = { v = "57 degC", std = "ISO 75", note = "TDS p.2" }
 
 [material.am]
 process = "material_extrusion"
 slicer_type = "PLA"
 nozzle_temp = { min = "190 degC", max = "230 degC" }
-bed_temp = { min = "35 degC", max = "65 degC" }
+bed_temp = { min = "35 degC", max = "45 degC" }
+chamber_temp = { min = "25 degC", max = "45 degC" }
+
+[[material]]
+id = "petg.fff"
+revision = 1
+name = "PETG (FFF printed)"
+category = "polymer"
+family = "petg"
+condition = "printed, 100 % infill, 255 degC nozzle, dried before testing (Bambu Lab PETG HF)"
+default_source = "bambu-petg-hf-tds-v1"
+appearance = "amg.builtin/plastic.blue"
+tags = ["fff", "petg"]
+density = { v = "1.28 g/cm^3", std = "ISO 1183", note = "TDS p.2" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "8.6 %", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 8.6 +/- 1.2 %" }
+elongation_at_break.z = { v = "5.1 %", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 5.1 +/- 0.8 %" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "1810 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, X-Y, 1810 +/- 190 MPa; Z: 1540 +/- 130 MPa" }
+poisson = { v = "0.37", src = "wiklo-2025-petg", q = "typical", note = "Table 6, cubic-infill average 0.37 (DIC + FEM updating); the paper quotes 0.35-0.38 from manufacturer data" }
+
+[material.mechanical.strength]
+ultimate_tensile.xy = { v = "34 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 34 +/- 4 MPa" }
+ultimate_tensile.z = { v = "23 MPa", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 23 +/- 4 MPa" }
+flexural = { v = "64 MPa", std = "ISO 178", note = "TDS p.2, X-Y, 64 +/- 3 MPa" }
+
+[material.thermal]
+glass_transition = { v = "66 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+melting = { v = "214 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+heat_deflection_045 = { v = "69 degC", std = "ISO 75", note = "TDS p.2" }
+
+[material.am]
+process = "material_extrusion"
+slicer_type = "PETG"
+nozzle_temp = { min = "230 degC", max = "260 degC" }
+bed_temp = { min = "65 degC", max = "75 degC" }
+chamber_temp = { min = "35 degC", max = "50 degC" }
+
+[[material]]
+id = "abs.fff"
+revision = 1
+name = "ABS (FFF printed)"
+category = "polymer"
+family = "abs"
+condition = "printed, 100 % infill, 260 degC nozzle, 80 degC bed (Bambu Lab ABS)"
+default_source = "bambu-abs-tds-v2"
+appearance = "amg.builtin/plastic.black"
+tags = ["fff", "abs"]
+density = { v = "1.05 g/cm^3", std = "ISO 1183", note = "TDS p.2" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "10.5 %", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 10.5 +/- 1.0 %" }
+elongation_at_break.z = { v = "4.7 %", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 4.7 +/- 0.8 %" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "3800 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, X-Y, 3800 +/- 190 MPa; Z: 2960 +/- 110 MPa (the TDS bending modulus is 1880 MPa)" }
+poisson = { v = "0.36", src = "cantrell-abs-pc", q = "typical", note = "Table II (p.8), FDM ABS by DIC, 0.36-0.38 over six orientations" }
+
+[material.mechanical.strength]
+ultimate_tensile.xy = { v = "41 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 41 +/- 1 MPa" }
+ultimate_tensile.z = { v = "32 MPa", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 32 +/- 2 MPa" }
+flexural = { v = "68 MPa", std = "ISO 178", note = "TDS p.2, X-Y, 68 +/- 3 MPa" }
+
+[material.thermal]
+melting = { v = "200 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+heat_deflection_045 = { v = "87 degC", std = "ISO 75", note = "TDS p.2" }
+
+[material.am]
+process = "material_extrusion"
+slicer_type = "ABS"
+nozzle_temp = { min = "240 degC", max = "270 degC" }
+bed_temp = { min = "80 degC", max = "100 degC" }
+chamber_temp = { min = "45 degC", max = "60 degC" }
+
+[[material]]
+id = "asa.fff"
+revision = 1
+name = "ASA (FFF printed)"
+category = "polymer"
+family = "asa"
+condition = "printed, 100 % infill, 260 degC nozzle, 80 degC bed (Bambu Lab ASA)"
+default_source = "bambu-asa-tds-v2"
+appearance = "amg.builtin/plastic.grey"
+tags = ["fff", "asa", "uv-resistant"]
+density = { v = "1.05 g/cm^3", std = "ISO 1183", note = "TDS p.2" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "9.2 %", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 9.2 +/- 1.4 %" }
+elongation_at_break.z = { v = "4.6 %", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 4.6 +/- 0.8 %" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "2450 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, X-Y, 2450 +/- 270 MPa; Z: 2120 +/- 260 MPa" }
+poisson = { v = "0.36", src = "cantrell-abs-pc", q = "estimate", note = "no ASA value found; FDM ABS value (Table II) used for the related styrene copolymer" }
+
+[material.mechanical.strength]
+ultimate_tensile.xy = { v = "52 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 52 +/- 5 MPa" }
+ultimate_tensile.z = { v = "35 MPa", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 35 +/- 4 MPa" }
+flexural = { v = "74 MPa", std = "ISO 178", note = "TDS p.2, X-Y, 74 +/- 4 MPa" }
+
+[material.thermal]
+melting = { v = "210 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+heat_deflection_045 = { v = "100 degC", std = "ISO 75", note = "TDS p.2" }
+
+[material.am]
+process = "material_extrusion"
+slicer_type = "ASA"
+nozzle_temp = { min = "240 degC", max = "270 degC" }
+bed_temp = { min = "80 degC", max = "100 degC" }
+chamber_temp = { min = "45 degC", max = "60 degC" }
+
+[[material]]
+id = "pa12.fff"
+revision = 1
+name = "PA12 / Nylon 12 (FFF printed)"
+category = "polymer"
+family = "pa12"
+condition = "printed, 0.254 mm layers, Fortus 900mc T16 tip, as printed (Stratasys FDM Nylon 12)"
+description = "Neat PA12 filament. In-plane values come from on-edge (XZ) specimens, Z values from upright (ZX) specimens."
+default_source = "stratasys-fdm-nylon12-ds"
+appearance = "amg.builtin/plastic.black"
+tags = ["fff", "nylon", "pa12"]
+density = { v = "1.01 g/cm^3", note = "p.4, specific gravity 1.01 at 23 degC (the sheet names ASTM D257 as method)" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "30 %", spec = "XZY", std = "ASTM D638", note = "p.6 Table 4, XZ, 30 (sd 20) %" }
+elongation_at_break.z = { v = "6.5 %", spec = "ZXY", std = "ASTM D638", note = "p.6 Table 4, ZX, 6.5 (sd 0.4) %" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "1.5 GPa", spec = "XZY", std = "ASTM D638", note = "p.6 Table 4, XZ, 1.50 (sd 0.09) GPa; ZX: 1.2 GPa" }
+poisson = { v = "0.4", src = "amg-estimate", q = "estimate", note = "not in the datasheet" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "50 MPa", spec = "XZY", std = "ASTM D638", note = "p.6 Table 4, XZ yield 50 (sd 1) MPa; strength at break 30 MPa" }
+yield_tensile.z = { v = "42 MPa", spec = "ZXY", std = "ASTM D638", note = "p.6 Table 4, ZX yield 42 (sd 1) MPa" }
+
+[material.thermal]
+glass_transition = { v = "35 degC", std = "ASTM D7426", note = "p.4, inflection point" }
+heat_deflection_045 = { v = "95 degC", std = "ASTM D648 B", note = "p.4, XY, 66 psi" }
+
+[material.am]
+process = "material_extrusion"
+slicer_type = "PA12"
+
+[[material]]
+id = "pa-cf.fff"
+revision = 1
+name = "PA-CF (FFF printed)"
+category = "polymer_composite"
+family = "pa_cf"
+condition = "printed, 100 % infill, 290 degC nozzle, 100 degC bed, dried (Bambu Lab PAHT-CF)"
+description = "Carbon-fibre reinforced high-temperature polyamide; strongly anisotropic (Z strength about 73 % of XY)."
+default_source = "bambu-paht-cf-tds-v2"
+appearance = "amg.builtin/plastic.carbon-black"
+tags = ["fff", "nylon", "carbon-fibre", "paht-cf"]
+density = { v = "1.06 g/cm^3", std = "ISO 1183", note = "TDS p.2" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "10.4 %", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 10.4 +/- 0.7 %" }
+elongation_at_break.z = { v = "5.2 %", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 5.2 +/- 0.5 %" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "3860 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, X-Y, 3860 +/- 230 MPa; Z: 2180 +/- 130 MPa" }
+poisson = { v = "0.35", src = "amg-estimate", q = "estimate", note = "not in the TDS" }
+
+[material.mechanical.strength]
+ultimate_tensile.xy = { v = "88 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 88 +/- 7 MPa" }
+ultimate_tensile.z = { v = "64 MPa", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 64 +/- 3 MPa" }
+flexural = { v = "140 MPa", std = "ISO 178", note = "TDS p.2, X-Y, 140 +/- 8 MPa" }
+
+[material.thermal]
+glass_transition = { v = "70 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+melting = { v = "225 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+heat_deflection_045 = { v = "194 degC", std = "ISO 75", note = "TDS p.2" }
+
+[material.am]
+process = "material_extrusion"
+slicer_type = "PAHT-CF"
+nozzle_temp = { min = "260 degC", max = "290 degC" }
+bed_temp = { min = "80 degC", max = "100 degC" }
+chamber_temp = { min = "45 degC", max = "60 degC" }
+
+[[material]]
+id = "tpu-95a.fff"
+revision = 1
+name = "TPU 95A (FFF printed)"
+category = "elastomer"
+family = "tpu"
+condition = "printed, 100 % infill, 230 degC nozzle, 35 degC bed (Bambu Lab TPU 95A)"
+default_source = "bambu-tpu-95a-tds-v3"
+appearance = "amg.builtin/plastic.red"
+tags = ["fff", "tpu", "flexible"]
+density = { v = "1.2 g/cm^3", std = "ISO 1183", note = "TDS p.2, 1.20 g/cm3" }
+
+[material.mechanical]
+hardness = { scale = "shore_a", v = 95, note = "TDS p.1, product description" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "9.2 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, X-Y, 9.2 +/- 0.4 MPa; Z: 7.8 +/- 0.5 MPa" }
+poisson = { v = "0.47", src = "amg-estimate", q = "estimate", note = "not in the TDS; nearly incompressible elastomer" }
+
+[material.mechanical.strength]
+ultimate_tensile.xy = { v = "29.6 MPa", spec = "XYZ", std = "ISO 527", note = "TDS p.2, 29.6 +/- 0.6 MPa (elongation > 700 %)" }
+ultimate_tensile.z = { v = "23.2 MPa", spec = "ZXY", std = "ISO 527", note = "TDS p.2, 23.2 +/- 0.5 MPa (elongation > 500 %)" }
+
+[material.thermal]
+melting = { v = "185 degC", std = "DSC, 10 degC/min", note = "TDS p.2" }
+
+[material.am]
+process = "material_extrusion"
+slicer_type = "TPU"
+nozzle_temp = { min = "220 degC", max = "240 degC" }
+bed_temp = { min = "30 degC", max = "35 degC" }
+chamber_temp = { min = "25 degC", max = "45 degC" }
+
+# ---------------------------------------------------------------------------------------------
+# Polymer powder bed fusion
+# ---------------------------------------------------------------------------------------------
+
+[[material]]
+id = "pa12.pbf"
+revision = 1
+name = "PA12 (SLS, EOS PA 2200)"
+category = "polymer"
+family = "pa12"
+condition = "laser sintered, 120 um layers (EOS PA 2200 Balance), dry"
+default_source = "eos-pa2200-balance-pds"
+appearance = "amg.builtin/plastic.sls-white"
+tags = ["pbf", "sls", "nylon", "pa12"]
+density = { v = "0.93 g/cm^3", note = "Other properties, EOS method" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "18 %", std = "ISO 527-1/-2", note = "X orientation, dry (Y: 18 %)" }
+elongation_at_break.z = { v = "4 %", spec = "ZXY", std = "ISO 527-1/-2", note = "Z orientation, dry" }
+hardness = { scale = "shore_d", v = 75, std = "ISO 7619-1" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "1650 MPa", std = "ISO 527-1/-2", note = "X, Y and Z orientation all 1650 MPa, dry" }
+poisson = { v = "0.4", src = "amg-estimate", q = "estimate", note = "not in the datasheet" }
+
+[material.mechanical.strength]
+ultimate_tensile.xy = { v = "48 MPa", std = "ISO 527-1/-2", note = "X orientation, dry (Y: 48 MPa)" }
+ultimate_tensile.z = { v = "42 MPa", spec = "ZXY", std = "ISO 527-1/-2", note = "Z orientation, dry" }
+
+[material.thermal]
+melting = { v = "176 degC", std = "ISO 11357-1/-3" }
+heat_deflection_045 = { v = "157 degC", std = "ISO 75-1/-2", note = "X orientation (Z: 145 degC)" }
+
+[material.am]
+process = "powder_bed_fusion_polymer"
+
+# ---------------------------------------------------------------------------------------------
+# Vat photopolymerisation
+# ---------------------------------------------------------------------------------------------
+
+[[material]]
+id = "resin.standard"
+revision = 1
+name = "Standard resin (grey, SLA)"
+category = "photopolymer"
+family = "resin_standard"
+condition = "printed on Form 4, 100 um, washed, post-cured 15 min at 60 degC (Formlabs Grey Resin V5)"
+default_source = "formlabs-grey-v5-tds"
+appearance = "amg.builtin/resin.grey"
+tags = ["resin", "sla", "msla"]
+density = { v = "1.21 g/cm^3", src = "formlabs-resin-density", note = "Grey Resin V5, green state (no post-cured value given; liquid 1.11 g/cm3)" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "13 %", std = "ASTM D638-14", note = "p.2, post-cured 15 min at 60 degC" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "2675 MPa", std = "ASTM D638-14", note = "p.2, post-cured 15 min at 60 degC (green 2200 MPa)" }
+poisson = { v = "0.38", src = "amg-estimate", q = "estimate", note = "not in the TDS" }
+
+[material.mechanical.strength]
+ultimate_tensile.xy = { v = "62 MPa", std = "ASTM D638-14", note = "p.2, post-cured 15 min at 60 degC (green 46 MPa)" }
+flexural = { v = "103 MPa", std = "ASTM D790-15", note = "p.2, post-cured" }
+
+[material.thermal]
+heat_deflection_045 = { v = "71 degC", std = "ASTM D648-16", note = "p.2, post-cured" }
+
+[material.am]
+process = "vat_photopolymerization"
+
+[[material]]
+id = "resin.tough"
+revision = 1
+name = "Tough resin (SLA)"
+category = "photopolymer"
+family = "resin_tough"
+condition = "printed on Form 4, 100 um, washed, post-cured 12 min at 70 degC (Formlabs Tough 2000 Resin V2)"
+default_source = "formlabs-tough-2000-v2-tds"
+appearance = "amg.builtin/resin.dark-grey"
+tags = ["resin", "sla", "tough", "abs-like"]
+density = { v = "1.09 g/cm^3", std = "ASTM D792-20", note = "p.3, bulk density (liquid 1.03 g/mL)" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "79 %", std = "ASTM D638-14", note = "p.2, post-cured" }
+hardness = { scale = "shore_d", v = 76, std = "ASTM D2240", note = "p.3, post-cured" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "1800 MPa", std = "ASTM D638-14", note = "p.2, post-cured (green 1235 MPa)" }
+poisson = { v = "0.4", src = "amg-estimate", q = "estimate", note = "not in the TDS" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "40.4 MPa", std = "ASTM D638-14", note = "p.2, post-cured" }
+ultimate_tensile.xy = { v = "40.4 MPa", std = "ASTM D638-14", note = "p.2, post-cured" }
+flexural = { v = "67 MPa", std = "ASTM D790-17", note = "p.2, post-cured" }
+
+[material.thermal]
+expansion.xy = { v = "134.2 ppm/K", std = "ASTM E831-19", note = "p.3, 0-150 degC, post-cured" }
+heat_deflection_045 = { v = "70 degC", std = "ASTM D648-16", note = "p.3, post-cured" }
+
+[material.am]
+process = "vat_photopolymerization"
+
+# ---------------------------------------------------------------------------------------------
+# Metal powder bed fusion (LPBF)
+# ---------------------------------------------------------------------------------------------
 
 [[material]]
 id = "ti6al4v.lpbf"
@@ -58,26 +647,200 @@ revision = 1
 name = "Ti-6Al-4V (LPBF)"
 category = "metal"
 family = "ti6al4v"
-condition = "stress relieved (fixture values)"
-default_source = "mat01-fixture"
+condition = "heat treated 4 h at 800 degC in argon (EOS Titanium Ti64, EOS M 290 400W)"
+default_source = "eos-ti64-mds-2022"
 appearance = "amg.builtin/metal.titanium"
-tags = ["lpbf", "fixture"]
-density = { v = "4.43 g/cm^3", q = "typical", std = "ISO 1183" }
+tags = ["lpbf", "dmls", "titanium"]
+density = { v = "4.41 g/cm^3", note = "sheet p.3/5 (PDF p.8)" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "13.5 %", std = "ISO 6892-1", note = "sheet p.4/5, heat treated, horizontal (XY), typ. 13.5 +/- 2 %" }
 
 [material.mechanical.elastic]
 model = "isotropic"
-youngs = { v = "110 GPa", q = "typical" }
-poisson = { v = "0.34", q = "typical" }
+youngs = { v = "110 GPa", std = "ISO 6892-1", note = "sheet p.4/5, typ. 110 +/- 15 GPa, XY and Z" }
+poisson = { v = "0.34", src = "amg-estimate", q = "estimate", note = "not in the MDS" }
 
 [material.mechanical.strength]
-yield_tensile.xy = { v = "950 MPa", q = "typical", spec = "XYZ", std = "ISO 6892-1" }
-ultimate_tensile.xy = { v = "1100 MPa", q = "typical", spec = "XYZ", std = "ISO 6892-1" }
+yield_tensile.xy = { v = "1000 MPa", std = "ISO 6892-1", note = "sheet p.4/5, heat treated, horizontal (XY), typ. 1000 +/- 50 MPa (min. 860)" }
+ultimate_tensile.xy = { v = "1100 MPa", std = "ISO 6892-1", note = "sheet p.4/5, heat treated, horizontal (XY), typ. 1100 +/- 40 MPa (min. 930)" }
 
 [material.thermal]
-conductivity.xy = { v = "6.7 W/(m*K)", q = "typical" }
-specific_heat = { v = "526 J/(kg*K)", q = "typical" }
-expansion.xy = { v = "8.6 ppm/K", q = "typical" }
-melting = { v = "1604 degC", q = "typical" }
+max_service = { v = "350 degC", note = "sheet p.5/5, maximum long-term operating temperature" }
 
 [material.am]
 process = "powder_bed_fusion_metal"
+
+[[material]]
+id = "alsi10mg.lpbf"
+revision = 1
+name = "AlSi10Mg (LPBF)"
+category = "metal"
+family = "alsi10mg"
+condition = "as built, no heat treatment (EOS Aluminium AlSi10Mg, EOS M 290)"
+default_source = "eos-alsi10mg-mds-2017"
+appearance = "amg.builtin/metal.aluminium-cast"
+tags = ["lpbf", "dmls", "aluminium"]
+density = { v = "2.67 g/cm^3", std = "ISO 3369", note = "p.3/5" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "10 %", std = "EN ISO 6892-1", note = "p.4/5, as built, horizontal, 10 +/- 2 %" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "72 GPa", src = "addup-alsi10mg-mds", std = "ASTM E8", note = "p.2, as built, horizontal (XY), 72 +/- 3 GPa (FormUp 350, not EOS; EOS gives no modulus)" }
+poisson = { v = "0.33", src = "amg-estimate", q = "estimate", note = "not in the datasheets" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "270 MPa", std = "EN ISO 6892-1", note = "p.4/5, as built, horizontal, 270 +/- 10 MPa" }
+ultimate_tensile.xy = { v = "460 MPa", std = "EN ISO 6892-1", note = "p.4/5, as built, horizontal, 460 +/- 20 MPa" }
+
+[material.thermal]
+conductivity.xy = { v = "110 W/(m*K)", src = "eos-alsi10mg-pds-m290-30um", std = "EN ISO 22007-2", note = "as manufactured, horizontal (30 um process)" }
+
+[material.am]
+process = "powder_bed_fusion_metal"
+
+[[material]]
+id = "316l.lpbf"
+revision = 1
+name = "Stainless steel 316L (LPBF)"
+category = "metal"
+family = "ss316l"
+condition = "as manufactured, no heat treatment (EOS StainlessSteel 316L, EOS M 290, 20 um)"
+default_source = "eos-316l-mds"
+appearance = "amg.builtin/metal.stainless"
+tags = ["lpbf", "dmls", "stainless"]
+density = { v = "7.97 g/cm^3", std = "ISO 3369", note = "p.6, average of 45 samples" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "40 %", std = "ISO 6892-1", note = "p.7, horizontal" }
+elongation_at_break.z = { v = "54 %", spec = "ZXY", std = "ISO 6892-1", note = "p.7, vertical" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "185 GPa", src = "eos-316l-mds-2014", std = "ISO 6892 / ASTM E8M", note = "p.4/5, as built, horizontal (XY) typ. 185 GPa; vertical (Z) typ. 180 GPa" }
+poisson = { v = "0.3", src = "amg-estimate", q = "estimate", note = "not in the MDS" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "530 MPa", std = "ISO 6892-1", note = "p.7, horizontal" }
+yield_tensile.z = { v = "470 MPa", spec = "ZXY", std = "ISO 6892-1", note = "p.7, vertical" }
+ultimate_tensile.xy = { v = "640 MPa", std = "ISO 6892-1", note = "p.7, horizontal" }
+ultimate_tensile.z = { v = "540 MPa", spec = "ZXY", std = "ISO 6892-1", note = "p.7, vertical" }
+
+[material.thermal]
+expansion.xy = { v = "15.72 ppm/K", std = "ASTM E228", note = "p.8, mean 25-100 degC" }
+expansion_reference = { v = "25 degC", note = "p.8, lower bound of the 25-100 degC interval" }
+
+[material.am]
+process = "powder_bed_fusion_metal"
+
+# ---------------------------------------------------------------------------------------------
+# Wrought reference metals
+# ---------------------------------------------------------------------------------------------
+
+[[material]]
+id = "steel.s235"
+revision = 1
+name = "Structural steel S235JR"
+category = "metal"
+family = "carbon_steel"
+condition = "hot rolled, as delivered; strength = EN 10025-2 minimum for nominal thickness <= 16 mm"
+default_source = "tk-s235-mds"
+appearance = "amg.builtin/metal.steel"
+tags = ["wrought", "steel", "1.0038"]
+density = { v = "7.85 g/cm^3", note = "p.2, reference data on physical properties, 20 degC" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "210 GPa", note = "p.2, 20 degC" }
+poisson = { v = "0.3", src = "ovako-s235-mds", q = "typical", note = "p.3, other properties (typical values)" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "235 MPa", note = "p.2, min. ReH for nominal thickness <= 16 mm (specified minimum)" }
+
+[material.thermal]
+conductivity.xy = { v = "54 W/(m*K)", note = "p.2, 20 degC" }
+specific_heat = { v = "461 J/(kg*K)", note = "p.2, 20 degC" }
+expansion.xy = { v = "11.1 ppm/K", note = "p.2, mean 20-100 degC" }
+expansion_reference = { v = "20 degC", note = "p.2, lower bound of the 20-100 degC interval" }
+
+[[material]]
+id = "aluminium.6061-t6"
+revision = 1
+name = "Aluminium 6061-T6"
+category = "metal"
+family = "aluminium_alloy"
+condition = "heat treated; values of the Smiths 6061 datasheet, which does not name the temper (310 MPa / 270 MPa are the T6 level)"
+default_source = "smiths-6061-ds"
+appearance = "amg.builtin/metal.aluminium-brushed"
+tags = ["wrought", "aluminium", "en-aw-6061"]
+density = "2.70 g/cm^3"
+
+[material.mechanical]
+elongation_at_break.xy = { v = "12 %", note = "A50 mm" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = "70 GPa"
+poisson = { v = "0.33", src = "amg-estimate", q = "estimate", note = "not in the datasheet" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "270 MPa", note = "proof stress" }
+ultimate_tensile.xy = "310 MPa"
+shear = "190 MPa"
+
+[material.thermal]
+conductivity.xy = "166 W/(m*K)"
+expansion.xy = "23.4 ppm/K"
+melting = "650 degC"
+
+[[material]]
+id = "stainless.1.4404"
+revision = 1
+name = "Stainless steel 1.4404 / 316L (wrought)"
+category = "metal"
+family = "stainless_steel"
+condition = "solution annealed (+AT); strength = minimum for hot rolled strip <= 13.5 mm"
+default_source = "tk-14404-mds"
+appearance = "amg.builtin/metal.stainless"
+tags = ["wrought", "stainless", "316l", "x2crnimo17-12-2"]
+density = { v = "8.0 g/cm^3", note = "p.2, reference data on physical properties" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "200 GPa", note = "p.2, 20 degC" }
+poisson = { v = "0.3", src = "amg-estimate", q = "estimate", note = "not in the datasheet" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "200 MPa", note = "p.1, product form H (hot rolled strip, <= 13.5 mm), min. Rp0.2, longitudinal" }
+
+[material.thermal]
+conductivity.xy = { v = "15 W/(m*K)", note = "p.2, 20 degC" }
+specific_heat = { v = "500 J/(kg*K)", note = "p.2, 20 degC" }
+expansion.xy = { v = "16 ppm/K", note = "p.2, mean 20-100 degC" }
+expansion_reference = { v = "20 degC", note = "p.2, lower bound of the 20-100 degC interval" }
+
+[[material]]
+id = "ti6al4v.wrought"
+revision = 1
+name = "Ti-6Al-4V Grade 5 (wrought)"
+category = "metal"
+family = "ti6al4v"
+condition = "bar to ASTM B348 Grade 5, typical values"
+default_source = "smiths-ti64-ds"
+appearance = "amg.builtin/metal.titanium"
+tags = ["wrought", "titanium", "grade-5"]
+density = { v = "4.47 g/cm^3", src = "ati-ti64-tds", note = "p.1, 4.47 g/cc" }
+
+[material.mechanical]
+elongation_at_break.xy = { v = "18 %", note = "typical, in 4D (minimum 10 %)" }
+
+[material.mechanical.elastic]
+model = "isotropic"
+youngs = { v = "114 GPa", note = "typical" }
+poisson = { v = "0.34", src = "amg-estimate", q = "estimate", note = "not in the datasheets" }
+
+[material.mechanical.strength]
+yield_tensile.xy = { v = "910 MPa", note = "typical 0.2 % proof stress (minimum 828 MPa)" }
+ultimate_tensile.xy = { v = "1000 MPa", note = "typical (minimum 895 MPa)" }
