@@ -1,0 +1,28 @@
+# Golden metrics for mesh/shell_sdf_sphere_r10_inside. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 2038.1507361822016
+area = 2057.2577818122368
+vertices = 6278
+triangles = 12548
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 4
+
+[metrics.bbox]
+min = [
+    -9.97670902009337,
+    -9.9959947783245,
+    -10.023173083660739,
+]
+max = [
+    9.999714666868762,
+    9.999714666868762,
+    9.99971466686876,
+]

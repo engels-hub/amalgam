@@ -25,9 +25,20 @@ amg-am.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
+# MESH-10: parallel chunked decimation of the SDF shell (already a workspace dependency).
+rayon.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# MESH-10 shell tests and bench: corpus loader, benchmark meshes, goldens.
+amg-mesh = { workspace = true, features = ["corpus"] }
+amg-testkit.workspace = true
+criterion.workspace = true
+rayon.workspace = true
+
+[[bench]]
+name = "mesh_shell"
+harness = false
 
 [features]
 # Links the OCCT backend of amg-brep, for tests on real B-rep solids (S06 ASM-09). Needs

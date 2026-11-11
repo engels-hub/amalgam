@@ -94,6 +94,10 @@ name = "mesh_segment"
 harness = false
 
 [[bench]]
+name = "mesh_offset"
+harness = false
+
+[[bench]]
 name = "mesh_boolean"
 harness = false
 required-features = ["manifold"]
