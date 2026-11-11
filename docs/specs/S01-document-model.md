@@ -1844,3 +1844,20 @@ See `docs/specs/S13-simulation.md` Interfaces and `docs/notes/simulation-fem.md`
   `Occurrence::transform`; without capture nodes the bits are identical, so existing caches stay valid.
   `RecomputeCtx::{with_positions, occurrence_transform, path_transform}` give features the same
   captured view for in-context resolution. Recompute fills `Placements` from the seeds.
+
+### 2026-11-11 - ASM-09 landed (lane E, additive)
+- `BodyChangeKind::Moved { component, geom, naming }`: an existing body keeps its id and belongs to
+  `component` from that feature on; `geom` is already in `component`'s space. The engine refuses it
+  (node `Error`) when the body or the component does not exist, and otherwise sets the body with the
+  new component and makes the feature the body's producer. `cache::estimate_bytes` counts its mesh;
+  the cache-file wire format gains an appended `Moved` variant (entries written before still decode,
+  so `CACHE_FORMAT` is unchanged; an older build treats a `Moved` entry as a cache miss).
+  `design.json` is unchanged (`FORMAT_VERSION` unchanged). Exhaustive matches on `BodyChangeKind`
+  outside `amg-doc` must add the arm (none existed in the workspace).
+- `stub::Shape` can now carry a real B-rep: `Shape::{from_brep(amg_brep::Shape), brep() ->
+  Option<&amg_brep::Shape>, transformed(&Transform) -> Result<Shape, amg_brep::KernelError>}`.
+  `Shape::new()` is still the data-less placeholder (test features, stub codecs). `transformed`
+  follows `amg_brep::Shape::transformed` (rigid only, also for a placeholder), so callers keep
+  compiling when the stub becomes `pub use amg_brep::Shape;` (TODO(BREP-02)). The stub codecs
+  still write solids as the `stub:solid` tag (a real B-rep is not persisted yet).
+

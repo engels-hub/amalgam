@@ -453,9 +453,14 @@ pub struct RigidGroupFeature { pub members: Vec<OccPath>, pub relative: Vec<Tran
 pub struct MotionLinkFeature { pub a: FeatureId, pub a_value: ValueSel, pub b: FeatureId, pub b_value: ValueSel,
                                pub ratio_a: Expr, pub ratio_b: Expr, pub reverse: bool,
                                pub v_a0: f64, pub v_b0: f64 }
-/// "assembly.bodies_to_components" v1 (ASM-09).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BodiesToComponentsFeature { pub moves: Vec<(BodyId, ComponentId)> }
+/// "assembly.bodies_to_components" v1 (ASM-09). `transform` maps the body from its old
+/// component space into `to`'s, captured by the builder (`world(to)⁻¹ · world(old)`), so the
+/// body moves with its new component afterwards and occurrence moves recompute nothing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BodiesToComponentsFeature { pub moves: Vec<BodyMove> }
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BodyMove { pub body: BodyId, pub to: ComponentId, pub transform: Transform }
+pub const BODIES_TO_COMPONENTS_KIND: &str = "assembly.bodies_to_components";
 
 /// Commands for one "Create Components from Bodies" transaction (ASM-09).
 pub fn components_from_bodies(design: &Design, eval: &Evaluated, bodies: &[BodyId])
@@ -468,9 +473,14 @@ pub enum AsmPrepError {
     #[error("body {0:?} does not exist")] NoBody(BodyId),
     #[error("component {0} does not exist")] NoComponent(ComponentId),
     #[error("target component is placed {0} times; pick one occurrence")] AmbiguousTarget(usize),
+    /// ASM-09: the body's own component is placed more than once.
+    #[error("body {body:?} is shown {placements} times; its component must be placed once")]
+    AmbiguousSource { body: BodyId, placements: usize },
     #[error(transparent)] Resolve(#[from] amg_doc::ResolveError),
-    #[error(transparent)] Asm(#[from] amg_doc::joints::AsmError),
-}
+    /// ASM-09: the design refused a built command (dry run on a copy).
+    #[error(transparent)] Command(#[from] amg_doc::CommandError),
+    #[error(transparent)] Asm(#[from] amg_doc::joints::AsmError),   // added with ASM-03/04
+}                                                                   // #[non_exhaustive]
 
 pub mod motion {           // ASM-06; ExtRecord kind "assembly.motion_study", v1
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -534,7 +544,7 @@ pub fn link() {}
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | ASM-01 | Components/occurrences in `amg-doc`: commands `AddOccurrence`, `DeleteOccurrences` (cascade), `MoveOccurrence`, `SetOccurrenceGrounded`, `SetOccurrenceName`, `SetOccurrenceTransforms`; rigid/mirror transform validation; `Placements` + `Evaluated::{placements, world_transform, body_to_world, instances}` (authored placements until ASM-04); `Document::active_component`; events | DOC-05, DOC-09, DOC-12 | P0 | Done | 1. Proptest: ≤ 100 random valid tree commands, undo all → `design.json` equals the initial one; redo all → equals the final one. 2. Deleting the last occurrence of a component holding 3 features and one sub-component removes all of them in one undo entry; a root feature that read one of its bodies gets `Error` with an upstream cause. 3. On a 3-level tree with one component placed twice, `body_to_world` equals the hand-multiplied transforms within 1e-12 and `instances` lists exactly 2 entries. 4. A scaled transform is refused with `InvalidValue`; a mirror (det −1) is accepted. 5. `MoveOccurrence { keep_world: true }` leaves the world transform unchanged within 1e-12. 6. Exact `DocEvent` sets per new command and for undo/redo (DOC-09 style). 7. Moving an occurrence recomputes no feature (engine counter). 8. criterion: `world_transform` of a depth-10 path < 1 µs; building `Placements` for 10 000 occurrences < 2 ms. |
-| ASM-09 | Create components from bodies, move bodies between components: `BodyChangeKind::Moved`, feature `assembly.bodies_to_components`, `components_from_bodies`/`move_bodies` transaction builders; geometry transformed into the target space (`Shape::transformed`, `IndexedMesh::transform`) | ASM-01, BREP-02 | P0 | Todo | 1. Three bodies in the root → one transaction creates 3 components and one feature; every body keeps its `BodyId` and its world bbox within 1e-9 mm; one undo entry. 2. Moving a body into an existing component placed at a non-identity transform keeps its world bbox within 1e-9 mm and volume within 1e-9 relative (solid and mesh). 3. A later root feature that reads the moved body still resolves (same `BodyId`), and the body reports the new component. 4. `.amg` save/load keeps the tree and each body's component. |
+| ASM-09 | Create components from bodies, move bodies between components: `BodyChangeKind::Moved`, feature `assembly.bodies_to_components`, `components_from_bodies`/`move_bodies` transaction builders; geometry transformed into the target space (`Shape::transformed`, `IndexedMesh::transform`) | ASM-01, BREP-02 | P0 | Review (wp/ASM-09-asm-bodies-components) | 1. Three bodies in the root → one transaction creates 3 components and one feature; every body keeps its `BodyId` and its world bbox within 1e-9 mm; one undo entry. 2. Moving a body into an existing component placed at a non-identity transform keeps its world bbox within 1e-9 mm and volume within 1e-9 relative (solid and mesh). 3. A later root feature that reads the moved body still resolves (same `BodyId`), and the body reports the new component. 4. `.amg` save/load keeps the tree and each body's component. |
 | ASM-13 | Pending positions, Capture Position, Revert in `amg-doc` (QUESTIONS #59): `Design::pending_positions` + `PendingPositions`, commands `SetPendingPositions`, `CapturePositions`, `RevertPositions`, layered `SetOccurrenceTransforms`, built-in feature `assembly.capture_position`, `captured_transform_at`/`seed_transform`, running position table in the timeline pass (in-context resolution and DOC-03 keys use captured transforms at the node's index), `SetMarker` drops pending, `joints::{capture_command, out_of_date}`, `DocEvent::PendingPositionsChanged` | ASM-01 | P0 | Review (wp/ASM-13-asm-pending-positions) | 1. Move → capture → move → revert: the occurrence ends at the captured transform (1e-12); 4 undo entries; undo of the revert restores the second move; undo of the capture removes the node and restores pending. 2. Pending moves survive save/load (`design.json` equal) and crash recovery (journal replay). 3. A pending move recomputes no feature (engine counter); capturing it re-runs only the in-context features after the node whose occurrence paths include the moved occurrence. 4. Timeline `[F1 in-context on o, C1 capture o→P1, F2 in-context on o]`: F1 sees the base transform, F2 sees P1; marker before C1 → placements use base; suppressing C1 likewise. 5. `SetMarker` with pending moves clears them in the same undo entry. 6. `SetPendingPositions` on a grounded occurrence and in Direct mode is refused; in Direct mode `SetOccurrenceTransforms` writes the base. 7. `SetOccurrenceTransforms` with a capture node listing the occurrence before the marker edits that node, not the base. 8. Deleting an occurrence drops its pending entry; a capture node that lists a deleted occurrence gets `Health::Warning` and ignores it. 9. Exact `DocEvent` sets for the new commands, undo and redo. 10. criterion: `SetPendingPositions` of 100 occurrences < 1 ms; `captured_transform_at` with 50 capture nodes < 2 µs. |
 | ASM-10 | Assembly UI module `amg-ui::assembly`: browser activate radio and active styling, grounded icon, context menus (New Component, Activate, Ground/Unground, Create Components from Bodies, Copy/Paste occurrence, Delete, Move to Component), pending marker on moved occurrences, "positions out of date" badge whose action is Capture Position | ASM-01, ASM-09, ASM-13, UI-07, UI-21 | P0 | Todo | 1. Kittest: activate a sub-component, run a generic-dialog feature → its node has that context. 2. Copy/paste an occurrence → 2 render instances share 1 uploaded mesh (upload counter). 3. Ground toggle sends `SetOccurrenceGrounded`, undo restores it. 4. Delete of a component with features is one undo entry. 5. Every menu entry is reachable by label (kittest) and appears only for the right selection. 6. An occurrence with a pending move shows the pending marker; the badge appears when `out_of_date` is non-empty and its action sends one `CapturePositions`. |
 | ASM-02 | Ground, move/rotate occurrences: Move/Copy tool for occurrences (triad free move, point to point, numeric fields) ending in one `SetPendingPositions` (Direct mode: `SetOccurrenceTransforms`); Position panel (Capture Position, Revert); Capture / Revert / Cancel prompt registered as the S11 position guard and used by Joint Origin | ASM-10, ASM-13, UI-06 | P0 | Todo | 1. Scripted triad drag of 12.5 mm along X and 90° about Z gives the exact pending transform (1e-12) in one undo entry. 2. A grounded occurrence cannot be moved (tool shows why). 3. Point to point puts a vertex on a vertex within 1e-9 mm. 4. Moving recomputes no feature in the moved component (counter). 5. With 100 occurrences on screen, UI frame time during the drag stays < 16 ms (tracing span). 6. Kittest: after a move the Position panel shows; Capture Position adds one timeline node and hides the panel; Revert puts the occurrence back (1e-12) and hides it. 7. Kittest: dragging the timeline marker or starting Joint Origin with a pending move shows the prompt; Cancel leaves design and pending unchanged, Revert and Capture do what their buttons say. |
@@ -721,6 +731,62 @@ blocks > 16 ms):
   `SetPendingPositions` of 100 occurrences 19.4 µs (budget 1 ms); `captured_transform_at` with 50 capture
   nodes, worst case 511 ns (budget 2 µs).
 
+### 2026-11-11 - ASM-09 (create components from bodies, move bodies between components, lane E)
+- **Landed:**
+  - `amg-doc`: `BodyChangeKind::Moved { component, geom, naming }` (engine: refused with a node
+    `Error` if the body or component is missing; otherwise the body keeps its id, gets the new
+    component and the feature becomes its producer); cache-file wire variant `Moved` (appended;
+    `CACHE_FORMAT`, `FORMAT_VERSION` and `design.json` unchanged); `stub::Shape` can carry a real
+    `amg_brep::Shape` (`from_brep`, `brep`, `transformed`). Recorded in S01 Interface changes.
+  - `amg-brep`: `Shape::volume()` over the existing BREP-01 shim function (S02 Interface changes).
+    `Shape::transformed` (BREP-02) and `IndexedMesh::transform` (MESH) already existed.
+  - `amg-features::assembly` (new module): feature `assembly.bodies_to_components` v1
+    (`BodiesToComponentsFeature { moves: Vec<BodyMove { body, to, transform }> }`), builders
+    `components_from_bodies` / `move_bodies`, `AsmPrepError`, `link()`. New cargo feature
+    `occt = ["amg-brep/occt"]` on `amg-features` for the solid tests.
+- **Deviations:**
+  - Each move stores the old-space → new-space transform (`world(to)⁻¹ · world(old)`, from
+    `Evaluated` placements at build time) instead of `(BodyId, ComponentId)` only. Computing it at
+    recompute time from captured positions would make a later occurrence move re-run the node and
+    leave the body behind in world space; stored, the body moves with its new component and moving
+    an occurrence recomputes nothing (tested).
+  - "Create Components from Bodies" places each new component once, at the identity, in the
+    component the body is in now (Fusion), so the transform is the identity and the geometry
+    allocation is shared (no geometry-change event, only `ComponentTreeChanged`). It works even when
+    that component is placed several times (the body keeps all instances).
+  - New ids are predicted by a dry run of the commands on a copy of the design (`apply_command`;
+    id allocation is deterministic), so the builders return a plain `Vec<Command>` for one
+    transaction, as the Interfaces say. The caller must apply them to the same design state.
+  - `AsmPrepError` gains `AmbiguousSource { body, placements }` (the body's own component placed
+    more than once) and `Command(CommandError)`; it is `#[non_exhaustive]`; the `Asm(AsmError)`
+    variant waits for ASM-03/04 (`AsmError` doesn't exist yet).
+  - The node lives in the root context and is inserted at the marker.
+- **Limits / leftovers:**
+  - A B-rep solid cannot move across a mirrored placement (`amg_brep::Shape::transformed` refuses
+    reflections): the node gets `Error` and the body stays put (tested). Meshes mirror fine
+    (winding flipped, volume kept). Implicit and form bodies only move between components placed
+    alike (identity transform).
+  - Fingerprints inside the carried-over `BodyNaming` stay in the old component's space (names are
+    unchanged, the topology is the same). DOC-11/CON-03 should transform or re-derive them if
+    fingerprint matching across a move turns out to matter.
+  - Deleting the target component later makes the node fail and the body returns to its old
+    component (the cascade does not delete moved-in bodies, unlike Fusion).
+  - Direct mode is not supported (the builders return `Command(WrongMode)` from `AddFeature`).
+  - Real B-rep solids are still written as the `stub:solid` tag by the stub codecs, so a solid's
+    geometry does not survive the cache file (not new; TODO(BREP-02) stub swap).
+- **Tests** (`crates/amg-features/tests/assembly_bodies.rs`, 11 mesh tests + 2 solid tests behind
+  `occt`): Done-when 1 (3 root bodies → 4 commands, 3 components + 1 node, same `BodyId`s, world
+  bbox ≤ 1e-9 mm, volume ≤ 1e-9 rel, one undo entry restoring `design.json` exactly, redo);
+  Done-when 2 (mesh into a two-level off-axis placement and into a mirrored one; solids
+  `box`, `plate_with_holes`, `filleted_box` fixtures into a two-level off-axis placement: measured
+  bbox drift ≤ 1.8e-15 mm, volume relative error ≤ 1.5e-16); Done-when 3 (a later root reader
+  feature is `Ok` on the same `BodyId`, body reports the target, instance path has 2 occurrences);
+  Done-when 4 (save/load with and without the persisted cache: `design.json` identical, every
+  body's component identical, the cached run recomputes nothing). Plus: moving the target
+  occurrence moves the body and recomputes no feature; builder errors; invalid feature data;
+  deleted target. `cargo nextest run -p amg-doc -p amg-features -p amg-brep`: 314 passed,
+  2 skipped; `-p amg-features --features occt --test assembly_bodies`: 13 passed.
+
 ## Interface changes
 Changes this spec needs in S01 (lane E; the ASM-13 ones are copied to S01, 2026-11-10; to be copied into S01's Interface changes by the
 owning agent; all additive except where marked):
@@ -741,4 +807,7 @@ owning agent; all additive except where marked):
     `core.base`), so files with captures load without `amg-features`.
   - `DocEvent::PendingPositionsChanged`.
   - The assembly stage key (S06 note §7) includes the pending layer.
+- **2026-11-11, ASM-09** (all additive, recorded in S01 and S02 Interface changes the same day):
+  `BodyChangeKind::Moved { component, geom, naming }` and its cache-file wire variant;
+  `stub::Shape::{from_brep, brep, transformed}`; `amg_brep::Shape::volume()`.
 Requests this spec makes of other specs are listed under Interfaces → "Needed from other specs".

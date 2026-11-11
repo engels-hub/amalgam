@@ -339,6 +339,16 @@ impl Shape {
         self.occ().check()
     }
 
+    /// Volume enclosed by the shape's solids in mm³ (`BRepGProp::VolumeProperties`; 0 for a
+    /// shape without solids). Added for S06 ASM-09, whose tests check that moving a body
+    /// between components keeps its volume.
+    ///
+    /// # Errors
+    /// `Occt` if OCCT raises.
+    pub fn volume(&self) -> KResult<f64> {
+        self.occ().volume()
+    }
+
     /// The same shape moved by a rigid transform. Shares TShapes and keeps every index.
     ///
     /// # Errors
@@ -491,5 +501,16 @@ mod tests {
         for data in [&b"AMG"[..], &b"NOPE\x01rest"[..], &b"AMGB\xFFrest"[..]] {
             assert!(matches!(Shape::read_bin(data), Err(KernelError::Format(_))));
         }
+    }
+
+    #[cfg(feature = "occt")]
+    #[test]
+    fn volume_is_kept_by_a_rigid_move() {
+        let b = Shape::test_box(10.0, 20.0, 30.0);
+        assert!((b.volume().unwrap() - 6000.0).abs() < 1e-9);
+        let t = Transform::from_translation(Vec3::new(5.0, -2.0, 7.0))
+            * Transform::from_axis_angle(Vec3::new(1.0, 2.0, 3.0).normalize(), 0.7);
+        let moved = b.transformed(&t).unwrap();
+        assert!((moved.volume().unwrap() - 6000.0).abs() < 1e-9);
     }
 }

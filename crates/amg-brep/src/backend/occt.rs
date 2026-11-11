@@ -420,6 +420,10 @@ impl Occ {
         )
     }
 
+    pub(crate) fn volume(&self) -> KResult<f64> {
+        ffi::volume(&self.shape).map_err(|e| to_kernel_error(&e))
+    }
+
     pub(crate) fn moved(&self, transform: &Transform) -> KResult<Occ> {
         ffi::shape_moved(&self.shape, &mat34(transform))
             .map(|shape| self.derived(shape))

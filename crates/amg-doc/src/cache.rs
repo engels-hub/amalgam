@@ -35,8 +35,9 @@ pub fn estimate_bytes(out: &FeatureOutput) -> u64 {
     const PER_WARNING: usize = 160;
     let mut n = BASE + out.bodies.len() * PER_BODY + out.warnings.len() * PER_WARNING;
     for b in &out.bodies {
-        if let BodyChangeKind::Created { geom, .. } | BodyChangeKind::Modified { geom, .. } =
-            &b.change
+        if let BodyChangeKind::Created { geom, .. }
+        | BodyChangeKind::Modified { geom, .. }
+        | BodyChangeKind::Moved { geom, .. } = &b.change
             && let BodyGeom::Mesh(m) = geom
         {
             n += mesh_bytes(m);

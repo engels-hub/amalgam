@@ -31,7 +31,7 @@ use crate::cache::{CacheBacking, GeomCache};
 use crate::document::Document;
 use crate::eval::{CacheKey, ConstructionGeom, Diagnostic};
 use crate::feature::{BodyChange, BodyChangeKind, FeatureOutput};
-use crate::id::BodyId;
+use crate::id::{BodyId, ComponentId};
 use crate::io::BodyCodec;
 use crate::model::{BlobRef, Design};
 use crate::naming::{BodyNaming, EntityRef};
@@ -89,6 +89,12 @@ enum WireChange {
         naming: Option<BodyNaming>,
     },
     Deleted,
+    /// S06 ASM-09. Appended, so entries written before it still decode.
+    Moved {
+        component: ComponentId,
+        geom: Vec<u8>,
+        naming: Option<BodyNaming>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -129,6 +135,15 @@ impl OutputCodec for StubOutputCodec {
                         naming: n.clone(),
                     },
                     BodyChangeKind::Deleted => WireChange::Deleted,
+                    BodyChangeKind::Moved {
+                        component,
+                        geom: g,
+                        naming: n,
+                    } => WireChange::Moved {
+                        component: *component,
+                        geom: geom(g)?,
+                        naming: n.clone(),
+                    },
                 };
                 Ok(WireBody { id: b.id, change })
             })
@@ -186,6 +201,15 @@ impl OutputCodec for StubOutputCodec {
                     naming,
                 },
                 WireChange::Deleted => BodyChangeKind::Deleted,
+                WireChange::Moved {
+                    component,
+                    geom: g,
+                    naming,
+                } => BodyChangeKind::Moved {
+                    component,
+                    geom: geom(&g)?,
+                    naming,
+                },
             };
             bodies.push(BodyChange { id: b.id, change });
         }

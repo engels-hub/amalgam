@@ -337,6 +337,17 @@ impl<'a> Pass<'a> {
                         return bad(format!("feature changed {:?}, which does not exist", c.id));
                     }
                 }
+                BodyChangeKind::Moved { component, .. } => {
+                    if self.out.body(c.id).is_none() {
+                        return bad(format!("feature moved {:?}, which does not exist", c.id));
+                    }
+                    if self.design.component(*component).is_none() {
+                        return bad(format!(
+                            "feature moved {:?} into component {component}, which does not exist",
+                            c.id
+                        ));
+                    }
+                }
             }
         }
         if out.sketch.is_some() && out.construction.is_some() {
@@ -360,6 +371,21 @@ impl<'a> Pass<'a> {
                 BodyChangeKind::Deleted => {
                     self.out.remove_body(c.id);
                     self.body_key.remove(&c.id);
+                }
+                BodyChangeKind::Moved {
+                    component,
+                    geom,
+                    naming,
+                } => {
+                    self.out.set_body(
+                        c.id,
+                        Arc::new(EvalBody {
+                            component: *component,
+                            geom: geom.clone(),
+                            naming: naming.as_ref().map(|n| Arc::new(n.clone())),
+                        }),
+                    );
+                    self.body_key.insert(c.id, key);
                 }
             }
         }

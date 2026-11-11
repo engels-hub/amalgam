@@ -1298,3 +1298,11 @@ All additive:
 - `amg-brep` gains `tracing` (and `tracing-subscriber` as a dev-dependency), both already
   workspace dependencies; `THIRD_PARTY.md`'s tracing row names the new users. `Cargo.lock` changes
   accordingly.
+
+### 2026-11-11: addition requested by S06 ASM-09 (lane E)
+Additive:
+- `amg-brep`: `Shape::volume() -> KResult<f64>` (`BRepGProp::VolumeProperties` through the existing
+  BREP-01 shim function `amg_occt_sys::ffi::volume`; no shim change, `SHIM_VERSION` unchanged). ASM-09
+  uses it to check that moving a body between components keeps its volume. S05's mass properties
+  (INS-10) may replace or extend it.
+
