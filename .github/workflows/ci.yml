@@ -65,11 +65,11 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       # Feature-gated code (tracy, copyleft-gated backends, …) is linted too.
       # amg-sketch's `slvs` feature (SK-13 oracle) needs libclang <= 15, which the runner lacks,
-      # so amg-sketch is linted with every other feature. amg-occt-sys and amg-brep (`occt`)
-      # need the OCCT install and are linted in the occt job. amg-render's `static-dxc` downloads
+      # so amg-sketch is linted with every other feature. amg-occt-sys, amg-brep and amg-features
+      # (`occt`) need the OCCT install and are linted in the occt job. amg-render's `static-dxc` downloads
       # a prebuilt DXC at build time, so amg-render is linted with every other feature (S10).
       - name: clippy (all features)
-        run: cargo clippy --workspace --exclude amg-sketch --exclude amg-occt-sys --exclude amg-brep --exclude amg-render --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude amg-sketch --exclude amg-occt-sys --exclude amg-brep --exclude amg-features --exclude amg-render --all-targets --all-features -- -D warnings
       - name: clippy (amg-render, all features but static-dxc)
         run: cargo clippy -p amg-render --all-targets --features egui -- -D warnings
       - name: clippy (amg-sketch, all features but slvs)
@@ -144,11 +144,11 @@ jobs:
         with:
           vcpkg-tag: ${{ env.VCPKG_TAG }}
           features: occt
-      # The workspace all-features clippy excludes these two crates (it has no OCCT install).
+      # The workspace all-features clippy excludes these crates (it has no OCCT install).
       - name: Clippy with OCCT
-        run: cargo clippy -p amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings
+        run: cargo clippy -p amg-occt-sys -p amg-brep -p amg-features --all-targets --all-features -- -D warnings
       - name: Test the OCCT bridge
-        run: cargo nextest run -p amg-occt-sys -p amg-brep --features occt --profile ci
+        run: cargo nextest run -p amg-occt-sys -p amg-brep -p amg-features --features occt --profile ci
 
   deny:
     name: deny
