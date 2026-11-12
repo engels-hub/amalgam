@@ -12,6 +12,7 @@ amg-core.workspace = true
 amg-jobs.workspace = true
 amg-occt-sys.workspace = true
 amg-nurbs.workspace = true
+rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -45,6 +46,11 @@ required-features = ["occt"]
 
 [[bench]]
 name = "kernel"
+harness = false
+required-features = ["occt"]
+
+[[bench]]
+name = "tess"
 harness = false
 required-features = ["occt"]
 

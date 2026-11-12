@@ -29,6 +29,8 @@ struct OcTopology;
 struct OcSurface;
 struct OcCurve;
 struct OcCheckReport;
+struct OcTessParams;
+struct OcTessMesh;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -166,6 +168,24 @@ OcCheckReport check_shape(const OcShape &shape, const OcIndex &index);
 
 // CATEGORY: R (takes no shape; builds a face on an open wire, which BRepCheck rejects)
 std::unique_ptr<OcShape> make_open_wire_face();
+
+// -- tessellation (BREP-08), implemented in occt_tess.cpp --
+
+// CATEGORY: C (BRepMesh_IncrementalMesh writes triangulations into the faces and edges it meshes,
+// so it runs on a private BRepBuilderAPI_Copy of `shape` made here; `shape` is only read)
+OcTessMesh tessellate_shape(const OcShape &shape, const OcTessParams &params,
+                            const ProgressSink &sink);
+
+// CATEGORY: R (GCPnts_TangentialDeflection over a BRepAdaptor_Curve; the edge is only read)
+rust::Vec<V3> tessellate_edge(const OcIndex &index, std::uint32_t e, double linear,
+                              double angular);
+
+// CATEGORY: R (takes no shape; builds new topology)
+std::unique_ptr<OcShape> make_sphere(double radius);
+
+// CATEGORY: N (BRepAlgoAPI_Cut with SetNonDestructive(true); a test probe for the BREP-08
+// concurrency test until BREP-04 lands the real booleans)
+std::unique_ptr<OcShape> boolean_cut_probe(const OcShape &object, const OcShape &tool);
 
 } // namespace amg::occt
 

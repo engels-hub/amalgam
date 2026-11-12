@@ -1,0 +1,28 @@
+# Golden metrics for brep/tess_display_cylinder_mirrored. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 1565.697385800735
+area = 784.378002277202
+vertices = 90
+triangles = 176
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -8.0,
+    -3.9969541350954776,
+    0.0,
+]
+max = [
+    1.987820251299123,
+    5.9969541350954785,
+    20.0,
+]

@@ -12,6 +12,7 @@ mod kernel;
 mod lock;
 pub mod opts;
 mod shape;
+mod tess;
 
 pub use amg_core::{Aabb3, Dir3, Line3, Plane, Point2, Point3, Tolerance, Transform, Vec2, Vec3};
 pub use amg_jobs::JobCtx;
@@ -26,6 +27,7 @@ pub use opts::{
     ShellOpts, TessQuality, ThruSectionsOpts, Transition, UnifyOpts,
 };
 pub use shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, ShapeKind, SubKind, SubShape, VertexId};
+pub use tess::{EdgePolyline, TessMesh, TessProfile};
 
 /// Whether this build links the OCCT backend (cargo feature `occt`).
 pub const OCCT_BACKEND: bool = cfg!(feature = "occt");

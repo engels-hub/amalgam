@@ -13,7 +13,8 @@ use crate::check::CheckReport;
 use crate::error::KernelError;
 use crate::geom::{BSplineCurveData, BSplineSurfaceData, Curve3, GeomClass, Surface};
 use crate::index::RawTopology;
-use crate::shape::{ShapeKind, SubKind, SubShape};
+use crate::shape::{EdgeId, ShapeKind, SubKind, SubShape};
+use crate::tess::{EdgePolyline, TessMesh, TessParams, TessProfile};
 
 /// `occt-<OCC_VERSION_COMPLETE>`: the OCCT part of the shim's version string.
 pub(crate) fn occt_version() -> String {
@@ -54,6 +55,18 @@ impl ProgressTarget for JobProgress {
     }
 }
 
+/// Only asks a `JobCtx` for cancellation; progress is reported by the caller (several bodies
+/// meshed at once by `tessellate_many`).
+struct CancelOnly(JobCtx);
+
+impl ProgressTarget for CancelOnly {
+    fn show(&self, _fraction: f64) {}
+
+    fn user_break(&self) -> bool {
+        self.0.is_cancelled()
+    }
+}
+
 /// The progress/cancel bridge for one shim call that takes a `ProgressSink`.
 pub(crate) fn progress_sink(ctx: &JobCtx) -> ProgressSink {
     ProgressSink::new(Box::new(JobProgress(ctx.clone())))
@@ -69,6 +82,49 @@ pub(crate) fn progress_probe(steps: u32, step_micros: u32, ctx: &JobCtx) -> KRes
     }
     ctx.checkpoint()?;
     Ok(())
+}
+
+fn points(flat: &[f64]) -> Vec<Point3> {
+    flat.chunks_exact(3)
+        .map(|p| Point3::new(p[0], p[1], p[2]))
+        .collect()
+}
+
+fn ranges(starts: &[u32]) -> Vec<std::ops::Range<u32>> {
+    starts.windows(2).map(|w| w[0]..w[1]).collect()
+}
+
+fn tess_from(raw: &ffi::OcTessMesh, deflection: f64) -> (TessMesh, TessProfile) {
+    let edges = ranges(&raw.edge_point_starts)
+        .into_iter()
+        .enumerate()
+        .map(|(e, points)| EdgePolyline {
+            edge: EdgeId(u32::try_from(e).unwrap_or(u32::MAX)),
+            points,
+        })
+        .collect();
+    let mesh = TessMesh {
+        positions: points(&raw.positions),
+        normals: points(&raw.normals),
+        tris: raw
+            .tris
+            .chunks_exact(3)
+            .map(|t| [t[0], t[1], t[2]])
+            .collect(),
+        face_ranges: ranges(&raw.face_tri_starts),
+        weld: raw.weld.to_vec(),
+        edges,
+        edge_points: points(&raw.edge_points),
+        uvs: None,
+    };
+    let profile = TessProfile {
+        deflection,
+        copy_seconds: raw.copy_seconds,
+        mesh_seconds: raw.mesh_seconds,
+        extract_seconds: raw.extract_seconds,
+        weld_mismatches: raw.weld_mismatches,
+    };
+    (mesh, profile)
 }
 
 pub(crate) struct Occ {
@@ -245,6 +301,11 @@ impl Occ {
     #[cfg(test)]
     pub(crate) fn test_box(dx: f64, dy: f64, dz: f64) -> Occ {
         Occ::new(must(ffi::make_box(dx, dy, dz), "make_box"))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_sphere(radius: f64) -> Occ {
+        Occ::new(must(ffi::make_sphere(radius), "make_sphere"))
     }
 
     #[cfg(test)]
@@ -446,6 +507,53 @@ impl Occ {
     pub(crate) fn write_text(&self) -> KResult<Vec<u8>> {
         ffi::shape_write_text(&self.shape)
             .map(|bytes| bytes.as_bytes().to_vec())
+            .map_err(|e| to_kernel_error(&e))
+    }
+
+    /// Meshes a private copy of the shape (category C) and copies the result out.
+    pub(crate) fn tessellate(
+        &self,
+        params: TessParams,
+        ctx: &JobCtx,
+    ) -> KResult<(TessMesh, TessProfile)> {
+        let sink = if params.report_progress {
+            progress_sink(ctx)
+        } else {
+            ProgressSink::new(Box::new(CancelOnly(ctx.clone())))
+        };
+        let raw = ffi::tessellate_shape(
+            &self.shape,
+            &ffi::OcTessParams {
+                linear: params.linear,
+                angular: params.angular,
+                min_size: params.min_size,
+                in_parallel: params.in_parallel,
+            },
+            &sink,
+        )
+        .map_err(|e| to_kernel_error(&e))?;
+        if raw.cancelled {
+            return Err(KernelError::Cancelled);
+        }
+        Ok(tess_from(&raw, params.linear))
+    }
+
+    /// Points along `edge` in parameter order.
+    pub(crate) fn tessellate_edge(
+        &self,
+        edge: u32,
+        linear: f64,
+        angular: f64,
+    ) -> KResult<Vec<Point3>> {
+        ffi::tessellate_edge(self.index(), edge, linear, angular)
+            .map(|pts| pts.into_iter().map(point).collect())
+            .map_err(|e| to_kernel_error(&e))
+    }
+
+    /// `self` minus `tool`, non-destructive (BREP-08 stress-test probe until BREP-04).
+    pub(crate) fn boolean_cut_probe(&self, tool: &Occ) -> KResult<Occ> {
+        ffi::boolean_cut_probe(&self.shape, &tool.shape)
+            .map(Occ::new)
             .map_err(|e| to_kernel_error(&e))
     }
 }

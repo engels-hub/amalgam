@@ -13,10 +13,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use amg_brep::geom::{BSplineCurveData, BSplineSurfaceData, Curve3, GeomClass, Surface};
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, DraftOpts, EdgeId, FaceId,
-    FilletOpts, FilletShape, FilletSpec, Glue, HealOpts, HelixSpec, KernelConfig, LoftSection,
-    OcctKernel, OffsetJoin, PipeMode, PipeOpts, PrismExtent, PrismOpts, SewOpts, Shape, ShapeKind,
-    ShellOpts, SubKind, SubShape, TessQuality, ThruSectionsOpts, Tolerance, Transition, UnifyOpts,
-    VertexId,
+    FilletOpts, FilletShape, FilletSpec, Glue, HealOpts, HelixSpec, JobCtx, KResult, KernelConfig,
+    LoftSection, OcctKernel, OffsetJoin, PipeMode, PipeOpts, PrismExtent, PrismOpts, SewOpts,
+    Shape, ShapeKind, ShellOpts, SubKind, SubShape, TessMesh, TessQuality, ThruSectionsOpts,
+    Tolerance, Transition, UnifyOpts, VertexId,
 };
 use amg_core::{Dir3, Plane, Point3, Vec3};
 use serde::Serialize;
@@ -229,6 +229,26 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
     fn check(&self, s: &Shape, opts: &CheckOpts) -> CheckReport {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.check(s, opts)
+    }
+
+    fn tessellate(&self, s: &Shape, q: &TessQuality, ctx: &JobCtx) -> KResult<TessMesh> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.tessellate(s, q, ctx)
+    }
+
+    fn tessellate_many(
+        &self,
+        shapes: &[Shape],
+        q: &TessQuality,
+        ctx: &JobCtx,
+    ) -> Vec<KResult<TessMesh>> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.tessellate_many(shapes, q, ctx)
+    }
+
+    fn tessellate_edge(&self, s: &Shape, e: EdgeId, q: &TessQuality) -> KResult<Vec<Point3>> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.tessellate_edge(s, e, q)
     }
 }
 

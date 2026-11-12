@@ -153,6 +153,45 @@ pub mod ffi {
         problems: Vec<OcCheckProblem>,
     }
 
+    /// `tessellate_shape` input. `linear` is the absolute deflection in mm (amg-brep resolves
+    /// relative qualities); `min_size` 0 keeps OCCT's default.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcTessParams {
+        linear: f64,
+        angular: f64,
+        min_size: f64,
+        /// `IMeshTools_Parameters::InParallel` (faces of one shape on OCCT's pool).
+        in_parallel: bool,
+    }
+
+    /// A tessellation copied out of the private, meshed topology copy. Flat arrays: three
+    /// `f64` per point, three `u32` per triangle. Faces and edges in index order.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct OcTessMesh {
+        /// `true` when the progress sink asked to stop; every other field is then empty.
+        cancelled: bool,
+        /// Per-face vertices, mm.
+        positions: Vec<f64>,
+        /// Unit normals, one per vertex, facing out of the material.
+        normals: Vec<f64>,
+        /// Counter-clockwise seen from outside, 0-based into `positions`.
+        tris: Vec<u32>,
+        /// `n_faces + 1` offsets into the triangle list.
+        face_tri_starts: Vec<u32>,
+        /// Canonical shared-vertex id per vertex: vertex index for B-rep vertices, then edge
+        /// interior nodes, then face interior nodes.
+        weld: Vec<u32>,
+        /// `n_edges + 1` offsets (in points) into `edge_points`.
+        edge_point_starts: Vec<u32>,
+        edge_points: Vec<f64>,
+        /// Edge polygons whose node count differed between two faces (welded as distinct).
+        weld_mismatches: u32,
+        /// Wall time of the topology copy, the meshing and the copy-out, in seconds.
+        copy_seconds: f64,
+        mesh_seconds: f64,
+        extract_seconds: f64,
+    }
+
     extern "Rust" {
         /// The progress/cancel target of one shim call (S02 §1, occt-integration.md §3.4).
         type ProgressSink;
@@ -256,6 +295,23 @@ pub mod ffi {
         /// A planar face bounded by an open two-edge wire, which `BRepCheck` rejects. For tests of
         /// the validation policy.
         fn make_open_wire_face() -> Result<UniquePtr<OcShape>>;
+
+        // -- tessellation (BREP-08) --
+
+        /// Meshes a private copy of `shape` (category C) and copies the result out. Reports
+        /// progress to `sink`; returns `cancelled` when it asks to stop.
+        fn tessellate_shape(
+            shape: &OcShape,
+            params: &OcTessParams,
+            sink: &ProgressSink,
+        ) -> Result<OcTessMesh>;
+        /// Points along edge `e` (parameter order) within `linear` mm and `angular` rad.
+        /// Raises on a degenerated edge.
+        fn tessellate_edge(index: &OcIndex, e: u32, linear: f64, angular: f64) -> Result<Vec<V3>>;
+        /// A sphere of `radius` mm about the origin (test geometry).
+        fn make_sphere(radius: f64) -> Result<UniquePtr<OcShape>>;
+        /// `object` minus `tool`, non-destructive. A test probe until BREP-04.
+        fn boolean_cut_probe(object: &OcShape, tool: &OcShape) -> Result<UniquePtr<OcShape>>;
     }
 }
 
