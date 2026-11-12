@@ -34,6 +34,10 @@ criterion.workspace = true
 name = "scene"
 harness = false
 
+[[bench]]
+name = "viewport"
+harness = false
+
 [[example]]
 name = "spin"
 required-features = ["egui"]

@@ -3,28 +3,27 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use amg_core::{Dir3, Point3, SlotMap};
+use amg_jobs::JobSystem;
 use amg_jobs::gpu::{Gpu, Readback};
 
 use crate::camera::{Camera, Projection};
-use crate::cull::{DrawPlan, Frustum};
+use crate::cull::{DrawPlan, Frustum, MeshDraw};
+use crate::pipelines::{
+    DEPTH_FORMAT, FINAL_FORMAT, HDR_FORMAT, NORMAL_FORMAT, PipelineFactory, PipelineKey,
+    PipelineKind, Variants, core_keys,
+};
 use crate::scene::{LayerMask, RECORD_BYTES, RenderScene};
+use crate::shading::Lighting;
 use crate::{RenderError, ViewId};
 
-const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-const FINAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+pub(crate) use crate::pipelines::FULLSCREEN_WGSL;
+
 /// The same bytes as [`FINAL_FORMAT`], read without the sRGB decode.
 pub(crate) const FINAL_FORMAT_RAW: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
-const MESH_WGSL: &str = concat!(
-    include_str!("shaders/camera.wgsl"),
-    include_str!("shaders/mesh.wgsl")
-);
-pub(crate) const FULLSCREEN_WGSL: &str = include_str!("shaders/fullscreen.wgsl");
-const EXTERNAL_WGSL: &str = include_str!("shaders/external.wgsl");
 /// Instance records the buffer holds before the first growth.
 const INITIAL_INSTANCE_CAPACITY: u32 = 64;
 /// Visibility entries (`u32`) a view's list holds before the first growth.
@@ -32,8 +31,8 @@ const INITIAL_VISIBLE_CAPACITY: u32 = 64;
 
 /// In-flight timestamp readbacks per view; a frame with none free is simply not timed.
 const TIMER_SLOTS: usize = 4;
-/// Begin and end of the opaque pass, begin and end of the final pass.
-const TIMER_QUERIES: u32 = 4;
+/// Begin and end of up to three passes (depth pre-pass, opaque, final).
+const TIMER_QUERIES: u32 = 6;
 /// Finished frames kept for [`Renderer::drain_gpu_timings`].
 const TIMER_HISTORY: usize = 256;
 
@@ -42,25 +41,45 @@ const TIMER_IN_FLIGHT: u8 = 1;
 const TIMER_MAPPED: u8 = 2;
 const TIMER_FAILED: u8 = 3;
 
+const PASSES_PLAIN: &[&str] = &["opaque", "final"];
+const PASSES_PREPASS: &[&str] = &["depth prepass", "opaque", "final"];
+
+/// How long [`Renderer::wait_for_variants`] waits by default in headless helpers.
+const VARIANT_WAIT: Duration = Duration::from_secs(60);
+
 /// Renderer settings.
 #[derive(Clone, Debug)]
 pub struct RendererConfig {
     /// MSAA samples of the 3D passes: 1 or 4. Default 4.
     pub msaa_samples: u32,
+    /// Draw a depth-only pre-pass before the opaque pass (which then tests `Equal` and shades
+    /// each sample once). Default off: the RND-02 bench measured it slower on the owner GPU
+    /// (S10 Refinement log).
+    pub depth_prepass: bool,
+    /// Job system whose Interactive pool builds pipeline variants. `None`: a short-lived
+    /// thread per variant.
+    pub jobs: Option<JobSystem>,
 }
 
 impl Default for RendererConfig {
     fn default() -> Self {
-        RendererConfig { msaa_samples: 4 }
+        RendererConfig {
+            msaa_samples: 4,
+            depth_prepass: false,
+            jobs: None,
+        }
     }
 }
 
-/// Time spent creating one core pipeline.
-#[derive(Clone, Copy, Debug)]
+/// Time spent creating one pipeline (or the shader modules).
+#[derive(Clone, Debug)]
 pub struct PipelineTiming {
-    /// Pipeline name.
+    /// Pipeline family: `mesh`, `depth prepass`, `background`, `external layer`, `fxaa`,
+    /// `final`, or `shader modules`.
     pub label: &'static str,
-    /// Milliseconds on the calling thread (shader compilation included).
+    /// The variant (override constants, cull mode, depth test, sample count).
+    pub variant: String,
+    /// Milliseconds on the building thread (shader compilation included).
     pub ms: f64,
 }
 
@@ -80,7 +99,8 @@ pub struct FrameStats {
 pub struct GpuTimings {
     /// From the start of the first pass to the end of the last, milliseconds.
     pub total_ms: f32,
-    /// Per-pass times, milliseconds.
+    /// Per-pass times, milliseconds: `depth prepass` (when on), `opaque` (background, meshes,
+    /// external layer, MSAA resolve), `final` (copy or FXAA into the sRGB image).
     pub passes: Vec<(&'static str, f32)>,
 }
 
@@ -153,22 +173,38 @@ fn unpad(bytes: &[u8], size: [u32; 2], padded_row: u32) -> RgbaImage {
 pub enum Background {
     /// One linear RGB colour.
     Solid([f32; 3]),
+    /// A vertical gradient (linear RGB), `top` at the top edge of the view.
+    Gradient {
+        /// Colour at the top edge.
+        top: [f32; 3],
+        /// Colour at the bottom edge.
+        bottom: [f32; 3],
+    },
 }
 
 /// How a view shades the scene.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ViewStyle {
-    /// View background.
+    /// View background. Default: a dark blue-grey gradient.
     pub background: Background,
     /// Facet shading from derivatives even for meshes that have normals.
     pub flat_shading: bool,
+    /// Lighting model. Default [`Lighting::Studio`].
+    pub lighting: Lighting,
+    /// FXAA on the resolved image (useful at 1× MSAA). Default off.
+    pub fxaa: bool,
 }
 
 impl Default for ViewStyle {
     fn default() -> Self {
         ViewStyle {
-            background: Background::Solid([0.05, 0.06, 0.08]),
+            background: Background::Gradient {
+                top: [0.16, 0.18, 0.22],
+                bottom: [0.03, 0.035, 0.045],
+            },
             flat_shading: false,
+            lighting: Lighting::Studio,
+            fxaa: false,
         }
     }
 }
@@ -192,11 +228,25 @@ impl View {
     }
 }
 
-#[derive(Debug)]
-struct MeshPipelines {
-    smooth: wgpu::RenderPipeline,
-    flat: wgpu::RenderPipeline,
-    external: wgpu::RenderPipeline,
+/// Per-view style uniform (`StyleUniform` in `shaders/mesh.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct StyleUniform {
+    bg_top: [f32; 4],
+    bg_bottom: [f32; 4],
+}
+
+impl StyleUniform {
+    fn new(style: &ViewStyle) -> StyleUniform {
+        let (top, bottom) = match style.background {
+            Background::Solid(c) => (c, c),
+            Background::Gradient { top, bottom } => (top, bottom),
+        };
+        StyleUniform {
+            bg_top: [top[0], top[1], top[2], 1.0],
+            bg_bottom: [bottom[0], bottom[1], bottom[2], 1.0],
+        }
+    }
 }
 
 /// Offscreen targets of one view at one size and sample count.
@@ -206,11 +256,17 @@ struct ViewTargets {
     samples: u32,
     /// The MSAA colour target; `None` at one sample (the pass draws into `resolved` directly).
     msaa_color: Option<wgpu::TextureView>,
+    /// Octahedral view normal, `samples` samples (design note §2; read by post passes).
+    normal: wgpu::Texture,
+    normal_view: wgpu::TextureView,
     depth: wgpu::TextureView,
     resolved: wgpu::TextureView,
     final_texture: wgpu::Texture,
     final_view: wgpu::TextureView,
+    /// `resolved` for the plain copy (`textureLoad`).
     final_bind: wgpu::BindGroup,
+    /// `resolved` + bilinear sampler for FXAA.
+    post_bind: wgpu::BindGroup,
 }
 
 #[derive(Debug)]
@@ -219,6 +275,8 @@ struct TimerSlot {
     state: Arc<AtomicU8>,
     /// Frame number, so slots that finish together are harvested in order.
     frame: u64,
+    /// The timed passes of this frame, in query order.
+    passes: &'static [&'static str],
 }
 
 /// Non-blocking GPU timestamps of one view.
@@ -261,6 +319,7 @@ impl GpuTimer {
                 }),
                 state: Arc::new(AtomicU8::new(TIMER_FREE)),
                 frame: 0,
+                passes: PASSES_PLAIN,
             })
             .collect();
         Some(GpuTimer {
@@ -295,19 +354,25 @@ impl GpuTimer {
                 slot.staging.unmap();
             }
             slot.state.store(TIMER_FREE, Ordering::Release);
+            let passes = slot.passes;
             if let Some(t) = ticks {
-                self.record(&t);
+                self.record(&t, passes);
             }
         }
     }
 
-    fn record(&mut self, ticks: &[u64]) {
+    fn record(&mut self, ticks: &[u64], passes: &'static [&'static str]) {
         let ms = |a: usize, b: usize| {
             (ticks[b].saturating_sub(ticks[a]) as f64 * self.period_ns * 1e-6) as f32
         };
+        let last = 2 * passes.len() - 1;
         let timing = GpuTimings {
-            total_ms: ms(0, 3),
-            passes: vec![("opaque", ms(0, 1)), ("final", ms(2, 3))],
+            total_ms: ms(0, last),
+            passes: passes
+                .iter()
+                .enumerate()
+                .map(|(i, &name)| (name, ms(2 * i, 2 * i + 1)))
+                .collect(),
         };
         if self.finished.len() == TIMER_HISTORY {
             self.finished.pop_front();
@@ -317,23 +382,32 @@ impl GpuTimer {
     }
 
     /// Takes a free slot for this frame.
-    fn begin(&mut self) -> Option<usize> {
+    fn begin(&mut self, passes: &'static [&'static str]) -> Option<usize> {
         let index = self
             .slots
             .iter()
             .position(|s| s.state.load(Ordering::Acquire) == TIMER_FREE)?;
-        self.slots[index]
-            .state
-            .store(TIMER_IN_FLIGHT, Ordering::Release);
-        self.slots[index].frame = self.next_frame;
+        let slot = &mut self.slots[index];
+        slot.state.store(TIMER_IN_FLIGHT, Ordering::Release);
+        slot.frame = self.next_frame;
+        slot.passes = passes;
         self.next_frame += 1;
         Some(index)
+    }
+
+    fn writes(&self, pass: usize) -> wgpu::RenderPassTimestampWrites<'_> {
+        wgpu::RenderPassTimestampWrites {
+            query_set: &self.queries,
+            beginning_of_pass_write_index: Some(2 * pass as u32),
+            end_of_pass_write_index: Some(2 * pass as u32 + 1),
+        }
     }
 
     /// Records the resolve and copy, and maps the staging buffer once `encoder` is submitted.
     fn finish(&self, slot: usize, encoder: &mut wgpu::CommandEncoder) {
         let slot = &self.slots[slot];
-        encoder.resolve_query_set(&self.queries, 0..TIMER_QUERIES, &self.resolve, 0);
+        let count = 2 * slot.passes.len() as u32;
+        encoder.resolve_query_set(&self.queries, 0..count, &self.resolve, 0);
         encoder.copy_buffer_to_buffer(&self.resolve, 0, &slot.staging, 0, self.resolve.size());
         let state = Arc::clone(&slot.state);
         encoder.map_buffer_on_submit(&slot.staging, wgpu::MapMode::Read, .., move |r| {
@@ -354,6 +428,7 @@ struct ViewSlot {
     /// Bumped whenever the targets are rebuilt, so `egui_glue` can refresh its bind groups.
     generation: u64,
     camera_buffer: wgpu::Buffer,
+    style_buffer: wgpu::Buffer,
     /// Instance slots of the visible instances in draw order (`u32`).
     visible_buffer: wgpu::Buffer,
     visible_capacity: u32,
@@ -367,17 +442,18 @@ struct ViewSlot {
 #[derive(Debug)]
 pub struct Renderer {
     gpu: Arc<Gpu>,
-    msaa_samples: u32,
-    mesh_shader: wgpu::ShaderModule,
-    mesh_layout: wgpu::PipelineLayout,
+    /// Sample count asked for; `active_samples` follows once its core pipelines are built.
+    requested_samples: u32,
+    active_samples: u32,
+    requested_prepass: bool,
+    active_prepass: bool,
     view_bind_layout: wgpu::BindGroupLayout,
-    /// Indexed by [`Renderer::pipeline_slot`]; the other sample count is built on first use.
-    mesh_pipelines: [Option<MeshPipelines>; 2],
+    variants: Variants,
     final_pipeline: wgpu::RenderPipeline,
     final_bind_layout: wgpu::BindGroupLayout,
-    external_shader: wgpu::ShaderModule,
+    post_bind_layout: wgpu::BindGroupLayout,
+    post_sampler: wgpu::Sampler,
     external_bind_layout: wgpu::BindGroupLayout,
-    external_layout: wgpu::PipelineLayout,
     core_timings: Vec<PipelineTiming>,
     scene: RenderScene,
     views: SlotMap<ViewId, ViewSlot>,
@@ -386,10 +462,14 @@ pub struct Renderer {
     instance_bytes_uploaded: u64,
     runs: Vec<std::ops::Range<u32>>,
     plan: DrawPlan,
+    /// Pipeline chosen for each group of `plan` (the wanted variant or its core fallback).
+    group_pipelines: Vec<PipelineKey>,
 }
 
 impl Renderer {
-    /// Creates the renderer and its core pipelines synchronously.
+    /// Creates the renderer and its core pipelines synchronously (Studio meshes, background,
+    /// external layer and final copy at `cfg.msaa_samples`); every other variant is built
+    /// lazily in the background.
     ///
     /// # Errors
     /// [`RenderError::InvalidData`] if `cfg.msaa_samples` is not 1 or 4.
@@ -397,76 +477,64 @@ impl Renderer {
         check_samples(cfg.msaa_samples)?;
         let device = gpu.device();
 
+        let buffer_entry = |binding, visibility, ty| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: wgpu::BindingType::Buffer {
+                ty,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        let storage = wgpu::BufferBindingType::Storage { read_only: true };
         let view_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("amg view"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                buffer_entry(
+                    0,
+                    wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    wgpu::BufferBindingType::Uniform,
+                ),
+                buffer_entry(1, wgpu::ShaderStages::VERTEX, storage),
+                buffer_entry(2, wgpu::ShaderStages::VERTEX, storage),
+                buffer_entry(
+                    3,
+                    wgpu::ShaderStages::FRAGMENT,
+                    wgpu::BufferBindingType::Uniform,
+                ),
             ],
         });
         let external_bind_layout = external_bind_layout(device);
-        let external_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("amg external layer"),
-            source: wgpu::ShaderSource::Wgsl(EXTERNAL_WGSL.into()),
-        });
-        let external_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("amg external layer"),
-            bind_group_layouts: &[Some(&external_bind_layout)],
-            immediate_size: 0,
-        });
-        let instance_gpu = InstanceGpu::new(device, INITIAL_INSTANCE_CAPACITY, 0);
-        let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("amg mesh"),
-            source: wgpu::ShaderSource::Wgsl(MESH_WGSL.into()),
-        });
-        let mesh_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("amg mesh"),
-            bind_group_layouts: &[Some(&view_bind_layout)],
-            immediate_size: 0,
-        });
-
+        let post_bind_layout = post_bind_layout(device);
         let final_bind_layout = texture_bind_layout(device, "amg final");
+        let instance_gpu = InstanceGpu::new(device, INITIAL_INSTANCE_CAPACITY, 0);
+
+        let mut core_timings = Vec::new();
+        let start = Instant::now();
+        let factory = PipelineFactory::new(
+            device,
+            &view_bind_layout,
+            &external_bind_layout,
+            &post_bind_layout,
+        );
         let fullscreen = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("amg fullscreen"),
             source: wgpu::ShaderSource::Wgsl(FULLSCREEN_WGSL.into()),
         });
+        core_timings.push(PipelineTiming {
+            label: "shader modules",
+            variant: "mesh, external layer, post, fullscreen".into(),
+            ms: start.elapsed().as_secs_f64() * 1e3,
+        });
+
+        let start = Instant::now();
         let final_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("amg final"),
                 bind_group_layouts: &[Some(&final_bind_layout)],
                 immediate_size: 0,
             });
-
-        let mut core_timings = Vec::new();
-        let start = Instant::now();
         let final_pipeline = fullscreen_pipeline(
             device,
             "amg final",
@@ -477,20 +545,39 @@ impl Renderer {
         );
         core_timings.push(PipelineTiming {
             label: "final",
+            variant: "copy x1".into(),
             ms: start.elapsed().as_secs_f64() * 1e3,
         });
 
-        let mut renderer = Renderer {
-            msaa_samples: cfg.msaa_samples,
-            mesh_shader,
-            mesh_layout,
+        let mut variants = Variants::new(factory, cfg.jobs.clone());
+        for key in core_keys(cfg.msaa_samples, cfg.depth_prepass) {
+            core_timings.push(variants.build_now(key));
+        }
+        let post_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("amg post bilinear"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let total: f64 = core_timings.iter().map(|t| t.ms).sum();
+        tracing::debug!(
+            ms = total,
+            pipelines = core_timings.len(),
+            "core pipeline set created"
+        );
+
+        Ok(Renderer {
+            requested_samples: cfg.msaa_samples,
+            active_samples: cfg.msaa_samples,
+            requested_prepass: cfg.depth_prepass,
+            active_prepass: cfg.depth_prepass,
             view_bind_layout,
-            mesh_pipelines: [None, None],
+            variants,
             final_pipeline,
             final_bind_layout,
-            external_shader,
+            post_bind_layout,
+            post_sampler,
             external_bind_layout,
-            external_layout,
             core_timings,
             scene: RenderScene::default(),
             views: SlotMap::with_key(),
@@ -498,55 +585,20 @@ impl Renderer {
             instance_bytes_uploaded: 0,
             runs: Vec::new(),
             plan: DrawPlan::default(),
+            group_pipelines: Vec::new(),
             gpu,
-        };
-        renderer.ensure_mesh_pipelines(cfg.msaa_samples);
-        Ok(renderer)
+        })
     }
 
-    fn pipeline_slot(samples: u32) -> usize {
-        usize::from(samples != 1)
-    }
-
-    fn ensure_mesh_pipelines(&mut self, samples: u32) {
-        let slot = Self::pipeline_slot(samples);
-        if self.mesh_pipelines[slot].is_some() {
-            return;
-        }
-        let device = self.gpu.device();
-        let mut timed = |label: &'static str, flat: bool| {
-            let start = Instant::now();
-            let pipeline =
-                mesh_pipeline(device, &self.mesh_layout, &self.mesh_shader, samples, flat);
-            self.core_timings.push(PipelineTiming {
-                label,
-                ms: start.elapsed().as_secs_f64() * 1e3,
-            });
-            pipeline
-        };
-        let smooth = timed("mesh smooth", false);
-        let flat = timed("mesh flat", true);
-        let start = Instant::now();
-        let external = external_pipeline(
-            device,
-            &self.external_layout,
-            &self.external_shader,
-            samples,
-        );
-        self.core_timings.push(PipelineTiming {
-            label: "external layer",
-            ms: start.elapsed().as_secs_f64() * 1e3,
-        });
-        self.mesh_pipelines[slot] = Some(MeshPipelines {
-            smooth,
-            flat,
-            external,
-        });
-    }
-
-    /// Time spent creating each core pipeline so far.
+    /// Time spent creating the shader modules and each core pipeline in [`Renderer::new`].
     pub fn core_pipeline_timings(&self) -> &[PipelineTiming] {
         &self.core_timings
+    }
+
+    /// Time spent building each pipeline variant in the background so far (finished builds
+    /// only, in completion order).
+    pub fn variant_timings(&self) -> &[PipelineTiming] {
+        self.variants.timings()
     }
 
     /// The shared GPU.
@@ -564,33 +616,127 @@ impl Renderer {
         &mut self.scene
     }
 
-    /// Current MSAA sample count.
+    /// The requested MSAA sample count (see [`Renderer::active_msaa_samples`]).
     pub fn msaa_samples(&self) -> u32 {
-        self.msaa_samples
+        self.requested_samples
     }
 
-    /// Switches the MSAA sample count of all views. The view targets are rebuilt on their next
-    /// `encode`; the pipelines of a sample count not used before are compiled here, so this
-    /// briefly blocks the first time (RND-02 moves variants onto jobs).
+    /// The sample count frames are drawn with now. It follows [`Renderer::msaa_samples`] once
+    /// the core pipelines of the requested count are built.
+    pub fn active_msaa_samples(&self) -> u32 {
+        self.active_samples
+    }
+
+    /// Switches the MSAA sample count of all views. Never blocks: the pipelines of a sample
+    /// count not used before are built in the background, and frames keep the previous count
+    /// until they are ready; the view targets are then rebuilt on the next `encode`.
     ///
     /// # Errors
     /// [`RenderError::InvalidData`] unless `samples` is 1 or 4.
     pub fn set_msaa_samples(&mut self, samples: u32) -> Result<(), RenderError> {
         check_samples(samples)?;
-        self.ensure_mesh_pipelines(samples);
-        self.msaa_samples = samples;
+        self.requested_samples = samples;
+        self.settle_config();
         Ok(())
+    }
+
+    /// Turns the depth pre-pass on or off (switches like [`Renderer::set_msaa_samples`]).
+    pub fn set_depth_prepass(&mut self, on: bool) {
+        self.requested_prepass = on;
+        self.settle_config();
+    }
+
+    /// Whether frames are drawn with a depth pre-pass now.
+    pub fn depth_prepass_active(&self) -> bool {
+        self.active_prepass
+    }
+
+    /// Pipeline variants still being built in the background.
+    pub fn pending_variants(&mut self) -> usize {
+        self.variants.poll();
+        self.settle_config();
+        self.variants.pending()
+    }
+
+    /// Requests every variant `id` needs with its current style (all geometry kinds), at the
+    /// active and the requested configuration, without drawing. Non-blocking.
+    pub fn request_view_variants(&mut self, id: ViewId) {
+        self.settle_config();
+        let Some(style) = self.views.get(id).map(|s| s.view.style) else {
+            return;
+        };
+        let configs = [
+            (self.active_samples, self.active_prepass),
+            (self.requested_samples, self.requested_prepass),
+        ];
+        for (samples, prepass) in configs {
+            for flat in [false, true] {
+                for double_sided in [false, true] {
+                    self.variants.request(PipelineKey::mesh(
+                        style.lighting,
+                        flat,
+                        double_sided,
+                        prepass,
+                        samples,
+                    ));
+                }
+            }
+        }
+        if style.fxaa {
+            self.variants.request(fxaa_key());
+        }
+    }
+
+    /// Blocks until no pipeline variant is pending (or `timeout` passes) and applies a pending
+    /// sample-count or pre-pass switch. Returns true when nothing is pending. Job, test and
+    /// headless threads only; the UI thread lets frames fall back instead.
+    pub fn wait_for_variants(&mut self, timeout: Duration) -> bool {
+        let done = self.variants.wait(timeout);
+        self.settle_config();
+        done
+    }
+
+    /// [`Renderer::request_view_variants`] then [`Renderer::wait_for_variants`] (60 s): after
+    /// it, `id` renders exactly as its style says. For headless renders and tests.
+    pub fn prepare_view(&mut self, id: ViewId) -> bool {
+        self.request_view_variants(id);
+        self.wait_for_variants(VARIANT_WAIT)
+    }
+
+    /// Switches to the requested sample count / pre-pass once their core pipelines are ready,
+    /// and requests them otherwise.
+    fn settle_config(&mut self) {
+        let want = (self.requested_samples, self.requested_prepass);
+        if want == (self.active_samples, self.active_prepass) {
+            return;
+        }
+        self.variants.poll();
+        let keys = core_keys(want.0, want.1);
+        if keys.iter().all(|&k| self.variants.has(k)) {
+            (self.active_samples, self.active_prepass) = want;
+            return;
+        }
+        for k in keys {
+            if self.variants.failed(k) {
+                tracing::warn!(variant = %k.describe(), "core pipeline failed; keeping the current configuration");
+            }
+            self.variants.request(k);
+        }
     }
 
     /// Adds a view of `size_px` with a default camera.
     pub fn create_view(&mut self, size_px: [u32; 2]) -> ViewId {
         let device = self.gpu.device();
-        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("amg camera"),
-            size: size_of::<crate::CameraUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let uniform = |label, size| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        let camera_buffer = uniform("amg camera", size_of::<crate::CameraUniform>() as u64);
+        let style_buffer = uniform("amg view style", size_of::<StyleUniform>() as u64);
         let visible_buffer = storage_buffer(
             device,
             "amg visible instances",
@@ -602,6 +748,7 @@ impl Renderer {
             &camera_buffer,
             &self.instance_gpu.buffer,
             &visible_buffer,
+            &style_buffer,
         );
         self.views.insert(ViewSlot {
             view: View {
@@ -613,6 +760,7 @@ impl Renderer {
             targets: None,
             generation: 0,
             camera_buffer,
+            style_buffer,
             visible_buffer,
             visible_capacity: INITIAL_VISIBLE_CAPACITY,
             bind_group,
@@ -680,6 +828,11 @@ impl Renderer {
     /// Records all passes for `id` into `encoder`. Never blocks. A view with a zero dimension
     /// records nothing.
     ///
+    /// Passes: an optional depth pre-pass; the opaque pass (gradient background, meshes with
+    /// the view's lighting into colour + octahedral normal, the external layer, MSAA resolve);
+    /// the final pass (copy or FXAA into the sRGB image). A pipeline variant that is not built
+    /// yet is requested and the draw falls back to the core Studio pipeline.
+    ///
     /// Several views may be encoded into one encoder (one submit, one frame): the scene's
     /// instance records are shared, each view has its own camera, visibility list and targets.
     ///
@@ -696,22 +849,18 @@ impl Renderer {
             return Err(RenderError::UnknownKey("view"));
         }
         self.sync_instances();
+        self.variants.poll();
+        self.settle_config();
 
-        let samples = self.msaa_samples;
+        let samples = self.active_samples;
+        let prepass = self.active_prepass;
         let gpu = Arc::clone(&self.gpu);
         let device = gpu.device();
         let queue = gpu.queue();
-        let final_pipeline = &self.final_pipeline;
-        let final_bind_layout = &self.final_bind_layout;
-        let view_bind_layout = &self.view_bind_layout;
-        let external_bind_layout = &self.external_bind_layout;
         let scene = &self.scene;
         let plan = &mut self.plan;
-        let pipelines = self.mesh_pipelines[Self::pipeline_slot(samples)]
-            .as_ref()
-            .ok_or_else(|| {
-                RenderError::InvalidData("mesh pipelines for this sample count are missing".into())
-            })?;
+        let variants = &mut self.variants;
+        let group_pipelines = &mut self.group_pipelines;
         let slot = self
             .views
             .get_mut(id)
@@ -719,201 +868,312 @@ impl Renderer {
         let size = slot.view.size_px;
 
         let mut stats = FrameStats::default();
-        if size[0] != 0 && size[1] != 0 {
-            if slot
-                .targets
-                .as_ref()
-                .is_none_or(|t| t.size != size || t.samples != samples)
-            {
-                slot.targets = Some(create_targets(device, final_bind_layout, size, samples));
-                slot.generation += 1;
-            }
+        if size[0] == 0 || size[1] == 0 {
+            return Ok(stats);
+        }
+        if slot
+            .targets
+            .as_ref()
+            .is_none_or(|t| t.size != size || t.samples != samples)
+        {
+            slot.targets = Some(create_targets(
+                device,
+                &self.final_bind_layout,
+                &self.post_bind_layout,
+                &self.post_sampler,
+                size,
+                samples,
+            ));
+            slot.generation += 1;
+        }
 
-            let camera = slot.view.camera;
-            queue.write_buffer(
-                &slot.camera_buffer,
-                0,
-                bytemuck::bytes_of(&camera.uniform(size, camera.default_near())),
-            );
+        let camera = slot.view.camera;
+        let style = slot.view.style;
+        queue.write_buffer(
+            &slot.camera_buffer,
+            0,
+            bytemuck::bytes_of(&camera.uniform(size, camera.default_near())),
+        );
+        queue.write_buffer(
+            &slot.style_buffer,
+            0,
+            bytemuck::bytes_of(&StyleUniform::new(&style)),
+        );
 
-            let frustum =
-                Frustum::from_view_proj(&(camera.proj_matrix(size) * camera.view_matrix()));
-            plan.build(
-                scene.table(),
-                |k| {
-                    scene
-                        .mesh(k)
-                        .filter(|m| m.index_count() > 0)
-                        .map(crate::GpuMesh::has_normals)
-                },
-                &frustum,
-                camera.eye,
-                slot.view.layers,
-                slot.view.style.flat_shading,
-            );
-            stats.culled = plan.culled;
+        let frustum = Frustum::from_view_proj(&(camera.proj_matrix(size) * camera.view_matrix()));
+        plan.build(
+            scene.table(),
+            |k| {
+                scene
+                    .mesh(k)
+                    .filter(|m| m.index_count() > 0)
+                    .map(|m| MeshDraw {
+                        has_normals: m.has_normals(),
+                        closed: m.is_closed(),
+                    })
+            },
+            &frustum,
+            camera.eye,
+            slot.view.layers,
+            style.flat_shading,
+        );
+        stats.culled = plan.culled;
 
-            let mut rebind = slot.bound_generation != self.instance_gpu.generation;
-            let needed = plan.slots.len() as u32;
-            if needed > slot.visible_capacity {
-                slot.visible_capacity = needed.next_power_of_two().max(INITIAL_VISIBLE_CAPACITY);
-                slot.visible_buffer = storage_buffer(
-                    device,
-                    "amg visible instances",
-                    u64::from(slot.visible_capacity) * 4,
-                );
-                rebind = true;
-            }
-            if rebind {
-                slot.bind_group = view_bind_group(
-                    device,
-                    view_bind_layout,
-                    &slot.camera_buffer,
-                    &self.instance_gpu.buffer,
-                    &slot.visible_buffer,
-                );
-                slot.bound_generation = self.instance_gpu.generation;
-            }
-            if !plan.slots.is_empty() {
-                queue.write_buffer(&slot.visible_buffer, 0, bytemuck::cast_slice(&plan.slots));
-            }
-
-            let external_bind = scene.external_layer().and_then(|layer| {
-                if layer.size_px != size {
-                    tracing::debug!(
-                        layer = ?layer.size_px,
-                        view = ?size,
-                        "external layer skipped: its size differs from the view"
-                    );
-                    return None;
-                }
-                Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("amg external layer"),
-                    layout: external_bind_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&layer.color),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(&layer.depth),
-                        },
-                    ],
-                }))
-            });
-
-            let timer_slot = slot.timer.as_mut().and_then(|t| {
-                t.harvest();
-                t.begin()
-            });
-
-            let Some(targets) = slot.targets.as_ref() else {
-                return Ok(stats);
+        // Choose each group's pipeline; request variants that are not built yet.
+        group_pipelines.clear();
+        for g in &plan.groups {
+            let want = PipelineKey::mesh(style.lighting, g.flat, g.double_sided, prepass, samples);
+            let chosen = if variants.has(want) {
+                want
+            } else {
+                variants.request(want);
+                PipelineKey::mesh(Lighting::Studio, g.flat, g.double_sided, prepass, samples)
             };
-            let Background::Solid([r, g, b]) = slot.view.style.background;
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("amg opaque"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            group_pipelines.push(chosen);
+        }
+        let use_fxaa = style.fxaa && {
+            let ready = variants.has(fxaa_key());
+            if !ready {
+                variants.request(fxaa_key());
+            }
+            ready
+        };
+        let variants = &*variants;
+
+        let mut rebind = slot.bound_generation != self.instance_gpu.generation;
+        let needed = plan.slots.len() as u32;
+        if needed > slot.visible_capacity {
+            slot.visible_capacity = needed.next_power_of_two().max(INITIAL_VISIBLE_CAPACITY);
+            slot.visible_buffer = storage_buffer(
+                device,
+                "amg visible instances",
+                u64::from(slot.visible_capacity) * 4,
+            );
+            rebind = true;
+        }
+        if rebind {
+            slot.bind_group = view_bind_group(
+                device,
+                &self.view_bind_layout,
+                &slot.camera_buffer,
+                &self.instance_gpu.buffer,
+                &slot.visible_buffer,
+                &slot.style_buffer,
+            );
+            slot.bound_generation = self.instance_gpu.generation;
+        }
+        if !plan.slots.is_empty() {
+            queue.write_buffer(&slot.visible_buffer, 0, bytemuck::cast_slice(&plan.slots));
+        }
+
+        let external_bind = scene.external_layer().and_then(|layer| {
+            if layer.size_px != size {
+                tracing::debug!(
+                    layer = ?layer.size_px,
+                    view = ?size,
+                    "external layer skipped: its size differs from the view"
+                );
+                return None;
+            }
+            Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("amg external layer"),
+                layout: &self.external_bind_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&layer.color),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&layer.depth),
+                    },
+                ],
+            }))
+        });
+
+        let passes = if prepass {
+            PASSES_PREPASS
+        } else {
+            PASSES_PLAIN
+        };
+        let timer_slot = slot.timer.as_mut().and_then(|t| {
+            t.harvest();
+            t.begin(passes)
+        });
+        let timer = timer_slot.and(slot.timer.as_ref());
+        let pass_index = |name: &str| passes.iter().position(|&p| p == name).unwrap_or(0);
+
+        let Some(targets) = slot.targets.as_ref() else {
+            return Ok(stats);
+        };
+        let draw_meshes = |pass: &mut wgpu::RenderPass<'_>, depth_only: bool| {
+            let mut drawn = (0u32, 0u64);
+            let mut bound = None;
+            for (group, &key) in plan.groups.iter().zip(group_pipelines.iter()) {
+                let Some(mesh) = scene.mesh(group.mesh) else {
+                    continue;
+                };
+                let key = if depth_only {
+                    PipelineKey {
+                        kind: PipelineKind::Depth {
+                            flat: group.flat,
+                            double_sided: group.double_sided,
+                        },
+                        samples,
+                    }
+                } else {
+                    key
+                };
+                if bound != Some(key) {
+                    let Some(pipeline) = variants.get(key) else {
+                        continue;
+                    };
+                    pass.set_pipeline(pipeline);
+                    bound = Some(key);
+                }
+                pass.set_vertex_buffer(0, mesh.positions.slice(..));
+                if let Some(n) = mesh.normals.as_ref().filter(|_| !group.flat) {
+                    pass.set_vertex_buffer(1, n.slice(..));
+                }
+                pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(
+                    0..mesh.index_count(),
+                    0,
+                    group.first..group.first + group.count,
+                );
+                drawn.0 += group.count;
+                drawn.1 += u64::from(mesh.triangle_count()) * u64::from(group.count);
+            }
+            drawn
+        };
+
+        if prepass {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("amg depth prepass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: timer.map(|t| t.writes(pass_index("depth prepass"))),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_bind_group(0, &slot.bind_group, &[]);
+            draw_meshes(&mut pass, true);
+        }
+        {
+            let clear = match style.background {
+                Background::Solid([r, g, b]) => wgpu::Color {
+                    r: f64::from(r),
+                    g: f64::from(g),
+                    b: f64::from(b),
+                    a: 1.0,
+                },
+                Background::Gradient { .. } => wgpu::Color::BLACK,
+            };
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("amg opaque"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
                         view: targets.msaa_color.as_ref().unwrap_or(&targets.resolved),
                         depth_slice: None,
                         resolve_target: targets.msaa_color.as_ref().map(|_| &targets.resolved),
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: f64::from(r),
-                                g: f64::from(g),
-                                b: f64::from(b),
-                                a: 1.0,
-                            }),
+                            load: wgpu::LoadOp::Clear(clear),
                             store: if targets.msaa_color.is_some() {
                                 wgpu::StoreOp::Discard
                             } else {
                                 wgpu::StoreOp::Store
                             },
                         },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &targets.depth,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0.0),
-                            store: wgpu::StoreOp::Discard,
-                        }),
-                        stencil_ops: None,
                     }),
-                    timestamp_writes: timer_slot.and(slot.timer.as_ref()).map(|t| {
-                        wgpu::RenderPassTimestampWrites {
-                            query_set: &t.queries,
-                            beginning_of_pass_write_index: Some(0),
-                            end_of_pass_write_index: Some(1),
-                        }
-                    }),
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                pass.set_bind_group(0, &slot.bind_group, &[]);
-                let mut bound_flat = None;
-                for group in &plan.groups {
-                    let Some(mesh) = scene.mesh(group.mesh) else {
-                        continue;
-                    };
-                    if bound_flat != Some(group.flat) {
-                        pass.set_pipeline(if group.flat {
-                            &pipelines.flat
-                        } else {
-                            &pipelines.smooth
-                        });
-                        bound_flat = Some(group.flat);
-                    }
-                    pass.set_vertex_buffer(0, mesh.positions.slice(..));
-                    if let Some(n) = mesh.normals.as_ref().filter(|_| !group.flat) {
-                        pass.set_vertex_buffer(1, n.slice(..));
-                    }
-                    pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(
-                        0..mesh.index_count(),
-                        0,
-                        group.first..group.first + group.count,
-                    );
-                    stats.instances_drawn += group.count;
-                    stats.triangles += u64::from(mesh.triangle_count()) * u64::from(group.count);
-                }
-                if let Some(bind) = &external_bind {
-                    pass.set_pipeline(&pipelines.external);
-                    pass.set_bind_group(0, bind, &[]);
-                    pass.draw(0..3, 0..1);
-                }
-            }
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("amg final"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &targets.final_view,
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.normal_view,
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
                         },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: timer_slot.and(slot.timer.as_ref()).map(|t| {
-                        wgpu::RenderPassTimestampWrites {
-                            query_set: &t.queries,
-                            beginning_of_pass_write_index: Some(2),
-                            end_of_pass_write_index: Some(3),
-                        }
                     }),
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                pass.set_pipeline(final_pipeline);
-                pass.set_bind_group(0, &targets.final_bind, &[]);
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: if prepass {
+                            wgpu::LoadOp::Load
+                        } else {
+                            wgpu::LoadOp::Clear(0.0)
+                        },
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: timer.map(|t| t.writes(pass_index("opaque"))),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_bind_group(0, &slot.bind_group, &[]);
+            if matches!(style.background, Background::Gradient { .. })
+                && let Some(p) = variants.get(PipelineKey {
+                    kind: PipelineKind::Background,
+                    samples,
+                })
+            {
+                pass.set_pipeline(p);
                 pass.draw(0..3, 0..1);
             }
-            if let (Some(index), Some(timer)) = (timer_slot, slot.timer.as_ref()) {
-                timer.finish(index, encoder);
+            let (instances, triangles) = draw_meshes(&mut pass, false);
+            stats.instances_drawn = instances;
+            stats.triangles = triangles;
+            if let (Some(bind), Some(p)) = (
+                &external_bind,
+                variants.get(PipelineKey {
+                    kind: PipelineKind::External,
+                    samples,
+                }),
+            ) {
+                pass.set_pipeline(p);
+                pass.set_bind_group(0, bind, &[]);
+                pass.draw(0..3, 0..1);
             }
+        }
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("amg final"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.final_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: timer.map(|t| t.writes(pass_index("final"))),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            match variants.get(fxaa_key()).filter(|_| use_fxaa) {
+                Some(fxaa) => {
+                    pass.set_pipeline(fxaa);
+                    pass.set_bind_group(0, &targets.post_bind, &[]);
+                }
+                None => {
+                    pass.set_pipeline(&self.final_pipeline);
+                    pass.set_bind_group(0, &targets.final_bind, &[]);
+                }
+            }
+            pass.draw(0..3, 0..1);
+        }
+        if let (Some(index), Some(timer)) = (timer_slot, slot.timer.as_ref()) {
+            timer.finish(index, encoder);
         }
         Ok(stats)
     }
@@ -925,6 +1185,13 @@ impl Renderer {
             .targets
             .as_ref()
             .map(|t| &t.final_texture)
+    }
+
+    /// The `Rg16Float` octahedral view-normal target of the last `encode` (as many samples as
+    /// [`Renderer::active_msaa_samples`]; `(0, 0)` where nothing was drawn). Post passes read
+    /// it; at one sample it also has `COPY_SRC` for readback.
+    pub fn normal_texture(&self, id: ViewId) -> Option<&wgpu::Texture> {
+        self.views.get(id)?.targets.as_ref().map(|t| &t.normal)
     }
 
     /// Bumped whenever the targets of `id` are rebuilt.
@@ -945,7 +1212,10 @@ impl Renderer {
         self.views
             .get_mut(id)
             .and_then(|s| s.timer.as_mut())
-            .map_or_else(Vec::new, |t| t.finished.drain(..).collect())
+            .map_or_else(Vec::new, |t| {
+                t.harvest();
+                t.finished.drain(..).collect()
+            })
     }
 
     /// Headless: encodes the view, submits it and starts reading back the final image.
@@ -1019,6 +1289,13 @@ impl Renderer {
     }
 }
 
+fn fxaa_key() -> PipelineKey {
+    PipelineKey {
+        kind: PipelineKind::Fxaa,
+        samples: 1,
+    }
+}
+
 fn check_samples(samples: u32) -> Result<(), RenderError> {
     if samples == 1 || samples == 4 {
         Ok(())
@@ -1075,6 +1352,7 @@ fn view_bind_group(
     camera: &wgpu::Buffer,
     instances: &wgpu::Buffer,
     visible: &wgpu::Buffer,
+    style: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("amg view"),
@@ -1091,6 +1369,10 @@ fn view_bind_group(
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: visible.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: style.as_entire_binding(),
             },
         ],
     })
@@ -1125,6 +1407,31 @@ pub(crate) fn texture_bind_group(
             binding: 0,
             resource: wgpu::BindingResource::TextureView(view),
         }],
+    })
+}
+
+/// A filterable 2D texture at binding 0 and a filtering sampler at binding 1 (FXAA).
+fn post_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("amg post"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
     })
 }
 
@@ -1167,75 +1474,6 @@ pub(crate) fn fullscreen_pipeline(
     })
 }
 
-fn mesh_pipeline(
-    device: &wgpu::Device,
-    layout: &wgpu::PipelineLayout,
-    module: &wgpu::ShaderModule,
-    samples: u32,
-    flat: bool,
-) -> wgpu::RenderPipeline {
-    let float3 = |location| wgpu::VertexAttribute {
-        format: wgpu::VertexFormat::Float32x3,
-        offset: 0,
-        shader_location: location,
-    };
-    let positions = [float3(0)];
-    let normals = [float3(1)];
-    let stride = size_of::<[f32; 3]>() as u64;
-    let buffer = |attributes| {
-        Some(wgpu::VertexBufferLayout {
-            array_stride: stride,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes,
-        })
-    };
-    let two = [buffer(&positions), buffer(&normals)];
-    let one = [buffer(&positions)];
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(if flat {
-            "amg mesh flat"
-        } else {
-            "amg mesh smooth"
-        }),
-        layout: Some(layout),
-        vertex: wgpu::VertexState {
-            module,
-            entry_point: Some(if flat { "vs_flat" } else { "vs_smooth" }),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            buffers: if flat { &one } else { &two },
-        },
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back),
-            ..Default::default()
-        },
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: samples,
-            ..Default::default()
-        },
-        fragment: Some(wgpu::FragmentState {
-            module,
-            entry_point: Some(if flat { "fs_flat" } else { "fs_smooth" }),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: HDR_FORMAT,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
-    })
-}
-
 /// Two unfilterable 2D textures (colour at 0, depth at 1) read with `textureLoad`.
 fn external_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     let texture = |binding| wgpu::BindGroupLayoutEntry {
@@ -1254,60 +1492,11 @@ fn external_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-/// Premultiplied-alpha composite of the external layer, depth-tested and depth-writing.
-fn external_pipeline(
-    device: &wgpu::Device,
-    layout: &wgpu::PipelineLayout,
-    module: &wgpu::ShaderModule,
-    samples: u32,
-) -> wgpu::RenderPipeline {
-    let premultiplied = wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::One,
-        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-        operation: wgpu::BlendOperation::Add,
-    };
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("amg external layer"),
-        layout: Some(layout),
-        vertex: wgpu::VertexState {
-            module,
-            entry_point: Some("vs_external"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            buffers: &[],
-        },
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: samples,
-            ..Default::default()
-        },
-        fragment: Some(wgpu::FragmentState {
-            module,
-            entry_point: Some("fs_external"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: HDR_FORMAT,
-                blend: Some(wgpu::BlendState {
-                    color: premultiplied,
-                    alpha: premultiplied,
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
-    })
-}
-
 fn create_targets(
     device: &wgpu::Device,
     final_bind_layout: &wgpu::BindGroupLayout,
+    post_bind_layout: &wgpu::BindGroupLayout,
+    post_sampler: &wgpu::Sampler,
     size: [u32; 2],
     samples: u32,
 ) -> ViewTargets {
@@ -1333,6 +1522,15 @@ fn create_targets(
     let msaa_color = (samples > 1).then(|| {
         target("amg msaa colour", HDR_FORMAT, samples, attach, &[]).create_view(&default_view)
     });
+    let normal_usage = attach
+        | wgpu::TextureUsages::TEXTURE_BINDING
+        | if samples == 1 {
+            wgpu::TextureUsages::COPY_SRC
+        } else {
+            wgpu::TextureUsages::empty()
+        };
+    let normal = target("amg normal", NORMAL_FORMAT, samples, normal_usage, &[]);
+    let normal_view = normal.create_view(&default_view);
     let depth = target("amg depth", DEPTH_FORMAT, samples, attach, &[]).create_view(&default_view);
     let resolved = target(
         "amg resolved",
@@ -1351,14 +1549,31 @@ fn create_targets(
     );
     let final_view = final_texture.create_view(&default_view);
     let final_bind = texture_bind_group(device, final_bind_layout, &resolved);
+    let post_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("amg post"),
+        layout: post_bind_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&resolved),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(post_sampler),
+            },
+        ],
+    });
     ViewTargets {
         size,
         samples,
         msaa_color,
+        normal,
+        normal_view,
         depth,
         resolved,
         final_texture,
         final_view,
         final_bind,
+        post_bind,
     }
 }

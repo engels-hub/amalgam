@@ -94,18 +94,36 @@ impl Instance {
     }
 }
 
-/// Surface appearance.
+/// Surface appearance (PBR-lite, design note §4). Changing it rewrites only the instance's
+/// 128-byte record, never geometry.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Material {
-    /// Linear RGBA.
+    /// Linear RGBA. Alpha below 1 is translucent (drawn by the transparency pass, RND-05).
     pub base_color: [f32; 4],
+    /// 0 = dielectric, 1 = metal (clamped to `[0, 1]`).
+    pub metallic: f32,
+    /// Perceptual roughness, `[0, 1]`; values below 0.045 are treated as 0.045.
+    pub roughness: f32,
+    /// Section cap colour (RND-06); `None` = darkened base colour.
+    pub cap_color: Option<[f32; 3]>,
 }
 
 impl Default for Material {
     fn default() -> Self {
         Material {
             base_color: [0.62, 0.66, 0.72, 1.0],
+            metallic: 0.0,
+            roughness: 0.5,
+            cap_color: None,
         }
+    }
+}
+
+impl Material {
+    /// `pack2x16unorm(metallic, roughness)` as the shader unpacks it.
+    pub(crate) fn packed_metallic_roughness(&self) -> u32 {
+        let q = |v: f32| (v.clamp(0.0, 1.0) * 65535.0).round() as u32;
+        q(self.metallic) | (q(self.roughness) << 16)
     }
 }
 
@@ -130,13 +148,16 @@ pub struct ExternalLayer {
 /// Camera independent: the eye is subtracted in the shader from the split translation, so a
 /// moving camera never rewrites it, and a changed instance rewrites exactly this record.
 /// The `w` of the three normal-matrix columns is reserved (pick id and flags, RND-04/05).
+/// RND-02 put the packed metallic/roughness in the former `t_lo.w`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct InstanceRecord {
     /// Columns of the world-from-local linear part; `w` is the high part of the translation.
     pub lin: [[f32; 4]; 3],
-    /// Low part of the translation (`xyz`).
-    pub t_lo: [f32; 4],
+    /// Low part of the translation.
+    pub t_lo: [f32; 3],
+    /// `pack2x16unorm(metallic, roughness)`.
+    pub material: u32,
     /// Columns of the normal matrix (`xyz`), `w` reserved.
     pub nrm: [[f32; 4]; 3],
     /// Linear RGBA.
@@ -180,7 +201,8 @@ pub(crate) fn build_record(
             col(m.y_axis, hi.y),
             col(m.z_axis, hi.z),
         ],
-        t_lo: [lo.x, lo.y, lo.z, 0.0],
+        t_lo: [lo.x, lo.y, lo.z],
+        material: inst.material.packed_metallic_roughness(),
         nrm: [
             ncol(normal.x_axis),
             ncol(normal.y_axis),
@@ -666,6 +688,32 @@ mod tests {
         }
         let (_, none) = build_record(&inst, None);
         assert!(none.sphere.is_none(), "no mesh, nothing to draw");
+    }
+
+    #[test]
+    fn material_packs_metallic_and_roughness_like_unpack2x16unorm() {
+        let m = Material {
+            metallic: 1.0,
+            roughness: 0.25,
+            ..Material::default()
+        };
+        let p = m.packed_metallic_roughness();
+        assert_eq!(p & 0xffff, 65535);
+        assert_eq!(p >> 16, (0.25f32 * 65535.0).round() as u32);
+        let clamped = Material {
+            metallic: -3.0,
+            roughness: 7.0,
+            ..Material::default()
+        };
+        assert_eq!(clamped.packed_metallic_roughness(), 0xffff_0000);
+        let (r, _) = build_record(
+            &Instance {
+                material: m,
+                ..Instance::new(key(), Transform::IDENTITY)
+            },
+            unit_mesh(Point3::ZERO),
+        );
+        assert_eq!(r.material, p);
     }
 
     #[test]

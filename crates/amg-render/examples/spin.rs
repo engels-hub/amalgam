@@ -606,14 +606,22 @@ fn measure_shaders(dxc_dll: Option<String>) {
             let mut renderer = Renderer::new(gpu, &RendererConfig::default()).expect("renderer");
             let core_total = start.elapsed().as_secs_f64() * 1e3;
             renderer.set_msaa_samples(1).expect("1 sample");
+            // The MSAA 1 set is built in the background (RND-02); wait for it to time it.
+            renderer.wait_for_variants(Duration::from_secs(60));
             let timings: Vec<String> = renderer
                 .core_pipeline_timings()
                 .iter()
-                .map(|t| format!("{}={:.1}", t.label, t.ms))
+                .map(|t| format!("{}[{}]={:.1}", t.label, t.variant, t.ms))
+                .collect();
+            let variants: Vec<String> = renderer
+                .variant_timings()
+                .iter()
+                .map(|t| format!("{}[{}]={:.1}", t.label, t.variant, t.ms))
                 .collect();
             println!(
-                "{name} round {round}: Renderer::new (core set at MSAA 4) {core_total:.1} ms; pipelines ms (mesh entries after the first set are the MSAA 1 set): {}",
-                timings.join(" ")
+                "{name} round {round}: Renderer::new (core set at MSAA 4) {core_total:.1} ms; core pipelines ms: {}; background MSAA 1 set ms: {}",
+                timings.join(" "),
+                variants.join(" ")
             );
         }
     }

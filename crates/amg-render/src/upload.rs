@@ -5,6 +5,10 @@ use amg_jobs::JobCtx;
 use amg_jobs::gpu::Gpu;
 
 use crate::RenderError;
+use crate::shading::oct_snorm16;
+
+/// Bytes per uploaded normal (`Snorm16x2` octahedral).
+pub(crate) const NORMAL_BYTES: u64 = 4;
 
 /// Elements checked or copied between two cancellation checkpoints (about 1 ms of work).
 const CHUNK_ELEMENTS: usize = 1 << 18;
@@ -16,7 +20,8 @@ pub struct MeshData {
     pub origin: Point3,
     /// Vertex positions relative to `origin`.
     pub positions: Vec<[f32; 3]>,
-    /// Per-vertex unit normals; empty for flat shading from derivatives.
+    /// Per-vertex normals (any non-zero length); empty for flat shading from derivatives.
+    /// Uploaded octahedral-encoded as `Snorm16x2` (4 B per vertex, design note §5).
     pub normals: Vec<[f32; 3]>,
     /// Triangle list.
     pub indices: Vec<u32>,
@@ -201,6 +206,47 @@ fn upload_chunked<T: bytemuck::Pod>(
     Ok(buffer)
 }
 
+/// Creates a buffer of `data.len()` elements of `U`, filling it chunk by chunk through the
+/// mapped range: `convert(source chunk, scratch)` appends one `U` per source element to the
+/// (cleared) scratch vector, which is then copied in. A checkpoint follows every chunk.
+fn upload_mapped<T, U: bytemuck::Pod>(
+    gpu: &Gpu,
+    label: &str,
+    data: &[T],
+    usage: wgpu::BufferUsages,
+    ctx: &JobCtx,
+    convert: impl Fn(&[T], &mut Vec<U>),
+) -> Result<wgpu::Buffer, RenderError> {
+    let elem = size_of::<U>();
+    let bytes = (data.len() * elem) as u64;
+    let buffer = gpu.device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: bytes,
+        usage,
+        mapped_at_creation: bytes != 0,
+    });
+    if bytes == 0 {
+        return Ok(buffer);
+    }
+    {
+        let mut mapped = buffer
+            .get_mapped_range_mut(..)
+            .map_err(|e| RenderError::InvalidData(format!("cannot map {label}: {e}")))?;
+        let mut scratch: Vec<U> = Vec::with_capacity(CHUNK_ELEMENTS.min(data.len()));
+        for (i, src) in data.chunks(CHUNK_ELEMENTS).enumerate() {
+            scratch.clear();
+            convert(src, &mut scratch);
+            debug_assert_eq!(scratch.len(), src.len());
+            let start = i * CHUNK_ELEMENTS * elem;
+            let out: &[u8] = bytemuck::cast_slice(&scratch);
+            mapped.slice(start..start + out.len()).copy_from_slice(out);
+            ctx.checkpoint()?;
+        }
+    }
+    buffer.unmap();
+    Ok(buffer)
+}
+
 /// Uploads `data` to the GPU. Intended for a job thread; `wgpu::Device` is `Send + Sync`.
 /// Work is done in chunks of about 1 ms with a `ctx.checkpoint()` after each, so cancelling
 /// returns quickly.
@@ -213,7 +259,7 @@ pub fn upload_mesh(gpu: &Gpu, data: &MeshData, ctx: &JobCtx) -> Result<GpuMesh, 
     let bounds = validate(data, ctx)?;
     let limit = gpu.device().limits().max_buffer_size;
     check_size("positions", data.positions.len() as u64 * 12, limit)?;
-    check_size("normals", data.normals.len() as u64 * 12, limit)?;
+    check_size("normals", data.normals.len() as u64 * NORMAL_BYTES, limit)?;
     check_size("indices", data.indices.len() as u64 * 4, limit)?;
 
     let vertex = wgpu::BufferUsages::VERTEX;
@@ -221,12 +267,15 @@ pub fn upload_mesh(gpu: &Gpu, data: &MeshData, ctx: &JobCtx) -> Result<GpuMesh, 
     let normals = if data.normals.is_empty() {
         None
     } else {
-        Some(upload_chunked(
+        Some(upload_mapped(
             gpu,
             "amg mesh normals",
             &data.normals,
             vertex,
             ctx,
+            |src: &[[f32; 3]], dst: &mut Vec<[i16; 2]>| {
+                dst.extend(src.iter().map(|n| oct_snorm16(*n)));
+            },
         )?)
     };
     let indices = upload_chunked(

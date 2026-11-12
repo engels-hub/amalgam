@@ -598,7 +598,7 @@ pub mod egui_glue {
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | RND-01 | **Phase-0 spike: mesh spinning in an egui window.** `amg-render` skeleton (`Renderer`, `View` targets: Rgba16Float ×4 MSAA colour, Depth32Float reversed-Z, resolve, final Rgba8UnormSrgb), f64 `Camera` with RTE matrices, one Lambert+headlight pipeline (smooth normals, or flat via derivatives when normals are empty), `upload_mesh` (positions/normals/indices), `egui_glue::{install, with_renderer, Viewport}` with the `CallbackTrait` prepare/paint flow and sRGB-aware composite, `capture`. Example `crates/amg-render/examples/spin.rs` (eframe 0.37, `WgpuSetup::Existing` from `Gpu::new_blocking(GpuConfig::from_env())`): a displaced icosphere generator (`--tris N`, default 1 M), optional `--stl <file>` (binary STL, in-example reader), auto-turntable 30°/s, LMB-drag orbit, wheel dolly, side panel showing adapter, backend, triangles, CPU and GPU frame ms, an MSAA 1/4 toggle and a flat/smooth toggle; `--bench <frames>` prints p50/p99. Measures FXC vs `StaticDxc` core pipeline creation time. | FND-09 | P0 | Done | 1. On the owner's RTX 5060 Ti / DX12, `cargo run -p amg-render --release --example spin -- --bench 600` at 1920×1080, 4× MSAA, 1 M tris prints frame-time p99 ≤ 16.7 ms (CPU wall) and GPU p50 ≤ 4 ms. The output is pasted into the PR. 2. `install` returns `DeviceMismatch` when given a different `Gpu` (test, WARP); with the same one, the example asserts `rs.device == *gpu.device()`. 3. `gpu_spin_smoke` (WARP in CI): a 256² capture of a sphere has a non-background centre pixel and background corners, and two captures are bit-identical. 4. RTE test: a 1 mm cube at the origin and at (1e5, 1e5, 0) mm, with the camera at the same relative pose, gives captures equal within 1 LSB per channel. 5. Debug build with validation: 10 s of continuous resizing plus MSAA toggling logs zero wgpu validation errors (recorded in the PR). 6. FXC vs StaticDxc timings and the resulting choice are recorded in the Refinement log. 7. fmt, clippy `-D warnings` and nextest pass. |
-| RND-02 | Shading and visual-style framework: PBR-lite (GGX, studio key/fill + hemisphere), procedural matcap, oct-encoded normals, `normal` target, MSAA 1/4, optional FXAA, gradient background, pipeline variants via `override` constants and lazy variant creation on jobs, GPU timestamps (`gpu_timings`), `Material`. Bench `benches/viewport.rs` (headless). | RND-01 | P0 | Todo | 1. `cargo bench -p amg-render --bench viewport` (owner GPU, 2560×1440, 4× MSAA, Studio, a 5 M-tri displaced sphere, 600-frame orbit) reports GPU p99 ≤ 9 ms and wall p99 ≤ 16.6 ms; with 1 M tris, GPU p50 ≤ 3 ms. 2. Depth pre-pass on/off measured, and the faster one kept (recorded). 3. A flat-shaded mesh without normals uses exactly 12 B/vertex + 12 B/tri of VRAM (`gpu_bytes` test). 4. Headless tests (WARP): Lambert brightness at known normals matches the CPU reference within 2/255; MSAA 4 reduces edge-pixel aliasing (a staircase metric on a tilted quad); the core pipeline set is created in ≤ 150 ms on the owner GPU (logged). |
+| RND-02 | Shading and visual-style framework: PBR-lite (GGX, studio key/fill + hemisphere), procedural matcap, oct-encoded normals, `normal` target, MSAA 1/4, optional FXAA, gradient background, pipeline variants via `override` constants and lazy variant creation on jobs, GPU timestamps (`gpu_timings`), `Material`. Bench `benches/viewport.rs` (headless). | RND-01 | P0 | Review | 1. `cargo bench -p amg-render --bench viewport` (owner GPU, 2560×1440, 4× MSAA, Studio, a 5 M-tri displaced sphere, 600-frame orbit) reports GPU p99 ≤ 9 ms and wall p99 ≤ 16.6 ms; with 1 M tris, GPU p50 ≤ 3 ms. 2. Depth pre-pass on/off measured, and the faster one kept (recorded). 3. A flat-shaded mesh without normals uses exactly 12 B/vertex + 12 B/tri of VRAM (`gpu_bytes` test). 4. Headless tests (WARP): Lambert brightness at known normals matches the CPU reference within 2/255; MSAA 4 reduces edge-pixel aliasing (a staircase metric on a tilted quad); the core pipeline set is created in ≤ 150 ms on the owner GPU (logged). |
 | RND-03 | `RenderScene`: slotmap keys, `Instance` storage buffer with dirty tracking, shared meshes across instances, layers, visibility, CPU frustum culling and front-to-back sort, multiple views, `upload_*` helpers with `ctx.checkpoint()` and `TooLarge`/`InvalidData` checks, `CameraUniform` + `shaders/camera.wgsl`, `ExternalLayer` composite pass, `visible_bounds`, `gpu_bytes`. | RND-01 | P0 | Done | 1. Criterion: `encode` of 10 k instances over 100 meshes takes ≤ 2 ms p99 CPU. 2. Changing one transform rewrites exactly 128 B (upload counter). 3. `upload_mesh` of 5 M tris on a job thread ≤ 300 ms (owner machine); `insert_mesh` ≤ 50 µs. Cancelling mid-upload returns `Cancelled` within 20 ms. 4. ExternalLayer test: a synthetic layer whose depth plane cuts a cube composites with correct occlusion on both sides (pixel assertions). 5. Two views with different cameras render one scene in one frame. 6. 1000 add/remove cycles return `gpu_bytes` to baseline. 7. `InvalidData` for an index out of range and for a NaN position. |
 | RND-04 | GPU picking: id + depth pick passes (B-rep face-id attribute; mesh `primitive_index` or vertex-pulling fallback; edges and points widened by the radius), scissored point pick, priority resolution, f64 world reconstruction, rectangle window/crossing via compute flags, hover/selection highlight (instance tint, face-range redraw with `depth_compare: Equal`, edge/point state buffers). | RND-12, RND-03 | P0 | Todo | 1. On a synthetic box-with-hole test part (edges known): 1000 random cursor positions within 3 px of a projected 1-px edge return that edge in ≥ 99.5 %, and positions > 6 px from every edge or vertex return no edge in ≥ 99.5 %. 2. 1000 random interior face pixels (≥ 2 px from edges) return the correct face (100 %), and mesh triangle sub-ids are correct (100 %). 3. `PrimitiveIndex` and `VertexPulling` give identical results on the same scenes (WARP). 4. Results arrive ≤ 2 `encode` calls after the request (counted). 5. World position is within 1e-6 × distance of the analytic hit. 6. The rectangle test on a 3×3 box grid gives the expected window vs crossing sets. 7. Highlighted faces show the highlight colour with no z-fighting pixels (pixel test). 8. The pick pass costs ≤ 2 ms GPU at 5 M tris (owner bench). |
 | RND-05 | Transparency: WBOIT accum/revealage targets and composite, per-instance opacity (`base_color.a`), `Layer::Ghost`, x-ray style (all model instances at α 0.25 + dimmed always-on-top edges). | RND-02, RND-03 | P1 | Todo | 1. Three overlapping translucent quads rendered in all 6 submission orders differ by ≤ 2/255 per channel. 2. An opaque object behind and in front of translucent ones is correctly occluded. 3. X-ray shows hidden edges at the configured alpha. 4. Overhead ≤ 2 ms at 1440p with 1 M translucent tris (owner bench), and 0 when nothing is translucent (pass skipped). |
@@ -946,6 +946,129 @@ install the MSVC ATL component and run
 - `ExternalLayer` is composited with one colour and depth per pixel; at an MSAA edge the layer colour
   is the same for all covered samples, so the layer itself is not antialiased (the resolve smooths
   its intersection with geometry only).
+
+### 2026-11-12 - RND-02 shading and visual-style framework
+
+*Landed in `crates/amg-render` (status `Review`):*
+- **Lighting** (`shading.rs`, `shaders/shading.wgsl`): `Lighting::{Studio, Matcap, Flat}` on
+  `ViewStyle::lighting`.
+  - Studio is PBR-lite: camera-locked key and fill lights, GGX with Schlick Fresnel and
+    Schlick-GGX visibility (k = a/2), and a hemisphere ambient (sky towards world +Z, ground
+    below) that also lights half the specular colour.
+  - Matcap is a procedural clay look (wrap diffuse, tight highlight, rim). It uses the view
+    normal only and is tinted by the base colour.
+  - Flat is the RND-01 headlight Lambert.
+  - The public CPU reference `shade_reference` uses the same constants. They are generated into
+    the WGSL from the Rust module, so there is one definition.
+- **`Material`** gains `metallic`, `roughness` (default 0.0 / 0.5) and `cap_color` (stored for
+  RND-06). Metallic and roughness are packed with `pack2x16unorm` into the former `t_lo.w` of the
+  128-byte instance record (now `t_lo: vec3` + `material: u32`), so a material change rewrites
+  only that record.
+- **Octahedral normals:** `upload_mesh` encodes normals to `Snorm16x2` (4 B/vertex, Cigolle et
+  al.) chunk by chunk with checkpoints. `oct_encode` / `oct_decode` are public. Smooth meshes now
+  cost 16 B/vertex + 12 B/triangle.
+- **Normal target:** the opaque pass writes the octahedral view normal to an `Rg16Float` target
+  at the view's sample count. It is stored, holds `(0, 0)` where nothing is drawn, and has
+  `COPY_SRC` at one sample. It is exposed as `Renderer::normal_texture` for the RND-12
+  silhouettes.
+- **Backgrounds:** `Background::Gradient { top, bottom }` is the default style. It is drawn as a
+  far-plane triangle before the meshes. `Solid` still clears, so the earlier tests are
+  bit-identical.
+- **FXAA:** `ViewStyle::fxaa` runs a compact console-style FXAA in the final pass (written here
+  from the whitepaper's algorithm, `shaders/post.wgsl`); without it the final pass is the plain
+  copy.
+- **Pipeline variants** (`pipelines.rs`):
+  - The WGSL `override LIGHTING` picks the model. Cull mode, depth test (`Equal` after a
+    pre-pass) and sample count are pipeline state.
+  - Flat vs smooth is the vertex entry point. `vs_flat` passes a zero normal, so the fragment
+    shader is the same and the DX12 backend compiles it once.
+  - `Renderer::new` builds the **core set** of its configuration synchronously: Studio ×
+    {flat, smooth} × {closed, double-sided}, background, external layer, final copy.
+  - Every other variant (Matcap/Flat, the other sample count, pre-pass pipelines, FXAA) is
+    requested on first need. It is built on the Interactive pool of `RendererConfig::jobs`, or on
+    a short-lived thread when none is set. Until it is ready, the draw falls back to the core
+    Studio pipeline.
+  - `set_msaa_samples` / `set_depth_prepass` keep the previous configuration until the new core
+    set is built (`active_msaa_samples`, `depth_prepass_active`).
+  - `prepare_view`, `request_view_variants`, `wait_for_variants`, `pending_variants` and
+    `variant_timings` serve headless renders and tests. A build that panics is reported and never
+    retried.
+- **Double-sided open meshes** (RND-01 leftover): meshes with `MeshData::closed == false` are
+  drawn without back-face culling, and their back faces are lit with the flipped normal. Closed
+  meshes keep culling.
+- **Depth pre-pass:** `RendererConfig::depth_prepass` / `set_depth_prepass`. It draws a
+  depth-only pass, then the opaque pass tests `Equal` with `@invariant` positions. It measured
+  slower, so the default is **off**.
+- **GPU timings:** up to three timed passes (`depth prepass`, `opaque`, `final`).
+  `drain_gpu_timings` harvests before draining.
+- **Bench** `benches/viewport.rs` (criterion harness; `-- --test` runs a 64x64, 20 k-tri
+  version).
+
+*Evidence (owner machine RTX 5060 Ti / DX12, release; other workers were building on the
+machine):*
+1. **Orbit bench.** `cargo bench -p amg-render --bench viewport`: 2560x1440, 4x MSAA, Studio, a
+   600-frame orbit, two frames in flight.
+
+   | Mesh | Pre-pass | Wall p50 / p99 | GPU p50 / p99 | Opaque p50 |
+   |---|---|---|---|---|
+   | 1 003 520 tris | off | 0.577 / 0.757 ms | 0.559 / 0.751 ms | 0.516 ms |
+   | 1 003 520 tris | on | 0.758 / 0.983 ms | 0.738 / 0.959 ms | 0.511 ms (+ 0.187 pre-pass) |
+   | 5 000 000 tris | off | 0.983 / 1.218 ms | 0.963 / 1.203 ms | 0.919 ms |
+   | 5 000 000 tris | on | 1.448 / 1.707 ms | 1.430 / 1.689 ms | 0.889 ms (+ 0.495 pre-pass) |
+
+   - Budgets: 5 M GPU p99 ≤ 9 ms (got 1.203) and wall p99 ≤ 16.6 ms (got 1.218); 1 M GPU p50
+     ≤ 3 ms (got 0.559). They are asserted with `AMG_STRICT_TIMING=1`.
+   - Criterion, one synchronous 5 M frame (encode, submit, wait): 1.33 ms.
+2. **Depth pre-pass.** It is slower at both sizes (5 M p50 0.963 → 1.430 ms): the sphere has
+   almost no overdraw, and the pre-pass adds a second geometry pass. **No pre-pass** stays the
+   default. The code stays as an option so RND-12/14 can re-measure with real CAD scenes.
+   `gpu_depth_prepass_renders_like_the_single_pass` checks that both draw the same image.
+3. **VRAM.** In `gpu_flat_mesh_vram_is_12_bytes_per_vertex_and_per_triangle`, an icosphere with
+   2562 vertices and 5120 triangles takes exactly 12 V + 12 T = 92 184 B without normals and
+   16 V + 12 T = 102 432 B with them. That is 20.01 B/tri, matching the "≈ 20 B" in Performance
+   targets.
+4. **Headless tests (WARP and DX12).**
+   - `gpu_lighting_matches_the_cpu_reference_at_known_normals` checks 252 pixels: 21 normals × 3
+     lighting models × dielectric/metal × oct/derivative normals. Worst channel difference 1/255
+     (limit 2).
+   - `gpu_msaa4_and_fxaa_reduce_staircase_aliasing_on_a_tilted_quad` measures the RMS error
+     against analytic pixel coverage over the 208 edge pixels of a quad tilted 7°: 1x 0.283,
+     4x 0.083, 1x + FXAA 0.109.
+   - Core pipeline set (`timing_core_pipeline_creation_within_budget`, release, FXC): 66.0–68.2 ms
+     over three runs, the first right after the shader changed (budget 150 ms). Studio smooth
+     takes 37–40 ms, Studio flat 10.5–10.9 ms, each double-sided pipeline 0.4–0.7 ms.
+   - Before the fragment shader was shared, the set took 86–92 ms warm and 177.7 ms on its first
+     run.
+
+*Deviations:*
+- `ViewStyle` has `background`, `flat_shading` (RND-01), `lighting` and `fxaa`. `visual`, `xray`
+  and `silhouettes` arrive with RND-12 / RND-05. Lighting `Flat` is the headlight Lambert, not
+  unlit.
+- Additive API not in §Interfaces:
+  - `RendererConfig::{depth_prepass, jobs}`;
+  - `Renderer::{active_msaa_samples, set_depth_prepass, depth_prepass_active, pending_variants,
+    request_view_variants, wait_for_variants, prepare_view, variant_timings, normal_texture}`;
+  - `PipelineTiming::variant`;
+  - `shade_reference`, `oct_encode`, `oct_decode`.
+- `set_msaa_samples` no longer blocks, and `msaa_samples()` returns the requested count. The
+  `spin` example's `--measure-shaders` now waits for the background MSAA 1 set and prints it
+  separately.
+- Flat vs smooth is not an `override` constant. It was at first, but then FXC compiled the same
+  fragment shader twice, which cost 30–60 ms of the core set.
+- The headless "wall" time is the interval between frame starts with two frames in flight. It
+  excludes egui and presentation, which the RND-01 `spin --bench` covers.
+- No new dependency; THIRD_PARTY.md is unchanged.
+
+*Leftovers:*
+- **Cold start.** With the old shaders, the core set took 177.7 ms on its first run. The new
+  figure (68 ms) was measured while the driver cache still held the unchanged vertex stages. If
+  cold start matters, build the core set on two threads or adopt DXC (note §16).
+- The gradient background is not dithered, so 8-bit banding is possible on wide dark gradients.
+- The normal target costs bandwidth even when nothing reads it (silhouettes are RND-12). If RND-12
+  misses its budget, the first fallback in note §18 applies: drop the target when silhouettes are
+  off.
+- Pipeline creation errors still go to wgpu's uncaptured-error handler; RND-13 routes them to the
+  logs.
 
 ## Interface changes
 
