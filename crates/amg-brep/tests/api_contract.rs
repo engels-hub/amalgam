@@ -332,6 +332,16 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
         self.inner.make_wire(segs, tol)
     }
 
+    fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<CurveSeg>> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.plane_section(s, plane)
+    }
+
+    fn project_edges(&self, s: &Shape, edges: &[EdgeId], plane: &Plane) -> KResult<Vec<CurveSeg>> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.project_edges(s, edges, plane)
+    }
+
     fn tessellate(&self, s: &Shape, q: &TessQuality, ctx: &JobCtx) -> KResult<TessMesh> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.tessellate(s, q, ctx)

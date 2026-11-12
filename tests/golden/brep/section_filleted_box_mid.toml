@@ -1,0 +1,28 @@
+# Golden metrics for brep/section_filleted_box_mid. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 0.0
+area = 199.12566719800472
+vertices = 40
+triangles = 38
+boundary_edges = 40
+non_manifold_edges = 0
+euler = 1
+
+[metrics.bbox]
+min = [
+    -0.0000000000000002220446049250313,
+    -0.0000000000000002220446049250313,
+    15.0,
+]
+max = [
+    10.0,
+    20.0,
+    15.0,
+]

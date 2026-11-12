@@ -35,6 +35,8 @@ struct OcTessMesh;
 struct OcEdgeIn;
 struct OcLoopsIn;
 struct OcPlanarIn;
+struct OcSection;
+struct OcFrame;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -222,6 +224,17 @@ std::unique_ptr<OcShape> build_shape(const OcBuild &build, std::uint32_t i);
 
 // CATEGORY: R
 rust::Vec<std::uint32_t> build_edge_map(const OcBuild &build, std::uint32_t i);
+
+// -- geometry extraction (BREP-17), implemented in occt_extract.cpp --
+
+// CATEGORY: N (BRepAlgoAPI_Section with SetNonDestructive(true) against a new finite face on
+// `plane`; `shape` is only read)
+OcSection plane_section(const OcShape &shape, const OcIndex &index, const OcFrame &plane,
+                        double tol);
+
+// CATEGORY: R (GeomConvert / GeomConvert_ApproxCurve on a copy of the edge's curve; the edge is
+// only read)
+OcCurve edge_curve_recognised(const OcIndex &index, std::uint32_t e, double tol);
 
 } // namespace amg::occt
 

@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use amg_core::{Point3, Tolerance};
+use amg_core::{Plane, Point3, Tolerance};
 use amg_jobs::JobCtx;
 use rayon::prelude::*;
 
@@ -14,6 +14,7 @@ use crate::builders;
 use crate::check::{CheckOpts, CheckReport};
 use crate::config::KernelConfig;
 use crate::error::{KResult, KernelError};
+use crate::extract;
 use crate::geom::{self, Tag};
 use crate::history::{FaceBuild, OpResult, ShapeHistory};
 use crate::opts::TessQuality;
@@ -142,6 +143,49 @@ pub trait BrepKernel: Send + Sync {
     /// `InvalidInput` for an empty list, a malformed segment (`Curve3::Other`, a periodic
     /// B-spline, an empty or out-of-range parameter range) or a gap.
     fn make_wire(&self, segs: &[geom::CurveSeg], tol: &Tolerance) -> KResult<OpResult>;
+
+    // -- geometry extraction (BREP-17) --
+
+    /// `s` cut by `plane`: the 3D section curves (S03 SK-08/SK-09, S07 tests, S12 DXF).
+    ///
+    /// Section edges come from a non-destructive `BRepAlgoAPI_Section` (category N). Lines,
+    /// circles and ellipses come back as such, including B-spline results that are one within
+    /// the kernel tolerance; everything else is a non-periodic B-spline. The segments are
+    /// chained: each chain runs head to tail (closed chains end where they start), chains follow
+    /// one another, and pieces of one carrier curve on one face are merged (a cylinder cut
+    /// across its axis gives one full circle). Each segment's `tag` is the index of the face of
+    /// `s` it lies on (`Tag(u64::MAX)` when OCCT names none). A plane that misses `s` gives an
+    /// empty list.
+    ///
+    /// # Errors
+    /// `InvalidInput` for a malformed plane, `Occt` when the section fails,
+    /// `BackendUnavailable` without OCCT.
+    fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>>;
+
+    /// `edges` of `s` orthogonally projected onto `plane` (S03 SK-09 "project", S12 drawings).
+    ///
+    /// Projection is exact: lines stay lines, circles and ellipses become circles, ellipses or
+    /// (seen edge-on) line segments, B-splines keep knots and weights with projected poles.
+    /// B-spline edges that are lines, circles or ellipses are recognised first; other curves
+    /// (offset, parabola, curves on surfaces only) are approximated by B-splines within the kernel
+    /// tolerance. Circles and ellipses get `frame.normal = plane.normal`. Parts that collapse to
+    /// a point (a line along the normal) and degenerated edges give nothing; an edge-on arc that
+    /// turns back gives two segments.
+    ///
+    /// Segments keep the order of `edges`, and each `tag` is its edge's index. A segment is
+    /// reversed where needed so that consecutive segments sharing an end point run head to tail:
+    /// the edges of one wire in wire order ([`Shape::face_wires`], outer wire first) give an
+    /// ordered loop, closed when the wire is.
+    ///
+    /// # Errors
+    /// `InvalidInput` for a malformed plane or an edge out of range, `OpFailed` naming the edge
+    /// when OCCT cannot convert its curve, `BackendUnavailable` without OCCT.
+    fn project_edges(
+        &self,
+        s: &Shape,
+        edges: &[EdgeId],
+        plane: &Plane,
+    ) -> KResult<Vec<geom::CurveSeg>>;
 
     // -- tessellation (BREP-08) --
 
@@ -353,6 +397,21 @@ impl BrepKernel for OcctKernel {
             },
             warnings: Vec::new(),
         })
+    }
+
+    fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {
+        backend::require()?;
+        extract::plane_section(s, plane, &self.cfg.tolerance)
+    }
+
+    fn project_edges(
+        &self,
+        s: &Shape,
+        edges: &[EdgeId],
+        plane: &Plane,
+    ) -> KResult<Vec<geom::CurveSeg>> {
+        backend::require()?;
+        extract::project_edges(s, edges, plane, &self.cfg.tolerance)
     }
 
     fn tessellate(&self, s: &Shape, q: &TessQuality, ctx: &JobCtx) -> KResult<TessMesh> {

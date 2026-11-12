@@ -136,6 +136,14 @@ pub mod ffi {
         periodic: bool,
     }
 
+    /// A plane section (BREP-17): one curve per section edge, and the 0-based index of the input
+    /// face each edge lies on (`u32::MAX` when OCCT names none), in the section's edge order.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct OcSection {
+        curves: Vec<OcCurve>,
+        faces: Vec<u32>,
+    }
+
     /// One `BRepCheck` finding. `kind`: 0 face, 1 edge, 2 vertex, 3 no sub-shape (a shell, a
     /// solid or the root shape). Wire findings are reported on the face holding the wire.
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -361,6 +369,19 @@ pub mod ffi {
         fn build_count(build: &OcBuild) -> Result<u32>;
         fn build_shape(build: &OcBuild, i: u32) -> Result<UniquePtr<OcShape>>;
         fn build_edge_map(build: &OcBuild, i: u32) -> Result<Vec<u32>>;
+
+        /// `shape` cut by `plane` (`BRepAlgoAPI_Section`, non-destructive, approximated). Lines,
+        /// circles and ellipses come back as such (B-splines are tried for them within `tol`);
+        /// everything else as a B-spline. `index` must be `shape`'s index.
+        fn plane_section(
+            shape: &OcShape,
+            index: &OcIndex,
+            plane: &OcFrame,
+            tol: f64,
+        ) -> Result<OcSection>;
+        /// Edge `e`'s curve as a line, circle, ellipse or B-spline (exact conversion where OCCT
+        /// has one, else a C2 approximation within `tol`). `Absent` for a degenerated edge.
+        fn edge_curve_recognised(index: &OcIndex, e: u32, tol: f64) -> Result<OcCurve>;
     }
 }
 

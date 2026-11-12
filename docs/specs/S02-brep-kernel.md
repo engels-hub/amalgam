@@ -885,7 +885,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-16 | Draft, defeature (delete face), replace face, split faces by tool, split body (via `split`) with history | BREP-05 | P0 | Todo | 1. Draft of 4 box side faces at 3° about the bottom plane: the measured face angles are 3° ± 1e-9 rad and the volume is analytic. 2. Deleting a fillet face and a boss face gives the pre-feature volume within 1e-6. 3. Replacing a top face with an offset plane changes the height exactly. 4. Splitting a face by a sketch wire gives 2 faces with the right areas. 5. Every result is BRepCheck-valid with complete history. |
 | BREP-08 | Tessellation: `tessellate` on a private topology copy (category C), `TessMesh` (per-face vertices, normals, `face_ranges`, exact `weld`, edge polylines), `to_indexed_parts`, `tessellate_many` (rayon, `InParallel` off), `tessellate_edge`, quality presets | BREP-12 | P0 | Review (wp/BREP-08-tess; Done-when 1 not met, see BREP-18) | 1. A 1000-face fixture part tessellates (display preset) in < 100 ms median, including the topology copy (criterion `budget/brep-tess-1000`); the copy share is recorded. 2. `to_indexed_parts` of every closed fixture is watertight (`amg_testkit::metrics`: 0 boundary and 0 non-manifold edges), and its volume matches `mass_props` within the deflection bound. 3. Sphere r=10 tessellations converge to the exact area as deflection shrinks. 4. Tessellating one shared `Shape` from 8 threads while another thread runs booleans on it: no crash, identical meshes, input hash unchanged. 5. `face_of_triangle` is consistent with `face_ranges` for all triangles. |
 | BREP-09 | Mass properties (volume, area, centroid, inertia, principal axes), `classify`, `distance`, `closest_point`, `ray_cast`, `eval_surface` (curvatures), `project_point_on_face`, `interference` | BREP-04 | P0 | Todo | 1. Box, cylinder, sphere and torus mass props match analytic values within 1e-9 relative. Inertia tensors match within 1e-9. 2. Distance between two spheres and between a point and a face matches analytic values within 1e-9. 3. `ray_cast` hits the expected face with the correct normal on 1000 random rays at a cylinder (vs analytic). 4. Curvatures of a torus at 10 points match analytic values within 1e-9. 5. `interference` volume of two overlapping boxes is analytic. |
-| BREP-17 | Geometry extraction for sketches and drawings: `plane_section` and `project_edges` to `CurveSeg` (lines/circles/ellipses recognised, others B-spline), `tessellate_edge` reuse | BREP-12 | P0 | Todo | 1. A plane section of a cylinder (perpendicular) gives one `Curve3::Circle` with exact radius. An oblique section gives an `Ellipse` with analytic axes within 1e-9. 2. Projecting the edges of a filleted box top onto the XY plane gives lines and circle arcs with the correct radii and endpoints. 3. Section of a B-spline surface returns B-spline segments within 1e-6 mm of the true intersection (sampled). |
+| BREP-17 | Geometry extraction for sketches and drawings: `plane_section` and `project_edges` to `CurveSeg` (lines/circles/ellipses recognised, others B-spline), `tessellate_edge` reuse | BREP-12 | P0 | Review | 1. A plane section of a cylinder (perpendicular) gives one `Curve3::Circle` with exact radius. An oblique section gives an `Ellipse` with analytic axes within 1e-9. 2. Projecting the edges of a filleted box top onto the XY plane gives lines and circle arcs with the correct radii and endpoints. 3. Section of a B-spline surface returns B-spline segments within 1e-6 mm of the true intersection (sampled). |
 | BREP-10 | Healing and assembly: `heal` (`ShapeFix_Shape`, `ShapeFix_Wireframe` on a copy), `unify_same_domain`, `sew` (+ `make_solid`, orientation fix), `make_compound`, `check` (BRepCheck + ArgumentAnalyzer) | BREP-05 | P0 | Todo | 1. Sewing the 6 planar polygon faces of a cube (with 1e-4 mm gaps) gives a valid closed solid with volume within 1e-6. 2. Sewing the faces of 20 fixture parts exploded via `sub_shape` gives back solids with the same volume and face count. 3. `heal` fixes 10 corpus shapes with known defects (BRepCheck invalid → valid). 4. `unify_same_domain` after a fuse of two coplanar boxes yields 6 faces, and history maps the merged faces. 5. `check` lists the expected problem kinds on 5 broken fixtures. |
 | BREP-13 | STEP (AP203/214/242) and IGES read/write via XCAF into `ForeignModel` (names, colours incl. per-face, assembly tree with shared prototypes, units → mm), heal on import, progress + cancel; IGES under the global lock | BREP-10 | P0 | Todo | 1. Round-trip of 10 STEP fixtures (≥ 1 assembly with reused parts, ≥ 1 coloured, ≥ 1 in inches): write then read again gives the same tree, names, colours, solid count, and per-solid volume within 1e-9 relative. Inch input is scaled to mm. 2. Reading the same STEP file on 4 threads in parallel gives identical results (on 8.0.0 the reads serialise through the global lock; after a bump to 8.0.1 the lock is removed and the test still passes). 3. IGES round-trip of 3 fixtures. 4. A 50 MB STEP read reports progress and cancels within 500 ms. 5. The owner's Fusion STEP exports (if present under `$AMG_TESTDATA_DIR/fusion/`) import as valid solids. |
 | BREP-15 | Sweeps and raw loft: `pipe` (pipe-shell: Frenet/corrected/fixed/binormal/guide, twist/scale laws, transition, solid/shell), `thru_sections` (ruled/smooth, point sections, compatibility check) with roles `LoftSection`/`Lateral` | BREP-05 | P0 | Todo | 1. Golden volumes: a circle swept along a straight line and along an arc (torus segment) are analytic within 1e-6. A square along a helix is within 0.1 %. 2. A twisted sweep (90°) and a scaled sweep (1→2) match reference volumes. 3. ThruSections of 3 circles of different radii (smooth) is within 1e-4 relative of the analytic volume. Point-section cones work. 4. History: lateral faces map to the section edges. 5. Failures (incompatible sections) return `OpFailed` and never crash. KH-05 can call it as the baseline. |
@@ -1416,6 +1416,88 @@ workers' builds.)
 - Self-intersection and hole-overlap checks for profiles (S03 SK-06 already guarantees both for
   sketch regions).
 
+### 2026-11-12 - BREP-17 geometry extraction (plane sections, edge projection)
+**Landed.**
+- `amg-brep`: `BrepKernel::{plane_section, project_edges}` on the trait and `OcctKernel` (both use
+  `KernelConfig::tolerance`), new module `extract`, `Curve3::point_at`, `CurveSeg::{start, end}`.
+  - `project_edges` is exact affine geometry in plain Rust (unit-tested without OCCT): a line
+    stays a line (parameters scaled by the direction's in-plane length); a circle or ellipse
+    becomes an ellipse from its projected conjugate semi-diameters (principal axes at
+    `t* = ½·atan2(2A'·B', |A'|² − |B'|²)`), a circle when the axes agree within 1e-9 relative, or
+    line segments when the minor axis is below `tol.linear` (edge-on), split where the image
+    turns back; a B-spline keeps knots, multiplicities and weights with projected poles, and
+    becomes a line when its poles are collinear and monotone. Conic frames get
+    `normal = plane.normal`, so `t1 > t0` runs counter-clockwise seen from the normal. B-spline
+    edges and every other curve go first through the new shim `edge_curve_recognised`
+    (`GeomConvert_CurveToAnaCurve` for lines/circles/ellipses within the tolerance, exact
+    `GeomConvert` B-spline for parabolas/hyperbolas/periodic B-splines, `GeomConvert_ApproxCurve`
+    C2 within the tolerance for offset curves and pcurve-only edges). Lines along the normal and
+    degenerated edges give nothing. Tags are edge indices; output keeps the input edge order and
+    flips segments so consecutive ones sharing an end point run head to tail.
+  - `plane_section`: shim `plane_section` runs `BRepAlgoAPI_Section` (non-destructive,
+    `Approximation(true)`, no pcurves, serial) against a finite face on the plane covering the
+    shape's bbox, and returns each section edge's curve through the same recognition plus the
+    face it lies on (`HasAncestorFaceOn1`). Rust chains the segments into head-to-tail loops
+    (link distance `10 × max(tol.linear, shape max tolerance)`) and merges consecutive pieces of
+    one carrier line/circle/ellipse on one face (also across the closing joint of a loop). Tags
+    are face indices (`Tag(u64::MAX)` if OCCT names none).
+- `amg-occt-sys`: shared struct `OcSection`, shim functions `plane_section` (category **N**) and
+  `edge_curve_recognised` (R), in a new `cpp/occt_extract.cpp` (built by `build.rs`). Both are
+  tagged in `occt_shim.hxx`, so the category lint covers them. `SHIM_VERSION` unchanged (no
+  existing function changed).
+- Tests: `tests/extract.rs` (12 tests), 14 unit tests in `src/extract/tests.rs`, the forwarding
+  arms in `api_contract.rs`. Golden `tests/golden/brep/section_filleted_box_mid.toml`.
+
+**Done-when status** (`cargo nextest run -p amg-occt-sys -p amg-brep --features occt`: 160 tests
+pass; without the feature 62 pass. `cargo clippy -p amg-occt-sys -p amg-brep --all-targets
+--all-features -- -D warnings` is clean, and so is the same without features.)
+1. Met. `cylinder` fixture cut at z = 0.5, 7, 19.5: one `Curve3::Circle` each, radius exactly
+   `5.0` (bit equality), centre (3, 1, z) within 1e-12, sweep 2π, tagged with the lateral face.
+   Oblique cuts through (3, 1, 10) tilted θ = 0.2, 0.5, 0.9 rad about x: one `Ellipse` each;
+   major radius vs `5 / cos θ` and minor vs 5 differ by **0** (exact `IntAna` conics), centre,
+   major-axis direction and normal within 1e-9.
+2. Met. The 20 non-degenerated edges of the filleted box's top band (z ≥ 29: top face, top
+   fillet cylinders, corner spheres) projected onto XY give 16 lines (4 top-face sides, 4
+   fillet/side boundaries, 8 corner arcs in vertical planes seen edge-on) and 4 circle arcs of
+   radius 1 (error < 1e-9) centred on (1, 1), (9, 1), (1, 19), (9, 19), sweep π/2. Every
+   segment's end points are its edge's projected vertices within 1e-7; the sphere pole edges are
+   skipped.
+3. Met. Cuts of the `bspline_patch` (z = 45u(1−u)v(1−v), x = 30u, y = 30v) by x = 12, y = 21 and
+   two oblique planes: one B-spline segment each, boundary to boundary. Sampled at 201 points,
+   the largest distance off the plane or off the surface is **1.5e-8 to 3.6e-8 mm** (bound 1e-6).
+
+**Also checked.** A plane containing the cylinder axis gives a closed loop of 4 lines (length
+60); sphere and torus cuts give circles of the analytic radii (torus: two closed loops); a box
+cut gives a 4-line loop with one face tag per line, deterministic; a plane missing the shape gives
+nothing; a bad plane or edge index is `InvalidInput`. The patch's B-spline boundary edges come
+back as lines. Every wire of every filleted-box face projected onto a tilted plane is a closed
+head-to-tail loop, and the `plate_with_holes` cap's 1025 wires give the outer 4-line loop first,
+then 1024 single closed circles. Golden: the filleted box cut at z = 15 is an 8-segment loop (4
+arcs) that `make_face(Plane, Loops)` turns into a face of area 199.14159265358990 vs the exact
+`200 − (4 − π)` (1.1e-13).
+
+**Answers to requests.** S12 (2026-10-20, item 3): confirmed. `project_edges` on
+`Shape::face_wires(f)` wire by wire (outer wire first) gives ordered closed loops, so
+`planar_face_loops` is not needed (a caller-side loop over wires). The projected loops run in
+wire order; their orientation follows the first edge (callers that need CCW/CW check the signed
+area).
+
+**Deviations.**
+- "`tessellate_edge` reuse": no new polyline API. Drawings that need polylines of model edges
+  call `tessellate_edge`; extracted `CurveSeg`s are sampled with `Curve3::point_at`. Curves
+  without an exact form are approximated as B-splines in the shim rather than tessellated.
+- Neither query takes a `JobCtx` (as specified); a section of a large part cannot be cancelled.
+- Projected B-splines are only recognised as lines (in Rust); a B-spline image that is a circle or
+  ellipse stays a B-spline. Edges whose 3D curve is a B-spline circle are recognised before
+  projection.
+- No bench: S02 has no budget for these queries.
+
+**Leftovers.**
+- R-S04-4 `silhouette_curves` (2026-11-08 request) is not in this row; SOL-22 or a follow-up
+  BREP WP adds it next to `extract`.
+- Chaining is O(n²) in the segment count (fine for the 1030-face plate's sections; a spatial hash
+  if sections of much larger parts get slow).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1549,3 +1631,12 @@ All additive:
   function changed).
 - `smallvec` dependency for amg-brep (`THIRD_PARTY.md` status names it), `proptest`
   dev-dependency (workspace), `tests/golden/brep/face_profile_five_kinds.toml`, `Cargo.lock`.
+
+### 2026-11-12: additions and shared files changed by BREP-17 (lane A)
+All additive:
+- `amg-brep`: `BrepKernel::{plane_section, project_edges}` (every `BrepKernel` implementor must
+  add them; the `api_contract.rs` decorator forwards them), `Curve3::point_at`,
+  `CurveSeg::{start, end}`.
+- `amg-occt-sys`: `OcSection`, shim functions `plane_section` and `edge_curve_recognised`, new
+  `cpp/occt_extract.cpp` in `build.rs`; `SHIM_VERSION` unchanged.
+- `tests/golden/brep/section_filleted_box_mid.toml`. No new dependency.

@@ -4,7 +4,7 @@
 //! Validation errors name the offending profile, loop and edge. Loop indices are 0 for the outer
 //! loop and `1 + i` for hole `i`.
 
-mod eval;
+pub(crate) mod eval;
 
 use amg_core::{Dir3, Plane, Point2, Point3, Tolerance, Vec3};
 

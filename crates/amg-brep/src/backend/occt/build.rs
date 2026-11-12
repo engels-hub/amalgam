@@ -17,7 +17,7 @@ fn v3(p: Point3) -> ffi::V3 {
     }
 }
 
-fn oc_frame(p: &Plane) -> ffi::OcFrame {
+pub(super) fn oc_frame(p: &Plane) -> ffi::OcFrame {
     ffi::OcFrame {
         origin: v3(p.origin),
         x: v3(p.x.get()),

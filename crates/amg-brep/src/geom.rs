@@ -175,6 +175,26 @@ pub enum Curve3 {
     Other,
 }
 
+impl Curve3 {
+    /// The point at parameter `t`, for sampling extracted curves (BREP-17). `None` for `Other`
+    /// and for periodic B-splines (extraction never returns either).
+    pub fn point_at(&self, t: f64) -> Option<Point3> {
+        crate::builders::eval::point3(self, t)
+    }
+}
+
+impl CurveSeg {
+    /// The start point (at `t0`); `None` as for [`Curve3::point_at`].
+    pub fn start(&self) -> Option<Point3> {
+        self.curve.point_at(self.t0)
+    }
+
+    /// The end point (at `t1`); `None` as for [`Curve3::point_at`].
+    pub fn end(&self) -> Option<Point3> {
+        self.curve.point_at(self.t1)
+    }
+}
+
 /// A B-spline curve in OCCT's knots-and-multiplicities form.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BSplineCurveData {
