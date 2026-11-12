@@ -6,6 +6,7 @@ use amg_core::{Aabb3, Point3, Transform};
 use amg_jobs::JobCtx;
 
 use crate::KResult;
+use crate::builders::{BoundsIn, LoopsIn, PlanarIn};
 use crate::check::CheckReport;
 use crate::error::KernelError;
 use crate::geom::{Curve3, Surface};
@@ -23,9 +24,30 @@ pub(crate) fn progress_probe(_steps: u32, _step_micros: u32, _ctx: &JobCtx) -> K
     Err(KernelError::BackendUnavailable)
 }
 
+/// The builders' backend check: no OCCT in this build.
+pub(crate) fn require() -> KResult<()> {
+    Err(KernelError::BackendUnavailable)
+}
+
 pub(crate) enum Occ {}
 
 impl Occ {
+    pub(crate) fn planar_faces(_inputs: &[PlanarIn], _tol: f64) -> KResult<Vec<(Occ, Vec<u32>)>> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn face_on_surface(
+        _surface: &Surface,
+        _bounds: &BoundsIn,
+        _tol: f64,
+    ) -> KResult<(Occ, Vec<u32>)> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn wire(_edges: &LoopsIn, _closed: bool, _tol: f64) -> KResult<(Occ, Vec<u32>)> {
+        Err(KernelError::BackendUnavailable)
+    }
+
     pub(crate) fn read_bin(_data: &[u8]) -> KResult<Occ> {
         Err(KernelError::BackendUnavailable)
     }

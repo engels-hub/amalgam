@@ -1,5 +1,7 @@
 //! The OCCT backend of `Shape`. The only module that sees the bridge types.
 
+mod build;
+
 use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 
@@ -15,6 +17,11 @@ use crate::geom::{BSplineCurveData, BSplineSurfaceData, Curve3, GeomClass, Surfa
 use crate::index::RawTopology;
 use crate::shape::{EdgeId, ShapeKind, SubKind, SubShape};
 use crate::tess::{EdgePolyline, TessMesh, TessParams, TessProfile};
+
+/// The builders' backend check: OCCT is linked.
+pub(crate) fn require() -> KResult<()> {
+    Ok(())
+}
 
 /// `occt-<OCC_VERSION_COMPLETE>`: the OCCT part of the shim's version string.
 pub(crate) fn occt_version() -> String {

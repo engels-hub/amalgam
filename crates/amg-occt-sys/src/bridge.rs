@@ -192,6 +192,29 @@ pub mod ffi {
         extract_seconds: f64,
     }
 
+    /// One builder input edge (BREP-03): `curve` between `curve.first < curve.last`, run
+    /// backwards when `reversed`. Uses `OcCurve`'s output layout; `Absent`/`Other` raise.
+    #[derive(Clone, Debug, PartialEq)]
+    struct OcEdgeIn {
+        curve: OcCurve,
+        reversed: bool,
+    }
+
+    /// Edges of several loops: loop `i` is `edges[loop_starts[i]..loop_starts[i + 1]]`.
+    /// Consecutive edges of a loop meet (the builders' callers checked the gaps).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct OcLoopsIn {
+        edges: Vec<OcEdgeIn>,
+        loop_starts: Vec<u32>,
+    }
+
+    /// One planar face to build: outer loop first (CCW about `frame.normal`), then holes (CW).
+    #[derive(Clone, Debug, PartialEq)]
+    struct OcPlanarIn {
+        frame: OcFrame,
+        loops: OcLoopsIn,
+    }
+
     extern "Rust" {
         /// The progress/cancel target of one shim call (S02 §1, occt-integration.md §3.4).
         type ProgressSink;
@@ -312,6 +335,32 @@ pub mod ffi {
         fn make_sphere(radius: f64) -> Result<UniquePtr<OcShape>>;
         /// `object` minus `tool`, non-destructive. A test probe until BREP-04.
         fn boolean_cut_probe(object: &OcShape, tool: &OcShape) -> Result<UniquePtr<OcShape>>;
+
+        // -- face and wire builders (BREP-03), implemented in occt_build.cpp --
+
+        /// The shapes one builder call made, each with the 0-based index (in the shape's own
+        /// `TopExp::MapShapes` edge order) of the edge built from every input edge, or
+        /// `u32::MAX` where it did not survive. Immutable once built.
+        type OcBuild;
+
+        /// One planar face per input. Raises naming the face, loop and edge OCCT rejects.
+        fn make_planar_faces(faces: &[OcPlanarIn], tol: f64) -> Result<UniquePtr<OcBuild>>;
+        /// One face on `surface`. `bounds`: 0 natural, 1 `uv` rectangle, 2 `loops` of 3D curves,
+        /// 3 polylines (`points`, polyline `i` = `points[point_starts[i]..point_starts[i + 1]]`).
+        fn make_face_on_surface(
+            surface: &OcSurface,
+            bounds: u8,
+            uv: &OcUvBounds,
+            loops: &OcLoopsIn,
+            points: &[V3],
+            point_starts: &[u32],
+            tol: f64,
+        ) -> Result<UniquePtr<OcBuild>>;
+        /// One wire through the single loop of `edges`, closed when `closed`.
+        fn make_wire(edges: &OcLoopsIn, closed: bool, tol: f64) -> Result<UniquePtr<OcBuild>>;
+        fn build_count(build: &OcBuild) -> Result<u32>;
+        fn build_shape(build: &OcBuild, i: u32) -> Result<UniquePtr<OcShape>>;
+        fn build_edge_map(build: &OcBuild, i: u32) -> Result<Vec<u32>>;
     }
 }
 

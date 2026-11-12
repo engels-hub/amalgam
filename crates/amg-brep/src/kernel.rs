@@ -5,16 +5,19 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use amg_core::Point3;
+use amg_core::{Point3, Tolerance};
 use amg_jobs::JobCtx;
 use rayon::prelude::*;
 
-use crate::backend;
+use crate::backend::{self, Occ};
+use crate::builders;
 use crate::check::{CheckOpts, CheckReport};
 use crate::config::KernelConfig;
 use crate::error::{KResult, KernelError};
+use crate::geom::{self, Tag};
+use crate::history::{FaceBuild, OpResult, ShapeHistory};
 use crate::opts::TessQuality;
-use crate::shape::{EdgeId, FORMAT_VERSION, Shape};
+use crate::shape::{EdgeId, FORMAT_VERSION, Shape, SubKind, SubShape};
 use crate::tess::{self, TessMesh, TessProfile};
 
 /// Version of the robustness policy, the third part of [`kernel_version`]. S20's
@@ -78,6 +81,67 @@ pub trait BrepKernel: Send + Sync {
     /// `BRepCheck_Analyzer` validity of `s`, with problems per sub-shape (S02 §9).
     /// `opts.self_interference` is BREP-10's and ignored until then.
     fn check(&self, s: &Shape, opts: &CheckOpts) -> CheckReport;
+
+    // -- builders (BREP-03) --
+
+    /// One planar face per profile, built in one backend call (S02 §4). Each [`FaceBuild`]
+    /// lists `(edge, tag)` for every profile edge, outer loop first, then the holes in order.
+    ///
+    /// Loops are validated first: every curve well-formed, each loop closed within
+    /// `tol.linear`, the outer loop CCW and holes CW about `plane.normal`, holes inside the
+    /// outer loop. Holes overlapping each other are not detected.
+    ///
+    /// # Errors
+    /// `OpenLoop { loop_index, edge_index, gap }` for the first open loop (of the first
+    /// failing profile); `InvalidInput { what: "profiles", .. }` naming profile, loop and edge
+    /// for malformed curves, a wrong orientation or a hole outside its outer loop; `Occt` if
+    /// OCCT rejects a curve; `InvalidResult` under the validation policy.
+    fn make_planar_faces(
+        &self,
+        profiles: &[geom::PlanarProfile],
+        tol: &Tolerance,
+    ) -> KResult<Vec<FaceBuild>>;
+
+    /// A planar face bounded by straight edges through `outer` and `holes` (S07 MESH-13).
+    /// Consecutive points within `tol.linear` merge (a repeated closing point is fine), the
+    /// plane is fitted through the outer loop (Newell normal, so the outer loop runs CCW about
+    /// the face normal) and every vertex is projected onto it. Holes may run either way.
+    ///
+    /// # Errors
+    /// `NotPlanar { max_dev }` when a point is farther than `tol.linear` from the fitted plane;
+    /// `InvalidInput` for fewer than 3 distinct points, no area, or a hole outside the outer
+    /// loop.
+    fn make_planar_polygon(
+        &self,
+        outer: &[Point3],
+        holes: &[Vec<Point3>],
+        tol: &Tolerance,
+    ) -> KResult<Shape>;
+
+    /// A face on an analytic or B-spline surface (S07 MESH-25, S09, S20). `tol` (mm) is the
+    /// distance within which loop curves lie on the surface and polylines are approximated.
+    /// `edge_tags` is filled for `Loops` bounds (from each [`geom::CurveSeg::tag`]) and empty
+    /// otherwise.
+    ///
+    /// # Errors
+    /// `InvalidInput` for `Surface::Other`, malformed surface data, `Natural` bounds on an
+    /// infinite surface (plane, cylinder, cone) or an empty `UvRect`; `OpenLoop` for a `Loops`
+    /// loop that does not close within `tol`; `Occt` when OCCT cannot build it.
+    fn make_face(
+        &self,
+        surface: &geom::Surface,
+        bounds: &geom::FaceBounds,
+        tol: f64,
+    ) -> KResult<FaceBuild>;
+
+    /// A wire through `segs` in order (sweep paths, rails). Consecutive segments must meet
+    /// within `tol.linear`; the wire is closed when the last ends at the first's start. The
+    /// history carries each edge's tag.
+    ///
+    /// # Errors
+    /// `InvalidInput` for an empty list, a malformed segment (`Curve3::Other`, a periodic
+    /// B-spline, an empty or out-of-range parameter range) or a gap.
+    fn make_wire(&self, segs: &[geom::CurveSeg], tol: &Tolerance) -> KResult<OpResult>;
 
     // -- tessellation (BREP-08) --
 
@@ -190,9 +254,105 @@ impl OcctKernel {
     }
 }
 
+/// `(edge, tag)` pairs from a backend edge map (one entry per input edge, `u32::MAX` where the
+/// edge did not survive).
+fn edge_tags(map: &[u32], tags: &[Tag]) -> Vec<(EdgeId, Tag)> {
+    map.iter()
+        .zip(tags)
+        .filter(|(e, _)| **e != u32::MAX)
+        .map(|(e, t)| (EdgeId(*e), *t))
+        .collect()
+}
+
 impl BrepKernel for OcctKernel {
     fn check(&self, s: &Shape, _opts: &CheckOpts) -> CheckReport {
         s.check_report()
+    }
+
+    fn make_planar_faces(
+        &self,
+        profiles: &[geom::PlanarProfile],
+        tol: &Tolerance,
+    ) -> KResult<Vec<FaceBuild>> {
+        backend::require()?;
+        let (inputs, tags) = builders::lower_profiles(profiles, tol)?;
+        let built = Occ::planar_faces(&inputs, tol.linear)?;
+        built
+            .into_iter()
+            .zip(&tags)
+            .map(|((occ, map), tags)| {
+                let face = Shape::from_occ(occ);
+                self.validate_result("make_planar_faces", &face)?;
+                Ok(FaceBuild {
+                    edge_tags: edge_tags(&map, tags),
+                    face,
+                })
+            })
+            .collect()
+    }
+
+    fn make_planar_polygon(
+        &self,
+        outer: &[Point3],
+        holes: &[Vec<Point3>],
+        tol: &Tolerance,
+    ) -> KResult<Shape> {
+        backend::require()?;
+        let input = builders::lower_polygon(outer, holes, tol)?;
+        let mut built = Occ::planar_faces(std::slice::from_ref(&input), tol.linear)?;
+        let (occ, _) = built.pop().ok_or_else(|| KernelError::OpFailed {
+            op: "make_planar_polygon",
+            message: "no face was built".into(),
+            offending: Vec::new(),
+        })?;
+        let face = Shape::from_occ(occ);
+        self.validate_result("make_planar_polygon", &face)?;
+        Ok(face)
+    }
+
+    fn make_face(
+        &self,
+        surface: &geom::Surface,
+        bounds: &geom::FaceBounds,
+        tol: f64,
+    ) -> KResult<FaceBuild> {
+        backend::require()?;
+        let (bounds, tags) = builders::lower_face(surface, bounds, tol)?;
+        let (occ, map) = Occ::face_on_surface(surface, &bounds, tol)?;
+        let face = Shape::from_occ(occ);
+        self.validate_result("make_face", &face)?;
+        Ok(FaceBuild {
+            edge_tags: edge_tags(&map, &tags),
+            face,
+        })
+    }
+
+    fn make_wire(&self, segs: &[geom::CurveSeg], tol: &Tolerance) -> KResult<OpResult> {
+        backend::require()?;
+        let (edges, closed) = builders::lower_wire(segs, tol)?;
+        let (occ, map) = Occ::wire(&edges, closed, tol.linear)?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result("make_wire", &shape)?;
+        let seg_tags: Vec<Tag> = segs.iter().map(|s| s.tag).collect();
+        let mut tags: Vec<(SubShape, Tag)> = edge_tags(&map, &seg_tags)
+            .into_iter()
+            .map(|(e, t)| {
+                let sub = SubShape {
+                    kind: SubKind::Edge,
+                    index: e.0,
+                };
+                (sub, t)
+            })
+            .collect();
+        tags.sort();
+        Ok(OpResult {
+            shape,
+            history: ShapeHistory {
+                tags,
+                ..ShapeHistory::default()
+            },
+            warnings: Vec::new(),
+        })
     }
 
     fn tessellate(&self, s: &Shape, q: &TessQuality, ctx: &JobCtx) -> KResult<TessMesh> {

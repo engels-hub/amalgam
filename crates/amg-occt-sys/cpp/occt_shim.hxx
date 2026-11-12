@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <NCollection_IndexedMap.hxx>
 #include <Standard_Failure.hxx>
@@ -31,6 +32,9 @@ struct OcCurve;
 struct OcCheckReport;
 struct OcTessParams;
 struct OcTessMesh;
+struct OcEdgeIn;
+struct OcLoopsIn;
+struct OcPlanarIn;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -54,6 +58,14 @@ public:
   ShapeMap edges;
   ShapeMap vertices;
   ShapeMap solids;
+};
+
+// What one builder call made (BREP-03): shapes, and per shape the edge index of each input edge
+// (UINT32_MAX where it did not survive). Only read after the builder returns.
+class OcBuild {
+public:
+  std::vector<TopoDS_Shape> shapes;
+  std::vector<std::vector<std::uint32_t>> edge_maps;
 };
 
 // CATEGORY: R (formats an exception; not bridged, used by trycatch below)
@@ -186,6 +198,30 @@ std::unique_ptr<OcShape> make_sphere(double radius);
 // CATEGORY: N (BRepAlgoAPI_Cut with SetNonDestructive(true); a test probe for the BREP-08
 // concurrency test until BREP-04 lands the real booleans)
 std::unique_ptr<OcShape> boolean_cut_probe(const OcShape &object, const OcShape &tool);
+
+// -- face and wire builders (BREP-03), implemented in occt_build.cpp --
+
+// CATEGORY: R (takes no shape; builds new topology from plain curve data)
+std::unique_ptr<OcBuild> make_planar_faces(rust::Slice<const OcPlanarIn> faces, double tol);
+
+// CATEGORY: R (takes no shape; builds new topology; ShapeFix_Face runs on that new face only)
+std::unique_ptr<OcBuild> make_face_on_surface(const OcSurface &surface, std::uint8_t bounds,
+                                              const OcUvBounds &uv, const OcLoopsIn &loops,
+                                              rust::Slice<const V3> points,
+                                              rust::Slice<const std::uint32_t> point_starts,
+                                              double tol);
+
+// CATEGORY: R (takes no shape; builds new topology from plain curve data)
+std::unique_ptr<OcBuild> make_wire(const OcLoopsIn &edges, bool closed, double tol);
+
+// CATEGORY: R
+std::uint32_t build_count(const OcBuild &build);
+
+// CATEGORY: R (a new handle sharing the built TShape)
+std::unique_ptr<OcShape> build_shape(const OcBuild &build, std::uint32_t i);
+
+// CATEGORY: R
+rust::Vec<std::uint32_t> build_edge_map(const OcBuild &build, std::uint32_t i);
 
 } // namespace amg::occt
 
