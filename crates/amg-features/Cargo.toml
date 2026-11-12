@@ -40,6 +40,10 @@ rayon.workspace = true
 name = "mesh_shell"
 harness = false
 
+[[bench]]
+name = "inspect_measure"
+harness = false
+
 [features]
 # Links the OCCT backend of amg-brep, for tests on real B-rep solids (S06 ASM-09). Needs
 # AMG_OCCT_DIR like amg-brep's own `occt` feature.

@@ -777,7 +777,7 @@ pub mod display {
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| INS-01 | `amg-features::inspect::measure` core on meshes: operands, `measure_one`/`measure`, exact min distance (dual BVH, tri–tri), angles, centres, smart planar region, feature chains, plane/circle fits, `snap_on_face`, `report_rows` | MESH-02, MESH-03, FND-10 | P0 | Todo | Tests pass. 1. **Analytic:** a 10 mm cube gives face area 100 ± 1e-9 mm², edge length 10 ± 1e-12, opposite-face distance 10 ± 1e-12 and angle 180°, adjacent faces 90° ± 1e-12 rad, body volume 1000 ± 1e-9. A point 5 mm above the face centre gives distance 5 ± 1e-12. 2. **Brute force:** `min_distance` equals the O(n·m) brute force (≤ 1e-12 mm absolute, same witness features) on 1 000 random pairs of 1–2 k-tri meshes under random rigid transforms, including intersecting, touching and nested configurations. 3. A tessellated 128-segment hole r = 5 in a block: one feature-edge pick gives a closed 128-edge chain with fit radius 5 ± 1e-9 (vertices on the circle). A 64-segment chain with σ = 0.002 mm noise gives radius 5 ± 0.005. 4. `grow_planar_region` on a CAD-exported STL (corpus, f32) returns exactly the ground-truth face set of 10 planar faces. 5. Non-rigid transform → `NonRigidTransform`. 6. Bit-identical results with 1 and 16 threads. 7. Criterion: point → 1 M-tri body < 0.1 ms median; two separated 1 M-tri bodies (gap ≥ 1 mm) < 20 ms; concentric icospheres r = 50 / 50.1 (1 M each) < 3 s, cancellable within 50 ms. |
+| INS-01 | `amg-features::inspect::measure` core on meshes: operands, `measure_one`/`measure`, exact min distance (dual BVH, tri–tri), angles, centres, smart planar region, feature chains, plane/circle fits, `snap_on_face`, `report_rows` | MESH-02, MESH-03, FND-10 | P0 | Review | Tests pass. 1. **Analytic:** a 10 mm cube gives face area 100 ± 1e-9 mm², edge length 10 ± 1e-12, opposite-face distance 10 ± 1e-12 and angle 180°, adjacent faces 90° ± 1e-12 rad, body volume 1000 ± 1e-9. A point 5 mm above the face centre gives distance 5 ± 1e-12. 2. **Brute force:** `min_distance` equals the O(n·m) brute force (≤ 1e-12 mm absolute, same witness features) on 1 000 random pairs of 1–2 k-tri meshes under random rigid transforms, including intersecting, touching and nested configurations. 3. A tessellated 128-segment hole r = 5 in a block: one feature-edge pick gives a closed 128-edge chain with fit radius 5 ± 1e-9 (vertices on the circle). A 64-segment chain with σ = 0.002 mm noise gives radius 5 ± 0.005. 4. `grow_planar_region` on a CAD-exported STL (corpus, f32) returns exactly the ground-truth face set of 10 planar faces. 5. Non-rigid transform → `NonRigidTransform`. 6. Bit-identical results with 1 and 16 threads. 7. Criterion: point → 1 M-tri body < 0.1 ms median; two separated 1 M-tri bodies (gap ≥ 1 mm) < 20 ms; concentric icospheres r = 50 / 50.1 (1 M each) < 3 s, cancellable within 50 ms. |
 | INS-08 | Measure tool in `amg-ui::inspect`: hand-built dialog (filters, smart toggle, 3-point circle, precision, units, results with copy), snapping, job-backed results with supersede, RND-07 overlay (witness line, Δ, angle arc, circle) | INS-01, MESH-16, UI-02, UI-03, UI-04, UI-10, RND-04, RND-07 | P0 | Todo | Manual script on 3 corpus models: measure a hole diameter (1 click), a wall distance, an angle between two faces, a body volume; values equal the INS-01 API values for the same picks. Snap to vertex within 8 px and to edge within 5 px (automated test with a synthetic camera). No frame > 16 ms in the tracing profile while measuring two 1 M-tri bodies. A newer selection cancels the running job within 50 ms. Results use the document display unit and the chosen precision (`1/4 in` part shows inches). |
 | INS-02 | `amg-features::inspect::section` caps on meshes: loop orientation, CDT with split constraints, non-zero / even–odd fill, multi-plane clipping (≤ 6), outlines, open curves, `SectionStats`, `section_plane` | MESH-09 | P0 | Todo | Tests pass. 1. **Watertight (note §3.4):** for every watertight MESH-28 corpus model and 3 seeded random planes, `plane_cut(keep = Negative, cap = false)` + caps welded at the snap tolerance is closed and manifold (100 %), including planes exactly through vertices and edges. 2. Cap area: 128-gon cylinder r = 10, perpendicular cut = ½·128·r²·sin(2π/128) within 1e-9 relative; axial cut = 2r·h exactly within 1e-9 relative. 3. Two overlapping closed cubes (one STL, two shells): cap area = area of the union of the squares (non-zero rule). 4. Box section with 6 planes: each cap lies inside the other 5 kept half-spaces (vertices ≤ 1e-9 mm outside). 5. Open cube (one face deleted): open curve reported, no cap through the gap. 6. Shoelace area of the oriented loops equals the cap triangle area within 1e-9 relative. 7. 1 M-tri body, one plane: < 50 ms; 10 M: < 500 ms. Deterministic across thread counts. |
 | INS-09 | Section Analysis tool + persistence: `SectionAnalysis` ExtRecord (`inspect.section` v1, migration hook), hand-built dialog (origin plane / picked planar region, offset expression + slider, tilt, flip, hatch, cap colour, scope), browser "Analysis" folder entries, combining visible analyses, cap jobs feeding RND-06, stats panel | INS-02, INS-08, DOC-05, DOC-07, UI-07, RND-06 | P0 | Todo | Creating, editing, hiding and deleting a section are each one undo step and survive save/load byte-identically. Two visible analyses combine (box-corner cut visible in a screenshot test with RND-09, or a manual check before RND-09). Dragging the offset slider on a 1 M-tri body keeps ≥ 60 fps (GPU clip), and caps catch up ≤ 100 ms after the drag stops. Phase 1 manual script: open STL → section at XY + 10 mm → read the section area → flip → hatch on → save → reopen. |
@@ -1040,6 +1040,95 @@ dependencies):
   as already listed for CON-01.
 - CON-04: UI and `display`.
 - Note §6 could list the two `Coincident` additions in its error column.
+
+### 2026-11-12 - INS-01 measure core on meshes (lane A)
+
+*Landed* in `amg-features::inspect` (new module; no changes outside `amg-features`, no new
+dependencies):
+- `inspect::InspectError` (all variants of the Interfaces block, `Diagnostic` with the repair
+  hint, `From<Cancelled>`).
+- `inspect::measure`: every type of the Interfaces block (`MeshElement`, `MeshOperand`,
+  `Operand`, `MeasureOpts`, `OperandKind`, `Circle3`, `CircleFit`, `PlaneFit`, `Exactness`,
+  `EntityMeasure`, `WitnessFeature`, `Witness`, `MinDistance`, `AngleKind`, `AngleMeasure`,
+  `PairMeasure`, `MeasureReport`, `Cost`, `RegionOpts`, `SnapOpts`, `Snapped`, `DisplayPrefs`,
+  `MeasureRow`) and every function (`estimated_cost`, `measure_one`, `measure`,
+  `min_distance`, `angle_between`, `grow_planar_region`, `grow_feature_chain`,
+  `fit_plane_faces`, `circle_through`, `fit_circle`, `snap_on_face`, `area_unit`,
+  `volume_unit`, `report_rows`), signatures as in Interfaces.
+- Min distance follows note §2.2: best-first simultaneous traversal of the bodies' MESH-03
+  `Bvh` (read-only node access, so the private-BVH fallback was not needed), exact
+  tri–tri / seg–tri / point–tri distance (`measure::prims`), computed in A's local frame with B
+  mapped by `A⁻¹·B`. The winner is the lexicographic minimum of `(distance², a prim, b prim)`;
+  for two sets > 200 k primitives the root's ≤ 4 × 4 grandchild pairs run in parallel with an
+  `AtomicU64` bound. Cancellation every 4096 node pairs.
+- Tests: `inspect/measure/tests.rs` (analytic cube, fits, errors, conventions, snapping, rows,
+  cancellation) and `tests/inspect_measure.rs` (brute force, symmetry / rigid invariance,
+  thread determinism, cancel, corpus planar regions); bench `benches/inspect_measure.rs`.
+
+*Done-when evidence* (`cargo nextest run -p amg-features`; bench in release on the shared
+wave machine, three other workers compiling):
+1. Cube: face area 100, edge 10, opposite faces 10 at 180°, adjacent 90° (± 1e-12 rad), volume
+   1000, point 5 mm above the face centre 5, all at the required tolerances, with the identity
+   and with a non-trivial rigid transform.
+2. 1 000 random pairs of 1 280-face bumpy, stretched icospheres under random rigid transforms
+   (250 each separated / intersecting / touching / nested): distance equal to the O(n·m) brute
+   force, worst |Δ| = 0 mm, identical witness features; nested pairs report `contained`.
+3. 128-segment hole r = 5 in a block: one pick gives a closed 128-vertex chain, fit radius
+   5 ± 1e-9 (also under a rigid transform). 64 points with σ = 0.002 mm noise: radius within
+   0.005 over 20 seeds.
+4. `thingi10k-232912` (binary f32 STL, CC-BY-3.0, no defects): for every triangle of its 10
+   largest planar faces (156, 132, 4 × 54, 2 × 14, 2 × 6 triangles) the region equals the
+   ground truth in `tests/golden/inspect/planar_regions_thingi10k-232912.json`. The ground
+   truth was computed by a separate script that reads the STL directly (union-find over
+   manifold edges whose triangles are coplanar within 0.5° / 1e-4 mm). No corpus model is a
+   pure 10-face prism, so "10 planar faces" is read as 10 faces of one CAD part.
+5. Scaled, mirrored and sheared `to_world` → `NonRigidTransform` from `measure_one`,
+   `measure` and `min_distance`.
+6. Concentric (r 50 / 49.9), separated and intersecting 327 680-face icospheres: bit-identical
+   distance, witnesses, features and `contained` with 1 and 16 rayon threads, each run twice.
+7. Criterion: point → 1 M-tri body **10.0 µs** median (< 0.1 ms); two separated 1 M bodies
+   (2 mm gap) **19.1 ms** (< 20 ms, tight on this machine); concentric r 50 / 50.1 (1 M each)
+   **1.14 s** (< 3 s), cancelled within **2.0 ms** worst of 5 (< 50 ms). The timing tests
+   assert only under `AMG_STRICT_TIMING=1`.
+
+*Deviations and additions (additive):*
+- `Operand` has only `Point` and `Mesh`; `Ref` / `Brep` (and `BrepOperand`) come with INS-07
+  (the enum is `#[non_exhaustive]`).
+- `MeshBody` has no `spatial()` yet (S07 MESH-01 note), so the BVH, the
+  closed-and-oriented flag and per-node minimum primitive ids are cached per mesh in a private
+  module cache keyed by the mesh `Arc` (entries drop when only the cache holds the mesh). New
+  `measure::prepare_body(&MeshBody, &JobCtx)` builds them ahead of time (the benches use it).
+  Switch to `MeshBody::spatial()` when S07 adds it.
+- `contained` uses three-ray parity from one vertex (no winding tree, so no extra 260 MB on
+  1 M meshes) and is `None` unless both operands are watertight bodies.
+- Ties at distance 0 (intersecting bodies) are pruned by the per-node minimum primitive id,
+  and each triangle pair is first rejected by a plane-separation lower bound; neither changes
+  the result (the brute-force test covers both).
+- `report_rows` keys are `distance, dx, dy, dz, angle, center_distance`, then `first.*` /
+  `second.*` (`x, y, z, length, area, volume, diameter, radius`). Labels get a "1"/"2" suffix
+  only when there are two entities. µm gives mm² / mm³.
+- Public extras: `measure::prims` (`Prim`, `PrimDistance`, `PrimFeature`, `prim_distance`,
+  `tri_tri`, `closest_on_triangle`; the brute-force oracle uses them), `Operand::kind`,
+  `OperandKind::name`, `EntityMeasure::center`, `Default` for `RegionOpts` and `DisplayPrefs`.
+- Conventions where the note left a choice: the circle normal follows the chain order
+  (right-hand rule); plane fits keep the area-weighted (outward) normal; a picked edge that is
+  not a feature edge gives the 2-vertex open polyline; non-manifold edges count as feature
+  edges; `snap_on_face` uses the closest triangle point when the ray just misses the picked
+  triangle. Circle-fit noise must be in the plane: out-of-plane noise above
+  `planar_tolerance` rejects the fit as note §2.4 says (tested).
+- MESH-30 is not needed: distance uses this module's own closest-point code, not
+  `MeshSpatial::closest_point`.
+
+*Leftovers:*
+- Nested surfaces far apart (e.g. r 50 around r 30, 20 mm gap) are slow with AABB bounds:
+  ≈ 265 s for 327 k faces each in the test profile, since box slack keeps ~70 M leaf pairs
+  alive. Tighter bounds (RSS / OBB per node, as in PQP) would fix it. It stays a cancellable
+  job.
+- `grow_planar_region` / `grow_feature_chain` build a vertex → face map per call (O(n)); a
+  cached adjacency would help the 100 k-region < 30 ms target on large meshes (not
+  benchmarked here).
+- Separated 1 M bodies sit just under budget (19.1 ms) on this loaded machine; check on the
+  reference machine.
 
 ## Interface changes
 
