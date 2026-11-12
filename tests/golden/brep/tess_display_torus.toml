@@ -1,0 +1,28 @@
+# Golden metrics for brep/tess_display_torus. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 9801.022812761998
+area = 3938.177723106758
+vertices = 2124
+triangles = 4248
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 0
+
+[metrics.bbox]
+min = [
+    -24.964567391919047,
+    -24.991140278086313,
+    -5.0,
+]
+max = [
+    25.0,
+    24.991140278086313,
+    5.0,
+]

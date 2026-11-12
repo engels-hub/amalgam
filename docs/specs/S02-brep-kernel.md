@@ -883,13 +883,14 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-06 | Fillet (constant, variable, chord) and chamfer (equal, two-dist, dist-angle) with history (`FilletBlend`, `ChamferFace`) and `LocalOpFailed { offending }`; `fillet_max_radius` | BREP-05 | P0 | Todo | 1. Golden volumes for 20 fillet/chamfer cases (cube edge, edge chains, vertex blends of 3 edges) within 1e-6 relative. 2. A radius larger than the adjacent face fails with `offending` naming the failing edge(s), checked against the expected edge ids. 3. `fillet_max_radius` on 5 cases is within 1 % of the reference largest workable radius. 4. History: each blend face maps to its source edge. 5. 10 runs are byte-identical. 6. The op is in the stress test. |
 | BREP-07 | Shell / thick solid (removed faces, per-face thickness, join arc/intersection), `offset`, `thicken` with roles `ShellInner`/`OffsetFace` | BREP-05 | P0 | Todo | 1. Golden volumes: shelled box (1 face removed, 1 mm) equals the analytic volume within 1e-9 relative. Shelled cylinder, filleted box (arc join) and thickened B-spline face (0.5 %) pass. 2. Inward/outward offset of a sphere: radius within 1e-9. 3. A thickness exceeding the minimum radius gives `LocalOpFailed` with offending faces. 4. History roles are correct on 5 cases. |
 | BREP-16 | Draft, defeature (delete face), replace face, split faces by tool, split body (via `split`) with history | BREP-05 | P0 | Todo | 1. Draft of 4 box side faces at 3° about the bottom plane: the measured face angles are 3° ± 1e-9 rad and the volume is analytic. 2. Deleting a fillet face and a boss face gives the pre-feature volume within 1e-6. 3. Replacing a top face with an offset plane changes the height exactly. 4. Splitting a face by a sketch wire gives 2 faces with the right areas. 5. Every result is BRepCheck-valid with complete history. |
-| BREP-08 | Tessellation: `tessellate` on a private topology copy (category C), `TessMesh` (per-face vertices, normals, `face_ranges`, exact `weld`, edge polylines), `to_indexed_parts`, `tessellate_many` (rayon, `InParallel` off), `tessellate_edge`, quality presets | BREP-12 | P0 | Todo | 1. A 1000-face fixture part tessellates (display preset) in < 100 ms median, including the topology copy (criterion `budget/brep-tess-1000`); the copy share is recorded. 2. `to_indexed_parts` of every closed fixture is watertight (`amg_testkit::metrics`: 0 boundary and 0 non-manifold edges), and its volume matches `mass_props` within the deflection bound. 3. Sphere r=10 tessellations converge to the exact area as deflection shrinks. 4. Tessellating one shared `Shape` from 8 threads while another thread runs booleans on it: no crash, identical meshes, input hash unchanged. 5. `face_of_triangle` is consistent with `face_ranges` for all triangles. |
+| BREP-08 | Tessellation: `tessellate` on a private topology copy (category C), `TessMesh` (per-face vertices, normals, `face_ranges`, exact `weld`, edge polylines), `to_indexed_parts`, `tessellate_many` (rayon, `InParallel` off), `tessellate_edge`, quality presets | BREP-12 | P0 | Review (wp/BREP-08-tess; Done-when 1 not met, see BREP-18) | 1. A 1000-face fixture part tessellates (display preset) in < 100 ms median, including the topology copy (criterion `budget/brep-tess-1000`); the copy share is recorded. 2. `to_indexed_parts` of every closed fixture is watertight (`amg_testkit::metrics`: 0 boundary and 0 non-manifold edges), and its volume matches `mass_props` within the deflection bound. 3. Sphere r=10 tessellations converge to the exact area as deflection shrinks. 4. Tessellating one shared `Shape` from 8 threads while another thread runs booleans on it: no crash, identical meshes, input hash unchanged. 5. `face_of_triangle` is consistent with `face_ranges` for all triangles. |
 | BREP-09 | Mass properties (volume, area, centroid, inertia, principal axes), `classify`, `distance`, `closest_point`, `ray_cast`, `eval_surface` (curvatures), `project_point_on_face`, `interference` | BREP-04 | P0 | Todo | 1. Box, cylinder, sphere and torus mass props match analytic values within 1e-9 relative. Inertia tensors match within 1e-9. 2. Distance between two spheres and between a point and a face matches analytic values within 1e-9. 3. `ray_cast` hits the expected face with the correct normal on 1000 random rays at a cylinder (vs analytic). 4. Curvatures of a torus at 10 points match analytic values within 1e-9. 5. `interference` volume of two overlapping boxes is analytic. |
 | BREP-17 | Geometry extraction for sketches and drawings: `plane_section` and `project_edges` to `CurveSeg` (lines/circles/ellipses recognised, others B-spline), `tessellate_edge` reuse | BREP-12 | P0 | Todo | 1. A plane section of a cylinder (perpendicular) gives one `Curve3::Circle` with exact radius. An oblique section gives an `Ellipse` with analytic axes within 1e-9. 2. Projecting the edges of a filleted box top onto the XY plane gives lines and circle arcs with the correct radii and endpoints. 3. Section of a B-spline surface returns B-spline segments within 1e-6 mm of the true intersection (sampled). |
 | BREP-10 | Healing and assembly: `heal` (`ShapeFix_Shape`, `ShapeFix_Wireframe` on a copy), `unify_same_domain`, `sew` (+ `make_solid`, orientation fix), `make_compound`, `check` (BRepCheck + ArgumentAnalyzer) | BREP-05 | P0 | Todo | 1. Sewing the 6 planar polygon faces of a cube (with 1e-4 mm gaps) gives a valid closed solid with volume within 1e-6. 2. Sewing the faces of 20 fixture parts exploded via `sub_shape` gives back solids with the same volume and face count. 3. `heal` fixes 10 corpus shapes with known defects (BRepCheck invalid → valid). 4. `unify_same_domain` after a fuse of two coplanar boxes yields 6 faces, and history maps the merged faces. 5. `check` lists the expected problem kinds on 5 broken fixtures. |
 | BREP-13 | STEP (AP203/214/242) and IGES read/write via XCAF into `ForeignModel` (names, colours incl. per-face, assembly tree with shared prototypes, units → mm), heal on import, progress + cancel; IGES under the global lock | BREP-10 | P0 | Todo | 1. Round-trip of 10 STEP fixtures (≥ 1 assembly with reused parts, ≥ 1 coloured, ≥ 1 in inches): write then read again gives the same tree, names, colours, solid count, and per-solid volume within 1e-9 relative. Inch input is scaled to mm. 2. Reading the same STEP file on 4 threads in parallel gives identical results (on 8.0.0 the reads serialise through the global lock; after a bump to 8.0.1 the lock is removed and the test still passes). 3. IGES round-trip of 3 fixtures. 4. A 50 MB STEP read reports progress and cancels within 500 ms. 5. The owner's Fusion STEP exports (if present under `$AMG_TESTDATA_DIR/fusion/`) import as valid solids. |
 | BREP-15 | Sweeps and raw loft: `pipe` (pipe-shell: Frenet/corrected/fixed/binormal/guide, twist/scale laws, transition, solid/shell), `thru_sections` (ruled/smooth, point sections, compatibility check) with roles `LoftSection`/`Lateral` | BREP-05 | P0 | Todo | 1. Golden volumes: a circle swept along a straight line and along an arc (torus segment) are analytic within 1e-6. A square along a helix is within 0.1 %. 2. A twisted sweep (90°) and a scaled sweep (1→2) match reference volumes. 3. ThruSections of 3 circles of different radii (smooth) is within 1e-4 relative of the analytic volume. Point-section cones work. 4. History: lateral faces map to the section edges. 5. Failures (incompatible sections) return `OpFailed` and never crash. KH-05 can call it as the baseline. |
 | BREP-11 | Thread geometry: `helix`, thread profile swept in binormal mode, cut/fuse onto a cylinder (`amg-brep` helper used by SOL-12) | BREP-15, BREP-04 | P1 | Todo | 1. ISO metric M3, M6, M10 and M20 external and internal threads (coarse pitch) build valid solids. 2. Pitch, measured as the axial distance between crests, is within 1e-6 mm. 3. The major/minor diameters measured by sections are within 1e-4 mm of ISO 68-1. 4. An M6×20 thread builds in < 200 ms. |
+| BREP-18 | Planar-face mesher for `tessellate`: planes with many hole loops bypass OCCT's `BRepMesh_Delaun` (a custom `IMeshTools_MeshAlgo` for planar faces over a real constrained Delaunay triangulation, or a Rust CDT fed from OCCT's edge discretisation), keeping the exact weld through `Poly_PolygonOnTriangulation` | BREP-08 | P0 | Todo | 1. The 1030-face `plate_with_holes` meets the BREP-08 display budget: `budget/brep-tess-1000` < 100 ms median, topology copy included. 2. All BREP-08 tests stay green (watertight `to_indexed_parts`, volume bound, layout, determinism, the Done-when 4 stress test) and the `tests/golden/brep/` goldens pass or are re-blessed with the reason recorded. 3. The chosen CDT passes the ADR-012 licence check and has a `THIRD_PARTY.md` row. |
 
 **Dependency changes in this refinement:** BREP-01 +FND-05 (+FND-13 on 2026-10-20, QUESTIONS #27). BREP-02 +FND-03.
 BREP-03 BREP-02 → BREP-12. BREP-04 BREP-02 → BREP-14. BREP-05 BREP-03 → BREP-04.
@@ -1199,6 +1200,114 @@ margin), or it needs re-basing for a real box build; BREP-14 should re-measure o
   file).
 - ThreadSanitizer CI run of the stress test (Linux, best effort) is not set up.
 
+
+### 2026-11-12 - BREP-08 tessellation
+**Landed.**
+- `amg-occt-sys` (bridge additions; `SHIM_VERSION` unchanged at 3, since no existing function
+  changed): shared structs `OcTessParams` and `OcTessMesh` (flat `f64`/`u32` arrays, timings,
+  `weld_mismatches`, `cancelled`), and shim functions `tessellate_shape` (category **C**),
+  `tessellate_edge` (R), `make_sphere` (R, test geometry) and `boolean_cut_probe` (N). They are
+  declared and tagged in `occt_shim.hxx`, so the BREP-12 category lint covers them, and
+  implemented in a new `cpp/occt_tess.cpp` (built by `build.rs`).
+  - `tessellate_shape` makes a `BRepBuilderAPI_Copy` (`copyGeom = false`, `copyMesh = false`) and
+    maps the copy's faces, edges and vertices. The copy keeps the input's structure, so its
+    `MapShapes` order is the input's index order. It then runs `BRepMesh_IncrementalMesh` with an
+    absolute deflection (`Relative = false`; amg-brep resolves relative qualities), the angular
+    deflection, the optional `MinSize` and `InParallel`, under the BREP-12 progress/cancel
+    bridge, and copies the result out.
+  - Normals come from `BRepAdaptor_Surface::D1` at each UV node, flipped on reversed faces, with
+    the summed triangle normals as a fallback where the surface normal vanishes (poles).
+  - Triangles are swapped on reversed faces, so they are CCW seen from outside.
+  - Weld ids: B-rep vertex index for the end nodes of each edge polygon and for every node of a
+    degenerated edge; edge interior nodes get one id range per edge from that edge's
+    `Poly_PolygonOnTriangulation` (in parameter order, the seam's two polygons included); face
+    interior nodes get fresh ids. Edge polylines are the first face polygon's points, or the
+    `Poly_Polygon3D` of a free edge, and empty for degenerated edges.
+- `amg-brep`: module `tess` with `TessMesh`, `EdgePolyline`, `face_of_triangle`,
+  `to_indexed_parts`, `triangle_count` and `estimated_bytes`, plus a hidden `TessProfile`. The
+  `BrepKernel` trait gains `tessellate`, `tessellate_many` and `tessellate_edge`; `OcctKernel`
+  implements them. `tessellate_many` runs rayon over the bodies with `InParallel` off; its
+  progress is the number of finished bodies.
+  - Hidden `OcctKernel::tessellate_profiled` (copy / mesh / copy-out times) and
+    `OcctKernel::boolean_cut_probe`.
+  - `EdgeId` derives `Default` (for `EdgePolyline: Default`).
+  - New dependency on the workspace `rayon` (already listed; `THIRD_PARTY.md` row names amg-brep).
+- Tests: `tests/tess.rs` (19 tests), the sphere convergence unit test in `src/tess.rs`, unit tests
+  for `face_of_triangle`, `to_indexed_parts` and deflection resolution, and two new stress tests in
+  `tests/stress.rs`. `common/stress.rs` gains `StressOp::{Tessellate, TessellateEdge}`,
+  `tess_queries`, `mesh_hash` and `run_with` (a background closure on an extra thread). Goldens:
+  `tests/golden/brep/tess_display_{box, cylinder, sphere, torus, filleted_box,
+  cylinder_mirrored}.toml`. Bench `benches/tess.rs`.
+
+**Done-when status** (`cargo nextest run -p amg-occt-sys -p amg-brep --features occt`: 104 tests
+pass; without the feature 34 pass. `cargo clippy -p amg-occt-sys -p amg-brep --all-targets
+--all-features -- -D warnings` is clean. All numbers are from a machine shared with three other
+workers' builds.)
+1. **Not met.** The 1030-face `plate_with_holes` at the display preset (deflection 0.467 mm,
+   0.35 rad; 151 564 triangles) takes a **4.95 s** median (`plate_display_mesh_time`, 11 runs).
+   The topology copy takes 23-33 ms (**0.7 %**) and the copy-out 33 ms, so nearly all of it is
+   meshing.
+   - Per-face profile: the two planar caps (1028 edges each, 1024 hole loops) take **3.9 s each**
+     inside OCCT's `BRepMesh_Delaun` (Watson) for 38 914 triangles each. Each of the 1024
+     cylinders takes about 1 ms. `InParallel` brings the whole shape from 8.8 s to 4.9 s (the two
+     caps run concurrently).
+   - `IMeshTools_MeshAlgoType_Delabella` is worse: over 2 minutes for the plate. Its
+     constraint/hole recovery runs through the same `BRepMesh_Delaun` frontier code.
+   - Ordinary faces fit the budget's order of magnitude: 38 filleted boxes (988 faces) through
+     `tessellate_many` take 122 ms median, and the plate's 1028 non-cap faces 188 ms
+     (`thousand_ordinary_faces_mesh_time`, loaded machine).
+   - Follow-up **BREP-18**: a planar-face mesher with a real CDT. `budget/brep-tess-1000` is in
+     place in `benches/tess.rs`, and the strict test assertion runs with `AMG_STRICT_TIMING=1`.
+2. Met. For every closed fixture (box, cylinder, cone, sphere, torus, filleted_box,
+   plate_with_holes, located_compound, cylinder_mirrored), at the preview and display presets,
+   `to_indexed_parts` has 0 boundary and 0 non-manifold edges and no unused vertex. The volume
+   is within `deflection × exact area` of `Shape::volume`; `mass_props` is BREP-09, and the
+   exact `BRepGProp` volume stands in. Display examples: sphere 1429.49 vs 1436.76 (bound
+   14.9), torus 9801.0 vs 9869.6 (bound 282), plate 400 469 vs 399 735 (bound 1.2e5). Euler is 2
+   for genus 0, 0 for the torus, -2046 for the 1024-hole plate and 4 for the two-box compound.
+3. Met (`sphere_area_converges_as_deflection_shrinks`, r = 10, absolute deflection, angular
+   1.5 rad). Relative area error by deflection: 1 → 7.77e-2, 0.3 → 2.07e-2, 0.1 → 7.82e-3,
+   0.03 → 2.39e-3, 0.01 → 7.74e-4, 0.003 → 2.37e-4, 0.001 → 7.94e-5 (100 520 triangles). It
+   falls strictly, stays at or below 2.5 d/r, and ends below 1e-4.
+4. Met (`shared_*_tessellates_during_booleans`). 8 threads run whole-shape tessellations
+   (preview and display), `tessellate_edge` on 8 edges and reads, while another thread loops
+   non-destructive `BRepAlgoAPI_Cut`s of the same shared shape with a box at its corner.
+   - `filleted_box`: 8 × 40 iterations, 12 booleans. `plate_with_holes`: 8 × 16 iterations,
+     62 booleans, 34.6 s.
+   - No crash, and 0 mismatches against the single-threaded reference (bit hash of every
+     position, normal, index and range).
+   - Every cut has the same face count and the same volume bits.
+   - The BinTools hash is unchanged (`cad3beeac5e9c130` box, `42a46e2564f1eef4` plate). A final
+     single-threaded pass still matches, so no triangulation leaked onto the input.
+5. Met (`face_of_triangle_matches_face_ranges`): checked for every triangle of every fixture.
+   The per-triangle face ids of `to_indexed_parts` are non-decreasing.
+
+**Deviations.**
+- `TessQuality::relative` means "fraction of the shape's bbox diagonal" (the `opts` docs), not
+  OCCT's per-edge `Relative` flag. amg-brep turns it into an absolute deflection, clamps it to
+  `max_linear_abs`, and passes OCCT `Relative = false`. `tessellate_edge` resolves it against
+  the shape's bbox too.
+- No `TessMesh::as_soup()`: `amg-testkit` is a dev-dependency only, so the library cannot return
+  a `TriSoup`. Tests build the soup from `to_indexed_parts` (two fields).
+- `uvs` is always `None` (P2 as specified). Optional per-vertex curvatures (S10 request) are not
+  done.
+- The Done-when 4 booleans use the hidden `boolean_cut_probe` (one `BRepAlgoAPI_Cut`,
+  `SetNonDestructive(true)`, no history), because BREP-04 has not landed. BREP-04 replaces the
+  probe with `boolean` and keeps the test. The tool is the `box` fixture moved by `transformed`,
+  since there is no box builder before BREP-14.
+- Mid-op cancellation is coarse: OCCT polls the indicator between its steps, not inside a face's
+  Delaunay. On the plate at the export preset (13 s), a cancel after 3.3 s returned `Cancelled`
+  only after 13.0 s. The `cancel_during_meshing_returns_cancelled` time bound is asserted only
+  under `AMG_STRICT_TIMING=1`, and would fail on this fixture today (BREP-18 shrinks the step).
+- `iso_curves` (S05 request, 2026-10-20) is not part of BREP-08 as written and is left for the
+  S05 WP that needs it.
+
+**Leftovers.**
+- BREP-18 (planar-face mesher) for Done-when 1.
+- The criterion bench `budget/brep-tess-1000` was not run to completion on the shared machine:
+  one display mesh is 5 s, so 30 samples would take minutes per group. Run it on an idle machine
+  after BREP-18.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1306,3 +1415,13 @@ Additive:
   uses it to check that moving a body between components keeps its volume. S05's mass properties
   (INS-10) may replace or extend it.
 
+### 2026-11-12: additions and shared files changed by BREP-08 (lane A)
+All additive:
+- `amg-brep`: `TessMesh`, `EdgePolyline`, hidden `TessProfile`; `BrepKernel::{tessellate,
+  tessellate_many, tessellate_edge}` (every `BrepKernel` implementor must add them; the
+  `api_contract.rs` decorator forwards them); hidden `OcctKernel::{tessellate_profiled,
+  boolean_cut_probe}`; `EdgeId: Default`; `rayon` dependency (workspace).
+- `amg-occt-sys`: `OcTessParams`, `OcTessMesh`, shim functions `tessellate_shape`,
+  `tessellate_edge`, `make_sphere`, `boolean_cut_probe`, new `cpp/occt_tess.cpp` in `build.rs`.
+- `tests/golden/brep/` (new suite), `THIRD_PARTY.md` rayon row (amg-brep added as a user),
+  `Cargo.lock`.

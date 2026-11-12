@@ -5,13 +5,17 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use amg_core::Point3;
 use amg_jobs::JobCtx;
+use rayon::prelude::*;
 
 use crate::backend;
 use crate::check::{CheckOpts, CheckReport};
 use crate::config::KernelConfig;
 use crate::error::{KResult, KernelError};
-use crate::shape::{FORMAT_VERSION, Shape};
+use crate::opts::TessQuality;
+use crate::shape::{EdgeId, FORMAT_VERSION, Shape};
+use crate::tess::{self, TessMesh, TessProfile};
 
 /// Version of the robustness policy, the third part of [`kernel_version`]. S20's
 /// `amg_brep::robust` module takes it over and bumps it when a strategy changes results.
@@ -74,6 +78,35 @@ pub trait BrepKernel: Send + Sync {
     /// `BRepCheck_Analyzer` validity of `s`, with problems per sub-shape (S02 §9).
     /// `opts.self_interference` is BREP-10's and ignored until then.
     fn check(&self, s: &Shape, opts: &CheckOpts) -> CheckReport;
+
+    // -- tessellation (BREP-08) --
+
+    /// Triangulates `s` (S02 §8). Meshes a private copy of the topology (category C), with
+    /// OCCT's face-parallel meshing on. Linear deflection is `q.linear` mm, or `q.linear` times
+    /// the bbox diagonal (clamped to `q.max_linear_abs`) when `q.relative`.
+    ///
+    /// Cancellation is mid-op: `ctx` is polled through OCCT's progress indicator.
+    ///
+    /// # Errors
+    /// `InvalidInput` for a quality with non-positive deflections, `Cancelled`, `Occt` when
+    /// meshing raises, `BackendUnavailable` without OCCT.
+    fn tessellate(&self, s: &Shape, q: &TessQuality, ctx: &JobCtx) -> KResult<TessMesh>;
+
+    /// [`BrepKernel::tessellate`] of many bodies: rayon over the bodies, OCCT's face-parallel
+    /// meshing off. One result per shape, in order. `ctx` progress counts finished bodies.
+    fn tessellate_many(
+        &self,
+        shapes: &[Shape],
+        q: &TessQuality,
+        ctx: &JobCtx,
+    ) -> Vec<KResult<TessMesh>>;
+
+    /// Points along edge `e` in parameter order, within `q` (relative to the bbox of `s`).
+    /// Independent of [`BrepKernel::tessellate`]'s edge polylines.
+    ///
+    /// # Errors
+    /// `InvalidInput` for an out-of-range or degenerated edge or a bad quality.
+    fn tessellate_edge(&self, s: &Shape, e: EdgeId, q: &TessQuality) -> KResult<Vec<Point3>>;
 }
 
 /// The OCCT backend. Cheap to clone; `Send + Sync`. Without the `occt` feature every op returns
@@ -127,11 +160,67 @@ impl OcctKernel {
         let micros = u32::try_from(step.as_micros()).unwrap_or(u32::MAX);
         backend::progress_probe(steps, micros, ctx)
     }
+
+    /// [`BrepKernel::tessellate`] plus where its time went (the topology copy's share, for the
+    /// S02 budget bench).
+    ///
+    /// # Errors
+    /// As [`BrepKernel::tessellate`].
+    #[doc(hidden)]
+    pub fn tessellate_profiled(
+        &self,
+        s: &Shape,
+        q: &TessQuality,
+        ctx: &JobCtx,
+    ) -> KResult<(TessMesh, TessProfile)> {
+        tess::tessellate(s, q, ctx, true, true)
+    }
+
+    /// `object` minus `tool` through a non-destructive `BRepAlgoAPI_Cut` (category N). A probe
+    /// for BREP-08's concurrency test until BREP-04 lands `boolean`; no history, no validation.
+    ///
+    /// # Errors
+    /// `Occt` when the cut fails, `BackendUnavailable` without OCCT.
+    #[doc(hidden)]
+    pub fn boolean_cut_probe(&self, object: &Shape, tool: &Shape) -> KResult<Shape> {
+        object
+            .occ()
+            .boolean_cut_probe(tool.occ())
+            .map(Shape::from_occ)
+    }
 }
 
 impl BrepKernel for OcctKernel {
     fn check(&self, s: &Shape, _opts: &CheckOpts) -> CheckReport {
         s.check_report()
+    }
+
+    fn tessellate(&self, s: &Shape, q: &TessQuality, ctx: &JobCtx) -> KResult<TessMesh> {
+        tess::tessellate(s, q, ctx, true, true).map(|(mesh, _)| mesh)
+    }
+
+    fn tessellate_many(
+        &self,
+        shapes: &[Shape],
+        q: &TessQuality,
+        ctx: &JobCtx,
+    ) -> Vec<KResult<TessMesh>> {
+        let done = std::sync::atomic::AtomicUsize::new(0);
+        let total = shapes.len().max(1);
+        shapes
+            .par_iter()
+            .map(|s| {
+                let result = tess::tessellate(s, q, ctx, false, false).map(|(mesh, _)| mesh);
+                let finished = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                #[allow(clippy::cast_precision_loss, reason = "progress needs no precision")]
+                ctx.progress(finished as f32 / total as f32);
+                result
+            })
+            .collect()
+    }
+
+    fn tessellate_edge(&self, s: &Shape, e: EdgeId, q: &TessQuality) -> KResult<Vec<Point3>> {
+        tess::tessellate_edge(s, e, q)
     }
 }
 

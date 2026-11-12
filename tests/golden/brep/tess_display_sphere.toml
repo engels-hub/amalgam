@@ -1,0 +1,28 @@
+# Golden metrics for brep/tess_display_sphere. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 1429.48903927259
+area = 614.0559791243678
+vertices = 1419
+triangles = 2834
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -6.9881571078988785,
+    -6.988157107898878,
+    -7.0,
+]
+max = [
+    6.98815710789888,
+    6.988157107898878,
+    7.0,
+]

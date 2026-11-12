@@ -9,10 +9,12 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use amg_brep::{
-    BrepKernel, CheckOpts, EdgeId, FaceId, OcctKernel, Shape, SubKind, SubShape, VertexId,
+    BrepKernel, CheckOpts, EdgeId, FaceId, JobCtx, OcctKernel, Shape, SubKind, SubShape, TessMesh,
+    TessQuality, VertexId,
 };
 
 /// One deterministic operation on the shared shape.
@@ -40,6 +42,50 @@ pub enum StressOp {
     EstimatedBytes,
     /// `BRepCheck_Analyzer` (category R).
     Check,
+    /// `tessellate` (category C: meshes a private copy), BREP-08.
+    Tessellate(TessQuality),
+    /// `tessellate_edge` (category R), BREP-08.
+    TessellateEdge(EdgeId, TessQuality),
+}
+
+/// The BREP-08 tessellation ops: whole-shape meshes at two presets (first, so every worker
+/// starts by meshing) and about eight edges.
+pub fn tess_queries(shape: &Shape) -> Vec<StressOp> {
+    let mut ops = vec![
+        StressOp::Tessellate(TessQuality::preview()),
+        StressOp::Tessellate(TessQuality::display()),
+    ];
+    let step = (shape.count(SubKind::Edge) as usize / 8).max(1);
+    for e in shape.edges().step_by(step) {
+        if shape.curve(e).is_some() {
+            ops.push(StressOp::TessellateEdge(e, TessQuality::display()));
+        }
+    }
+    ops
+}
+
+/// Hash of every bit of a mesh (`Debug` strings of large meshes are slow to build).
+pub fn mesh_hash(mesh: &TessMesh) -> u64 {
+    let mut h = DefaultHasher::new();
+    for p in mesh
+        .positions
+        .iter()
+        .chain(&mesh.normals)
+        .chain(&mesh.edge_points)
+    {
+        for c in p.to_array() {
+            c.to_bits().hash(&mut h);
+        }
+    }
+    mesh.tris.hash(&mut h);
+    for r in &mesh.face_ranges {
+        (r.start, r.end).hash(&mut h);
+    }
+    mesh.weld.hash(&mut h);
+    for e in &mesh.edges {
+        (e.edge, e.points.start, e.points.end).hash(&mut h);
+    }
+    h.finish()
 }
 
 /// The category-R queries over every sub-shape of `shape`.
@@ -127,6 +173,18 @@ pub fn eval(kernel: &OcctKernel, shape: &Shape, op: StressOp) -> String {
         }
         StressOp::EstimatedBytes => format!("{}", shape.estimated_bytes()),
         StressOp::Check => format!("{:?}", kernel.check(shape, &CheckOpts::default())),
+        StressOp::Tessellate(q) => {
+            let mesh = kernel
+                .tessellate(shape, &q, &JobCtx::detached())
+                .expect("tessellate");
+            format!("{} tris {:016x}", mesh.triangle_count(), mesh_hash(&mesh))
+        }
+        StressOp::TessellateEdge(e, q) => format!(
+            "{:?}",
+            kernel
+                .tessellate_edge(shape, e, &q)
+                .expect("tessellate_edge")
+        ),
     }
 }
 
@@ -184,6 +242,33 @@ pub fn run(
     iterations: usize,
     seed: u64,
 ) -> StressReport {
+    run_with(
+        kernel,
+        shared,
+        ops,
+        reference,
+        threads,
+        iterations,
+        seed,
+        || {},
+    )
+    .0
+}
+
+/// [`run`] while one extra thread calls `background` in a loop (at least once) until the
+/// workers finish, for example booleans on the shared shape (BREP-08 Done-when 4). Also
+/// returns how many times `background` ran.
+#[allow(clippy::too_many_arguments, reason = "test harness")]
+pub fn run_with(
+    kernel: &OcctKernel,
+    shared: &Shape,
+    ops: &[StressOp],
+    reference: &[String],
+    threads: usize,
+    iterations: usize,
+    seed: u64,
+    background: impl Fn() + Sync,
+) -> (StressReport, usize) {
     assert_eq!(ops.len(), reference.len());
     let (bytes_before, hash_before) = bin_hash(shared);
     // Every thread starts with the slowest op, so the heavy ones overlap at least once.
@@ -193,9 +278,21 @@ pub fn run(
         .unwrap_or(0);
     let mismatches = Mutex::new(Vec::new());
     let start = Instant::now();
+    let running = AtomicUsize::new(threads);
+    let background_runs = AtomicUsize::new(0);
     std::thread::scope(|scope| {
+        scope.spawn(|| {
+            loop {
+                background();
+                background_runs.fetch_add(1, Ordering::Relaxed);
+                if running.load(Ordering::Acquire) == 0 {
+                    break;
+                }
+            }
+        });
         for t in 0..threads {
             let mismatches = &mismatches;
+            let running = &running;
             scope.spawn(move || {
                 let mut rng = Rng::new(seed ^ (t as u64).wrapping_mul(0xA24B_AED4_963E_E407));
                 for i in 0..iterations {
@@ -208,12 +305,13 @@ pub fn run(
                         ));
                     }
                 }
+                running.fetch_sub(1, Ordering::Release);
             });
         }
     });
     let elapsed = start.elapsed();
     let (bytes_after, hash_after) = bin_hash(shared);
-    StressReport {
+    let report = StressReport {
         threads,
         iterations,
         ops: ops.len(),
@@ -222,5 +320,6 @@ pub fn run(
         hash_after,
         input_unchanged: bytes_before == bytes_after,
         elapsed,
-    }
+    };
+    (report, background_runs.into_inner())
 }

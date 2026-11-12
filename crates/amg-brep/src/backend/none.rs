@@ -11,6 +11,7 @@ use crate::error::KernelError;
 use crate::geom::{Curve3, Surface};
 use crate::index::RawTopology;
 use crate::shape::{ShapeKind, SubKind};
+use crate::tess::{TessMesh, TessParams, TessProfile};
 
 pub(crate) fn occt_version() -> String {
     "occt-none".to_owned()
@@ -118,6 +119,27 @@ impl Occ {
     }
 
     pub(crate) fn write_text(&self) -> KResult<Vec<u8>> {
+        match *self {}
+    }
+
+    pub(crate) fn tessellate(
+        &self,
+        _params: TessParams,
+        _ctx: &JobCtx,
+    ) -> KResult<(TessMesh, TessProfile)> {
+        match *self {}
+    }
+
+    pub(crate) fn tessellate_edge(
+        &self,
+        _edge: u32,
+        _linear: f64,
+        _angular: f64,
+    ) -> KResult<Vec<Point3>> {
+        match *self {}
+    }
+
+    pub(crate) fn boolean_cut_probe(&self, _tool: &Occ) -> KResult<Occ> {
         match *self {}
     }
 }

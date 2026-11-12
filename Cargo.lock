@@ -215,6 +215,7 @@ dependencies = [
  "amg-occt-sys",
  "amg-testkit",
  "criterion 0.8.2",
+ "rayon",
  "serde",
  "serde_json",
  "static_assertions",

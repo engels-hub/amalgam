@@ -61,9 +61,20 @@ pub enum SubKind {
 #[serde(transparent)]
 pub struct FaceId(pub u32);
 
-/// 0-based edge index, valid only for the `Shape` it came from.
+/// 0-based edge index, valid only for the `Shape` it came from. `Default` is `EdgeId(0)` (for
+/// `EdgePolyline::default`).
 #[derive(
-    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[serde(transparent)]
 pub struct EdgeId(pub u32);
@@ -128,11 +139,16 @@ impl Shape {
     }
 
     #[cfg(all(test, feature = "occt"))]
+    pub(crate) fn test_sphere(radius: f64) -> Shape {
+        Shape::from_occ(Occ::test_sphere(radius))
+    }
+
+    #[cfg(all(test, feature = "occt"))]
     pub(crate) fn test_open_wire_face() -> Shape {
         Shape::from_occ(Occ::test_open_wire_face())
     }
 
-    fn occ(&self) -> &Occ {
+    pub(crate) fn occ(&self) -> &Occ {
         &self.inner.occ
     }
 
