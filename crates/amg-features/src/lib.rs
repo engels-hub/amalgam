@@ -5,5 +5,6 @@
 pub mod am;
 pub mod assembly;
 pub mod construct;
+pub mod inspect;
 pub mod mesh;
 pub mod sketch;
