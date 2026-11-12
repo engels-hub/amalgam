@@ -1,8 +1,9 @@
 //! The registry of everything modules contribute (workspaces, tabs, groups, panels).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use crate::command::{CmdId, CommandDef, DYNAMIC_PREFIX, Placement, RegistryError};
 use crate::module::{
     ContextId, GroupDef, GroupId, PanelId, Registrar, TabDef, TabId, UiModule, WorkspaceDef,
     WorkspaceId,
@@ -20,6 +21,15 @@ pub struct UiRegistry {
     tabs: BTreeMap<TabId, (&'static str, TabDef)>,
     groups: BTreeMap<GroupId, (&'static str, GroupDef)>,
     panels: BTreeMap<PanelId, (&'static str, PanelDef)>,
+    commands: BTreeMap<CmdId, (&'static str, CommandDef)>,
+    /// Ids registered at runtime (`script.` namespace); only these can be unregistered.
+    dynamic: BTreeSet<CmdId>,
+    /// Toolbar index: group → (order, pinned, id), sorted.
+    by_group: BTreeMap<GroupId, Vec<(i32, bool, CmdId)>>,
+    /// Menu index: path → (order, id), sorted.
+    by_menu: BTreeMap<&'static str, Vec<(i32, CmdId)>>,
+    /// Bumped by every command change; search and shortcut caches compare it.
+    generation: u64,
 }
 
 impl fmt::Debug for UiRegistry {
@@ -30,6 +40,7 @@ impl fmt::Debug for UiRegistry {
             .field("tabs", &self.tabs.keys().collect::<Vec<_>>())
             .field("groups", &self.groups.len())
             .field("panels", &self.panels.keys().collect::<Vec<_>>())
+            .field("commands", &self.commands.len())
             .finish()
     }
 }
@@ -96,6 +107,138 @@ impl UiRegistry {
             return;
         }
         self.panels.insert(def.id, (module, def));
+    }
+
+    pub(crate) fn add_command(&mut self, module: &'static str, def: CommandDef) {
+        if let Some((first, _)) = self.commands.get(&def.id) {
+            conflict("command", def.id.0, first, module);
+            return;
+        }
+        self.insert_command(module, def);
+    }
+
+    fn insert_command(&mut self, module: &'static str, def: CommandDef) {
+        let id = def.id;
+        for p in &def.placements {
+            match p {
+                Placement::Toolbar {
+                    group,
+                    pinned,
+                    order,
+                } => {
+                    let v = self.by_group.entry(*group).or_default();
+                    v.push((*order, *pinned, id));
+                    v.sort();
+                }
+                Placement::Menu { path, order } => {
+                    let v = self.by_menu.entry(path).or_default();
+                    v.push((*order, id));
+                    v.sort();
+                }
+                Placement::SearchOnly => {}
+            }
+        }
+        self.commands.insert(id, (module, def));
+        self.generation += 1;
+    }
+
+    /// Registers a command at runtime (Python add-ins, SCR-04).
+    ///
+    /// # Errors
+    /// [`RegistryError::BadPrefix`] unless the id starts with `script.`;
+    /// [`RegistryError::Duplicate`] if the id is taken. Neither panics: add-ins are user code.
+    pub fn register_dynamic(&mut self, def: CommandDef) -> Result<(), RegistryError> {
+        if !def.id.0.starts_with(DYNAMIC_PREFIX) {
+            return Err(RegistryError::BadPrefix(def.id.0));
+        }
+        if self.commands.contains_key(&def.id) {
+            return Err(RegistryError::Duplicate(def.id.0));
+        }
+        self.dynamic.insert(def.id);
+        self.insert_command("script", def);
+        Ok(())
+    }
+
+    /// Removes a command registered with [`Self::register_dynamic`]. Returns false for an
+    /// unknown id or a statically registered command (those cannot be removed).
+    pub fn unregister_dynamic(&mut self, id: CmdId) -> bool {
+        if !self.dynamic.remove(&id) {
+            return false;
+        }
+        self.commands.remove(&id);
+        for v in self.by_group.values_mut() {
+            v.retain(|(_, _, c)| *c != id);
+        }
+        for v in self.by_menu.values_mut() {
+            v.retain(|(_, c)| *c != id);
+        }
+        self.generation += 1;
+        true
+    }
+
+    /// One command.
+    pub fn command(&self, id: CmdId) -> Option<&CommandDef> {
+        self.commands.get(&id).map(|(_, d)| d)
+    }
+
+    /// Every command, by id.
+    pub fn commands(&self) -> impl Iterator<Item = &CommandDef> + '_ {
+        self.commands.values().map(|(_, d)| d)
+    }
+
+    /// The module that registered a command (`"script"` for runtime registrations).
+    pub fn command_owner(&self, id: CmdId) -> Option<&'static str> {
+        self.commands.get(&id).map(|(m, _)| *m)
+    }
+
+    /// Changes whenever a command is added or removed.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// The commands placed in a toolbar group, in display order: `(pinned, command)`.
+    pub fn group_commands(&self, group: GroupId) -> impl Iterator<Item = (bool, &CommandDef)> + '_ {
+        self.by_group
+            .get(&group)
+            .into_iter()
+            .flatten()
+            .filter_map(|(_, pinned, id)| self.command(*id).map(|d| (*pinned, d)))
+    }
+
+    /// The commands placed exactly at menu `path`, in display order.
+    pub fn menu_commands(&self, path: &str) -> impl Iterator<Item = &CommandDef> + '_ {
+        self.by_menu
+            .get(path)
+            .into_iter()
+            .flatten()
+            .filter_map(|(_, id)| self.command(*id))
+    }
+
+    /// The names of the menus directly below `prefix` (`""` = the top-level menus), sorted,
+    /// that contain a command at or below them.
+    pub fn menu_children(&self, prefix: &str) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for path in self.by_menu.keys() {
+            let rest = if prefix.is_empty() {
+                *path
+            } else {
+                match path.strip_prefix(prefix).and_then(|r| r.strip_prefix('/')) {
+                    Some(r) => r,
+                    None => continue,
+                }
+            };
+            let first = rest.split('/').next().unwrap_or_default();
+            if !first.is_empty() && !out.contains(&first) {
+                out.push(first);
+            }
+        }
+        out.sort_unstable();
+        out
+    }
+
+    /// One toolbar group.
+    pub fn group(&self, id: GroupId) -> Option<&GroupDef> {
+        self.groups.get(&id).map(|(_, d)| d)
     }
 
     /// Workspaces in switcher order (`order`, then id).
@@ -309,5 +452,57 @@ mod tests {
             assert!(design.contains(&t), "Design lacks tab {t}: {design:?}");
         }
         assert!(!design.contains(&"Sketch"), "Sketch is contextual");
+    }
+
+    fn cmd_a(r: &mut Registrar<'_>) {
+        r.command(CommandDef::new(
+            "dup.cmd",
+            "First",
+            crate::command::CmdAction::Run(|_| {}),
+        ));
+    }
+
+    fn cmd_b(r: &mut Registrar<'_>) {
+        r.command(CommandDef::new(
+            "dup.cmd",
+            "Second",
+            crate::command::CmdAction::Run(|_| {}),
+        ));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "duplicate command id `dup.cmd`")]
+    fn duplicate_cmd_id_panics_in_debug() {
+        let a = UiModule {
+            id: "ca",
+            register: cmd_a,
+        };
+        let b = UiModule {
+            id: "cb",
+            register: cmd_b,
+        };
+        let _ = UiRegistry::from_modules([&a, &b]);
+    }
+
+    #[test]
+    fn register_dynamic_rejects_ids_without_script_prefix() {
+        use crate::command::{CmdAction, CmdId, CommandDef, RegistryError};
+        let mut reg = UiRegistry::default();
+        let mk = |id| CommandDef::new(id, "X", CmdAction::Run(|_| {}));
+        assert_eq!(
+            reg.register_dynamic(mk("mesh.remesh")),
+            Err(RegistryError::BadPrefix("mesh.remesh"))
+        );
+        assert_eq!(reg.commands().count(), 0);
+        assert_eq!(reg.register_dynamic(mk("script.a")), Ok(()));
+        assert_eq!(
+            reg.register_dynamic(mk("script.a")),
+            Err(RegistryError::Duplicate("script.a"))
+        );
+        let g = reg.generation();
+        assert!(reg.unregister_dynamic(CmdId("script.a")));
+        assert!(reg.generation() > g);
+        assert!(reg.command(CmdId("script.a")).is_none());
     }
 }

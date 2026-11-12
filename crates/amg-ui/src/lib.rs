@@ -9,18 +9,25 @@
 //! [`module::UiModule`]s and the stub modules of every domain lane. The `testing` feature
 //! adds [`testing::AppHarness`].
 //!
+//! UI-02 adds the command registry ([`command`]), the [`shortcut::ShortcutMap`] with scopes and
+//! `shortcuts.toml` overrides, and the S-key [`search`].
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
 #![warn(missing_docs)]
 
 pub mod app;
+mod builtin;
+pub mod command;
 pub mod design;
 pub mod dock;
 pub mod module;
 pub mod panel;
 pub mod registry;
+pub mod search;
 mod shell;
+pub mod shortcut;
 pub mod theme;
 pub mod viewport;
 
@@ -38,12 +45,15 @@ pub mod sim;
 pub mod testing;
 
 pub use app::{AmalgamApp, AppConfig, AppCx, CmdEnv, CommitBatch, DocTab, DocTabId};
+pub use command::{CmdAction, CmdId, CommandDef, Enablement, Enabler, Placement, RegistryError};
 pub use registry::UiRegistry;
+pub use shortcut::{Shortcut, ShortcutMap, ShortcutScope};
 
 /// Keeps every module's `inventory::submit!` in the final binary (the S01 linker caveat: an
 /// object file nothing references may be dropped). [`UiRegistry::build`] calls it.
 pub fn link() {
-    let registers: [fn(&mut module::Registrar<'_>); 9] = [
+    let registers: [fn(&mut module::Registrar<'_>); 10] = [
+        builtin::register,
         design::register,
         am::register,
         form::register,

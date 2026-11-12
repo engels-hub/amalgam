@@ -9,6 +9,7 @@
 //! ```
 
 use crate::app::AppCx;
+use crate::command::CommandDef;
 use crate::panel::PanelDef;
 use crate::registry::UiRegistry;
 
@@ -162,6 +163,12 @@ impl Registrar<'_> {
     /// Adds a toolbar group.
     pub fn toolbar_group(&mut self, def: GroupDef) {
         self.reg.add_group(self.module, def);
+    }
+
+    /// Adds a command (toolbar, menu, search and shortcut entry). A duplicate id panics in
+    /// debug builds and is logged and dropped in release builds.
+    pub fn command(&mut self, def: CommandDef) {
+        self.reg.add_command(self.module, def);
     }
 
     /// Adds a dockable panel.

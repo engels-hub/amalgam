@@ -898,7 +898,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | UI-01 | App shell: `amg-app` start-up (diag, UI-thread mark, `Gpu` → `WgpuSetup::Existing`, `JobSystem` notifier → repaint), eframe 0.37 frame loop (`logic`/`ui`, end-of-frame `CommandQueue`), fixed panels + `DockHost` facade (egui_dock), theme tokens (light/dark/system), workspace/tab registry + `UiModule` inventory + stub modules for every domain lane, document tabs, undo/redo buttons, status bar, `amg_ui::testing::AppHarness` (kittest, `NullViewport`, `CpuPickService` stub) | RND-01, FND-07 | P0 | Done | 1. `amg-app` opens on the owner's machine showing the Fusion layout (app bar, toolbar, browser, timeline, status bar, viewport tab with the RND-01 mesh). Cold start to first interactive frame < 2 s (tracing span `startup`). 2. Kittest: switching workspace via the switcher changes the visible tabs (`get_by_label`). A test module registering a workspace + tab through `inventory` appears without editing framework files. 3. Light/dark snapshot tests pass on WARP. 4. With no input and no jobs, the app does not repaint (frame counter stays constant over 1 s). 5. A test job's notifier wakes the UI within one frame. 6. Two document tabs keep independent undo stacks (kittest). |
-| UI-02 | Command registry (`CommandDef`, `Placement`, `Enabler`, dynamic registration), toolbar tabs/groups/dropdowns, menus, `ShortcutMap` with scopes and `shortcuts.toml` overrides, S-key search (own fuzzy scorer, recency) | UI-01 | P0 | Todo | 1. Kittest: pressing `S`, typing "remsh" lists a registered `test.remesh` first, and Enter runs it. 2. Disabled commands show their reason in the tooltip and are skipped by Enter. 3. A duplicate `CmdId` panics in debug (unit test). 4. Shortcut scope test: `L` in sketch scope and `L` in global scope resolve correctly. Single letters are ignored while a text field has focus. 5. Search over 1 000 synthetic commands < 1 ms per keystroke (criterion). 6. `register_dynamic` rejects ids without the `script.` prefix. |
+| UI-02 | Command registry (`CommandDef`, `Placement`, `Enabler`, dynamic registration), toolbar tabs/groups/dropdowns, menus, `ShortcutMap` with scopes and `shortcuts.toml` overrides, S-key search (own fuzzy scorer, recency) | UI-01 | P0 | Review (wp/UI-02-commands) | 1. Kittest: pressing `S`, typing "remsh" lists a registered `test.remesh` first, and Enter runs it. 2. Disabled commands show their reason in the tooltip and are skipped by Enter. 3. A duplicate `CmdId` panics in debug (unit test). 4. Shortcut scope test: `L` in sketch scope and `L` in global scope resolve correctly. Single letters are ignored while a text field has focus. 5. Search over 1 000 synthetic commands < 1 ms per keystroke (criterion). 6. `register_dynamic` rejects ids without the `script.` prefix. |
 | UI-03 | `Tool` trait + router (priority chain, Esc/Enter, replace semantics), `ViewportEvent` synthesis from egui input, `PickService` trait + S10 implementation + latest-wins hover, Fusion navigation preset over S10 camera, `PreviewDriver`, `spawn_tracked`, `SelectTool` (click only) | UI-02, RND-04, RND-11 | P0 | Todo | 1. Kittest with a scripted test tool: events arrive in order, Esc cancels (`FinishReason::Cancel`), Enter commits one undo entry, and starting another command gives `Replaced`. 2. Middle-drag orbits even while a tool is active that ignores the event. 3. Hover pick → highlight within ≤ 2 frames on the owner's GPU and with `CpuPickService`. 4. `PreviewDriver`: 20 rapid `set` calls → exactly one preview computed (test counter feature), and none enters the undo stack. 5. No UI-thread frame > 16 ms while a 2 s test job runs (tracing assertion). |
 | UI-20 | Scene adapter: `DocEvent` → `RenderScene` (RND-03), `RenderEntityKey` allocation, `PickMap`, `BodyTessellator` registry with Mesh tessellator, highlight layers, preview layer feed, `CpuPickService` real implementation | UI-01, RND-03, DOC-09 | P0 | Todo | 1. Scripted test: add/edit/delete 3 mesh bodies → the RenderScene contains exactly the live bodies, and an unchanged body is never re-uploaded (upload counter). 2. `DocumentReplaced` rebuilds the scene, and keys are not reused within a session. 3. `PickMap` round-trips every face index of a 10 k-triangle body. 4. A registered test tessellator for a stub `BodyGeom` variant is used. 5. Updating 1 changed body in a 100-body scene < 1 ms of UI-thread time. |
 | UI-04 | Selection system: `Selection`, `SelItem`, `EntityFilter` bar, select priority, click/Ctrl/Shift rules, window/crossing box (S10 region pick), select-through list, selection sets (`ExtRecord ui.selection_sets`), revalidation on events | UI-03, UI-20 | P0 | Todo | 1. Kittest on a fixture with 3 mesh bodies: window select left→right picks only fully enclosed bodies, and right→left also picks touching ones. 2. With the filter set to faces only, a click on an edge selects the adjacent face. 3. Select-through lists all 3 stacked bodies in depth order. 4. Save a selection set → reload the file → restore gives the same `EntityRef`s, and undo removes the set. 5. Deleting a selected body drops it from the selection without error. |
@@ -1231,6 +1231,49 @@ This was raised with S01 and S03.
 - The S10 background is the midpoint of the theme gradient (`Background` has only `Solid`);
   RND-02 adds the gradient.
 
+### 2026-11-12 - UI-02 command registry, shortcuts, search
+Landed in `amg-ui`: `command` (`CmdId`, `CommandDef` + builder methods, `Placement`, `Enabler`,
+`Enablement`, `CmdAction::{Run, Toggle, Dyn}`, `RegistryError`), `shortcut` (`Shortcut::parse`,
+`ShortcutScope`, `ShortcutMap` with scopes and conflicts, `ShortcutOverrides` = `shortcuts.toml`),
+`search` (own scorer, `SearchIndex`, `Recency`, popup), `builtin` (module `app`: `app.search` =
+`S`, `edit.undo` = Ctrl+Z, `edit.redo` = Ctrl+Y / Ctrl+Shift+Z). `Registrar::command`,
+`UiRegistry::{register_dynamic, unregister_dynamic, command, commands, group_commands,
+menu_commands, menu_children, generation}`. The shell draws registered commands in toolbar group
+dropdowns (plus pinned buttons) and in menus (`File/Export` submenus, extra top-level menus);
+UI-01's hand-drawn Undo/Redo/File items are unchanged, so the UI-01 snapshots are unchanged.
+
+Done-when: 1. `tests/commands.rs::s_remsh_lists_remesh_first_and_enter_runs_it`. 2. disabled reason
+as toolbar tooltip and inline in search; Enter starts on the first enabled row and never runs a
+disabled one (`disabled_*` tests). 3. `registry::tests::duplicate_cmd_id_panics_in_debug`.
+4. `sketch_scope_beats_global_for_the_same_key`, `single_letters_are_ignored_while_a_text_field_has_focus`,
+`shortcut_map_scope_resolution_without_the_app`. 5. `search::tests::search_1000_commands_budget`
+(asserted under `AMG_STRICT_TIMING=1`) and criterion bench `benches/search.rs`.
+6. `registry::tests::register_dynamic_rejects_ids_without_script_prefix`, plus the
+dynamic register/search/run/unregister kittest.
+
+*Deviations:*
+- `CmdAction::StartTool` and `AppCx::start_tool` wait for the `Tool` trait (UI-03). `CmdEnv` keeps
+  its UI-01 fields. `AppCx::run_command` is deferred to the end of the frame (nested requests up
+  to depth 16); `AmalgamApp::request_command` is the host-side equivalent.
+- Additive: `CommandDef::alt_shortcuts` (redo has two bindings), `with_*` builders,
+  `AppCx::{undo, redo, open_search}`, `AmalgamApp::{request_command, registry_mut, shortcuts,
+  set_shortcut_overrides, load_shortcuts_file, search, search_mut, recent_commands}`,
+  `AppHarness::run_command`. `AppConfig` is unchanged.
+- While a text field has focus only Ctrl/Alt chords fire, and not the editing ones
+  (Ctrl+Z/Y/A/C/V/X). The `Viewport` scope is active while the pointer was over the viewport last frame.
+- A `shortcuts.toml` with a bad binding is rejected whole (bindings stay as they were); a missing
+  file is fine. User overrides bind before defaults, so they win a conflict.
+- Search tests use a fixed number of frames: `drive_until_idle` never settles while the search
+  text field is focused (cursor blink repaints).
+- `toml` (already in `THIRD_PARTY.md`) is now also used by `amg-ui`.
+
+*Leftovers:*
+- Search of `DialogRegistration` features (UI-05 registers `feature.<kind>` commands, which search
+  already lists) and of document parameters ("opens the Parameters dialog") are not done: the
+  Parameters dialog does not exist yet.
+- Icons are not drawn (the SVG icon registry is still open); recency is not persisted (UI-11).
+- The criterion numbers are in the handoff report.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1294,3 +1337,8 @@ additive pieces UI-05 should render:
   `THIRD_PARTY.md`. `amg-app` enables eframe's `accesskit` feature for itself only.
 - No change to `amg-render`, `amg-jobs`, `amg-doc` or `amg-features`: `amg-app` calls the
   existing `amg_features::{mesh, sketch}::link()` (there is no crate-level `link()` yet).
+
+### 2026-11-12: UI-02 (lane D)
+- `amg-ui` gains the `toml` workspace dependency (already in `THIRD_PARTY.md`) and a `criterion`
+  dev-dependency with bench `search`. No change outside lane D except the `amg-app` start-up
+  loading `shortcuts.toml`.

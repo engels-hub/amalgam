@@ -16,10 +16,13 @@ use std::sync::{Arc, OnceLock};
 use amg_doc::{Command as DocCommand, Design, Document, Evaluated};
 use amg_jobs::JobSystem;
 
+use crate::command::{CmdAction, CmdId, Enablement};
 use crate::dock::DockHost;
 use crate::module::{ContextId, PanelId, TabId, WorkspaceId};
 use crate::panel::Panel;
 use crate::registry::UiRegistry;
+use crate::search::{Recency, SearchState};
+use crate::shortcut::{ShortcutMap, ShortcutOverrides};
 use crate::theme::{Theme, ThemeState, ThemeTokens};
 use crate::viewport::ViewportBackend;
 
@@ -76,6 +79,8 @@ impl CommandQueue {
 pub(crate) enum ShellRequest {
     OpenPanel(PanelId),
     FocusContextTab(ContextId),
+    RunCommand(CmdId),
+    OpenSearch,
 }
 
 /// Read-only view for enablement, providers and panels.
@@ -155,6 +160,26 @@ impl AppCx<'_> {
     /// Queues a batch for this document; applied at the end of the frame as one undo entry.
     pub fn submit(&mut self, batch: CommitBatch) {
         self.queue.push(self.doc.id, DocAction::Commit(batch));
+    }
+
+    /// Queues a registered command; it runs at the end of the frame if it is enabled then.
+    pub fn run_command(&mut self, id: CmdId) {
+        self.requests.push(ShellRequest::RunCommand(id));
+    }
+
+    /// Opens the S-key command search at the cursor.
+    pub fn open_search(&mut self) {
+        self.requests.push(ShellRequest::OpenSearch);
+    }
+
+    /// Queues undo for this document (applied at the end of the frame).
+    pub fn undo(&mut self) {
+        self.queue.push(self.doc.id, DocAction::Undo);
+    }
+
+    /// Queues redo for this document (applied at the end of the frame).
+    pub fn redo(&mut self) {
+        self.queue.push(self.doc.id, DocAction::Redo);
     }
 
     /// Opens (or focuses) a registered panel in the current workspace's dock area.
@@ -260,6 +285,12 @@ pub struct AmalgamApp {
     pub(crate) status: Option<String>,
     layout_path: Option<PathBuf>,
     frames: u64,
+    shortcut_overrides: ShortcutOverrides,
+    pub(crate) shortcuts: ShortcutMap,
+    pub(crate) search: SearchState,
+    pub(crate) recency: Recency,
+    /// The pointer was over the viewport last frame (enables the `Viewport` shortcut scope).
+    pub(crate) viewport_hovered: bool,
 }
 
 impl std::fmt::Debug for AmalgamApp {
@@ -306,7 +337,13 @@ impl AmalgamApp {
             status: None,
             layout_path: cfg.layout_path,
             frames: 0,
+            shortcut_overrides: ShortcutOverrides::none(),
+            shortcuts: ShortcutMap::default(),
+            search: SearchState::default(),
+            recency: Recency::new(),
+            viewport_hovered: false,
         };
+        app.shortcuts = ShortcutMap::build(&app.registry, &app.shortcut_overrides);
         app.load_layouts();
         app.new_document();
         app.ensure_dock(workspace);
@@ -330,6 +367,9 @@ impl AmalgamApp {
         }
         if let Some(tokens) = self.theme_state.apply(ctx, self.theme) {
             self.tokens = tokens;
+        }
+        if self.shortcuts.generation() != self.registry.generation() {
+            self.shortcuts = ShortcutMap::build(&self.registry, &self.shortcut_overrides);
         }
         let jobs = Arc::clone(&self.jobs);
         for (i, doc) in self.docs.iter_mut().enumerate() {
@@ -361,6 +401,7 @@ impl AmalgamApp {
     /// This frame's widgets were drawn before the changes, so a frame that applied anything
     /// asks for one more to show the result (undo state, errors, new tabs).
     pub fn end_frame(&mut self) {
+        self.run_queued_commands();
         let changed = !self.queue.items.is_empty() || !self.requests.is_empty();
         if changed && let Some(ctx) = &self.ctx {
             ctx.request_repaint();
@@ -387,6 +428,14 @@ impl AmalgamApp {
         for req in std::mem::take(&mut self.requests) {
             match req {
                 ShellRequest::OpenPanel(id) => self.open_panel(id),
+                ShellRequest::RunCommand(_) => {}
+                ShellRequest::OpenSearch => {
+                    let at = self
+                        .ctx
+                        .as_ref()
+                        .and_then(|c| c.input(|i| i.pointer.latest_pos()));
+                    self.search.open(at);
+                }
                 ShellRequest::FocusContextTab(c) => {
                     let tab = self
                         .registry
@@ -401,6 +450,120 @@ impl AmalgamApp {
             }
         }
         self.frames += 1;
+    }
+
+    /// Runs the commands requested so far (and those they request, up to a depth of 16).
+    fn run_queued_commands(&mut self) {
+        for _ in 0..16 {
+            let mut cmds = Vec::new();
+            self.requests.retain(|r| match r {
+                ShellRequest::RunCommand(id) => {
+                    cmds.push(*id);
+                    false
+                }
+                _ => true,
+            });
+            if cmds.is_empty() {
+                return;
+            }
+            for id in cmds {
+                self.execute_command(id);
+            }
+        }
+        tracing::warn!("commands keep requesting commands; the rest is dropped");
+        self.requests
+            .retain(|r| !matches!(r, ShellRequest::RunCommand(_)));
+    }
+
+    /// Runs a command now: checks its enablement, records it for search recency and applies its
+    /// action. Returns false if the command is unknown or disabled.
+    fn execute_command(&mut self, id: CmdId) -> bool {
+        let Some(def) = self.registry.command(id) else {
+            tracing::warn!("run_command: unknown command `{id}`");
+            return false;
+        };
+        let action = def.action.clone();
+        let doc = &self.docs[self.active];
+        let env = CmdEnv {
+            workspace: self.workspace,
+            contexts: &doc.contexts,
+            design: doc.document.design(),
+            evaluated: doc.document.evaluated(),
+            jobs: &self.jobs,
+        };
+        if let Enablement::Disabled(reason) = def.enablement(&env) {
+            tracing::debug!("command `{id}` is disabled: {reason}");
+            return false;
+        }
+        let checked = match &action {
+            CmdAction::Toggle { get, .. } => get(&env),
+            _ => false,
+        };
+        self.recency.record(id);
+        match action {
+            CmdAction::Run(f) => self.with_cx(f),
+            CmdAction::Toggle { set, .. } => self.with_cx(|cx| set(cx, !checked)),
+            CmdAction::Dyn(f) => self.with_cx(|cx| f(cx)),
+        }
+        true
+    }
+
+    /// Asks for a registered command to run at the end of this (or the next) frame. This is
+    /// what toolbar buttons, menus, shortcuts and search use.
+    pub fn request_command(&mut self, id: CmdId) {
+        self.requests.push(ShellRequest::RunCommand(id));
+        self.repaint();
+    }
+
+    /// The registry, mutable: runtime registration of add-in commands
+    /// ([`UiRegistry::register_dynamic`]). Shortcuts and search follow on the next frame.
+    pub fn registry_mut(&mut self) -> &mut UiRegistry {
+        self.repaint();
+        &mut self.registry
+    }
+
+    /// The effective shortcut bindings.
+    pub fn shortcuts(&self) -> &ShortcutMap {
+        &self.shortcuts
+    }
+
+    /// Replaces the user's shortcut overrides and rebuilds the map.
+    pub fn set_shortcut_overrides(&mut self, overrides: ShortcutOverrides) {
+        self.shortcut_overrides = overrides;
+        self.shortcuts = ShortcutMap::build(&self.registry, &self.shortcut_overrides);
+        self.repaint();
+    }
+
+    /// Loads `shortcuts.toml`. A missing file is not an error; a malformed one is reported
+    /// and leaves the current bindings alone.
+    ///
+    /// # Errors
+    /// The parse error of a malformed file.
+    pub fn load_shortcuts_file(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), crate::shortcut::ShortcutFileError> {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Ok(());
+        };
+        let o = ShortcutOverrides::parse(&text)?;
+        self.set_shortcut_overrides(o);
+        Ok(())
+    }
+
+    /// The S-key search state.
+    pub fn search(&self) -> &SearchState {
+        &self.search
+    }
+
+    /// The S-key search state, mutable.
+    pub fn search_mut(&mut self) -> &mut SearchState {
+        &mut self.search
+    }
+
+    /// The most recently run commands (search recency).
+    pub fn recent_commands(&self) -> &Recency {
+        &self.recency
     }
 
     /// Number of frames run so far.
