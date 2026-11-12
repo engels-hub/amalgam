@@ -48,12 +48,33 @@ impl Frustum {
     }
 }
 
+/// What the plan needs to know about a mesh.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MeshDraw {
+    /// Per-vertex normals were uploaded.
+    pub has_normals: bool,
+    /// Watertight: back faces are culled. Open meshes are drawn double-sided.
+    pub closed: bool,
+}
+
+/// A bare `has_normals` flag describes a closed mesh.
+impl From<bool> for MeshDraw {
+    fn from(has_normals: bool) -> Self {
+        MeshDraw {
+            has_normals,
+            closed: true,
+        }
+    }
+}
+
 /// A run of instances of one mesh drawn with one pipeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DrawGroup {
     pub mesh: MeshKey,
     /// The mesh is shaded from derivatives (no normals, or the view forces flat).
     pub flat: bool,
+    /// The mesh is open: no back-face culling.
+    pub double_sided: bool,
     /// First entry of [`DrawPlan::slots`].
     pub first: u32,
     pub count: u32,
@@ -74,18 +95,26 @@ pub(crate) struct DrawPlan {
 #[derive(Clone, Copy, Debug)]
 struct Item {
     flat: bool,
+    double_sided: bool,
     mesh: MeshKey,
     dist: f32,
     slot: u32,
 }
 
+impl Item {
+    /// Pipeline order: smooth before flat, closed before double-sided.
+    fn pipeline(&self) -> (bool, bool) {
+        (self.flat, self.double_sided)
+    }
+}
+
 impl DrawPlan {
-    /// Rebuilds the plan. `mesh_has_normals` maps a mesh key to whether it has normals (`None`:
-    /// the mesh is gone or has nothing to draw).
-    pub fn build(
+    /// Rebuilds the plan. `mesh_info` describes a mesh ([`MeshDraw`], or a bare `has_normals`
+    /// flag for a closed mesh); `None`: the mesh is gone or has nothing to draw.
+    pub fn build<M: Into<MeshDraw>>(
         &mut self,
         table: &InstanceTable,
-        mesh_has_normals: impl Fn(MeshKey) -> Option<bool>,
+        mesh_info: impl Fn(MeshKey) -> Option<M>,
         frustum: &Frustum,
         eye: Vec3,
         layers: LayerMask,
@@ -104,7 +133,7 @@ impl DrawPlan {
             let (Some(mesh), Some(sphere)) = (inst.mesh, info.sphere) else {
                 continue;
             };
-            let Some(has_normals) = mesh_has_normals(mesh) else {
+            let Some(draw) = mesh_info(mesh).map(Into::into) else {
                 continue;
             };
             if !frustum.intersects_sphere(sphere.center, sphere.radius) {
@@ -112,7 +141,8 @@ impl DrawPlan {
                 continue;
             }
             self.items.push(Item {
-                flat: force_flat || !has_normals,
+                flat: force_flat || !draw.has_normals,
+                double_sided: !draw.closed,
                 mesh,
                 dist: (sphere.center.distance(eye) - sphere.radius).max(0.0) as f32,
                 slot: slot as u32,
@@ -120,8 +150,9 @@ impl DrawPlan {
         }
 
         self.items.sort_unstable_by(|a, b| {
-            (a.flat, a.mesh)
-                .cmp(&(b.flat, b.mesh))
+            a.pipeline()
+                .cmp(&b.pipeline())
+                .then(a.mesh.cmp(&b.mesh))
                 .then(a.dist.total_cmp(&b.dist))
                 .then(a.slot.cmp(&b.slot))
         });
@@ -131,8 +162,8 @@ impl DrawPlan {
         let mut start = 0;
         for i in 1..=self.items.len() {
             let boundary = i == self.items.len()
-                || (self.items[i].flat, self.items[i].mesh)
-                    != (self.items[start].flat, self.items[start].mesh);
+                || (self.items[i].pipeline(), self.items[i].mesh)
+                    != (self.items[start].pipeline(), self.items[start].mesh);
             if boundary {
                 if i > start {
                     self.order.push((start, i));
@@ -143,8 +174,8 @@ impl DrawPlan {
         let items = &self.items;
         self.order.sort_unstable_by(|&(a, _), &(b, _)| {
             items[a]
-                .flat
-                .cmp(&items[b].flat)
+                .pipeline()
+                .cmp(&items[b].pipeline())
                 .then(items[a].dist.total_cmp(&items[b].dist))
                 .then(items[a].slot.cmp(&items[b].slot))
         });
@@ -152,6 +183,7 @@ impl DrawPlan {
             self.groups.push(DrawGroup {
                 mesh: items[from].mesh,
                 flat: items[from].flat,
+                double_sided: items[from].double_sided,
                 first: self.slots.len() as u32,
                 count: (to - from) as u32,
             });
