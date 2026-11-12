@@ -73,6 +73,7 @@ mod occt {
         println!("cargo:rerun-if-changed=cpp/occt_shim.hxx");
         println!("cargo:rerun-if-changed=cpp/occt_shim.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_tess.cpp");
+        println!("cargo:rerun-if-changed=cpp/occt_build.cpp");
 
         let fixtures = cfg!(feature = "fixture-gen");
         let mut bridges = vec!["src/bridge.rs"];
@@ -85,6 +86,7 @@ mod occt {
         let mut shim = cxx_build::bridges(bridges);
         shim.file("cpp/occt_shim.cpp")
             .file("cpp/occt_tess.cpp")
+            .file("cpp/occt_build.cpp")
             .include(&include)
             .std("c++17");
         if fixtures {

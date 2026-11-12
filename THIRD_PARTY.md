@@ -81,7 +81,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | In use (0.5.1, dev-only) |
 | toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07); machine library files, `amg-am` runtime (S16); material libraries, `amg-materials` (S17) | MIT / Apache-2.0 | no | no | In use (1.1.8; `amg-testkit` golden files; `amg-materials` library reader/writer, MAT-01; `amg-am` machine library, AM-01) |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |
-| smallvec | small inline vectors, `amg-sketch`, `amg-mesh`, `amg-brep` history, `amg-nurbs` (S03, S07, S02, S20) | MIT / Apache-2.0 | no | no | In use (1.16.3, `amg-sketch`) |
+| smallvec | small inline vectors, `amg-sketch`, `amg-mesh`, `amg-brep` history, `amg-nurbs` (S03, S07, S02, S20) | MIT / Apache-2.0 | no | no | In use (1.16.3, `amg-sketch`, `amg-brep`) |
 | fontdb | system font discovery for sketch text (S03, SK-10); not added in SK-10, which takes parsed font bytes; the UI/document layer resolves families | MIT | no | no | Planned |
 | kcl-ezpz (+ faer 0.23, winnow, indexmap, libm, mutants: MIT / Apache-2.0) | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | In use (0.2.18, dev-only, feature `ezpz-bench`) |
 | robust =1.2.0 | exact orientation predicates (`orient2d`, `orient3d`), `amg-mesh::selfint` (S07, MESH-19) | MIT / Apache-2.0 | no | no | In use (1.2.0) |

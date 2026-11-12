@@ -876,7 +876,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-01 | **Phase-0 spike.** OCCT 8.0.1 (8.0.0#1 fallback; QUESTIONS #27) via vcpkg manifest mode (`vcpkg.json` with `opencascade` `default-features: false`, overlay triplet `x64-windows-amg`), `amg-occt-sys` build.rs (`AMG_OCCT_DIR`, toolkit list, cxx_build flags), cxx bridge skeleton with custom `trycatch`, `OcShape` opaque type, `make_box` + `volume` + a throwing call; cargo feature `occt`; CI job uses the vcpkg `files` cache | FND-02, FND-05, FND-13 | P0 | Done | 1. On the owner's machine and in CI (`windows-2025`), `cargo nextest run -p amg-occt-sys` passes. A Rust test creates a 10×20×30 box and reads volume 6000 ± 1e-9. 2. A shim call that triggers `Standard_Failure` (`gp_Dir` from a zero vector) returns `Err` whose message contains the OCCT exception type, and no process abort. 3. `kernel_version()` returns `occt-8.0.0;…`, checked against `OCC_VERSION_COMPLETE` at compile time. 4. The Refinement log records: cold OCCT vcpkg build time, cached CI restore time, link time and test-binary size. The second CI run restores OCCT from cache. 5. `cargo build -p amg-brep --no-default-features` works on a machine without vcpkg. 6. If 8.0.0 is rejected, the reason and the 7.9.3 override are recorded (note §1.3). |
 | BREP-02 | `Shape` handle (immutable, `Send + Sync`, `Arc`), `SubShapeIndex` (0-based `TopExp::MapShapes`, adjacency), topology iteration, `surface()`/`curve()`/`vertex_point()`/`bbox()`/`tolerance()` to plain `geom` types, rigid `transformed`, binary + text `.brep` I/O | BREP-01, FND-03 | P0 | Done | 1. For 10 fixture parts (`testdata/brep/*.brep`, ≥ 1 with > 500 faces): face/edge/vertex counts and per-face `GeomClass` match a checked-in expectation file. 2. Index stability: indices + per-face area computed in two separate processes and after a `write_bin`/`read_bin` round-trip are identical. 3. `write_bin`→`read_bin` is byte-identical on re-write. 4. `assert_impl_all!(Shape: Send, Sync)` compiles. 5. Adjacency invariants hold on all fixtures (every manifold edge has 2 faces, `face_edges`/`edge_faces` are mutually consistent). 6. A cylinder face reports `Surface::Cylinder` with the correct radius/axis within 1e-12. |
 | BREP-12 | Kernel infrastructure: `KernelConfig`, `init()` (OCCT message printer → `tracing`, `OSD_ThreadPool` size), progress/cancel bridge (`Message_ProgressIndicator` ↔ `JobCtx`), validation policy, `KernelError` + `Diagnostic`, `Shape::max_tolerance`, shim CATEGORY (R/N/C/G) lint test, concurrency stress-test harness, global I/O lock, serde-derive check for every op parameter type | BREP-02, FND-04 | P0 | Done | 1. An OCCT warning appears as a `tracing` event with target `occt`, and nothing goes to stdout. 2. A test op with a progress range reports monotone progress to a `JobCtx`. Cancelling the token makes it return `KernelError::Cancelled` within 50 ms. 3. A compile-time test asserts that every op parameter type is `Clone + Debug + PartialEq + Serialize + DeserializeOwned` (S20 KH-01 prerequisite), and a forwarding decorator implementing `BrepKernel` compiles (object safety). 4. The CATEGORY lint fails when a shim function lacks a category comment. 5. Stress harness: 8 threads × 2 000 iterations of R queries on one shared shape. No crash, results are bit-identical to single-threaded ones, and the input's BinTools hash is unchanged. |
-| BREP-03 | Face and wire builders: `make_planar_faces` (from `PlanarProfile` with tags + loop validation), `make_planar_polygon`, `make_face` (analytic + B-spline surfaces; `Natural`/`UvRect`/`Loops`/`Polylines` bounds), `make_wire` | BREP-12 | P0 | Todo | 1. A profile with all 5 `Curve2d` kinds (line, circle hole, arc, ellipse arc, rational B-spline) gives a valid face whose area matches the analytic area within 1e-9 relative. Every edge has its input tag. 2. An open loop gives `OpenLoop` with the right loop/edge index. A hole outside the outer loop gives `InvalidInput`. 3. A 1000-vertex polygon with 10 holes builds in < 20 ms. A non-planar input gives `NotPlanar`. 4. `make_face` on cylinder/cone/sphere/torus with `Polylines` bounds taken from a tessellated reference face reproduces the face area within 0.1 %. A 5×5 B-spline patch with `Natural` bounds is valid. 5. 1000 random valid profiles (proptest) never crash and always give valid faces or a clean `Err`. |
+| BREP-03 | Face and wire builders: `make_planar_faces` (from `PlanarProfile` with tags + loop validation), `make_planar_polygon`, `make_face` (analytic + B-spline surfaces; `Natural`/`UvRect`/`Loops`/`Polylines` bounds), `make_wire` | BREP-12 | P0 | Review | 1. A profile with all 5 `Curve2d` kinds (line, circle hole, arc, ellipse arc, rational B-spline) gives a valid face whose area matches the analytic area within 1e-9 relative. Every edge has its input tag. 2. An open loop gives `OpenLoop` with the right loop/edge index. A hole outside the outer loop gives `InvalidInput`. 3. A 1000-vertex polygon with 10 holes builds in < 20 ms. A non-planar input gives `NotPlanar`. 4. `make_face` on cylinder/cone/sphere/torus with `Polylines` bounds taken from a tessellated reference face reproduces the face area within 0.1 %. A 5×5 B-spline patch with `Natural` bounds is valid. 5. 1000 random valid profiles (proptest) never crash and always give valid faces or a clean `Err`. |
 | BREP-14 | Primitives (box, cylinder, cone, sphere, torus) on a `Plane` frame; `prism` (vector, infinite, taper, `merge_coplanar`); `revol`; `gtransformed` | BREP-03 | P0 | Todo | 1. Golden volume/area/topology counts for each primitive, for prism of 5 profile types and for revol (90°, 360°) within 1e-9 relative (`tests/golden/brep/`). 2. A tapered prism of a square at 5° matches the analytic frustum volume within 1e-9. 3. Results are BRepCheck-valid. 4. Prism and revol run in the stress test. |
 | BREP-04 | Booleans: `boolean` (fuse/cut/common, N objects × M tools), `split`, `section`; non-destructive always on; fuzzy/glue/OBB/check-inverted; progress + cancel; parallel-mode determinism test and `occt_threads` benchmark | BREP-14 | P0 | Todo | 1. A 100-case boolean corpus (`testdata/brep/bool/`: primitives, coplanar, tangent, fuzzy-needed cases from OCCT/FreeCAD trackers) gives valid results, with volumes within 1e-6 relative of reference values (or the expected `Err`). 2. Proptest: 500 random primitive pairs give `Ok(valid)` or a clean `Err`, never a crash. 3. Inputs' BinTools hashes are unchanged after every op. 4. Determinism: 20 cases × 10 runs with parallel on are byte-identical, or parallel defaults off and the Refinement log says so. 5. Criterion: a cut of two 1000-face parts, timed with 1 / half / all OCCT threads; the default is set from the result. 6. Cancelling a long boolean returns `Cancelled` within 200 ms. |
 | BREP-05 | History framework: `ShapeHistory` (entries, `Kept`, roles, tags, `sources_of`, `compose`), extraction from `BRepBuilderAPI_MakeShape`/`BRepTools_History`/op accessors, composition of internal steps, deterministic split order, `sub_geom`/`sub_geom_all` fingerprints; applied to BREP-03/14/04 ops | BREP-04 | P0 | Todo | 1. Completeness test: for every op in the BREP-03/14/04 corpora, every output face is Modified/Generated/Kept from some input or has a role, and no output index is out of range. 2. Prism of a tagged profile: each lateral face's `sources_of` is the generating edge, which carries the profile tag; caps have `StartCap`/`EndCap`. 3. Box cut by a cylinder through one face: the split face has 2 `Modified` outputs, in area-desc order, stable across 10 runs. 4. `compose` of prism + unify equals the history observed end-to-end on 5 cases. 5. `ShapeHistory` serde round-trips. 6. `sub_geom_all` on a 1000-face part takes < 20 ms. Usable by DOC-06 tests (box, prism, boolean cut). |
@@ -1308,6 +1308,114 @@ workers' builds.)
   one display mesh is 5 s, so 30 samples would take minutes per group. Run it on an idle machine
   after BREP-18.
 
+### 2026-11-12 - BREP-03 face and wire builders
+**Landed.**
+- `amg-brep`:
+  - `geom`: the builder inputs of the Interfaces (`Tag`, `Curve2d`, `BSpline2dData`,
+    `ProfileEdge2`, `Loop2`, `PlanarProfile`, `CurveSeg`, `FaceBounds`), field for field with S03's
+    `Curve2`/`BSpline2`.
+  - New `history` module: the data types `InputSub`, `Relation`, `OpRole`, `ShapeHistory`
+    (`of_input`, `sources_of`, `role_of`, `tag_of`), `KernelWarning`, `OpResult`, `FaceBuild`.
+    `make_wire` needs `OpResult`; BREP-05 adds extraction from OCCT and `compose`.
+  - `BrepKernel::{make_planar_faces, make_planar_polygon, make_face, make_wire}` on the trait and
+    `OcctKernel`; every result goes through `validate_result`.
+  - New `builders` module: validation and lowering in plain Rust (so the unit tests run without
+    OCCT), then one backend call. Profile curves become exact 3D curves on the plane (line,
+    circle, ellipse, B-spline with the plane map applied to the poles). Closure is checked from
+    curve end points (own rational de Boor); orientation from the signed area of a sampled
+    polygon; containment by winding number on the sampled outer loop, with the sampling's chord
+    error plus `tol.linear` as slack.
+  - `backend/occt/build.rs` lowers to the bridge; the no-OCCT backend returns
+    `BackendUnavailable` (checked before validation, as for every op).
+- `amg-occt-sys`: shared structs `OcEdgeIn`, `OcLoopsIn`, `OcPlanarIn`, the opaque `OcBuild`, and
+  shim functions `make_planar_faces`, `make_face_on_surface`, `make_wire`, `build_count`,
+  `build_shape`, `build_edge_map` (all category R: plain data in, new topology out), in a new
+  `cpp/occt_build.cpp`. Loops share one vertex per junction, with the junction's gap as its
+  tolerance; planar faces get stored pcurves (`BRepLib::BuildPCurveForEdgesOnPlane`). The edge map
+  gives every input edge's index in the result's `TopExp::MapShapes` order, which is the
+  `EdgeId` space, so tags need no search on the Rust side.
+- Tests: `tests/builders.rs` (17 tests incl. the proptest), unit tests in `src/builders/` (12) and
+  `src/history.rs`, `api_contract.rs` (builder types in the serde/capture check, forwarding arms, a
+  no-backend test). Golden `tests/golden/brep/face_profile_five_kinds.toml`. Bench
+  `benches/builders.rs` (`budget/brep-planar-faces-50`, `budget/brep-planar-polygon-1000`).
+
+**Done-when status** (`cargo nextest run -p amg-occt-sys -p amg-brep --features occt`:
+134 tests pass; without the feature 48 pass. `cargo clippy -p amg-occt-sys -p amg-brep
+--all-targets --all-features -- -D warnings` is clean.)
+1. Met (`five_curve_kinds_give_a_valid_face_with_the_analytic_area`). Outer loop: line, arc
+   (180°), ellipse arc, rational quadratic B-spline (an exact quarter circle), line. Hole: a
+   circle. On `Plane::XY` and on a tilted plane the face is BRepCheck-valid and its area is
+   953.163691086915 against the closed-form 953.163691071415 (**1.6e-11** relative). The face
+   has 6 edges; `edge_tags` gives the 6 input tags on 6 distinct edges, and the hole's edge is
+   alone in the second wire. `tags_are_on_the_right_edges` checks each tagged edge's curve kind.
+2. Met. A hole whose last edge stops 1e-3 short gives `OpenLoop { loop_index: 2, edge_index: 3,
+   gap: 1e-3 }`; an outer loop open after edge 0 gives `loop_index 0, edge_index 0`. A circle
+   hole outside the square gives `InvalidInput { what: "profiles", .. }` naming
+   `profile 0, loop 1, edge 0`. Unit tests also cover a hole crossing the boundary, wrong
+   orientations and malformed curves.
+3. Met. 1000-vertex outer polygon plus 10 holes of 20 vertices on a tilted plane: 1200 edges,
+   11 wires, valid. **3.87 ms** median of 11 builds (debug test profile, `opt-level = 1`,
+   validation off; loaded shared machine). Asserted < 20 ms only with `AMG_STRICT_TIMING=1`.
+   Moving one vertex 1e-3 mm off the plane gives `NotPlanar { max_dev }` with max_dev in
+   (5e-4, 1e-3); 5e-7 mm is accepted and projected.
+4. Met (`polylines_from_tessellated_faces_reproduce_the_area`). Reference faces are `UvRect`
+   patches on a cylinder, cone, sphere and torus with a tilted frame, the cone patch
+   crossing the `u` seam. Each is tessellated (0.002 mm, 0.05 rad), its boundary edge polylines
+   are chained into one loop and fed back as `Polylines`. Area error: cylinder 1.7e-16, cone
+   2.7e-16, sphere 2.8e-15, torus 2.2e-15 (171–385 points). The reversed loop gives the same
+   face. The 5×5 bicubic rational B-spline patch with `Natural` bounds is valid (4 edges).
+   Also: `Natural` sphere and torus areas within 1e-9, a polyline hole on a cylinder (64 points)
+   within 2e-3 of `400 − 4π`, and a polyline face on the B-spline patch.
+5. Met (`random_profiles_give_valid_faces_or_clean_errors`, 1000 cases). Star-shaped loops of
+   4–11 edges (line, arc, rational quadratic B-spline, bulging both ways), with no hole, a circle
+   hole or a square hole, on a tilted plane. 30 % carry a defect (a gap, a scrambled edge order,
+   a hole outside). Every defect-free profile builds a BRepCheck-valid face with one tag per edge;
+   every defective one is `OpenLoop`/`InvalidInput`; nothing else happened.
+
+**Findings and deviations.**
+- **`Shape::face_area` (BREP-02) under-integrates pcurves with many spans.** It calls
+  `BRepGProp::SurfaceProperties` without `Eps`, i.e. fixed-order Gauss per edge. A closed
+  polyline hole made of one interpolating pcurve (64 points) read 12.30 against the true
+  12.566 (its own tessellation gives 12.5657). The `Polylines` builder therefore splits each
+  run into edges of at most 12 polyline segments (`MAX_EDGE_SEGMENTS`), which keeps every
+  fixed-order integrator accurate. The query itself is unchanged; an adaptive `Eps` variant
+  would cost speed in BREP-05's fingerprint budget, so it is a note for BREP-05/BREP-09.
+- `Polylines`: points are projected with `ShapeAnalysis_Surface::ValueOfUV` and unwrapped by
+  whole periods (not `NextValueOfUV`, which fell back to the principal range on the cone and
+  produced a 62 % area error). Runs are split at 3D turns above 0.7 rad, and each run's pcurve
+  interpolates its points (`Geom2dAPI_Interpolate`; two points give a segment) instead of the
+  planned `Geom2dAPI_PointsToBSpline` approximation, which was no more accurate here. A
+  polyline that winds once around a periodic direction (a full band) is rejected. Loops may run
+  either way: outer loops are made CCW and holes CW in (u, v).
+- `Loops`: wires are built from the 3D curves, `ShapeFix_Face` adds the pcurves, then the wires
+  are re-oriented from their (u, v) area (first loop CCW, others CW); `BRepBuilderAPI_MakeFace`'s
+  `Inside` flag alone left `BadOrientationOfSubshape` on a cylinder patch and a plane with a hole.
+  Tags follow `ShapeFix`'s replacements through its `ShapeBuild_ReShape` context.
+- Curve conventions the Interfaces left open (documented on the types): a `Curve2d::Circle` must
+  be a loop by itself and runs the way its loop must (CCW outer, CW hole); S03 emits oriented
+  full circles as `Arc` with `sweep = ±2π`, which work anywhere. `Ellipse` runs from `t0` to `t1`
+  (`t1 < t0` is clockwise), and `minor_radius > |major|` is supported (axes swapped for OCCT).
+  `CurveSeg` runs from `t0` to `t1`; `t1 < t0` is a reversed edge.
+- `make_planar_faces` reports the first failing profile's loop and edge in `OpenLoop` (the
+  variant has no profile index); `InvalidInput` reasons name the profile.
+- `make_planar_polygon` auto-orients holes (meshes come either way); the outer loop defines the
+  normal (Newell). Vertices are projected onto the fitted plane, so they move by at most
+  `tol.linear`.
+- Not validated: holes overlapping each other, self-intersecting loops. Periodic B-spline
+  `CurveSeg`s are rejected for now.
+- `make_wire` fills `ShapeHistory::tags` only (sorted by edge); no `entries`, since a wire has
+  no input shapes.
+- New dependency on `smallvec` 1.16.3 (already in use, listed in `THIRD_PARTY.md` for the
+  amg-brep history); `proptest` as a dev-dependency (workspace).
+
+**Leftovers.**
+- R-S04-3 `make_thin_face` (2026-11-08 request) is not in this WP's row; S04's SOL-18/SOL-13
+  adds it (same lane) or a follow-up BREP WP takes it.
+- The criterion bench `benches/builders.rs` was not run on the shared machine (a release build
+  with OCCT); the test-profile numbers above stand in.
+- Self-intersection and hole-overlap checks for profiles (S03 SK-06 already guarantees both for
+  sketch regions).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1425,3 +1533,19 @@ All additive:
   `tessellate_edge`, `make_sphere`, `boolean_cut_probe`, new `cpp/occt_tess.cpp` in `build.rs`.
 - `tests/golden/brep/` (new suite), `THIRD_PARTY.md` rayon row (amg-brep added as a user),
   `Cargo.lock`.
+
+### 2026-11-12: additions and shared files changed by BREP-03 (lane A)
+All additive:
+- `amg-brep`: the `geom` builder inputs (`Tag`, `Curve2d`, `BSpline2dData`, `ProfileEdge2`,
+  `Loop2`, `PlanarProfile`, `CurveSeg`, `FaceBounds`); the `history` data types of the Interfaces
+  (`InputSub`, `Relation`, `OpRole`, `ShapeHistory` with `of_input`/`sources_of`/`role_of`/
+  `tag_of`, `KernelWarning`, `OpResult`, `FaceBuild`); `BrepKernel::{make_planar_faces,
+  make_planar_polygon, make_face, make_wire}` (every `BrepKernel` implementor must add them; the
+  `api_contract.rs` decorator forwards them). `ShapeHistory::compose` and history extraction stay
+  with BREP-05.
+- `amg-occt-sys`: `OcEdgeIn`, `OcLoopsIn`, `OcPlanarIn`, opaque `OcBuild`, shim functions
+  `make_planar_faces`, `make_face_on_surface`, `make_wire`, `build_count`, `build_shape`,
+  `build_edge_map`; new `cpp/occt_build.cpp` in `build.rs`; `SHIM_VERSION` unchanged (no existing
+  function changed).
+- `smallvec` dependency for amg-brep (`THIRD_PARTY.md` status names it), `proptest`
+  dev-dependency (workspace), `tests/golden/brep/face_profile_five_kinds.toml`, `Cargo.lock`.

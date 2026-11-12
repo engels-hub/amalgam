@@ -6,9 +6,9 @@
 #[cfg(feature = "occt")]
 mod occt;
 #[cfg(feature = "occt")]
-pub(crate) use occt::{Occ, init_process, occt_version, progress_probe};
+pub(crate) use occt::{Occ, init_process, occt_version, progress_probe, require};
 
 #[cfg(not(feature = "occt"))]
 mod none;
 #[cfg(not(feature = "occt"))]
-pub(crate) use none::{Occ, init_process, occt_version, progress_probe};
+pub(crate) use none::{Occ, init_process, occt_version, progress_probe, require};

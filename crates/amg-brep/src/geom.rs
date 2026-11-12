@@ -3,7 +3,145 @@
 //! BREP-02 covers what queries return. BREP-03 adds the builder inputs (`Curve2d`,
 //! `PlanarProfile`, `CurveSeg`, `FaceBounds`, `Tag`).
 
-use amg_core::{Dir3, Plane, Point3};
+use amg_core::{Dir3, Plane, Point2, Point3, Vec2};
+
+/// Caller-chosen tag carried from builder inputs to the edges they create (naming hook, S02 §6).
+/// S04 puts the sketch entity key here.
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub struct Tag(pub u64);
+
+/// A 2D profile curve in a plane's local `(u, v)`. Mirrors `amg_sketch::geom::Curve2` variant for
+/// variant and field for field (S03), so S04 converts with a total `match`.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Curve2d {
+    /// Segment from `a` to `b`.
+    Line {
+        /// Start point.
+        a: Point2,
+        /// End point.
+        b: Point2,
+    },
+    /// Full circle, counter-clockwise from `+u`. A circle has no stored direction, so in a
+    /// profile it must be a loop by itself, and it runs the way its loop must run (outer CCW,
+    /// hole CW). An oriented full circle is an `Arc` with `sweep = ±2π` (what S03 produces).
+    Circle {
+        /// Centre.
+        center: Point2,
+        /// Radius, mm.
+        radius: f64,
+    },
+    /// Circular arc from `start_angle` by `sweep` (`> 0` CCW, `|sweep| ∈ (0, 2π]`).
+    Arc {
+        /// Centre.
+        center: Point2,
+        /// Radius, mm.
+        radius: f64,
+        /// Angle of the start point from `+u`, rad.
+        start_angle: f64,
+        /// Signed sweep, rad.
+        sweep: f64,
+    },
+    /// Elliptical arc `P(t) = center + major·cos t + perp(major)·(minor_radius/|major|)·sin t`
+    /// from `t0` to `t1` (`t1 < t0` runs clockwise, `|t1 − t0| = 2π` is a full ellipse).
+    /// `minor_radius` may exceed `|major|` (S03 convention).
+    Ellipse {
+        /// Centre.
+        center: Point2,
+        /// Semi-major vector (centre to the end of the named axis), mm.
+        major: Vec2,
+        /// The other semi-axis, mm.
+        minor_radius: f64,
+        /// Eccentric angle at the start, rad.
+        t0: f64,
+        /// Eccentric angle at the end, rad.
+        t1: f64,
+    },
+    /// B-spline or NURBS over its whole knot range, start to end.
+    BSpline(BSpline2dData),
+}
+
+/// A 2D B-spline in full-knot-vector form (S03 `BSpline2`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BSpline2dData {
+    /// Degree, `1..`.
+    pub degree: u8,
+    /// Full knot vector, non-decreasing, `poles.len() + degree + 1` entries.
+    pub knots: Vec<f64>,
+    /// Control points.
+    pub poles: Vec<Point2>,
+    /// One positive weight per pole; `None` when non-rational.
+    pub weights: Option<Vec<f64>>,
+}
+
+/// One edge of a profile loop, oriented along the loop.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ProfileEdge2 {
+    /// The curve, run from its start to its end.
+    pub curve: Curve2d,
+    /// Copied to the created edge ([`crate::FaceBuild::edge_tags`]).
+    pub tag: Tag,
+}
+
+/// A closed loop: each edge ends where the next starts (within `Tolerance::linear`), the last
+/// ends where the first starts.
+#[derive(Clone, Debug, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct Loop2 {
+    /// Edges in loop order.
+    pub edges: Vec<ProfileEdge2>,
+}
+
+/// One planar region: outer loop CCW, holes CW (S03 convention), in `plane`'s local `(u, v)`.
+/// Holes must lie inside the outer loop.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PlanarProfile {
+    /// The sketch plane; the face normal is `plane.normal`.
+    pub plane: Plane,
+    /// Outer boundary, counter-clockwise about `plane.normal`.
+    pub outer: Loop2,
+    /// Holes, clockwise.
+    pub holes: Vec<Loop2>,
+}
+
+/// A trimmed 3D curve: the input of wires (sweep paths, rails) and face loops. The edge runs
+/// from parameter `t0` to `t1`; `t1 < t0` runs the curve backwards (a reversed edge).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CurveSeg {
+    /// The carrier curve (`Curve3::Other` is rejected).
+    pub curve: Curve3,
+    /// Start parameter.
+    pub t0: f64,
+    /// End parameter.
+    pub t1: f64,
+    /// Copied to the created edge.
+    pub tag: Tag,
+}
+
+/// How [`crate::BrepKernel::make_face`] bounds its surface.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum FaceBounds {
+    /// The full parameter domain. Infinite surfaces (plane, cylinder, cone) are rejected.
+    Natural,
+    /// A rectangle of the parameter domain.
+    UvRect {
+        /// Lower `u`.
+        u0: f64,
+        /// Upper `u`.
+        u1: f64,
+        /// Lower `v`.
+        v0: f64,
+        /// Upper `v`.
+        v1: f64,
+    },
+    /// Closed loops of 3D curves on (within `tol` of) the surface; the first is the outer loop.
+    /// Pcurves come from projection. Orientation is fixed up, so loops may run either way.
+    Loops(Vec<Vec<CurveSeg>>),
+    /// Closed polylines near the surface; the first is the outer loop. Each is projected to
+    /// `(u, v)`, split at corners and approximated by B-spline pcurves within `tol`.
+    /// Orientation is fixed up, and a repeated closing point is ignored.
+    Polylines(Vec<Vec<Point3>>),
+}
 
 /// A 3D curve, untrimmed. The edge's parameter range comes with it from `Shape::curve`.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]

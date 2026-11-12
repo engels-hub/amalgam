@@ -10,15 +10,18 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use amg_brep::geom::{BSplineCurveData, BSplineSurfaceData, Curve3, GeomClass, Surface};
-use amg_brep::{
-    BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, DraftOpts, EdgeId, FaceId,
-    FilletOpts, FilletShape, FilletSpec, Glue, HealOpts, HelixSpec, JobCtx, KResult, KernelConfig,
-    LoftSection, OcctKernel, OffsetJoin, PipeMode, PipeOpts, PrismExtent, PrismOpts, SewOpts,
-    Shape, ShapeKind, ShellOpts, SubKind, SubShape, TessMesh, TessQuality, ThruSectionsOpts,
-    Tolerance, Transition, UnifyOpts, VertexId,
+use amg_brep::geom::{
+    BSpline2dData, BSplineCurveData, BSplineSurfaceData, Curve2d, Curve3, CurveSeg, FaceBounds,
+    GeomClass, Loop2, PlanarProfile, ProfileEdge2, Surface, Tag,
 };
-use amg_core::{Dir3, Plane, Point3, Vec3};
+use amg_brep::{
+    BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, DraftOpts, EdgeId,
+    FaceBuild, FaceId, FilletOpts, FilletShape, FilletSpec, Glue, HealOpts, HelixSpec, JobCtx,
+    KResult, KernelConfig, LoftSection, OcctKernel, OffsetJoin, OpResult, PipeMode, PipeOpts,
+    PrismExtent, PrismOpts, SewOpts, Shape, ShapeHistory, ShapeKind, ShellOpts, SubKind, SubShape,
+    TessMesh, TessQuality, ThruSectionsOpts, Tolerance, Transition, UnifyOpts, VertexId,
+};
+use amg_core::{Dir3, Plane, Point2, Point3, Vec2, Vec3};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -43,8 +46,19 @@ fn op_parameter_types_are_capturable() {
     assert_op_param::<ShapeKind>();
     assert_op_param::<Tolerance>();
     assert_op_param::<Plane>();
-    // geom. BREP-03 adds its builder inputs here (`Tag`, `Curve2d`, `PlanarProfile`,
-    // `CurveSeg`, `FaceBounds`, ...).
+    // geom, including the BREP-03 builder inputs.
+    assert_op_param::<Tag>();
+    assert_op_param::<Curve2d>();
+    assert_op_param::<BSpline2dData>();
+    assert_op_param::<ProfileEdge2>();
+    assert_op_param::<Loop2>();
+    assert_op_param::<PlanarProfile>();
+    assert_op_param::<Vec<PlanarProfile>>();
+    assert_op_param::<CurveSeg>();
+    assert_op_param::<Vec<CurveSeg>>();
+    assert_op_param::<FaceBounds>();
+    assert_op_param::<Vec<Vec<Point3>>>();
+    assert_op_param::<ShapeHistory>();
     assert_op_param::<Curve3>();
     assert_op_param::<BSplineCurveData>();
     assert_op_param::<Surface>();
@@ -196,6 +210,64 @@ fn op_parameters_survive_a_serde_round_trip() {
         round_trip(&q);
     }
     round_trip(&Surface::Cylinder { frame, radius: 2.0 });
+    let profile = PlanarProfile {
+        plane: frame,
+        outer: Loop2 {
+            edges: vec![
+                ProfileEdge2 {
+                    curve: Curve2d::Arc {
+                        center: Point2::ZERO,
+                        radius: 1.0,
+                        start_angle: 0.0,
+                        sweep: std::f64::consts::PI,
+                    },
+                    tag: Tag(1),
+                },
+                ProfileEdge2 {
+                    curve: Curve2d::BSpline(BSpline2dData {
+                        degree: 1,
+                        knots: vec![0.0, 0.0, 1.0, 1.0],
+                        poles: vec![Point2::new(-1.0, 0.0), Point2::new(1.0, 0.0)],
+                        weights: Some(vec![1.0, 2.0]),
+                    }),
+                    tag: Tag(u64::MAX),
+                },
+            ],
+        },
+        holes: vec![Loop2 {
+            edges: vec![ProfileEdge2 {
+                curve: Curve2d::Ellipse {
+                    center: Point2::new(0.0, 0.5),
+                    major: Vec2::new(0.2, 0.0),
+                    minor_radius: 0.1,
+                    t0: std::f64::consts::TAU,
+                    t1: 0.0,
+                },
+                tag: Tag(3),
+            }],
+        }],
+    };
+    round_trip(&vec![profile]);
+    let seg = CurveSeg {
+        curve: Curve3::Circle { frame, radius: 2.0 },
+        t0: 1.0,
+        t1: 0.0,
+        tag: Tag(9),
+    };
+    round_trip(&FaceBounds::Loops(vec![vec![seg.clone()]]));
+    round_trip(&FaceBounds::Polylines(vec![vec![
+        Point3::ZERO,
+        Point3::X,
+        Point3::Y,
+    ]]));
+    round_trip(&FaceBounds::UvRect {
+        u0: 0.0,
+        u1: 1.0,
+        v0: -1.0,
+        v1: 2.0,
+    });
+    round_trip(&FaceBounds::Natural);
+    round_trip(&vec![seg]);
 }
 
 #[test]
@@ -229,6 +301,35 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
     fn check(&self, s: &Shape, opts: &CheckOpts) -> CheckReport {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.check(s, opts)
+    }
+
+    fn make_planar_faces(
+        &self,
+        profiles: &[PlanarProfile],
+        tol: &Tolerance,
+    ) -> KResult<Vec<FaceBuild>> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_planar_faces(profiles, tol)
+    }
+
+    fn make_planar_polygon(
+        &self,
+        outer: &[Point3],
+        holes: &[Vec<Point3>],
+        tol: &Tolerance,
+    ) -> KResult<Shape> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_planar_polygon(outer, holes, tol)
+    }
+
+    fn make_face(&self, surface: &Surface, bounds: &FaceBounds, tol: f64) -> KResult<FaceBuild> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_face(surface, bounds, tol)
+    }
+
+    fn make_wire(&self, segs: &[CurveSeg], tol: &Tolerance) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_wire(segs, tol)
     }
 
     fn tessellate(&self, s: &Shape, q: &TessQuality, ctx: &JobCtx) -> KResult<TessMesh> {
@@ -291,4 +392,37 @@ fn the_decorator_forwards_calls() {
     let report = kernel.check(&shape, &CheckOpts::default());
     assert!(report.valid, "{report:?}");
     assert_eq!(forward.calls.load(Ordering::Relaxed), 1);
+}
+
+#[cfg(not(feature = "occt"))]
+#[test]
+fn builders_need_the_backend() {
+    let kernel = OcctKernel::new(KernelConfig::default());
+    let tol = Tolerance::DEFAULT;
+    let square = [
+        Point3::ZERO,
+        Point3::X,
+        Point3::new(1.0, 1.0, 0.0),
+        Point3::Y,
+    ];
+    assert!(matches!(
+        kernel.make_planar_polygon(&square, &[], &tol),
+        Err(amg_brep::KernelError::BackendUnavailable)
+    ));
+    assert!(matches!(
+        kernel.make_planar_faces(&[], &tol),
+        Err(amg_brep::KernelError::BackendUnavailable)
+    ));
+    let sphere = Surface::Sphere {
+        frame: Plane::XY,
+        radius: 1.0,
+    };
+    assert!(matches!(
+        kernel.make_face(&sphere, &FaceBounds::Natural, 1e-6),
+        Err(amg_brep::KernelError::BackendUnavailable)
+    ));
+    assert!(matches!(
+        kernel.make_wire(&[], &tol),
+        Err(amg_brep::KernelError::BackendUnavailable)
+    ));
 }

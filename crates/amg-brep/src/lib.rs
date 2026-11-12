@@ -3,10 +3,12 @@
 //! Spec: S02, S20. Lane: A.
 
 mod backend;
+mod builders;
 mod check;
 mod config;
 mod error;
 pub mod geom;
+mod history;
 mod index;
 mod kernel;
 mod lock;
@@ -20,6 +22,7 @@ pub use amg_jobs::JobCtx;
 pub use check::{CheckOpts, CheckReport};
 pub use config::{ENV_OCCT_THREADS, ENV_VALIDATE, KernelConfig, Validate};
 pub use error::{KResult, KernelError};
+pub use history::{FaceBuild, InputSub, KernelWarning, OpResult, OpRole, Relation, ShapeHistory};
 pub use kernel::{BrepKernel, OcctKernel, POLICY_VERSION, init, kernel_version};
 pub use opts::{
     BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletShape, FilletSpec, Glue, HealOpts,
