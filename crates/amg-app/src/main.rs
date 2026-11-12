@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
             egui_glue::install(&rs, Arc::clone(&gpu), &RendererConfig::default(), 1)?;
             let view = egui_glue::with_renderer(&rs, |r| r.create_view([1, 1]))
                 .context("renderer installed")?;
-            let app = AmalgamApp::new(AppConfig {
+            let mut app = AmalgamApp::new(AppConfig {
                 jobs: Arc::clone(&app_jobs),
                 repaint: slot,
                 viewport: Box::new(RenderViewport::new(rs.clone(), view)),
@@ -156,6 +156,11 @@ fn main() -> anyhow::Result<()> {
                 theme: args.theme,
                 layout_path: default_layout_path(),
             });
+            if let Some(path) = amg_ui::shortcut::default_shortcuts_path()
+                && let Err(e) = app.load_shortcuts_file(&path)
+            {
+                tracing::warn!("ignoring {}: {e}", path.display());
+            }
             let demo = args
                 .demo
                 .then(|| spawn_demo(&app_jobs, Arc::clone(&gpu), args.tris));

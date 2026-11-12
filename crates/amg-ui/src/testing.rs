@@ -178,6 +178,13 @@ impl AppHarness {
         &self.pick
     }
 
+    /// Runs a registered command as a toolbar click would (queued, applied at the end of the
+    /// next frame), then steps until idle. A disabled command does nothing.
+    pub fn run_command(&mut self, id: crate::command::CmdId) {
+        self.app_mut().request_command(id);
+        self.drive_until_idle();
+    }
+
     /// The active document.
     pub fn document(&self) -> &Document {
         &self.app().active_document().document

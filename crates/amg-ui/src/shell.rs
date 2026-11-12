@@ -8,11 +8,14 @@ use std::collections::BTreeMap;
 
 use egui::{Button, RichText};
 
-use crate::app::{AmalgamApp, AppCx, CommandQueue, DocTab, ShellRequest};
+use crate::app::{AmalgamApp, AppCx, CmdEnv, CommandQueue, DocTab, ShellRequest};
+use crate::command::{CmdId, CommandDef};
+use crate::design::SKETCH_CONTEXT;
 use crate::dock::{DockContent, DockTab};
 use crate::module::{PanelId, WorkspaceId};
 use crate::panel::Panel;
 use crate::registry::UiRegistry;
+use crate::shortcut::{ShortcutMap, active_scopes, consume_press, key_presses};
 use crate::theme::{Theme, ThemeTokens};
 use crate::viewport::{ViewportBackend, ViewportFrame};
 
@@ -37,40 +40,141 @@ pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         .default_size(BROWSER_WIDTH)
         .show(ui, |ui| browser(app, ui));
     egui::CentralPanel::no_frame().show(ui, |ui| dock_area(app, ui));
+    search_popup(app, ui.ctx());
 }
 
-/// Undo/redo keys of the active document (UI-02 moves these into the `ShortcutMap`).
-fn shortcuts(app: &mut AmalgamApp, ctx: &egui::Context) {
-    if ctx.egui_wants_keyboard_input() {
+/// The S-key search popup; a picked command is queued like any other.
+fn search_popup(app: &mut AmalgamApp, ctx: &egui::Context) {
+    if !app.search.is_open() {
         return;
     }
-    let undo = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Z);
-    let redo = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Y);
-    let redo_shift = egui::KeyboardShortcut::new(
-        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-        egui::Key::Z,
+    let doc = &app.docs[app.active];
+    let env = CmdEnv {
+        workspace: app.workspace,
+        contexts: &doc.contexts,
+        design: doc.document.design(),
+        evaluated: doc.document.evaluated(),
+        jobs: &app.jobs,
+    };
+    let picked = crate::search::show(
+        ctx,
+        &mut app.search,
+        &app.registry,
+        &app.recency,
+        &env,
+        &app.shortcuts,
     );
-    let id = app.active_document().id;
-    let (u, r) = ctx.input_mut(|i| {
-        let r = i.consume_shortcut(&redo_shift) | i.consume_shortcut(&redo);
-        (i.consume_shortcut(&undo), r)
-    });
-    if u {
-        app.request_undo(id);
+    if let Some(id) = picked {
+        app.request_command(id);
     }
-    if r {
-        app.request_redo(id);
+}
+
+/// Looks up this frame's key presses in the [`ShortcutMap`] and queues the commands.
+///
+/// Skipped while the search popup is open (it owns the keys). While a text field has focus only
+/// Ctrl/Alt chords fire, and never the ones a text field edits with.
+fn shortcuts(app: &mut AmalgamApp, ctx: &egui::Context) {
+    if app.search.is_open() {
+        return;
+    }
+    let sketch = app.docs[app.active].contexts.contains(&SKETCH_CONTEXT);
+    let scopes = active_scopes(sketch, app.viewport_hovered);
+    let text_focus = ctx.egui_wants_keyboard_input();
+    for (key, mods) in key_presses(ctx) {
+        if let Some(cmd) = app
+            .shortcuts
+            .resolve_for_input(key, mods, &scopes, text_focus)
+        {
+            consume_press(ctx, key, mods);
+            app.request_command(cmd);
+        }
+    }
+}
+
+/// A button for a command, shared by the toolbar and the menus: label, shortcut text,
+/// checked state for toggles, and the disabled reason as tooltip.
+fn command_button(
+    ui: &mut egui::Ui,
+    def: &CommandDef,
+    env: &CmdEnv<'_>,
+    shortcuts: &ShortcutMap,
+) -> bool {
+    let enablement = def.enablement(env);
+    let mut button = if def.is_toggle() {
+        Button::selectable(def.checked(env), def.label.as_ref())
+    } else {
+        Button::new(def.label.as_ref())
+    };
+    if let Some(sc) = shortcuts.display_of(def.id) {
+        button = button.shortcut_text(sc);
+    }
+    let resp = ui.add_enabled(enablement.is_enabled(), button);
+    let resp = match enablement.reason() {
+        Some(reason) => resp.on_disabled_hover_text(reason),
+        None if !def.tooltip.is_empty() => resp.on_hover_text(def.tooltip.as_ref()),
+        None => resp,
+    };
+    resp.clicked()
+}
+
+/// The command buttons of a menu level and its submenus, recursively.
+fn menu_level(
+    ui: &mut egui::Ui,
+    reg: &UiRegistry,
+    path: &str,
+    env: &CmdEnv<'_>,
+    shortcuts: &ShortcutMap,
+    run: &mut Option<CmdId>,
+) {
+    for def in reg.menu_commands(path) {
+        if command_button(ui, def, env, shortcuts) {
+            *run = Some(def.id);
+            ui.close();
+        }
+    }
+    for child in reg.menu_children(path) {
+        let sub = if path.is_empty() {
+            child.to_owned()
+        } else {
+            format!("{path}/{child}")
+        };
+        ui.menu_button(child, |ui| menu_level(ui, reg, &sub, env, shortcuts, run));
+    }
+}
+
+fn env_of<'a>(app: &'a AmalgamApp) -> CmdEnv<'a> {
+    let doc = &app.docs[app.active];
+    CmdEnv {
+        workspace: app.workspace,
+        contexts: &doc.contexts,
+        design: doc.document.design(),
+        evaluated: doc.document.evaluated(),
+        jobs: &app.jobs,
     }
 }
 
 fn app_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
+    let mut run: Option<CmdId> = None;
+    let mut new_doc = false;
     ui.horizontal(|ui| {
-        ui.menu_button("File", |ui| {
-            if ui.button("New document").clicked() {
-                app.new_document();
-                ui.close();
+        {
+            let reg = &app.registry;
+            let env = env_of(app);
+            ui.menu_button("File", |ui| {
+                if ui.button("New document").clicked() {
+                    new_doc = true;
+                    ui.close();
+                }
+                menu_level(ui, reg, "File", &env, &app.shortcuts, &mut run);
+            });
+            for top in reg.menu_children("") {
+                if top != "File" {
+                    ui.menu_button(top, |ui| {
+                        menu_level(ui, reg, top, &env, &app.shortcuts, &mut run);
+                    });
+                }
             }
-        });
+        }
         ui.separator();
 
         let doc = app.active_document();
@@ -130,6 +234,12 @@ fn app_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
             });
         });
     });
+    if new_doc {
+        app.new_document();
+    }
+    if let Some(c) = run {
+        app.request_command(c);
+    }
 }
 
 fn toolbar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
@@ -139,6 +249,9 @@ fn toolbar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     let active_tab = app.active_tab();
     let mut switch_to: Option<WorkspaceId> = None;
     let mut select = None;
+    let mut run: Option<CmdId> = None;
+    let env = env_of(app);
+    let shortcuts = &app.shortcuts;
 
     ui.horizontal(|ui| {
         let ws_label = reg.workspace(ws).map_or("WORKSPACE", |w| w.label);
@@ -172,14 +285,32 @@ fn toolbar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
             ui.weak("No tools in this tab yet");
         }
         for g in groups {
+            for (pinned, def) in reg.group_commands(g.id) {
+                if pinned && command_button(ui, def, &env, shortcuts) {
+                    run = Some(def.id);
+                }
+            }
             ui.menu_button(format!("{} ⏷", g.label.to_uppercase()), |ui| {
-                ui.weak("No commands yet");
+                let mut any = false;
+                for (_, def) in reg.group_commands(g.id) {
+                    any = true;
+                    if command_button(ui, def, &env, shortcuts) {
+                        run = Some(def.id);
+                        ui.close();
+                    }
+                }
+                if !any {
+                    ui.weak("No commands yet");
+                }
             });
         }
     });
 
     if let Some(t) = select {
         app.select_tab(t);
+    }
+    if let Some(c) = run {
+        app.request_command(c);
     }
     if let Some(w) = switch_to {
         app.set_workspace(w);
@@ -286,6 +417,7 @@ fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         viewport,
         queue,
         requests,
+        viewport_hovered,
         ..
     } = app;
     let Some(dock) = layouts.get_mut(&ws) else {
@@ -302,6 +434,7 @@ fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         queue,
         requests,
         workspace: ws,
+        viewport_hovered,
     };
     dock.show(ui, &mut content);
 }
@@ -317,6 +450,7 @@ struct ShellDock<'a> {
     queue: &'a mut CommandQueue,
     requests: &'a mut Vec<ShellRequest>,
     workspace: WorkspaceId,
+    viewport_hovered: &'a mut bool,
 }
 
 impl DockContent for ShellDock<'_> {
@@ -335,6 +469,7 @@ impl DockContent for ShellDock<'_> {
                     doc: self.doc.id,
                 };
                 self.viewport.show(ui, &frame);
+                *self.viewport_hovered = ui.rect_contains_pointer(ui.max_rect());
             }
             DockTab::Panel(p) => {
                 let Some(panel) = self.panels.get_mut(&p) else {
