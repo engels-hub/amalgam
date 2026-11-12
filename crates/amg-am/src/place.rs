@@ -199,7 +199,7 @@ fn cross2(o: DVec2, a: DVec2, b: DVec2) -> f64 {
 }
 
 /// Andrew's monotone chain; CCW, no repeated first point, collinear points dropped.
-fn monotone_chain(mut pts: Vec<DVec2>) -> Vec<DVec2> {
+pub(crate) fn monotone_chain(mut pts: Vec<DVec2>) -> Vec<DVec2> {
     pts.sort_unstable_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
     pts.dedup();
     if pts.len() < 3 {
@@ -362,7 +362,7 @@ pub struct FitReport {
     pub aabb: Aabb3,
 }
 
-fn point_in_polygon(p: DVec2, poly: &[DVec2]) -> bool {
+pub(crate) fn point_in_polygon(p: DVec2, poly: &[DVec2]) -> bool {
     let mut inside = false;
     let mut j = poly.len() - 1;
     for i in 0..poly.len() {
@@ -375,7 +375,7 @@ fn point_in_polygon(p: DVec2, poly: &[DVec2]) -> bool {
     inside
 }
 
-fn dist_to_segment(p: DVec2, a: DVec2, b: DVec2) -> f64 {
+pub(crate) fn dist_to_segment(p: DVec2, a: DVec2, b: DVec2) -> f64 {
     let ab = b - a;
     let len2 = ab.length_squared();
     let t = if len2 > 0.0 {
@@ -386,7 +386,7 @@ fn dist_to_segment(p: DVec2, a: DVec2, b: DVec2) -> f64 {
     (p - (a + ab * t)).length()
 }
 
-fn dist_to_boundary(p: DVec2, poly: &[DVec2]) -> f64 {
+pub(crate) fn dist_to_boundary(p: DVec2, poly: &[DVec2]) -> f64 {
     let mut best = f64::INFINITY;
     let mut j = poly.len() - 1;
     for i in 0..poly.len() {
@@ -667,7 +667,7 @@ pub struct BuildVolumeGeometry {
     pub exclude: Vec<IndexedMesh>,
 }
 
-fn signed_area(poly: &[DVec2]) -> f64 {
+pub(crate) fn signed_area(poly: &[DVec2]) -> f64 {
     let mut s = 0.0;
     let mut j = poly.len() - 1;
     for i in 0..poly.len() {

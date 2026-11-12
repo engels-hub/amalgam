@@ -30,3 +30,7 @@ workspace = true
 [[bench]]
 name = "place"
 harness = false
+
+[[bench]]
+name = "overhang"
+harness = false

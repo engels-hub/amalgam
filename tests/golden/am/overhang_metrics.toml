@@ -1,0 +1,104 @@
+# AM-02 golden overhang metrics: the analytic check values of docs/notes/am-build-prep.md §3.3.
+# Checked by crates/amg-am/tests/overhang.rs (golden_overhang_metrics). Values are analytic, so
+# this file is hand-written and never blessed. A metric with expected value 0 must be within
+# 1e-9 absolute; others within `rel_tol` relative. The sphere convergence case is a separate
+# test (golden_overhang_sphere_convergence) because it checks a sequence of resolutions.
+# Shapes are generated in the test (tests/overhang_shapes): unions of axis-aligned boxes.
+# Placement: on the plate (z_min = 0), rotated `tilt_x_deg` about plate X.
+
+[[case]]
+name = "t_shape"
+shape = "t_shape"            # stem 10x10x20, bar 30x10x5 centred on top
+alpha_deg = 45.0
+contact_tolerance = 0.1
+cell = 0.25
+rel_tol = 0.005
+overhang_area = 200.0
+overhang_projected_area = 200.0
+contact_area = 100.0
+footprint_area = 300.0
+height = 25.0
+island_count = 0
+stable = true
+support_volume = 4000.0
+on_plate_volume = 4000.0
+on_part_volume = 0.0
+
+[[case]]
+name = "shelf"
+shape = "shelf"              # base 30x30x5, post 5x5x15 at a corner, top 30x30x3
+alpha_deg = 45.0
+contact_tolerance = 0.1
+cell = 0.25
+rel_tol = 0.005
+overhang_area = 875.0
+overhang_projected_area = 875.0
+contact_area = 900.0
+footprint_area = 900.0
+height = 23.0
+island_count = 0
+stable = true
+support_volume = 13125.0
+on_plate_volume = 0.0
+on_part_volume = 13125.0
+
+[[case]]
+name = "cube10_on_face"
+shape = "cube10"
+alpha_deg = 45.0
+contact_tolerance = 0.1
+cell = 0.5
+rel_tol = 1e-9
+overhang_area = 0.0
+overhang_projected_area = 0.0
+contact_area = 100.0
+footprint_area = 100.0
+height = 10.0
+island_count = 0
+stable = true
+support_volume = 0.0
+on_plate_volume = 0.0
+on_part_volume = 0.0
+
+[[case]]
+name = "cube10_on_edge_a45"  # the two lower faces at exactly psi = 45 deg: self-supporting
+shape = "cube10"
+tilt_x_deg = 45.0
+alpha_deg = 45.0
+contact_tolerance = 0.1
+cell = 0.25
+rel_tol = 1e-9
+overhang_area = 0.0
+overhang_projected_area = 0.0
+contact_area = 0.0
+footprint_area = 141.42135623730951   # 10 x 10*sqrt(2)
+height = 14.142135623730951
+island_count = 0
+stable = false
+support_volume = 0.0
+
+[[case]]
+name = "cube10_on_edge_a46"  # same faces are overhangs at alpha = 46 deg
+shape = "cube10"
+tilt_x_deg = 45.0
+alpha_deg = 46.0
+contact_tolerance = 0.1
+cell = 0.25
+rel_tol = 1e-9
+overhang_area = 200.0
+overhang_projected_area = 141.42135623730951
+footprint_area = 141.42135623730951
+height = 14.142135623730951
+stable = false
+
+[[case]]
+name = "cube10_on_edge_a46_support"  # wedge under the two faces: 2 x (7.071^2 / 2) x 10
+shape = "cube10"
+tilt_x_deg = 45.0
+alpha_deg = 46.0
+contact_tolerance = 0.1
+cell = 0.25
+rel_tol = 1e-9
+support_volume = 500.0
+on_plate_volume = 500.0
+on_part_volume = 0.0
