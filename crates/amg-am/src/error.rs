@@ -36,6 +36,9 @@ pub enum AmError {
         /// Why.
         reason: String,
     },
+    /// An analysis option is out of range (AM-02); the message names the field.
+    #[error("invalid option: {0}")]
+    InvalidOption(String),
     /// An item transform is not rigid.
     #[error("item transform is not rigid")]
     NotRigid,

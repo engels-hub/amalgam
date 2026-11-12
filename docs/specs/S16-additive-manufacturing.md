@@ -508,6 +508,12 @@ pub fn severity(down_angle: f64, critical_angle: f64) -> f64;
 /// Uniforms for the S10 overhang shader, in body-local space (f32 conversion happens in amg-ui).
 pub struct OverhangShaderParams { pub build_dir_local: DVec3, pub cos_critical: f64, pub contact_plane: (DVec3, f64), pub contact_tolerance: f64 }
 pub fn shader_params(t: &Transform, z_min: f64, opts: &OverhangOpts) -> OverhangShaderParams;
+// Added in AM-02 (additive): the per-face rule shared with S10, a settings resolver,
+// OverhangReport::z_min (input of shader_params) and AmError::InvalidOption.
+pub fn classify_face(normal: DVec3, build_dir: DVec3, cos_critical: f64, height: f64, contact_tolerance: f64) -> FaceClass;
+impl OverhangOpts { pub fn from_settings(s: &AnalysisSettings, m: &Machine) -> Self; }
+pub const ANGLE_GUARD: f64 = 1e-12;   // Overhang ⇔ c > cos α + ANGLE_GUARD
+pub const LINEAR_GUARD: f64 = 1e-9;   // mm: contact slab, island ties, coincident ray hits
 
 // ───────────────────────── amg_am::orient (AM-04, AM-13) ─────────────────────────
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -699,7 +705,7 @@ Testing).
 |---|---|---|---|---|---|
 | AM-01 | `amg-am::machine` (`Machine`, `BuildVolume`, `MachineLibrary`, TOML (de)serialisation, built-ins: Ender-3 V3 KE, Ender-3 V3 KE KCM 4-slot, ELEGOO Mars 3 Pro, generic FFF 220³, generic MSLA) + `amg-features::am` `PrintSetup` record, registration, `next_setup_key`, `setups` | DOC-05, DOC-07, FND-03 | P0 | Done | 1. Every built-in profile validates, and TOML round-trip is lossless (proptest over random valid `Machine`s). 2. An invalid user TOML gives a `LoadWarning` naming file and field, and the library still loads. 3. A `PrintSetup` with 2 plates and 3 items round-trips `to_record`/`from_record` and a `.amg` save→load→save with byte-identical `design.json`. 4. `SetExt` edits undo/redo to equal records. 5. A v0 fixture record is rejected with `TooNew`/`Decode` (no panic). 6. `next_setup_key` never reuses a deleted key within a session. |
 | AM-03 | `amg-am::place`: `Placement`/`ZMode`, `effective_transform`, `face_down_rotation`, `rotate_about_build_axis`, `centre_on_plate`, `pick_plane_normal`, `check_fit` (hull vs bed polygon, excludes, height), `hulls_overlap`, `build_volume_geometry` | AM-01, MESH-01 | P0 | Done | 1. For 1 000 random rotations of corpus meshes: min z after `effective_transform` = elevation ± 1e-9 mm, and the footprint-AABB centre = `xy` ± 1e-9 mm. 2. Face-down on each face of a cube and of a tessellated 12-gon prism puts that face's normal at −Z within 1e-12 rad, with the anti-parallel case covered. 3. `check_fit` matches brute-force vertex containment on 200 random placements over rect, non-convex polygon and circle beds with excludes, and reports `max_outside_xy` within 1e-6 mm. 4. Modifying the mesh (scale 1.1 about an off-centre point) keeps the item on the plate at the same `xy`. 5. `effective_transform` + `check_fit` on 1 M tris < 15 ms; `footprint_hull` 1 M < 40 ms. |
-| AM-02 | `amg-am::overhang`: `classify_faces`, `analyze_overhang` (column support estimate + centroid fallback, islands, contact, stability), `vertex_severity`, `shader_params`, golden classification file for S10 | MESH-02, MESH-03, AM-03 | P0 | Todo | 1. Golden tests in `tests/golden/am/` reproduce note §3.3: T-shape and shelf volumes within 0.5 % at 0.25 mm cells; the sphere cap area, projected area and support volume converge (error at least halves per 4× triangles / ½ cell, < 1 % at 320 k tris and 0.1 mm); the cube cases are exact (1e-9). 2. Strict-threshold behaviour at α = 45° vs 46° on the edge-balanced cube. 3. Rotation about Z by 37° changes area metrics by < 1e-9 relative and support volume by ≤ the documented cell bound. 4. An open mesh gives `approximate = true` with `FaceCentroids`. 5. `overhang_classes.toml` (5 000 cases) is generated and checked. 6. Results are identical across 1/4/16 threads. 7. Benchmarks: `classify_faces` 1 M tris < 15 ms; `analyze_overhang` 1 M tris with default support (≤ 512² rays) < 300 ms, coarse (≤ 128² rays) < 40 ms. |
+| AM-02 | `amg-am::overhang`: `classify_faces`, `analyze_overhang` (column support estimate + centroid fallback, islands, contact, stability), `vertex_severity`, `shader_params`, golden classification file for S10 | MESH-02, MESH-03, AM-03 | P0 | Review | 1. Golden tests in `tests/golden/am/` reproduce note §3.3: T-shape and shelf volumes within 0.5 % at 0.25 mm cells; the sphere cap area, projected area and support volume converge (error at least halves per 4× triangles / ½ cell, < 1 % at 320 k tris and 0.1 mm); the cube cases are exact (1e-9). 2. Strict-threshold behaviour at α = 45° vs 46° on the edge-balanced cube. 3. Rotation about Z by 37° changes area metrics by < 1e-9 relative and support volume by ≤ the documented cell bound. 4. An open mesh gives `approximate = true` with `FaceCentroids`. 5. `overhang_classes.toml` (5 000 cases) is generated and checked. 6. Results are identical across 1/4/16 threads. 7. Benchmarks: `classify_faces` 1 M tris < 15 ms; `analyze_overhang` 1 M tris with default support (≤ 512² rays) < 300 ms, coarse (≤ 128² rays) < 40 ms. |
 | AM-06 | Slicer hand-off library: `detect_slicers` (registry via `winreg`, known dirs, PATH), `parse_registry_exe`, `SlicerConfig`, `export_plate` (via IO-03, 3MF/STL, slicer-origin offset, atomic write), `launch` (detached), `prune_handoff_dir`; `amg-features::am::handoff_plate` | AM-03, IO-11, IO-04 | P0 | Todo | 1. `parse_registry_exe` handles the owner's `D:\OrcaSlicer\D:\OrcaSlicer\orca-slicer.exe`, quoted paths and `,0` suffixes (unit fixtures). 2. Exported 3MF of a 3-item plate (two filament slots) re-imported through IO-03 gives the same plate-frame vertex positions within 1e-6 mm, names and extruders. 3. **Manual check (documented in PR):** on the owner's machine, one click opens the file in OrcaSlicer 2.4.0 with all items at the Amalgam plate positions (± 0.1 mm, read off the Orca object list), assigned to the right filament slots on the KCM preset, without a re-arrange prompt. The same file opens in Chitubox, and the chosen Chitubox format (3MF or STL) is recorded in the Refinement log. 4. A missing exe gives `SlicerNotFound` with a hint. 5. Export + spawn of a 1 M-tri plate < 3 s, and the UI is not blocked (runs as a job). |
 | AM-11 | `amg-ui::am` workspace (Phase 1): Manufacture workspace, setup browser, machine picker (library + user dir), add/remove bodies, plate scene with build-volume helper geometry, Place-on-plate face pick, Drop, Move/Rotate numeric dialog, Centre, out-of-volume tint + message, settings dialog (slicer path, hand-off dir), Send to Slicer / Export 3MF buttons | AM-01, AM-03, AM-06, UI-02, UI-03, UI-04, UI-10, RND-03, RND-07 | P0 | Todo | 1. Every command listed under Interfaces is reachable from the toolbar and S-key search, and each edit is one undo entry. 2. Picking a face of an imported STL puts it on the plate. 3. An item moved out of the volume turns red with a size message. 4. No frame > 16 ms in the tracing profile while placing a 1 M-tri body. 5. A manual Phase 1 script (open STL → new setup on Ender-3 V3 KE KCM → place face down → Send to Slicer) passes on 3 corpus models. |
 | AM-12 | `amg-ui::am` overhang overlay + metrics panel: RND-08 overhang mode driven by `shader_params`, coarse/fine CPU analysis jobs with cancel-and-supersede, per-face class buffer after the fine job, island markers, per-item/plate metrics, α/contact settings in the setup | AM-02, AM-11, RND-08 | P0 | Todo | 1. Rotating a 1 M-tri item (numeric dialog with live preview) keeps the overlay in sync every frame. Coarse metrics update ≥ 10 Hz, fine metrics arrive < 500 ms after release, and no frame > 16 ms. 2. The overlay and the CPU class buffer agree on ≥ 99.9 % of faces of the test set (headless comparison once RND-09 exists; until then a screenshot in the PR). 3. With the overlay on, a 5 M-tri mesh orbits at ≥ 60 fps (vision budget, S10 bench). 4. Changing α updates colours immediately and metrics within 500 ms. |
@@ -927,6 +933,52 @@ and `AmError`) and `amg-features::am` (`PrintSetup` record).
 - Tests: `crates/amg-am/tests/place.rs` (corpus meshes skip LFS pointers unless
   `AMG_REQUIRE_TESTDATA=1`); bench `benches/place.rs` asserts under `AMG_STRICT_TIMING=1`.
 - Leftover: `hits_exclude` uses a 1e-6 mm tolerance and convex-hull vs polygon tests; no new WPs.
+
+### 2026-11-12 - AM-02 overhang analysis (amg-am::overhang)
+- Landed: `classify_faces`, `analyze_overhang` (classes, ψ, metrics, islands, stability, support
+  estimate), `severity`, `vertex_severity`, `shader_params`, plus `classify_face` (the per-face
+  rule the S10 shader reproduces), `OverhangOpts::from_settings`, `OverhangReport::z_min` and
+  `AmError::InvalidOption` (all additive, see Interfaces). `AnalysisSettings` unchanged, so v1
+  setup records load as before. No new dependency.
+- Golden files: `tests/golden/am/overhang_metrics.toml` (hand-written analytic values of note
+  §3.3) and `tests/golden/am/overhang_classes.toml` (5 000 generated cases, 967 flagged
+  near-threshold; regenerate with `AMG_BLESS=1`). The test also checks every non-flagged row
+  through `classify_faces` on a one-face mesh and through an f32 emulation of the shader rule:
+  0 disagreements (1 resp. 87 among flagged rows).
+- Measured: T-shape 4 000 mm³ (all on plate), shelf 13 125 mm³ (all on part), areas exact;
+  sphere r = 10 (UV, ring at 45°, contact tol 1e-6) relative errors cap/projected/volume:
+  5 040 tris @ 0.8 mm 2.0e-3/1.3e-3/4.1e-3, 20 448 @ 0.4 4.9e-4/3.2e-4/1.0e-3, 82 368 @ 0.2
+  1.2e-4/7.9e-5/2.6e-4, 330 624 @ 0.1 3.1e-5/2.0e-5/6.4e-5 (≈ 4× per step). Edge-balanced cube:
+  α = 45° no overhang, α = 46° 200 mm², support 500 mm³ (1e-9), `stable = false`. T rotated 37°
+  about Z: support Δ 4e-12 mm³ (bound √2·s·P·g_max = 566 mm³). Bench (1 003 520-tri sphere,
+  16 threads, shared machine, criterion medians): `classify_faces` 5.2 ms; `analyze_overhang`
+  coarse (14 760 rays) 30 ms, fine (234 220 rays) 60 ms (`benches/overhang.rs`).
+- **Deviation from note §3.1 (support integration).** Sampling the column gap only at cell
+  centres quantises the overhang boundary itself: even with the exact analytic sphere the
+  midpoint sum has errors −3.9 %, +1.4 %, −1.0 %, +0.06 % at 0.8/0.4/0.2/0.1 mm, so the Done-when
+  "error at least halves" cannot hold. The cell-centre rays now only record the up-facing (exit)
+  heights of each column; each `Overhang` face is clipped to the cells it covers and its gap
+  (face height − highest exit below it, else the plate) is integrated exactly per clipped
+  piece. In a closed, oriented mesh every downward face is an entry, so this is the note's
+  definition with an exact top and a per-cell sampled base. The GPU path (AM-13) can do the same
+  with a depth-peeled exit buffer and rasterised overhang faces. `footprint_area` counts cells
+  with any counted gap, as before.
+- Other choices: strict rule with guards (`c > cos α + 1e-12`; contact `h ≤ tol + 1e-9 mm`) so
+  that faces at exactly α (up to rounding, e.g. the edge-balanced cube) are self-supporting.
+  Closedness is an own check (closed + oriented + positive volume: a counting sort of the edges
+  by lower vertex, ≈ 5 ms at 1 M tris) instead of the ~100 ms `amg_mesh::analyze`; non-manifold
+  vertices are not checked. The footprint hull is built from per-chunk hulls in parallel
+  (≈ 4 ms vs 12 ms for `place::footprint_hull` on the 1 M sphere; same point set). Stability uses the hull
+  of all vertices within the contact slab (so an item resting on an edge or vertex, which has no
+  `Contact` faces, is reported `stable = false`, not `None`); a hull with < 3 points is never
+  stable; `None` for open meshes or z_min above the contact tolerance. Islands: plateaus of
+  vertices tied within 1e-9 mm count as one local minimum (reported by lowest index), so flat
+  ceilings joined to lower geometry (T bar, shelf) are not islands. Columns start at the plate
+  (z = 0) also for elevated items. Centroid fallback footprint = Σ area·c of overhang faces.
+  `vertex_severity` gives 0 for non-`Overhang` faces (contact faces are not "severe").
+- Tests: `crates/amg-am/tests/overhang.rs` (+ `tests/overhang_shapes`: box unions on a common
+  grid, UV sphere); bench `benches/overhang.rs` asserts under `AMG_STRICT_TIMING=1`.
+- Leftover: none blocking. AM-12 should take `cell ×2, ≤ 128² rays` for the coarse pass.
 
 ## Interface changes
 
