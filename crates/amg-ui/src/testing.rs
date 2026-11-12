@@ -16,7 +16,7 @@ use amg_jobs::{JobSystem, JobSystemConfig};
 use crate::app::{AmalgamApp, AppConfig, repaint_notifier};
 use crate::registry::UiRegistry;
 use crate::theme::Theme;
-use crate::viewport::NullViewport;
+use crate::viewport::{NullViewport, ViewportBackend};
 
 /// How long [`AppHarness::drive_until_idle`] waits before it panics.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -41,12 +41,21 @@ impl CpuPickService {
 }
 
 /// Options for [`AppHarness`].
-#[derive(Debug)]
 pub struct AppHarnessBuilder {
     size: egui::Vec2,
     theme: Theme,
     registry: Option<UiRegistry>,
     wgpu: Option<egui_wgpu::WgpuSetup>,
+    viewport: Option<Box<dyn ViewportBackend>>,
+}
+
+impl std::fmt::Debug for AppHarnessBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppHarnessBuilder")
+            .field("size", &self.size)
+            .field("theme", &self.theme)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for AppHarnessBuilder {
@@ -56,6 +65,7 @@ impl Default for AppHarnessBuilder {
             theme: Theme::Dark,
             registry: None,
             wgpu: None,
+            viewport: None,
         }
     }
 }
@@ -85,6 +95,12 @@ impl AppHarnessBuilder {
         self
     }
 
+    /// A viewport backend instead of [`NullViewport`] (e.g. one that reports a lost device).
+    pub fn viewport(mut self, viewport: Box<dyn ViewportBackend>) -> Self {
+        self.viewport = Some(viewport);
+        self
+    }
+
     /// Builds the harness with one empty document.
     ///
     /// # Panics
@@ -101,7 +117,7 @@ impl AppHarnessBuilder {
         let app = AmalgamApp::new(AppConfig {
             jobs: Arc::new(jobs),
             repaint: Arc::clone(&slot),
-            viewport: Box::new(NullViewport),
+            viewport: self.viewport.unwrap_or_else(|| Box::new(NullViewport)),
             registry: self.registry.unwrap_or_else(UiRegistry::build),
             theme: self.theme,
             layout_path: None,

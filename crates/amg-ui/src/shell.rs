@@ -12,7 +12,9 @@ use crate::app::{AmalgamApp, AppCx, CmdEnv, CommandQueue, DocTab, ShellRequest};
 use crate::command::{CmdId, CommandDef};
 use crate::design::SKETCH_CONTEXT;
 use crate::dock::{DockContent, DockTab};
+use crate::jobs::JobTracker;
 use crate::module::{PanelId, WorkspaceId};
+use crate::notify::Notifications;
 use crate::panel::Panel;
 use crate::registry::UiRegistry;
 use crate::shortcut::{ShortcutMap, active_scopes, consume_press, key_presses};
@@ -30,6 +32,15 @@ pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     shortcuts(app, ui.ctx());
     egui::Panel::top("amg_app_bar").show(ui, |ui| app_bar(app, ui));
     egui::Panel::top("amg_toolbar").show(ui, |ui| toolbar(app, ui));
+    if app.viewport.device_lost() {
+        egui::Panel::top("amg_gpu_banner")
+            .frame(
+                egui::Frame::new()
+                    .fill(app.tokens.error)
+                    .inner_margin(egui::Margin::symmetric(8, 4)),
+            )
+            .show(ui, gpu_banner);
+    }
     egui::Panel::bottom("amg_status_bar")
         .exact_size(STATUS_BAR_HEIGHT)
         .show(ui, |ui| status_bar(app, ui));
@@ -41,6 +52,44 @@ pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         .show(ui, |ui| browser(app, ui));
     egui::CentralPanel::no_frame().show(ui, |ui| dock_area(app, ui));
     search_popup(app, ui.ctx());
+    job_panel(app, ui.ctx());
+    toasts(app, ui.ctx());
+}
+
+/// The text of the device-lost banner (saving needs no GPU, so nothing is disabled).
+const GPU_LOST_TEXT: &str = "GPU device lost — save your work and restart Amalgam";
+
+fn gpu_banner(ui: &mut egui::Ui) {
+    ui.add(egui::Label::new(
+        RichText::new(GPU_LOST_TEXT)
+            .strong()
+            .color(egui::Color32::WHITE),
+    ));
+}
+
+/// The expandable job panel (bottom right, above the status bar and timeline).
+fn job_panel(app: &mut AmalgamApp, ctx: &egui::Context) {
+    if app.jobs_panel_open {
+        crate::jobs::panel(ctx, &app.jobs, STATUS_BAR_HEIGHT + TIMELINE_HEIGHT + 16.0);
+    }
+}
+
+/// Drops the toasts that timed out, draws the rest and applies what the user clicked.
+fn toasts(app: &mut AmalgamApp, ctx: &egui::Context) {
+    if let Some(next) = app.notifications.expire() {
+        ctx.request_repaint_after(next);
+    }
+    let actions = crate::notify::show(ctx, &app.notifications, &app.tokens);
+    let changed = actions.open_log || !actions.dismissed.is_empty();
+    for id in actions.dismissed {
+        app.notifications.dismiss(id);
+    }
+    if actions.open_log {
+        app.open_log_folder();
+    }
+    if changed {
+        ctx.request_repaint();
+    }
 }
 
 /// The S-key search popup; a picked command is queued like any other.
@@ -371,8 +420,8 @@ fn timeline(app: &mut AmalgamApp, ui: &mut egui::Ui) {
 
 fn status_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     let doc = &app.docs[app.active];
-    let lost = app.viewport.device_lost();
     let jobs = app.jobs.jobs().len();
+    let mut toggle_jobs = false;
     ui.horizontal_centered(|ui| {
         match app.status.as_deref() {
             Some(msg) => ui.colored_label(app.tokens.error, msg),
@@ -388,19 +437,29 @@ fn status_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
             amg_doc::RecomputeStatus::Failed(_) => "Recompute failed".to_owned(),
         };
         ui.label(recompute);
-        if lost {
-            ui.separator();
-            ui.colored_label(
-                app.tokens.error,
-                "GPU device lost — save your work and restart Amalgam",
-            );
-        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label("mm");
             ui.separator();
-            ui.label(format!("Jobs: {jobs}"));
+            // A clickable label, not a button: the status bar keeps its UI-01 metrics.
+            let text = RichText::new(format!("Jobs: {jobs}"));
+            let text = if app.jobs_panel_open {
+                text.strong()
+            } else {
+                text
+            };
+            if ui
+                .add(egui::Label::new(text).sense(egui::Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Show or hide the job panel")
+                .clicked()
+            {
+                toggle_jobs = true;
+            }
         });
     });
+    if toggle_jobs {
+        app.set_jobs_panel_open(!app.jobs_panel_open);
+    }
 }
 
 fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) {
@@ -418,6 +477,8 @@ fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         queue,
         requests,
         viewport_hovered,
+        notifications,
+        tracker,
         ..
     } = app;
     let Some(dock) = layouts.get_mut(&ws) else {
@@ -435,6 +496,8 @@ fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         requests,
         workspace: ws,
         viewport_hovered,
+        notifications,
+        tracker,
     };
     dock.show(ui, &mut content);
 }
@@ -451,6 +514,8 @@ struct ShellDock<'a> {
     requests: &'a mut Vec<ShellRequest>,
     workspace: WorkspaceId,
     viewport_hovered: &'a mut bool,
+    notifications: &'a mut Notifications,
+    tracker: &'a mut JobTracker,
 }
 
 impl DockContent for ShellDock<'_> {
@@ -482,6 +547,8 @@ impl DockContent for ShellDock<'_> {
                     self.requests,
                     self.registry,
                     self.jobs,
+                    self.notifications,
+                    self.tracker,
                     self.workspace,
                     self.ctx,
                 );

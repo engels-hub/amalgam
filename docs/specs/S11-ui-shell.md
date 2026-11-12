@@ -907,7 +907,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-06 | Manipulators: Distance, Angle, Triad, Plane gizmos via overlays (constant 90 px), CPU hit test, drag ↔ field binding both ways, Ctrl snapping, heads-up value | UI-05, RND-07 | P0 | Todo | 1. Dragging the extrude arrow by a scripted world delta of 12.5 mm writes `12.5 mm` into the field (prefs precision), and editing the field moves the arrow (kittest via `world_to_screen`). 2. Ctrl-drag snaps to 1 mm / 5°. 3. Triad: each of 10 parts hit-tests correctly in a 6-view matrix (unit test on `CameraView`). 4. Gizmo screen size stays 90 ± 2 px across a 1000× zoom range. |
 | UI-07 | Browser tree: framework nodes (settings, named views, origin, components/bodies/sketches/construction, selection sets), `BrowserProvider` API, virtualised rows, eye toggles (`SetBodyProps`, `SetOccurrenceVisible`, `ui.visibility` ExtRecord), rename, context menu, hover highlight, click select, double-click edit | UI-04, DOC-09 | P0 | Todo | 1. Kittest on a fixture with 2 components × 3 bodies: hiding a body hides it in the scene, and undo shows it again. Renaming a body persists through save/load. 2. A test provider adds a node under Root without framework changes. 3. 10 000 synthetic bodies: browser frame cost < 1 ms (criterion), and the tree is rebuilt only on affecting events (counter). 4. Hovering a row highlights the body (highlight layer contains it). |
 | UI-08 | Timeline panel: node icons via `FeatureUiInfo`, groups, rollback marker drag (`SetMarker`), drag reorder with valid-range shading (`MoveFeature`), context menu, health badges + tooltips, hover highlight of outputs and error entities, recompute progress ring, hidden in Direct mode | UI-04, DOC-05, DOC-12 | P0 | Todo | 1. Kittest on a 20-node test timeline: dragging the marker to index 5 sends `SetMarker{5}`, and nodes ≥ 5 render as rolled back. 2. Dragging a node before its input is refused (no command sent, red shading shown). A valid move sends one `MoveFeature`. 3. An erroring test feature shows an error badge with the diagnostic message as tooltip. 4. Suppress/rename/delete/group via the context menu each give one undo entry. 5. 500 nodes render < 1 ms (criterion). |
-| UI-10 | Job/progress panel (`JobSystem::jobs()`, grouped, cancel), status-bar recompute/job indicators, toasts from `Diagnostic` (severity, hint, details via `report`, copy, open log folder), cancelled-is-not-error rule, GPU device-lost banner | UI-01, FND-04, FND-07 | P0 | Todo | 1. Kittest: a 2 s test job shows progress; pressing Cancel resolves it as `Cancelled` within 200 ms and no error toast appears. 2. A failing job with an `amg_core::Error::InvalidArgument` shows the user message and hint, and "Details" contains the `report` chain. 3. Info toasts auto-hide after 6 s, and errors stay. 4. Simulated `is_lost()` shows the banner and Save stays enabled. |
+| UI-10 | Job/progress panel (`JobSystem::jobs()`, grouped, cancel), status-bar recompute/job indicators, toasts from `Diagnostic` (severity, hint, details via `report`, copy, open log folder), cancelled-is-not-error rule, GPU device-lost banner | UI-01, FND-04, FND-07 | P0 | Review | 1. Kittest: a 2 s test job shows progress; pressing Cancel resolves it as `Cancelled` within 200 ms and no error toast appears. 2. A failing job with an `amg_core::Error::InvalidArgument` shows the user message and hint, and "Details" contains the `report` chain. 3. Info toasts auto-hide after 6 s, and errors stay. 4. Simulated `is_lost()` shows the banner and Save stays enabled. |
 | UI-19 | File operations & recovery: New/Open/Open Recent/Save/Save As/Save Compact, `rfd` on a dedicated thread parented to the window, save/load as jobs with progress, dirty-close prompt (`CancelClose` + `Modal`), recovery dialog from `find_recoverable`, `RecoverySession::on_commit` per batch, `Placement::Menu` slots for Import/Export | UI-10, DOC-07, DOC-14 | P0 | Todo | 1. Kittest with a fake file-dialog backend (trait): save → reopen gives an equal `design.json`. 2. Closing a dirty document shows the prompt, and Cancel keeps the app open. 3. Kill test: commit 5 commands, abort the process, restart → the recovery dialog offers the document and "Open recovered" restores it. 4. Opening a 50 MB file never blocks a frame > 16 ms (tracing assertion). |
 | UI-21 | Marking menu: radial 8 wedges + overflow + repeat-last, click/gesture/hold modes, `MarkingMenuProvider` + `ContextMenuProvider` APIs, framework default provider | UI-03, UI-04 | P0 | Todo | 1. Kittest: right-click opens the menu, clicking the N wedge runs its command. A right-drag gesture toward E runs E's command without the menu staying open. 2. "Repeat <last>" runs the previous command. 3. A test provider adds an entry for a selected mesh body only (context check). 4. Every wedge is queryable by label. |
 | UI-12 | Parameters dialog: table (favourite, name, unit, expression, value, comment), user/model grouping, filter, add/delete/rename/edit/favourite via S01 commands, inline cycle/unit errors | UI-15, DOC-05 | P0 | Todo | 1. Kittest: add user param `w = 20 mm`, set a model param to `w * 2` → value `40.00 mm`. Renaming `w` → `width` rewrites the model param text. 2. `a = b`, `b = a` shows a cycle error on the second edit, and the document is unchanged. 3. Each edit is one undo entry. 4. 1 000 params render < 2 ms (criterion). |
@@ -1274,6 +1274,59 @@ dynamic register/search/run/unregister kittest.
 - Icons are not drawn (the SVG icon registry is still open); recency is not persisted (UI-11).
 - The criterion numbers are in the handoff report.
 
+### 2026-11-12 - UI-10 job panel, toasts, device-lost banner
+Landed in `amg-ui`: `notify` (`Notification`, `Notification::from_diagnostic` = `None` for a
+cancellation, `Notifications` queue with a skewable clock, `AUTO_HIDE` = 6 s, toast drawing),
+`jobs` (private: `JobTracker` for `spawn_tracked`, and the job panel). `AppCx::{notify,
+notify_error, spawn_tracked}` and the host-side `AmalgamApp::{notify, notify_error, notifications,
+dismiss_notification, advance_notification_clock, spawn_tracked, jobs_panel_open,
+set_jobs_panel_open, device_lost, log_dir, set_log_dir, set_folder_opener, open_log_folder}`.
+`AmalgamApp::logic` polls the tracker without blocking (before the document poll), so a tracked job's
+callback runs on the UI thread with `&mut AppCx`. The status bar's `Jobs: N` is now a toggle for
+the panel (bottom right, above the timeline): per root job the label, a progress bar, the latest
+message, elapsed time and a Cancel button (`JobSystem::cancel`), children indented under their
+parent. While it is open and jobs run it repaints every 100 ms (progress has no notifier); closed,
+the idle behaviour is unchanged. Toasts are drawn at the top right: title in the severity colour,
+body, `Hint: ...`, a collapsible "Details" (the `amg_core::report` chain), "Copy details"
+(`copy_text`), "Open log folder" and "Dismiss". Errors are sticky; info and warnings hide after 6 s
+(the queue asks for `request_repaint_after` so an idle app still wakes). The device-lost banner is
+now a full-width red panel under the toolbar; nothing is disabled by it. `amg-app` hands the
+`DiagGuard` log directory to `set_log_dir`.
+
+Done-when: 1. `tests/jobs_panel.rs::job_panel_shows_progress_and_cancel_resolves_without_an_error_toast`
+(a 2 s tracked job: progress and message in the panel, Cancel resolves it as `JobError::Cancelled`,
+no toast; click to callback 12 ms here, asserted < 200 ms only under `AMG_STRICT_TIMING=1`) and
+`jobs_are_grouped_under_their_parent_and_cancel_reaches_children`. 2.
+`failing_job_shows_message_hint_and_report_chain` (`Error::InvalidArgument`: body = user message,
+details = `report`) and `toast_shows_hint_and_details_with_the_source_chain` (hint on screen, "Details"
+opens the chain; `InvalidArgument` itself has no hint). 3.
+`info_toasts_hide_after_six_seconds_errors_stay_until_dismissed` (5.9 s still shown, 6.1 s gone,
+the error survives an hour and goes on Dismiss) plus `notify::tests`. 4.
+`device_lost_shows_the_banner_and_save_stays_enabled` (a viewport that reports a lost device).
+Also `open_log_folder_and_copy_details_buttons`.
+
+*Deviations:*
+- `spawn_tracked` needs `J::Error: amg_core::Diagnostic` (every library error has it by
+  convention): the tracker turns a failure into a toast before `on_done` runs, and never for a
+  cancellation. `on_done` still receives the full `Result`.
+- Commit-batch failures are a toast ("Edit failed", the label and the doc error, `report` as
+  details) in addition to the status-bar text, which stays because the UI-01 test checks it. The
+  toast body is `<label>: <error>`, not `<label> failed: ...`, so the two never match the same
+  text query.
+- There is no Save command yet (UI-19), so the "Save stays enabled" test registers a `Save` menu
+  command of its own. Nothing in the banner path disables commands.
+- Additive test support: `AppHarnessBuilder::viewport`. The harness's `drive_until_idle` waits for
+  the delayed repaint of a pending auto-hide toast, so tests with info/warning toasts step a fixed
+  number of frames instead (as the search tests do).
+- A freshly opened panel (an `egui::Area`) is laid out invisibly in its first frame; kittest tests
+  settle a few frames before clicking Cancel.
+
+*Leftovers:*
+- The "Open log folder" default opens `explorer` / `open` / `xdg-open` on the log directory; only
+  the injected opener is tested.
+- No toast stacking limit or grouping of repeated messages; no toast hover-pause.
+- Re-creating a lost device and a Save command are outside this WP (UI-19 owns Save).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1342,3 +1395,7 @@ additive pieces UI-05 should render:
 - `amg-ui` gains the `toml` workspace dependency (already in `THIRD_PARTY.md`) and a `criterion`
   dev-dependency with bench `search`. No change outside lane D except the `amg-app` start-up
   loading `shortcuts.toml`.
+
+### 2026-11-12: UI-10 (lane D)
+- No change outside lane D. `amg-ui` has no new dependency (`egui`'s own `ProgressBar`, `Area` and
+  `copy_text`). `amg-app` reads `DiagGuard::log_dir()` and calls `AmalgamApp::set_log_dir`.
