@@ -18,7 +18,9 @@ use amg_jobs::JobSystem;
 
 use crate::command::{CmdAction, CmdId, Enablement};
 use crate::dock::DockHost;
+use crate::jobs::JobTracker;
 use crate::module::{ContextId, PanelId, TabId, WorkspaceId};
+use crate::notify::{Notification, Notifications};
 use crate::panel::Panel;
 use crate::registry::UiRegistry;
 use crate::search::{Recency, SearchState};
@@ -110,6 +112,8 @@ pub struct AppCx<'a> {
     requests: &'a mut Vec<ShellRequest>,
     registry: &'a UiRegistry,
     jobs: &'a JobSystem,
+    notifications: &'a mut Notifications,
+    tracker: &'a mut JobTracker,
     workspace: WorkspaceId,
     ctx: Option<&'a egui::Context>,
 }
@@ -124,12 +128,18 @@ impl std::fmt::Debug for AppCx<'_> {
 }
 
 impl<'a> AppCx<'a> {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "crate-internal constructor over the app's disjoint fields"
+    )]
     pub(crate) fn new(
         doc: &'a mut DocTab,
         queue: &'a mut CommandQueue,
         requests: &'a mut Vec<ShellRequest>,
         registry: &'a UiRegistry,
         jobs: &'a JobSystem,
+        notifications: &'a mut Notifications,
+        tracker: &'a mut JobTracker,
         workspace: WorkspaceId,
         ctx: Option<&'a egui::Context>,
     ) -> AppCx<'a> {
@@ -139,6 +149,8 @@ impl<'a> AppCx<'a> {
             requests,
             registry,
             jobs,
+            notifications,
+            tracker,
             workspace,
             ctx,
         }
@@ -213,6 +225,36 @@ impl AppCx<'_> {
     /// The document tab (read-only).
     pub fn doc_tab(&self) -> &DocTab {
         self.doc
+    }
+
+    /// Shows a toast.
+    pub fn notify(&mut self, n: Notification) {
+        self.notifications.push(n);
+        self.request_repaint();
+    }
+
+    /// Shows a toast for a diagnostic. A cancellation shows nothing (cancelled is not an
+    /// error).
+    pub fn notify_error(&mut self, e: &dyn amg_core::Diagnostic) {
+        if let Some(n) = Notification::from_diagnostic(e) {
+            self.notify(n);
+        }
+    }
+
+    /// Spawns a job whose result comes back on the UI thread: `on_done` runs with `&mut AppCx`
+    /// in a later frame's `logic`, once the job finished. A failure (not a cancellation)
+    /// is shown as a toast before `on_done` runs, so tools need no error handling of
+    /// their own.
+    pub fn spawn_tracked<J: amg_jobs::Job>(
+        &mut self,
+        job: J,
+        opts: amg_jobs::SpawnOptions,
+        on_done: impl FnOnce(Result<J::Output, amg_jobs::JobError<J::Error>>, &mut AppCx<'_>) + 'static,
+    ) -> amg_jobs::JobId
+    where
+        J::Error: amg_core::Diagnostic,
+    {
+        self.tracker.spawn(self.jobs, job, opts, on_done)
     }
 
     /// Asks for another frame (only for work the job notifier does not cover).
@@ -291,6 +333,12 @@ pub struct AmalgamApp {
     pub(crate) recency: Recency,
     /// The pointer was over the viewport last frame (enables the `Viewport` shortcut scope).
     pub(crate) viewport_hovered: bool,
+    pub(crate) notifications: Notifications,
+    pub(crate) tracker: JobTracker,
+    /// The job panel is expanded (toggled by the status bar's `Jobs: N`).
+    pub(crate) jobs_panel_open: bool,
+    log_dir: PathBuf,
+    folder_opener: Box<dyn FnMut(&std::path::Path)>,
 }
 
 impl std::fmt::Debug for AmalgamApp {
@@ -342,6 +390,11 @@ impl AmalgamApp {
             search: SearchState::default(),
             recency: Recency::new(),
             viewport_hovered: false,
+            notifications: Notifications::new(),
+            tracker: JobTracker::default(),
+            jobs_panel_open: false,
+            log_dir: amg_jobs::diag::default_log_dir(),
+            folder_opener: Box::new(open_in_file_manager),
         };
         app.shortcuts = ShortcutMap::build(&app.registry, &app.shortcut_overrides);
         app.load_layouts();
@@ -371,6 +424,7 @@ impl AmalgamApp {
         if self.shortcuts.generation() != self.registry.generation() {
             self.shortcuts = ShortcutMap::build(&self.registry, &self.shortcut_overrides);
         }
+        self.poll_tracked_jobs();
         let jobs = Arc::clone(&self.jobs);
         for (i, doc) in self.docs.iter_mut().enumerate() {
             doc.document.poll(&jobs);
@@ -388,6 +442,18 @@ impl AmalgamApp {
                 }
             }
         }
+    }
+
+    /// Runs the callbacks of tracked jobs that finished. Never blocks.
+    fn poll_tracked_jobs(&mut self) {
+        if self.tracker.entries.is_empty() || self.docs.is_empty() {
+            return;
+        }
+        let mut entries = std::mem::take(&mut self.tracker.entries);
+        self.with_cx(|cx| entries.retain_mut(|poll| !poll(cx)));
+        // Jobs spawned by the callbacks went to the (emptied) tracker.
+        entries.append(&mut self.tracker.entries);
+        self.tracker.entries = entries;
     }
 
     /// Layout and widgets, then [`Self::end_frame`].
@@ -412,9 +478,14 @@ impl AmalgamApp {
             };
             match action {
                 DocAction::Commit(batch) => {
-                    if let Err(msg) = apply_batch(&mut doc.document, batch) {
+                    if let Err(f) = apply_batch(&mut doc.document, batch) {
+                        let msg = format!("{} failed: {}", f.label, f.error);
                         tracing::warn!("{msg}");
                         self.status = Some(msg);
+                        self.notifications.push(
+                            Notification::error("Edit failed", format!("{}: {}", f.label, f.error))
+                                .with_details(amg_core::report(&f.error)),
+                        );
                     }
                 }
                 DocAction::Undo => {
@@ -647,15 +718,100 @@ impl AmalgamApp {
             &mut self.requests,
             &self.registry,
             &self.jobs,
+            &mut self.notifications,
+            &mut self.tracker,
             self.workspace,
             self.ctx.as_ref(),
         );
         f(&mut cx)
     }
 
-    /// The last error shown in the status bar (UI-10 replaces this with notifications).
+    /// The last commit-batch error shown in the status bar (it is also a toast).
     pub fn status_message(&self) -> Option<&str> {
         self.status.as_deref()
+    }
+
+    // ---- notifications and jobs ---------------------------------------------------------
+
+    /// Shows a toast.
+    pub fn notify(&mut self, n: Notification) {
+        self.notifications.push(n);
+        self.repaint();
+    }
+
+    /// Shows a toast for a diagnostic; a cancellation shows nothing.
+    pub fn notify_error(&mut self, e: &dyn amg_core::Diagnostic) {
+        if let Some(n) = Notification::from_diagnostic(e) {
+            self.notify(n);
+        }
+    }
+
+    /// The toasts currently shown.
+    pub fn notifications(&self) -> &Notifications {
+        &self.notifications
+    }
+
+    /// Dismisses a toast.
+    pub fn dismiss_notification(&mut self, id: u64) {
+        self.notifications.dismiss(id);
+        self.repaint();
+    }
+
+    /// Moves the toast clock forward (tests: the 6 s auto-hide without sleeping).
+    pub fn advance_notification_clock(&mut self, by: std::time::Duration) {
+        self.notifications.advance_clock(by);
+        self.repaint();
+    }
+
+    /// Like [`AppCx::spawn_tracked`], for the host and tests.
+    pub fn spawn_tracked<J: amg_jobs::Job>(
+        &mut self,
+        job: J,
+        opts: amg_jobs::SpawnOptions,
+        on_done: impl FnOnce(Result<J::Output, amg_jobs::JobError<J::Error>>, &mut AppCx<'_>) + 'static,
+    ) -> amg_jobs::JobId
+    where
+        J::Error: amg_core::Diagnostic,
+    {
+        self.tracker.spawn(&self.jobs, job, opts, on_done)
+    }
+
+    /// Whether the job panel is expanded.
+    pub fn jobs_panel_open(&self) -> bool {
+        self.jobs_panel_open
+    }
+
+    /// Expands or collapses the job panel.
+    pub fn set_jobs_panel_open(&mut self, open: bool) {
+        self.jobs_panel_open = open;
+        self.repaint();
+    }
+
+    /// True if the GPU device was lost (the banner is shown; nothing else is disabled).
+    pub fn device_lost(&self) -> bool {
+        self.viewport.device_lost()
+    }
+
+    /// The folder "Open log folder" opens.
+    pub fn log_dir(&self) -> &std::path::Path {
+        &self.log_dir
+    }
+
+    /// Sets the log folder (default: `amg_jobs::diag::default_log_dir()`).
+    pub fn set_log_dir(&mut self, dir: PathBuf) {
+        self.log_dir = dir;
+    }
+
+    /// Replaces what "Open log folder" does (tests record the path instead of opening a
+    /// file manager).
+    pub fn set_folder_opener(&mut self, opener: impl FnMut(&std::path::Path) + 'static) {
+        self.folder_opener = Box::new(opener);
+    }
+
+    /// Opens the log folder.
+    pub fn open_log_folder(&mut self) {
+        let dir = self.log_dir.clone();
+        (self.folder_opener)(&dir);
     }
 
     // ---- workspaces, tabs, panels -------------------------------------------------------
@@ -892,15 +1048,45 @@ pub fn default_layout_path() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|d| d.config_dir().join("Amalgam").join("layout.json"))
 }
 
+/// A batch that failed and was rolled back.
+struct BatchFailure {
+    label: String,
+    error: amg_doc::CommandError,
+}
+
 /// One transaction per batch; a failing command rolls the whole batch back.
-fn apply_batch(doc: &mut Document, batch: CommitBatch) -> Result<(), String> {
+fn apply_batch(doc: &mut Document, batch: CommitBatch) -> Result<(), BatchFailure> {
     let mut tx = doc.transaction(&batch.label);
     for cmd in batch.commands {
-        if let Err(e) = tx.apply(cmd) {
+        if let Err(error) = tx.apply(cmd) {
             tx.rollback();
-            return Err(format!("{} failed: {e}", batch.label));
+            return Err(BatchFailure {
+                label: batch.label,
+                error,
+            });
         }
     }
     tx.commit();
     Ok(())
+}
+
+/// Opens a folder in the platform's file manager without blocking.
+fn open_in_file_manager(dir: &std::path::Path) {
+    let _ = std::fs::create_dir_all(dir);
+    let program = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    match std::process::Command::new(program).arg(dir).spawn() {
+        Ok(mut child) => {
+            // Reap the child so it does not linger as a zombie.
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => tracing::warn!("cannot open {}: {e}", dir.display()),
+    }
 }

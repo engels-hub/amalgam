@@ -87,6 +87,7 @@ fn main() -> anyhow::Result<()> {
     })?;
     diag::install_panic_hook();
     amg_jobs::mark_ui_thread();
+    let log_dir = diag_guard.log_dir().to_path_buf();
 
     let startup = tracing::info_span!("startup");
     let (gpu, jobs, slot, registry) = startup.in_scope(|| -> anyhow::Result<_> {
@@ -156,6 +157,7 @@ fn main() -> anyhow::Result<()> {
                 theme: args.theme,
                 layout_path: default_layout_path(),
             });
+            app.set_log_dir(log_dir);
             if let Some(path) = amg_ui::shortcut::default_shortcuts_path()
                 && let Err(e) = app.load_shortcuts_file(&path)
             {

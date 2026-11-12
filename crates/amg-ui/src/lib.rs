@@ -22,7 +22,9 @@ mod builtin;
 pub mod command;
 pub mod design;
 pub mod dock;
+mod jobs;
 pub mod module;
+pub mod notify;
 pub mod panel;
 pub mod registry;
 pub mod search;
@@ -46,6 +48,7 @@ pub mod testing;
 
 pub use app::{AmalgamApp, AppConfig, AppCx, CmdEnv, CommitBatch, DocTab, DocTabId};
 pub use command::{CmdAction, CmdId, CommandDef, Enablement, Enabler, Placement, RegistryError};
+pub use notify::{Notification, Notifications};
 pub use registry::UiRegistry;
 pub use shortcut::{Shortcut, ShortcutMap, ShortcutScope};
 
