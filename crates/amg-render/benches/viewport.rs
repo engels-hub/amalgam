@@ -1,5 +1,5 @@
-//! RND-02 viewport bench (spec S10, Done-when 1 and 2; vision row "viewport, 5 M-triangle mesh,
-//! orbit >= 60 fps", shading-only half). Headless: no window, no egui.
+//! RND-02 / RND-12 viewport bench (spec S10: RND-02 Done-when 1 and 2, RND-12 Done-when 5;
+//! vision row "viewport, 5 M-triangle mesh, orbit >= 60 fps"). Headless: no window, no egui.
 //!
 //! A displaced icosphere orbits for 600 frames at 2560x1440, 4x MSAA, Studio lighting, with at
 //! most two frames in flight (like a swapchain). Reported per configuration:
@@ -9,8 +9,14 @@
 //!   `TIMESTAMP_QUERY`).
 //!
 //! Budgets: 5 M tris GPU p99 <= 9 ms and wall p99 <= 16.6 ms; 1 M tris GPU p50 <= 3 ms. Each is
-//! measured with and without the depth pre-pass (Done-when 2). The budgets are asserted only
-//! with `AMG_STRICT_TIMING=1`; the numbers are printed always.
+//! measured with and without the depth pre-pass (RND-02 Done-when 2), in `Shaded` (no edges).
+//!
+//! RND-12 adds 100 k edge segments lying on the sphere (50 latitude rings and 50 meridians,
+//! 1000 segments each) and measures `Shaded`, `ShadedVisibleEdges` (the vision budget: GPU p99
+//! <= 12 ms, wall p99 <= 16.6 ms), `ShadedHiddenEdges` and `ShadedVisibleEdges` with
+//! silhouettes.
+//!
+//! The budgets are asserted only with `AMG_STRICT_TIMING=1`; the numbers are printed always.
 //!
 //! `cargo bench -p amg-render --bench viewport -- --test` (CI on WARP) runs a tiny version.
 
@@ -25,8 +31,8 @@ use amg_core::{Dir3, Point3, Transform, Vec3};
 use amg_jobs::JobCtx;
 use amg_jobs::gpu::{Gpu, GpuConfig};
 use amg_render::{
-    Camera, Instance, Lighting, MeshData, Projection, Renderer, RendererConfig, ViewId, ViewStyle,
-    upload_mesh, wgpu,
+    Camera, EdgeData, Instance, Lighting, MeshData, Polyline, Projection, Renderer, RendererConfig,
+    ViewId, ViewStyle, VisualStyle, upload_edges, upload_mesh, wgpu,
 };
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -53,6 +59,58 @@ fn gpu() -> Option<Arc<Gpu>> {
             eprintln!("no GPU, skipping the viewport benches: {e}");
             None
         }
+    }
+}
+
+/// Radius of the displaced sphere in direction `d` (unit), mm.
+fn displacement(d: Vec3) -> f64 {
+    100.0
+        * (1.0
+            + 0.05 * (11.0 * d.x).sin() * (9.0 * d.y).sin()
+            + 0.03 * (23.0 * d.z + 7.0 * d.x).sin()
+            + 0.015 * (47.0 * d.y + 31.0 * d.z).sin())
+}
+
+/// `rings` latitude circles and `meridians` pole-to-pole curves on the displaced sphere, each
+/// of `per` segments: `(rings + meridians) * per` segments.
+fn sphere_edges(rings: usize, meridians: usize, per: usize) -> EdgeData {
+    let mut points: Vec<[f32; 3]> = Vec::new();
+    let mut polylines = Vec::new();
+    let on_surface = |d: Vec3| (d * displacement(d)).as_vec3().to_array();
+    for r in 0..rings {
+        let polar = std::f64::consts::PI * (r as f64 + 1.0) / (rings as f64 + 1.0);
+        let first = points.len() as u32;
+        for k in 0..per {
+            let az = std::f64::consts::TAU * k as f64 / per as f64;
+            let d = Vec3::new(polar.sin() * az.cos(), polar.sin() * az.sin(), polar.cos());
+            points.push(on_surface(d));
+        }
+        polylines.push(Polyline {
+            first,
+            len: per as u32,
+            id: polylines.len() as u32,
+            closed: true,
+        });
+    }
+    for m in 0..meridians {
+        let az = std::f64::consts::TAU * m as f64 / meridians as f64;
+        let first = points.len() as u32;
+        for k in 0..=per {
+            let polar = std::f64::consts::PI * k as f64 / per as f64;
+            let d = Vec3::new(polar.sin() * az.cos(), polar.sin() * az.sin(), polar.cos());
+            points.push(on_surface(d));
+        }
+        polylines.push(Polyline {
+            first,
+            len: per as u32 + 1,
+            id: polylines.len() as u32,
+            closed: false,
+        });
+    }
+    EdgeData {
+        origin: Point3::ZERO,
+        points,
+        polylines,
     }
 }
 
@@ -104,13 +162,6 @@ fn displaced_icosphere(min_tris: usize) -> MeshData {
     let mut shared: HashMap<(u32, u32, u32), u32> = HashMap::new();
     let corner = |i: u32| Vec3::from_array(CORNERS[i as usize]);
     let edge_key = |a: u32, wa: u32, b: u32, wb: u32| if a < b { (a, b, wa) } else { (b, a, wb) };
-    let displacement = |d: Vec3| {
-        100.0
-            * (1.0
-                + 0.05 * (11.0 * d.x).sin() * (9.0 * d.y).sin()
-                + 0.03 * (23.0 * d.z + 7.0 * d.x).sin()
-                + 0.015 * (47.0 * d.y + 31.0 * d.z).sin())
-    };
     let mut row: Vec<Vec<u32>> = Vec::with_capacity(fu + 1);
     for [a, b, c] in FACES {
         row.clear();
@@ -180,25 +231,50 @@ struct Fixture {
     triangles: u64,
 }
 
-fn fixture(gpu: &Arc<Gpu>, mesh: &MeshData, size: [u32; 2], prepass: bool) -> Fixture {
+/// What a fixture draws besides the mesh.
+#[derive(Clone, Copy)]
+struct Look {
+    visual: VisualStyle,
+    silhouettes: bool,
+}
+
+const SHADED: Look = Look {
+    visual: VisualStyle::Shaded,
+    silhouettes: false,
+};
+
+fn fixture(
+    gpu: &Arc<Gpu>,
+    mesh: &MeshData,
+    edges: Option<&EdgeData>,
+    size: [u32; 2],
+    prepass: bool,
+    look: Look,
+) -> Fixture {
     let mut renderer = Renderer::new(
         Arc::clone(gpu),
         &RendererConfig {
             msaa_samples: 4,
             depth_prepass: prepass,
             jobs: None,
+            polygon_mode_line: true,
         },
     )
     .unwrap();
     let gpu_mesh = upload_mesh(gpu, mesh, &JobCtx::detached()).unwrap();
     let triangles = u64::from(gpu_mesh.triangle_count());
     let key = renderer.scene_mut().insert_mesh(gpu_mesh);
-    renderer
-        .scene_mut()
-        .add_instance(Instance::new(key, Transform::IDENTITY));
+    let mut inst = Instance::new(key, Transform::IDENTITY);
+    if let Some(e) = edges {
+        let gpu_edges = upload_edges(gpu, e, &JobCtx::detached()).unwrap();
+        inst.edges = Some(renderer.scene_mut().insert_edges(gpu_edges));
+    }
+    renderer.scene_mut().add_instance(inst);
     let view = renderer.create_view(size);
     renderer.view_mut(view).unwrap().style = ViewStyle {
         lighting: Lighting::Studio,
+        visual: look.visual,
+        silhouettes: look.silhouettes,
         ..ViewStyle::default()
     };
     assert!(renderer.prepare_view(view));
@@ -224,6 +300,7 @@ struct Run {
     wall_ms: Vec<f64>,
     gpu_ms: Vec<f64>,
     passes: HashMap<&'static str, Vec<f64>>,
+    edge_segments: u64,
 }
 
 /// Renders `frames` orbit frames with at most two in flight.
@@ -234,6 +311,7 @@ fn run(f: &mut Fixture, gpu: &Gpu, frames: usize) -> Run {
         wall_ms: Vec::with_capacity(frames),
         gpu_ms: Vec::with_capacity(frames),
         passes: HashMap::new(),
+        edge_segments: 0,
     };
     let mut in_flight: Option<wgpu::SubmissionIndex> = None;
     let mut last = Instant::now();
@@ -248,7 +326,8 @@ fn run(f: &mut Fixture, gpu: &Gpu, frames: usize) -> Run {
         }
         f.renderer.view_mut(f.view).unwrap().camera = orbit(i, frames);
         let mut encoder = device.create_command_encoder(&Default::default());
-        black_box(f.renderer.encode(f.view, &mut encoder).unwrap());
+        let stats = black_box(f.renderer.encode(f.view, &mut encoder).unwrap());
+        out.edge_segments = out.edge_segments.max(stats.edge_segments);
         let index = queue.submit([encoder.finish()]);
         if let Some(prev) = in_flight.replace(index) {
             device
@@ -304,7 +383,7 @@ fn orbit_budgets(c: &mut Criterion) {
         );
         let mut p99s = Vec::new();
         for prepass in [false, true] {
-            let mut f = fixture(&gpu, &mesh, size, prepass);
+            let mut f = fixture(&gpu, &mesh, None, size, prepass, SHADED);
             run(&mut f, &gpu, frames.min(60)); // warm-up
             let r = run(&mut f, &gpu, frames);
             let (w50, w99) = (percentile(&r.wall_ms, 0.5), percentile(&r.wall_ms, 0.99));
@@ -346,9 +425,11 @@ fn orbit_budgets(c: &mut Criterion) {
         }
     }
 
+    edge_budgets(&gpu, size, frames);
+
     // Criterion: wall time of one synchronous frame (encode, submit, wait).
     let tris = if test_mode() { 20_000 } else { 5_000_000 };
-    let mut f = fixture(&gpu, &displaced_icosphere(tris), size, false);
+    let mut f = fixture(&gpu, &displaced_icosphere(tris), None, size, false, SHADED);
     let mut g = c.benchmark_group("viewport");
     g.sample_size(20);
     g.bench_function("frame_5m_studio_1440p_msaa4", |b| {
@@ -369,6 +450,80 @@ fn orbit_budgets(c: &mut Criterion) {
         });
     });
     g.finish();
+}
+
+/// RND-12 Done-when 5: 5 M tris + 100 k edge segments in `ShadedVisibleEdges`.
+fn edge_budgets(gpu: &Arc<Gpu>, size: [u32; 2], frames: usize) {
+    let (tris, edges) = if test_mode() {
+        (20_000, sphere_edges(10, 10, 100))
+    } else {
+        (5_000_000, sphere_edges(50, 50, 1000))
+    };
+    let mesh = displaced_icosphere(tris);
+    let looks = [
+        ("Shaded", SHADED),
+        (
+            "ShadedVisibleEdges",
+            Look {
+                visual: VisualStyle::ShadedVisibleEdges,
+                silhouettes: false,
+            },
+        ),
+        (
+            "ShadedHiddenEdges",
+            Look {
+                visual: VisualStyle::ShadedHiddenEdges,
+                silhouettes: false,
+            },
+        ),
+        (
+            "ShadedVisibleEdges+silhouettes",
+            Look {
+                visual: VisualStyle::ShadedVisibleEdges,
+                silhouettes: true,
+            },
+        ),
+    ];
+    let mut baseline = None;
+    for (name, look) in looks {
+        let mut f = fixture(gpu, &mesh, Some(&edges), size, false, look);
+        run(&mut f, gpu, frames.min(60)); // warm-up
+        let r = run(&mut f, gpu, frames);
+        let (w50, w99) = (percentile(&r.wall_ms, 0.5), percentile(&r.wall_ms, 0.99));
+        let (g50, g99) = (percentile(&r.gpu_ms, 0.5), percentile(&r.gpu_ms, 0.99));
+        let mut passes: Vec<_> = r
+            .passes
+            .iter()
+            .map(|(k, v)| format!("{k} p50 {:.3}", percentile(v, 0.5)))
+            .collect();
+        passes.sort();
+        let extra = baseline.map_or(String::new(), |(b50, b99): (f64, f64)| {
+            format!(
+                "; vs Shaded GPU p50 {:+.3} ms p99 {:+.3} ms",
+                g50 - b50,
+                g99 - b99
+            )
+        });
+        eprintln!(
+            "viewport edges {name} ({} tris, {} edge segments) {}x{} 4x MSAA Studio: {} frames, wall p50 {w50:.3} ms p99 {w99:.3} ms; GPU p50 {g50:.3} ms p99 {g99:.3} ms ({} timed; {}){extra}",
+            f.triangles,
+            r.edge_segments,
+            size[0],
+            size[1],
+            r.wall_ms.len(),
+            r.gpu_ms.len(),
+            passes.join(", ")
+        );
+        if name == "Shaded" {
+            baseline = Some((g50, g99));
+        } else if !test_mode() {
+            assert_eq!(r.edge_segments, 100_000, "every edge segment is planned");
+        }
+        if strict() && !test_mode() && name == "ShadedVisibleEdges" {
+            assert!(g99 <= 12.0, "5M + edges GPU p99 {g99:.3} ms > 12 ms");
+            assert!(w99 <= 16.6, "5M + edges wall p99 {w99:.3} ms > 16.6 ms");
+        }
+    }
 }
 
 criterion_group!(benches, orbit_budgets);

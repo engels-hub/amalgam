@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use amg_jobs::{Cancelled, JobSystem, Priority, SpawnOptions};
 
+use crate::lines::LinePass;
 use crate::renderer::PipelineTiming;
 use crate::shading::{
     AMBIENT_SPECULAR, FILL_DIR, FILL_RGB, GROUND_RGB, KEY_DIR, KEY_RGB, Lighting, MATCAP_DIR,
@@ -26,7 +27,10 @@ pub(crate) const FINAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8U
 
 const CAMERA_WGSL: &str = include_str!("shaders/camera.wgsl");
 const SHADING_WGSL: &str = include_str!("shaders/shading.wgsl");
+const SCENE_WGSL: &str = include_str!("shaders/scene.wgsl");
 const MESH_WGSL: &str = include_str!("shaders/mesh.wgsl");
+const LINES_WGSL: &str = include_str!("shaders/lines.wgsl");
+const SILHOUETTE_WGSL: &str = include_str!("shaders/silhouette.wgsl");
 const EXTERNAL_WGSL: &str = include_str!("shaders/external.wgsl");
 const POST_WGSL: &str = include_str!("shaders/post.wgsl");
 pub(crate) const FULLSCREEN_WGSL: &str = include_str!("shaders/fullscreen.wgsl");
@@ -52,6 +56,15 @@ pub(crate) enum PipelineKind {
     External,
     /// FXAA into the final image (always single-sampled).
     Fxaa,
+    /// Wide-line edge segments (RND-12).
+    Line { pass: LinePass },
+    /// Point sprites.
+    Point { pass: LinePass },
+    /// Triangle wireframe through `POLYGON_MODE_LINE`.
+    Wire { pass: LinePass },
+    /// Silhouettes over the resolved image; `samples` is the sample count of the targets it
+    /// reads (it always draws single-sampled).
+    Silhouette,
 }
 
 /// A pipeline variant: what it draws and at which sample count.
@@ -88,6 +101,10 @@ impl PipelineKey {
             PipelineKind::Background => "background",
             PipelineKind::External => "external layer",
             PipelineKind::Fxaa => "fxaa",
+            PipelineKind::Line { .. } => "line",
+            PipelineKind::Point { .. } => "point",
+            PipelineKind::Wire { .. } => "wireframe",
+            PipelineKind::Silhouette => "silhouettes",
         }
     }
 
@@ -155,9 +172,41 @@ fn shading_constants() -> String {
 /// Full WGSL of the mesh module (camera + shading + mesh passes).
 pub(crate) fn mesh_wgsl() -> String {
     format!(
-        "{CAMERA_WGSL}\n{}\n{SHADING_WGSL}\n{MESH_WGSL}",
+        "{CAMERA_WGSL}\n{}\n{SHADING_WGSL}\n{SCENE_WGSL}\n{MESH_WGSL}",
         shading_constants()
     )
+}
+
+/// Full WGSL of the line, point and wireframe module.
+pub(crate) fn lines_wgsl() -> String {
+    format!("{CAMERA_WGSL}\n{SCENE_WGSL}\n{LINES_WGSL}")
+}
+
+/// WGSL of the silhouette pass reading targets of `samples` samples.
+pub(crate) fn silhouette_wgsl(samples: u32) -> String {
+    let (normal, depth) = if samples > 1 {
+        (
+            "texture_multisampled_2d<f32>",
+            "texture_depth_multisampled_2d",
+        )
+    } else {
+        ("texture_2d<f32>", "texture_depth_2d")
+    };
+    SILHOUETTE_WGSL
+        .replace("NORMAL_TEXTURE", normal)
+        .replace("DEPTH_TEXTURE", depth)
+}
+
+/// Bind group layouts the factory builds pipeline layouts from.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Layouts<'a> {
+    pub view: &'a wgpu::BindGroupLayout,
+    pub external: &'a wgpu::BindGroupLayout,
+    pub post: &'a wgpu::BindGroupLayout,
+    /// Group 1 of the line and point pipelines: one read-only storage buffer.
+    pub geometry: &'a wgpu::BindGroupLayout,
+    /// Silhouette inputs at one sample and at several.
+    pub silhouette: [&'a wgpu::BindGroupLayout; 2],
 }
 
 /// Everything needed to build any variant; cheap to share with job threads.
@@ -170,15 +219,15 @@ pub(crate) struct PipelineFactory {
     external_layout: wgpu::PipelineLayout,
     post_shader: wgpu::ShaderModule,
     post_layout: wgpu::PipelineLayout,
+    lines_shader: wgpu::ShaderModule,
+    lines_layout: wgpu::PipelineLayout,
+    /// Silhouette modules and layouts at one sample (`[0]`) and several (`[1]`).
+    silhouette_shader: [wgpu::ShaderModule; 2],
+    silhouette_layout: [wgpu::PipelineLayout; 2],
 }
 
 impl PipelineFactory {
-    pub fn new(
-        device: &wgpu::Device,
-        view_bind_layout: &wgpu::BindGroupLayout,
-        external_bind_layout: &wgpu::BindGroupLayout,
-        post_bind_layout: &wgpu::BindGroupLayout,
-    ) -> PipelineFactory {
+    pub fn new(device: &wgpu::Device, layouts: Layouts<'_>) -> PipelineFactory {
         let module = |label, source: String| {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(label),
@@ -195,11 +244,25 @@ impl PipelineFactory {
         PipelineFactory {
             device: device.clone(),
             mesh_shader: module("amg mesh", mesh_wgsl()),
-            mesh_layout: layout("amg mesh", view_bind_layout),
+            mesh_layout: layout("amg mesh", layouts.view),
             external_shader: module("amg external layer", EXTERNAL_WGSL.to_owned()),
-            external_layout: layout("amg external layer", external_bind_layout),
+            external_layout: layout("amg external layer", layouts.external),
             post_shader: module("amg post", format!("{FULLSCREEN_WGSL}\n{POST_WGSL}")),
-            post_layout: layout("amg post", post_bind_layout),
+            post_layout: layout("amg post", layouts.post),
+            lines_shader: module("amg lines", lines_wgsl()),
+            lines_layout: device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("amg lines"),
+                bind_group_layouts: &[Some(layouts.view), Some(layouts.geometry)],
+                immediate_size: 0,
+            }),
+            silhouette_shader: [
+                module("amg silhouettes x1", silhouette_wgsl(1)),
+                module("amg silhouettes msaa", silhouette_wgsl(4)),
+            ],
+            silhouette_layout: [
+                layout("amg silhouettes x1", layouts.silhouette[0]),
+                layout("amg silhouettes msaa", layouts.silhouette[1]),
+            ],
         }
     }
 
@@ -382,6 +445,101 @@ impl PipelineFactory {
                         entry_point: Some("fs_external"),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                         targets: &targets,
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            PipelineKind::Line { pass }
+            | PipelineKind::Point { pass }
+            | PipelineKind::Wire { pass } => {
+                let alpha = wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                };
+                let targets = opaque_targets(Some(alpha), false);
+                let compare = match pass {
+                    LinePass::Hidden => wgpu::CompareFunction::Less,
+                    LinePass::Visible => wgpu::CompareFunction::GreaterEqual,
+                    LinePass::Always => wgpu::CompareFunction::Always,
+                };
+                let constants = [("HIDDEN", f64::from(u8::from(pass == LinePass::Hidden)))];
+                let wire = matches!(key.kind, PipelineKind::Wire { .. });
+                let (vs, fs) = match key.kind {
+                    PipelineKind::Line { .. } => ("vs_line", "fs_line"),
+                    PipelineKind::Point { .. } => ("vs_point", "fs_point"),
+                    _ => ("vs_wire", "fs_wire"),
+                };
+                let options = wgpu::PipelineCompilationOptions {
+                    constants: &constants,
+                    ..Default::default()
+                };
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(&label),
+                    layout: Some(if wire {
+                        &self.mesh_layout
+                    } else {
+                        &self.lines_layout
+                    }),
+                    vertex: wgpu::VertexState {
+                        module: &self.lines_shader,
+                        entry_point: Some(vs),
+                        compilation_options: options.clone(),
+                        buffers: if wire { &smooth_buffers[..1] } else { &[] },
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        cull_mode: None,
+                        polygon_mode: if wire {
+                            wgpu::PolygonMode::Line
+                        } else {
+                            wgpu::PolygonMode::Fill
+                        },
+                        ..Default::default()
+                    },
+                    depth_stencil: depth(false, compare),
+                    multisample,
+                    fragment: Some(wgpu::FragmentState {
+                        module: &self.lines_shader,
+                        entry_point: Some(fs),
+                        compilation_options: options,
+                        targets: &targets,
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            PipelineKind::Silhouette => {
+                let i = usize::from(key.samples > 1);
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(&label),
+                    layout: Some(&self.silhouette_layout[i]),
+                    vertex: wgpu::VertexState {
+                        module: &self.silhouette_shader[i],
+                        entry_point: Some("vs_silhouette"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &self.silhouette_shader[i],
+                        entry_point: Some("fs_silhouette"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: HDR_FORMAT,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
                     }),
                     multiview_mask: None,
                     cache: None,
@@ -631,6 +789,17 @@ mod tests {
             samples: 1
         }));
         assert!(with_prepass.contains(&PipelineKey::mesh(Lighting::Studio, true, true, true, 1)));
+    }
+
+    #[test]
+    fn silhouette_wgsl_picks_the_texture_types_by_sample_count() {
+        let one = silhouette_wgsl(1);
+        assert!(one.contains("var normals: texture_2d<f32>;"));
+        assert!(one.contains("var depths: texture_depth_2d;"));
+        let four = silhouette_wgsl(4);
+        assert!(four.contains("var normals: texture_multisampled_2d<f32>;"));
+        assert!(four.contains("var depths: texture_depth_multisampled_2d;"));
+        assert!(!four.contains("NORMAL_TEXTURE") && !four.contains("DEPTH_TEXTURE"));
     }
 
     #[test]

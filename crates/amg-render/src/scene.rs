@@ -1,11 +1,12 @@
-//! The renderer-owned scene mirror: meshes, instances with dirty tracking, layers and the
-//! external layer. RND-03 covers the mesh path; edges, fields, sections and overlays arrive
-//! with their own work packages.
+//! The renderer-owned scene mirror: meshes, edge and point sets, instances with dirty
+//! tracking, layers and the external layer. RND-03 covers the mesh path, RND-12 the edges and
+//! points; fields, sections and overlays arrive with their own work packages.
 
 use amg_core::{Aabb3, Mat3, Point3, SlotMap, Transform, Vec3};
 
+use crate::lines::{GpuEdges, GpuPoints, LineRecord, LineStyle, PointStyle, build_line_record};
 use crate::upload::GpuMesh;
-use crate::{InstanceKey, MeshKey, PickId};
+use crate::{EdgesKey, InstanceKey, MeshKey, PickId, PointsKey};
 
 /// What an instance belongs to. Views choose which layers they draw ([`LayerMask`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -66,11 +67,16 @@ impl Default for LayerMask {
     }
 }
 
-/// A mesh placed in the world.
+/// A body placed in the world: a mesh, its edges and its points, any of them optional.
 #[derive(Clone, Debug)]
 pub struct Instance {
     /// The mesh to draw. Several instances may share one mesh.
     pub mesh: Option<MeshKey>,
+    /// Edge polylines (B-rep edges, or a mesh body's feature edges), drawn per the view's
+    /// [`crate::VisualStyle`] with [`Instance::edge_style`].
+    pub edges: Option<EdgesKey>,
+    /// Points (B-rep vertices), drawn in every visual style with [`Instance::point_style`].
+    pub points: Option<PointsKey>,
     /// World-from-mesh-local (the mesh origin is handled internally), f64.
     pub transform: Transform,
     /// Whether the instance is drawn.
@@ -79,17 +85,53 @@ pub struct Instance {
     pub layer: Layer,
     /// Surface appearance.
     pub material: Material,
+    /// Style of the edges (and of the triangle wireframe).
+    pub edge_style: LineStyle,
+    /// Style of the points.
+    pub point_style: PointStyle,
+    /// A mesh body: the wireframe styles draw the triangle wireframe of `mesh`
+    /// (`POLYGON_MODE_LINE`), falling back to `edges` (feature edges) without the feature.
+    /// False (B-rep bodies): the wireframe styles draw `edges`.
+    pub mesh_wireframe: bool,
 }
 
 impl Instance {
-    /// A visible instance of `mesh` on the model layer with the default material.
+    /// A visible instance of `mesh` on the model layer with the default material and styles.
     pub fn new(mesh: MeshKey, transform: Transform) -> Instance {
         Instance {
             mesh: Some(mesh),
+            ..Instance::empty(transform)
+        }
+    }
+
+    /// A visible instance of an edge set only (wire bodies, edge previews).
+    pub fn new_edges(edges: EdgesKey, transform: Transform) -> Instance {
+        Instance {
+            edges: Some(edges),
+            ..Instance::empty(transform)
+        }
+    }
+
+    /// A visible instance of a point set only.
+    pub fn new_points(points: PointsKey, transform: Transform) -> Instance {
+        Instance {
+            points: Some(points),
+            ..Instance::empty(transform)
+        }
+    }
+
+    fn empty(transform: Transform) -> Instance {
+        Instance {
+            mesh: None,
+            edges: None,
+            points: None,
             transform,
             visible: true,
             layer: Layer::Model,
             material: Material::default(),
+            edge_style: LineStyle::default(),
+            point_style: PointStyle::default(),
+            mesh_wireframe: false,
         }
     }
 }
@@ -181,13 +223,48 @@ pub(crate) struct DrawInfo {
     pub sphere: Option<Sphere>,
 }
 
+/// Origin and bounds (origin applied) of the geometry an instance references; `None` for a
+/// missing key.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Geometry {
+    pub mesh: Option<(Point3, Aabb3)>,
+    pub edges: Option<(Point3, Aabb3)>,
+    pub points: Option<(Point3, Aabb3)>,
+}
+
 /// Builds the GPU record and world sphere of `inst`. `mesh` supplies the origin and bounds.
+#[cfg(test)]
 pub(crate) fn build_record(
     inst: &Instance,
     mesh: Option<(Point3, Aabb3)>,
 ) -> (InstanceRecord, DrawInfo) {
-    let (origin, bounds) = mesh.unzip();
-    let origin = origin.unwrap_or(Point3::ZERO);
+    let (record, _, info) = build_records(
+        inst,
+        Geometry {
+            mesh,
+            ..Geometry::default()
+        },
+    );
+    (record, info)
+}
+
+/// Builds the instance record, the line record and the world sphere of `inst`. The record is
+/// built around the mesh origin (else the edge-set, else the point-set origin); the line record
+/// holds the other sets' offsets from it. The sphere encloses all three.
+pub(crate) fn build_records(
+    inst: &Instance,
+    geometry: Geometry,
+) -> (InstanceRecord, LineRecord, DrawInfo) {
+    let origin = geometry
+        .mesh
+        .or(geometry.edges)
+        .or(geometry.points)
+        .map_or(Point3::ZERO, |(o, _)| o);
+    let bounds = [geometry.mesh, geometry.edges, geometry.points]
+        .into_iter()
+        .flatten()
+        .map(|(_, b)| b)
+        .reduce(|a, b| a.union(&b));
     let m = inst.transform.matrix3;
     let translation = inst.transform.transform_point3(origin);
     let hi = translation.as_vec3();
@@ -210,6 +287,12 @@ pub(crate) fn build_record(
         ],
         color: inst.material.base_color,
     };
+    let lines = build_line_record(
+        inst,
+        origin,
+        geometry.edges.map(|(o, _)| o),
+        geometry.points.map(|(o, _)| o),
+    );
     let sphere = bounds.filter(|b| !b.is_empty()).map(|b| {
         let mut world = Aabb3::EMPTY;
         for x in [b.min.x, b.max.x] {
@@ -226,7 +309,7 @@ pub(crate) fn build_record(
             .fold(0.0, f64::max);
         Sphere { center, radius }
     });
-    (record, DrawInfo { sphere })
+    (record, lines, DrawInfo { sphere })
 }
 
 /// Dense instance storage: slot `i` of every vector describes the same instance, and the slot
@@ -237,6 +320,7 @@ pub(crate) struct InstanceTable {
     keys: Vec<InstanceKey>,
     instances: Vec<Instance>,
     records: Vec<InstanceRecord>,
+    line_records: Vec<LineRecord>,
     info: Vec<DrawInfo>,
     dirty_flag: Vec<bool>,
     dirty: Vec<u32>,
@@ -253,6 +337,7 @@ impl InstanceTable {
         self.keys.push(key);
         self.instances.push(inst);
         self.records.push(InstanceRecord::default());
+        self.line_records.push(LineRecord::default());
         self.info.push(DrawInfo::default());
         self.dirty_flag.push(false);
         self.mark(slot);
@@ -279,6 +364,7 @@ impl InstanceTable {
         self.keys.swap_remove(slot);
         self.instances.swap_remove(slot);
         self.records.swap_remove(slot);
+        self.line_records.swap_remove(slot);
         self.info.swap_remove(slot);
         self.dirty_flag.swap_remove(slot);
         if slot != last {
@@ -312,11 +398,27 @@ impl InstanceTable {
         self.dirty.dedup();
     }
 
-    /// Recomputes the records of the dirty slots and writes the contiguous runs of changed
-    /// slots to `runs` (sorted, as slot ranges). Clears the dirty set.
+    /// [`InstanceTable::flush_geometry`] for instances with a mesh only.
+    #[cfg(test)]
     pub fn flush(
         &mut self,
         mesh: impl Fn(MeshKey) -> Option<(Point3, Aabb3)>,
+        runs: &mut Vec<std::ops::Range<u32>>,
+    ) {
+        self.flush_geometry(
+            |inst| Geometry {
+                mesh: inst.mesh.and_then(&mesh),
+                ..Geometry::default()
+            },
+            runs,
+        );
+    }
+
+    /// Recomputes the records of the dirty slots and writes the contiguous runs of changed
+    /// slots to `runs` (sorted, as slot ranges). Clears the dirty set.
+    pub fn flush_geometry(
+        &mut self,
+        geometry: impl Fn(&Instance) -> Geometry,
         runs: &mut Vec<std::ops::Range<u32>>,
     ) {
         runs.clear();
@@ -324,8 +426,9 @@ impl InstanceTable {
         for &slot in &self.dirty {
             let i = slot as usize;
             let inst = &self.instances[i];
-            let (record, info) = build_record(inst, inst.mesh.and_then(&mesh));
+            let (record, lines, info) = build_records(inst, geometry(inst));
             self.records[i] = record;
+            self.line_records[i] = lines;
             self.info[i] = info;
             self.dirty_flag[i] = false;
             match runs.last_mut() {
@@ -345,6 +448,10 @@ impl InstanceTable {
         &self.records
     }
 
+    pub fn line_records(&self) -> &[LineRecord] {
+        &self.line_records
+    }
+
     pub fn instances(&self) -> &[Instance] {
         &self.instances
     }
@@ -359,6 +466,8 @@ impl InstanceTable {
 #[derive(Debug, Default)]
 pub struct RenderScene {
     meshes: SlotMap<MeshKey, GpuMesh>,
+    edges: SlotMap<EdgesKey, GpuEdges>,
+    points: SlotMap<PointsKey, GpuPoints>,
     table: InstanceTable,
     external: Option<ExternalLayer>,
     revision: u64,
@@ -381,6 +490,41 @@ impl RenderScene {
     /// The mesh, if it exists.
     pub fn mesh_ref(&self, k: MeshKey) -> Option<&GpuMesh> {
         self.meshes.get(k)
+    }
+
+    /// Adds a finished edge upload. Constant time; no GPU work.
+    pub fn insert_edges(&mut self, e: GpuEdges) -> EdgesKey {
+        self.revision += 1;
+        self.edges.insert(e)
+    }
+
+    /// Removes an edge set; instances that use it stop drawing edges. Returns whether it
+    /// existed.
+    pub fn remove_edges(&mut self, k: EdgesKey) -> bool {
+        self.revision += 1;
+        self.edges.remove(k).is_some()
+    }
+
+    /// The edge set, if it exists.
+    pub fn edges_ref(&self, k: EdgesKey) -> Option<&GpuEdges> {
+        self.edges.get(k)
+    }
+
+    /// Adds a finished point upload. Constant time; no GPU work.
+    pub fn insert_points(&mut self, p: GpuPoints) -> PointsKey {
+        self.revision += 1;
+        self.points.insert(p)
+    }
+
+    /// Removes a point set. Returns whether it existed.
+    pub fn remove_points(&mut self, k: PointsKey) -> bool {
+        self.revision += 1;
+        self.points.remove(k).is_some()
+    }
+
+    /// The point set, if it exists.
+    pub fn points_ref(&self, k: PointsKey) -> Option<&GpuPoints> {
+        self.points.get(k)
     }
 
     /// Adds an instance. Its GPU record is written by the next `encode`.
@@ -428,14 +572,19 @@ impl RenderScene {
         self.external.as_ref()
     }
 
-    /// World bounds of the visible instances.
+    /// World bounds of the visible instances (meshes, edges and points).
     pub fn visible_bounds(&self) -> Aabb3 {
         let mut out = Aabb3::EMPTY;
         for inst in self.table.instances().iter().filter(|i| i.visible) {
-            let Some(mesh) = inst.mesh.and_then(|k| self.meshes.get(k)) else {
+            let g = self.geometry(inst);
+            let Some(b) = [g.mesh, g.edges, g.points]
+                .into_iter()
+                .flatten()
+                .map(|(_, b)| b)
+                .reduce(|a, b| a.union(&b))
+            else {
                 continue;
             };
-            let b = mesh.bounds();
             if b.is_empty() {
                 continue;
             }
@@ -450,10 +599,26 @@ impl RenderScene {
         out
     }
 
-    /// VRAM used by the meshes. The renderer's own instance and visibility buffers are not
-    /// included.
+    /// VRAM used by the meshes, edge sets and point sets. The renderer's own instance and
+    /// visibility buffers are not included.
     pub fn gpu_bytes(&self) -> u64 {
-        self.meshes.values().map(GpuMesh::gpu_bytes).sum()
+        self.meshes.values().map(GpuMesh::gpu_bytes).sum::<u64>()
+            + self.edges.values().map(GpuEdges::gpu_bytes).sum::<u64>()
+            + self.points.values().map(GpuPoints::gpu_bytes).sum::<u64>()
+    }
+
+    /// Number of live edge sets.
+    pub fn edges_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    /// Number of live point sets.
+    pub fn points_count(&self) -> usize {
+        self.points.len()
+    }
+
+    fn geometry(&self, inst: &Instance) -> Geometry {
+        geometry_of(inst, &self.meshes, &self.edges, &self.points)
     }
 
     /// Bumped on every mutation.
@@ -469,11 +634,46 @@ impl RenderScene {
         &self.table
     }
 
-    /// Recomputes dirty records; see [`InstanceTable::flush`].
+    pub(crate) fn edge_set(&self, k: EdgesKey) -> Option<&GpuEdges> {
+        self.edges.get(k)
+    }
+
+    pub(crate) fn point_set(&self, k: PointsKey) -> Option<&GpuPoints> {
+        self.points.get(k)
+    }
+
+    /// Recomputes dirty records; see [`InstanceTable::flush_geometry`].
     pub(crate) fn flush_instances(&mut self, runs: &mut Vec<std::ops::Range<u32>>) {
-        let meshes = &self.meshes;
-        self.table
-            .flush(|k| meshes.get(k).map(|m| (m.origin, m.bounds())), runs);
+        let Self {
+            meshes,
+            edges,
+            points,
+            table,
+            ..
+        } = self;
+        table.flush_geometry(|inst| geometry_of(inst, meshes, edges, points), runs);
+    }
+}
+
+fn geometry_of(
+    inst: &Instance,
+    meshes: &SlotMap<MeshKey, GpuMesh>,
+    edges: &SlotMap<EdgesKey, GpuEdges>,
+    points: &SlotMap<PointsKey, GpuPoints>,
+) -> Geometry {
+    Geometry {
+        mesh: inst
+            .mesh
+            .and_then(|k| meshes.get(k))
+            .map(|m| (m.origin, m.bounds())),
+        edges: inst
+            .edges
+            .and_then(|k| edges.get(k))
+            .map(|e| (e.origin, e.bounds())),
+        points: inst
+            .points
+            .and_then(|k| points.get(k))
+            .map(|p| (p.origin, p.bounds())),
     }
 }
 

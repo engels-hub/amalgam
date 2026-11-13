@@ -174,7 +174,7 @@ pub(crate) fn check_size(what: &'static str, bytes: u64, limit: u64) -> Result<(
 
 /// Creates a buffer holding `data`, copying through the mapped range in chunks so the job can
 /// be cancelled between them.
-fn upload_chunked<T: bytemuck::Pod>(
+pub(crate) fn upload_chunked<T: bytemuck::Pod>(
     gpu: &Gpu,
     label: &str,
     data: &[T],

@@ -15,34 +15,7 @@
 
 override LIGHTING: u32 = 0u;
 
-// One record per instance (128 bytes, `amg_render::scene::InstanceRecord`).
-struct InstanceRecord {
-    // Linear-part columns in xyz; w is the high part of the world translation.
-    lin0: vec4<f32>,
-    lin1: vec4<f32>,
-    lin2: vec4<f32>,
-    // Low part of the world translation.
-    t_lo: vec3<f32>,
-    // pack2x16unorm(metallic, roughness).
-    material: u32,
-    // Normal-matrix columns in xyz; w reserved (pick id, flags).
-    nrm0: vec4<f32>,
-    nrm1: vec4<f32>,
-    nrm2: vec4<f32>,
-    color: vec4<f32>,
-}
-
-// Per-view style (`amg_render::renderer::StyleUniform`).
-struct StyleUniform {
-    bg_top: vec4<f32>,
-    bg_bottom: vec4<f32>,
-}
-
-@group(0) @binding(0) var<uniform> camera: CameraUniform;
-@group(0) @binding(1) var<storage, read> instances: array<InstanceRecord>;
-// Instance slots of this view's visible instances in draw order; `instance_index` indexes it.
-@group(0) @binding(2) var<storage, read> visible: array<u32>;
-@group(0) @binding(3) var<uniform> style: StyleUniform;
+// `InstanceRecord`, `StyleUniform` and the group-0 bindings are in `scene.wgsl`.
 
 struct VsOut {
     // Invariant so the Equal depth test after a depth pre-pass sees bit-identical depth.
