@@ -2,13 +2,14 @@
 
 use std::num::NonZeroUsize;
 
-use amg_core::{Aabb3, Point3, Transform};
+use amg_core::{Aabb3, Plane, Point3, Transform};
 use amg_jobs::JobCtx;
 
 use crate::KResult;
 use crate::builders::{BoundsIn, LoopsIn, PlanarIn};
 use crate::check::CheckReport;
 use crate::error::KernelError;
+use crate::extract::RawSeg;
 use crate::geom::{Curve3, Surface};
 use crate::index::RawTopology;
 use crate::shape::{ShapeKind, SubKind};
@@ -162,6 +163,18 @@ impl Occ {
     }
 
     pub(crate) fn boolean_cut_probe(&self, _tool: &Occ) -> KResult<Occ> {
+        match *self {}
+    }
+
+    pub(crate) fn plane_section(&self, _plane: &Plane, _tol: f64) -> KResult<Vec<RawSeg>> {
+        match *self {}
+    }
+
+    pub(crate) fn curve_recognised(
+        &self,
+        _edge: u32,
+        _tol: f64,
+    ) -> KResult<Option<(Curve3, f64, f64)>> {
         match *self {}
     }
 }

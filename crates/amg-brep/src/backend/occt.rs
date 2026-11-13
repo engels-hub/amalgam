@@ -1,6 +1,7 @@
 //! The OCCT backend of `Shape`. The only module that sees the bridge types.
 
 mod build;
+mod extract;
 
 use std::num::NonZeroUsize;
 use std::sync::OnceLock;

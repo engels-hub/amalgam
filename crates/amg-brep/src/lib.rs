@@ -7,6 +7,7 @@ mod builders;
 mod check;
 mod config;
 mod error;
+mod extract;
 pub mod geom;
 mod history;
 mod index;
