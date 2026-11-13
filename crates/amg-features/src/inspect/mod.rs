@@ -1,4 +1,4 @@
-//! Inspection math (S05 §2–§6, lane A): measurement, and later section caps, mass properties,
+//! Inspection math (S05 §2–§6, lane A): measurement and section caps; later mass properties,
 //! analysis fields and interference.
 //!
 //! Plain functions over `amg-core` / `amg-mesh` types, with no `amg-doc` types, so they are
@@ -8,9 +8,12 @@
 //! - [`measure`] (INS-01): operands, per-entity measures, exact minimum distance, angles,
 //!   smart selection (planar regions, feature-edge chains), plane and circle fits, snapping and
 //!   result rows.
+//! - [`section`] (INS-02): section caps on meshes (oriented loops, CDT with split constraints,
+//!   non-zero / even–odd fill, multi-plane clipping), outlines, open curves and stats.
 
 mod cache;
 pub mod measure;
+pub mod section;
 
 use amg_core::{Diagnostic, Severity};
 

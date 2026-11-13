@@ -27,6 +27,8 @@ thiserror.workspace = true
 serde_json.workspace = true
 # MESH-10: parallel chunked decimation of the SDF shell (already a workspace dependency).
 rayon.workspace = true
+# INS-02 section caps: 2D CDT with split constraints (same pin as amg-mesh; ADR-012, THIRD_PARTY.md).
+spade = "=2.15.1"
 
 [dev-dependencies]
 proptest.workspace = true
@@ -42,6 +44,10 @@ harness = false
 
 [[bench]]
 name = "inspect_measure"
+harness = false
+
+[[bench]]
+name = "inspect_section"
 harness = false
 
 [features]

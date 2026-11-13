@@ -85,7 +85,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | fontdb | system font discovery for sketch text (S03, SK-10); not added in SK-10, which takes parsed font bytes; the UI/document layer resolves families | MIT | no | no | Planned |
 | kcl-ezpz (+ faer 0.23, winnow, indexmap, libm, mutants: MIT / Apache-2.0) | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | In use (0.2.18, dev-only, feature `ezpz-bench`) |
 | robust =1.2.0 | exact orientation predicates (`orient2d`, `orient3d`), `amg-mesh::selfint` (S07, MESH-19) | MIT / Apache-2.0 | no | no | In use (1.2.0) |
-| spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07); section caps, `amg-features::inspect` (S05) | MIT / Apache-2.0 | no | no | In use (=2.15.1, `amg-mesh` planar hole fill, MESH-20) |
+| spade | 2D constrained Delaunay for caps and planar holes, `amg-mesh` (S07); section caps, `amg-features::inspect` (S05) | MIT / Apache-2.0 | no | no | In use (=2.15.1, `amg-mesh` planar hole fill, MESH-20; `amg-features::inspect::section` caps, INS-02) |
 | rand, rand_chacha | seeded RANSAC and corpus generators, `amg-mesh` (S07) | MIT / Apache-2.0 | no | no | `rand_chacha` 0.9.0 In use (MESH-28 generators, `amg-mesh` feature `corpus`; `rand_core` only, no `rand`); `rand` Planned |
 | sha2 | sha256 of corpus models, `amg-mesh` feature `corpus` (S07, MESH-28); `amg-io` corpus harness, dev-dep (S12, IO-01) | MIT / Apache-2.0 | no | yes (`corpus`, test support) | In use (0.10.9) |
 | tempfile 3.27.0 | `amg-io` tests: temporary directories for the atomic-sink and corpus-harness tests (S12, IO-01), dev-dep | MIT / Apache-2.0 | no | no (dev-only) | In use (3.27.0, dev-only) |
