@@ -17,13 +17,21 @@
 //! normals ([`oct_encode`]); a view-normal target; MSAA 1/4, optional FXAA and gradient
 //! backgrounds ([`ViewStyle`]); pipeline variants from WGSL `override` constants, created lazily
 //! on jobs ([`RendererConfig::jobs`]); an optional depth pre-pass; [`Material`] metallic and
-//! roughness. The remaining S10 API arrives with the later work packages.
+//! roughness.
+//!
+//! RND-12 adds lines and points: [`upload_edges`] / [`upload_points`], screen-space wide lines
+//! with a capsule distance (any width, antialiasing, round joins, dashes) and a view-space depth
+//! offset, hidden-edge passes, point sprites, a silhouettes post pass and Fusion's six
+//! [`VisualStyle`]s, with the triangle wireframe of mesh bodies drawn through
+//! `POLYGON_MODE_LINE` (feature edges without it). The remaining S10 API arrives with the later
+//! work packages.
 
 #![warn(missing_docs)]
 
 mod camera;
 mod cull;
 mod error;
+mod lines;
 mod pipelines;
 mod renderer;
 mod scene;
@@ -37,6 +45,10 @@ pub use wgpu;
 
 pub use camera::{Camera, CameraUniform, Projection};
 pub use error::RenderError;
+pub use lines::{
+    DepthMode, EdgeData, GpuEdges, GpuPoints, HIDDEN_ALPHA, HIDDEN_DASH_PX, LineStyle, PointData,
+    PointStyle, Polyline, VisualStyle, upload_edges, upload_points,
+};
 pub use renderer::{
     Background, Capture, FrameStats, GpuTimings, PipelineTiming, Renderer, RendererConfig,
     RgbaImage, View, ViewStyle,
@@ -55,6 +67,10 @@ amg_core::define_id! {
     pub struct ViewId;
     /// A mesh in the [`RenderScene`].
     pub struct MeshKey;
+    /// An edge set in the [`RenderScene`].
+    pub struct EdgesKey;
+    /// A point set in the [`RenderScene`].
+    pub struct PointsKey;
     /// An instance in the [`RenderScene`].
     pub struct InstanceKey;
 }

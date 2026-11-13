@@ -608,7 +608,7 @@ pub mod egui_glue {
 | RND-09 | Headless and visual regression: `assert_render_golden!` over `tests/golden/render/` (amg-testkit golden dir, `AMG_BLESS=1`), WARP-generated goldens, thresholds per note §15, diff and actual PNGs on failure, `thumbnail(scene, size) -> png bytes` with a Home-view fit. | RND-02 | P1 | Todo | 1. ≥ 10 golden scenes (6 visual styles, a section, a field, an analysis, overlays) pass in CI on WARP. 2. A deliberate 1-px camera shift fails with diff images written. 3. Bless round-trip works. 4. A 256² thumbnail of a 1 M-tri scene takes < 100 ms on the owner GPU. |
 | RND-10 | Appearance materials: PBR textures (base, normal, roughness/metal), image-based environment lighting (prefiltered cube, BRDF LUT), mapping from S17 appearances | RND-02, MAT-02 | P2 | Todo | 1. A material-ball scene matches its golden image. 2. Assigning an S17 appearance changes the rendering with no geometry re-upload. 3. With IBL on, the 5 M-tri budget holds. |
 | RND-11 | Navigation and view cube: `nav` module (orbit free/constrained about pivot, zoom-to-cursor, pan with grabbed point, fit, standard views, `look_at_plane`, projection switch, 300 ms transitions, near-plane policy), view-cube inset rendering (via RND-07) + `view_cube_hit` + face labels, `egui_glue::{view_cube, nav_bar}` emitting `CameraAction`. | RND-03, RND-07 | P0 | Todo | Unit tests (no GPU): 1. Orbit keeps the pivot pixel fixed (≤ 1e-6 px). 2. Zoom-to-cursor keeps the anchor pixel fixed (≤ 1e-6 px), perspective and ortho, over 1e-3..1e5 mm distances. 3. Pan keeps the grabbed point under the cursor (≤ 1e-6 px). 4. Fit: all 8 bound corners are inside the view, and the bounding sphere spans ≥ 90 % of the smaller viewport dimension. 5. Projection switch keeps apparent size at the target within 0.1 %. 6. Table test of all 26 cube regions + Home. 7. `look_at_plane` puts plane x to screen right and the normal toward the viewer (±1e-9). 8. Widget test (headless `egui::Context`): a click on each cube face region emits the matching `CameraAction`. 9. Headless (WARP): a 0.01 mm feature 1e4 mm from the origin, zoomed to fill the view, is stable within 0.5 px over a 360° orbit. |
-| RND-12 | Line and point renderer: segment-quad lines with capsule SDF (width, AA, round joins), dashes, view-space depth offset, hidden-edge pass, point sprites, silhouettes post pass, edge-based visual styles (all six) using `POLYGON_MODE_LINE` for mesh wireframe with feature-edge fallback. | RND-02, RND-03 | P0 | Todo | 1. 1-px and 3-px polylines with 170° turns have no gaps (pixel connectivity test). 2. Edges on their own faces are visible for ≥ 99 % of edge pixels at view distances 1e-2..1e5 mm, and an edge 0.5 mm behind a face is hidden. 3. Hidden-edge styles show dashes at a known occluded edge. 4. Cylinder silhouettes are present (pixel test). 5. The RND-02 bench with 5 M tris + 100 k edge segments in ShadedVisibleEdges has GPU p99 ≤ 12 ms and wall p99 ≤ 16.6 ms on the owner GPU (**vision budget**). |
+| RND-12 | Line and point renderer: segment-quad lines with capsule SDF (width, AA, round joins), dashes, view-space depth offset, hidden-edge pass, point sprites, silhouettes post pass, edge-based visual styles (all six) using `POLYGON_MODE_LINE` for mesh wireframe with feature-edge fallback. | RND-02, RND-03 | P0 | Review | 1. 1-px and 3-px polylines with 170° turns have no gaps (pixel connectivity test). 2. Edges on their own faces are visible for ≥ 99 % of edge pixels at view distances 1e-2..1e5 mm, and an edge 0.5 mm behind a face is hidden. 3. Hidden-edge styles show dashes at a known occluded edge. 4. Cylinder silhouettes are present (pixel test). 5. The RND-02 bench with 5 M tris + 100 k edge segments in ShadedVisibleEdges has GPU p99 ≤ 12 ms and wall p99 ≤ 16.6 ms on the owner GPU (**vision budget**). |
 | RND-13 | Robustness and diagnostics: device-lost detection (`encode` → `Err(DeviceLost)`, `ViewportResponse::lost`, placeholder paint), an optional diagnostics overlay (pass timings, triangles, VRAM by category), and a validation-error capture to logs (`on_uncaptured_error` → tracing). | RND-03 | P1 | Todo | 1. `device.destroy()` in a test makes the next `encode` return `DeviceLost` with no panic, and `Viewport` paints the placeholder. 2. VRAM counters equal the sum of `gpu_bytes`. 3. A forced validation error appears in the log once, with its label. |
 | RND-14 | Large-mesh scaling: meshopt clusters (≤ 128 tris) built in the upload job, GPU cluster frustum/back-face-cone culling + multi-draw-indirect (fallback: per-cluster CPU culling), buffer chunking beyond `max_buffer_size`, optional LOD (meshopt simplify) for distant instances | RND-02, RND-03 | P2 | Todo | 1. A 20 M-tri mesh orbits at GPU p99 ≤ 12 ms (2560×1440, 4× MSAA, owner GPU). 2. No regression > 5 % on the 5 M bench. 3. Picking is still exact (RND-04 tests pass on clustered meshes). |
 
@@ -1069,6 +1069,127 @@ machine):*
   off.
 - Pipeline creation errors still go to wgpu's uncaptured-error handler; RND-13 routes them to the
   logs.
+
+### 2026-11-13 - RND-12 line and point renderer
+
+*Landed in `crates/amg-render` (status `Review`):*
+- **Edge and point sets** (`lines.rs`): `upload_edges(gpu, &EdgeData, ctx)` and
+  `upload_points(gpu, &PointData, ctx)` validate (finite points and origin, polylines inside
+  `points`, id count), check `max_buffer_size` (`TooLarge`) and upload with
+  `upload::upload_chunked` and checkpoints, like `upload_mesh`. `EdgeData` is f32 points
+  relative to an f64 origin, cut into `Polyline { first, len, id, closed }`; the id is the edge
+  sub-id for RND-04 and is uploaded per segment. Each segment is two `vec4` (local position and
+  arc length in mm); the sign bit of the arc marks a smooth join (turn < 20°) whose cap is
+  skipped so translucent lines do not double-blend on tessellated curves.
+- **Scene:** `RenderScene::{insert_edges, remove_edges, edges_ref, insert_points,
+  remove_points, points_ref, edges_count, points_count}`. `Instance` gained `edges`, `points`,
+  `edge_style: LineStyle`, `point_style: PointStyle`, `mesh_wireframe` and the constructors
+  `new_edges` / `new_points` (edge-only and point-only instances, e.g. sketches). Bounds and the
+  culling sphere cover mesh, edges and points. A 96-byte `LineRecord` per instance (colours,
+  widths, dashes, hidden alpha, origin deltas of the edge and point sets) lives in a second
+  storage buffer parallel to the 128-byte instance record (group 0, binding 4) and is written in
+  the same dirty runs, so a style change rewrites 128 + 96 B. `instance_bytes_uploaded` still
+  counts the 128-byte records only, so the RND-03 test is unchanged.
+- **Wide lines** (`shaders/lines.wgsl`): six vertices per segment (non-indexed, no vertex
+  buffer), expanded in screen space to half width + 1 px feather and extended past both ends;
+  the fragment shader evaluates the capsule distance (round joins and caps, any width, analytic
+  AA). Screen-space dashes come from the arc length converted with the pixel size at that depth.
+  **View-space depth offset:** both ends move toward the eye along the eye ray by
+  `(1.5 + width/2)` pixel sizes at their depth, so the screen position is unchanged and the
+  offset scales with distance.
+- **Passes** (`LinePlan`, inside the opaque pass after the meshes and the external layer):
+  hidden (depth `Less`, dashed `HIDDEN_DASH_PX` = 5/4 px unless the style has its own dash, alpha
+  `HIDDEN_ALPHA` = 0.4), visible (`GreaterEqual`) and always on top (`Always`). There is one
+  instanced draw per (pass, geometry) run; the instance slots are appended to the view's visible
+  list after the mesh plan's. `DepthMode::{Test, AlwaysOnTop, XRay { hidden_alpha }}` per style.
+  Edges and points are culled with the instance sphere; `FrameStats::edge_segments` counts the
+  drawn segments.
+- **Points:** instanced quads with a circle distance, `PointStyle::size_px` diameter, same
+  depth modes.
+- **Visual styles** (`ViewStyle::visual: VisualStyle`, all six; default `ShadedVisibleEdges`).
+  The wireframe styles draw no shaded faces; `WireframeHiddenEdges` and `WireframeVisibleEdges`
+  draw the faces into depth only (`PipelineKind::Depth`, in the depth pre-pass slot) for
+  hidden-line removal. **Triangle wireframe:** in the wireframe styles an instance with
+  `mesh_wireframe` draws its mesh with `PolygonMode::Line` (`PipelineKind::Wire`) when the device
+  has `POLYGON_MODE_LINE` and `RendererConfig::polygon_mode_line` is on (default). Otherwise, and
+  for instances without `mesh_wireframe`, its edge set (feature edges) is drawn.
+  `Renderer::triangle_wireframe()` reports which path is active.
+- **Silhouettes** (`ViewStyle::{silhouettes, silhouette_color}`, `shaders/silhouette.wgsl`): a
+  fullscreen pass over the resolved image after the opaque pass. It reads sample 0 of the normal
+  and depth targets (Roberts cross; normal angle > 35° or linear-depth jump > 2 %). The depth
+  target gets `TEXTURE_BINDING` and is stored only while silhouettes are on (the targets are
+  rebuilt when the flag changes), so the default path keeps `StoreOp::Discard`.
+- Line, point, wireframe, depth-only and silhouette pipelines are lazy variants
+  (`request_view_variants` / `prepare_view`). Until they are built the draw is skipped, and a
+  hidden-line wireframe style draws like `Wireframe` until its depth pipelines exist. GPU
+  timings gain a `silhouettes` pass (up to four timed passes).
+- **Bench** `benches/viewport.rs` adds 100 000 edge segments lying on the displaced sphere (50
+  rings + 50 meridians × 1000 segments) and measures Shaded, ShadedVisibleEdges,
+  ShadedHiddenEdges and ShadedVisibleEdges + silhouettes.
+
+*Evidence (`tests/lines.rs`, 7 GPU tests; all 90 amg-render tests pass on WARP and on the RTX
+5060 Ti / DX12; WARP exposes `POLYGON_MODE_LINE`, so the fallback is tested by turning it off in
+`RendererConfig`):*
+1. **No gaps:** `gpu_polylines_with_sharp_turns_have_no_gaps`: a polyline of 16 alternating
+   170° hairpins and a gentle 10° spiral, at 1 px and 3 px, 1× and 4× MSAA. Every centre-line
+   pixel is lit and the lit pixels are one 8-connected component.
+2. **Edges on faces:** `gpu_edges_on_their_faces_are_visible_at_every_distance_and_hidden_behind`:
+   a square, its diagonals and a circle on a face seen 40° off-normal at view distances 1e-2,
+   1e-1, …, 1e5 mm (face scaled with the distance). 99.68 % of 3147 centre-line pixels are
+   visible at every distance (≥ 99 % required). Edges 0.5 mm behind a 100 mm face at 250 mm in a
+   1440 px tall view (0.144 mm/px): 0.00 % of 3493 pixels visible.
+3. **Hidden-edge dashes:** `gpu_visual_styles_draw_visible_hidden_and_dashed_edges` on a cube
+   with two known occluded edges. ShadedHiddenEdges: on-fraction 0.60 / 0.61 with 10 / 10 on-off
+   transitions; WireframeHiddenEdges: 0.67 / 0.68 with 10 / 9. Absent (0.00) in Shaded,
+   ShadedVisibleEdges and WireframeVisibleEdges; solid (1.00) in Wireframe. The front edge is
+   solid in the five edge styles and absent in Shaded; faces are shaded only in the three
+   shaded styles.
+4. **Silhouettes:** `gpu_cylinder_silhouettes_are_present`: a side-on cylinder (r 30 mm, 96
+   segments) has both limbs outlined on 56 / 56 rows against the background (1× and 4× MSAA) and
+   against a white plane behind it; 0 outline pixels inside the cylinder, and 0 with silhouettes
+   off.
+5. **Budget** (`cargo bench -p amg-render --bench viewport`, owner RTX 5060 Ti / DX12, release,
+   2560×1440, 4× MSAA, Studio, 600-frame orbit, 5 000 000 tris):
+
+   | Style | Edge segments | Wall p50 / p99 | GPU p50 / p99 |
+   |---|---|---|---|
+   | Shaded | 0 | 0.983 / 1.232 ms | 0.962 / 1.226 ms |
+   | ShadedVisibleEdges | 100 000 | 1.091 / **1.329** ms | 1.072 / **1.314** ms |
+   | ShadedHiddenEdges | 100 000 | 1.211 / 1.493 ms | 1.191 / 1.454 ms |
+   | ShadedVisibleEdges + silhouettes | 100 000 | 1.189 / 1.433 ms | 1.164 / 1.429 ms (silhouettes p50 0.093) |
+
+   Budget GPU p99 ≤ 12 ms and wall p99 ≤ 16.6 ms: met (asserted under `AMG_STRICT_TIMING=1`).
+   The RND-02 rows did not move (5 M, no pre-pass: GPU p50 0.962 ms, was 0.963). Other workers'
+   builds were running on the machine.
+- Unit tests (no GPU): `LineRecord` layout vs the WGSL struct, arc lengths and smooth-join
+  flags, closed and degenerate polylines, out-of-range and NaN input, style-to-record mapping,
+  the face/edge/hidden flags of the six styles.
+
+*Deviations:*
+- Note §6 describes a 4-vertex instanced quad per segment; here a segment is six vertices of a
+  non-indexed draw, so the instance index stays the scene instance and one draw covers many
+  instances.
+- The depth offset is `(1.5 + width/2)` px rather than 1.5 px, so the far side of a wide line on
+  a tilted face is not clipped by its own face.
+- Additive API not in §Interfaces: `EdgeData`, `PointData`, `Polyline`, `GpuEdges`,
+  `GpuPoints`, `upload_edges`, `upload_points`, `HIDDEN_DASH_PX`, `HIDDEN_ALPHA`, the `Instance`
+  fields and constructors above, the `RenderScene` edge and point methods,
+  `ViewStyle::silhouette_color`, `RendererConfig::polygon_mode_line`,
+  `Renderer::triangle_wireframe`, `FrameStats::edge_segments`. `ViewStyle::xray` is RND-05.
+- `OverlayList` (polylines, points, sprites) is RND-07. It should reuse the wide-line and point
+  pipelines and `LineStyle` / `PointStyle` / `DepthMode` from `lines.rs`.
+- No new dependency; THIRD_PARTY.md is unchanged.
+
+*Leftovers:*
+- Edge picking is RND-04 (the segment ids are uploaded but not read yet).
+- `XRay` lines draw the hidden part solid at `hidden_alpha` unless the style is dashed (the
+  hidden-edge visual styles always dash). Transparent bodies (RND-05) will need the hidden pass
+  ordered with WBOIT.
+- The adapter (S11) must supply feature edges for mesh bodies (S07 `feature_edges`). Without
+  them, the fallback wireframe of a mesh shows nothing.
+- Tooling: the shared target dir is also built from other worktrees, and cargo hashes workspace
+  members by their workspace-relative path, so a stale artifact newer than the edited sources
+  was reused once. `touch` the sources to force a rebuild.
 
 ## Interface changes
 

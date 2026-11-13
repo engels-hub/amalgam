@@ -11,8 +11,11 @@ use amg_jobs::gpu::{Gpu, Readback};
 
 use crate::camera::{Camera, Projection};
 use crate::cull::{DrawPlan, Frustum, MeshDraw};
+use crate::lines::{
+    GpuEdges, LINE_RECORD_BYTES, LineDraw, LineGeometry, LinePass, LinePlan, LineView, VisualStyle,
+};
 use crate::pipelines::{
-    DEPTH_FORMAT, FINAL_FORMAT, HDR_FORMAT, NORMAL_FORMAT, PipelineFactory, PipelineKey,
+    DEPTH_FORMAT, FINAL_FORMAT, HDR_FORMAT, Layouts, NORMAL_FORMAT, PipelineFactory, PipelineKey,
     PipelineKind, Variants, core_keys,
 };
 use crate::scene::{LayerMask, RECORD_BYTES, RenderScene};
@@ -31,8 +34,8 @@ const INITIAL_VISIBLE_CAPACITY: u32 = 64;
 
 /// In-flight timestamp readbacks per view; a frame with none free is simply not timed.
 const TIMER_SLOTS: usize = 4;
-/// Begin and end of up to three passes (depth pre-pass, opaque, final).
-const TIMER_QUERIES: u32 = 6;
+/// Begin and end of up to four passes (depth pre-pass, opaque, silhouettes, final).
+const TIMER_QUERIES: u32 = 8;
 /// Finished frames kept for [`Renderer::drain_gpu_timings`].
 const TIMER_HISTORY: usize = 256;
 
@@ -43,6 +46,13 @@ const TIMER_FAILED: u8 = 3;
 
 const PASSES_PLAIN: &[&str] = &["opaque", "final"];
 const PASSES_PREPASS: &[&str] = &["depth prepass", "opaque", "final"];
+const PASSES_SILHOUETTES: &[&str] = &["opaque", "silhouettes", "final"];
+const PASSES_PREPASS_SILHOUETTES: &[&str] = &["depth prepass", "opaque", "silhouettes", "final"];
+
+/// Silhouette thresholds (design note §6): normal angle above 35°, or a linear-depth jump above
+/// 2 % of the nearer depth.
+const SILHOUETTE_COS: f32 = 0.819_152;
+const SILHOUETTE_DEPTH_JUMP: f32 = 0.02;
 
 /// How long [`Renderer::wait_for_variants`] waits by default in headless helpers.
 const VARIANT_WAIT: Duration = Duration::from_secs(60);
@@ -59,6 +69,10 @@ pub struct RendererConfig {
     /// Job system whose Interactive pool builds pipeline variants. `None`: a short-lived
     /// thread per variant.
     pub jobs: Option<JobSystem>,
+    /// Draw the triangle wireframe of mesh bodies with `POLYGON_MODE_LINE` when the device has
+    /// it. Off, or without the feature, the wireframe styles show their feature edges. Default
+    /// on.
+    pub polygon_mode_line: bool,
 }
 
 impl Default for RendererConfig {
@@ -67,6 +81,7 @@ impl Default for RendererConfig {
             msaa_samples: 4,
             depth_prepass: false,
             jobs: None,
+            polygon_mode_line: true,
         }
     }
 }
@@ -90,6 +105,8 @@ pub struct FrameStats {
     pub instances_drawn: u32,
     /// Triangles drawn.
     pub triangles: u64,
+    /// Edge segments drawn (each instance's edge set counted once, whatever the passes).
+    pub edge_segments: u64,
     /// Instances that were drawable but outside the view frustum.
     pub culled: u32,
 }
@@ -99,8 +116,10 @@ pub struct FrameStats {
 pub struct GpuTimings {
     /// From the start of the first pass to the end of the last, milliseconds.
     pub total_ms: f32,
-    /// Per-pass times, milliseconds: `depth prepass` (when on), `opaque` (background, meshes,
-    /// external layer, MSAA resolve), `final` (copy or FXAA into the sRGB image).
+    /// Per-pass times, milliseconds: `depth prepass` (when on, or the depth-only faces of the
+    /// hidden-line wireframe styles), `opaque` (background, meshes, external layer, edges and
+    /// points, MSAA resolve), `silhouettes` (when on), `final` (copy or FXAA into the sRGB
+    /// image).
     pub passes: Vec<(&'static str, f32)>,
 }
 
@@ -193,6 +212,12 @@ pub struct ViewStyle {
     pub lighting: Lighting,
     /// FXAA on the resolved image (useful at 1× MSAA). Default off.
     pub fxaa: bool,
+    /// Which faces and edges are drawn. Default [`VisualStyle::ShadedVisibleEdges`].
+    pub visual: VisualStyle,
+    /// Outline post pass from the normal and depth targets (design note §6). Default off.
+    pub silhouettes: bool,
+    /// Linear RGB of the silhouette outline. Default: the default edge colour.
+    pub silhouette_color: [f32; 3],
 }
 
 impl Default for ViewStyle {
@@ -205,6 +230,28 @@ impl Default for ViewStyle {
             flat_shading: false,
             lighting: Lighting::Studio,
             fxaa: false,
+            visual: VisualStyle::default(),
+            silhouettes: false,
+            silhouette_color: [0.015, 0.017, 0.02],
+        }
+    }
+}
+
+/// Per-view silhouette parameters (`SilhouetteUniform` in `shaders/silhouette.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+struct SilhouetteUniform {
+    depth_coeffs: [f32; 4],
+    color: [f32; 4],
+    thresholds: [f32; 4],
+}
+
+impl SilhouetteUniform {
+    fn new(proj: &[[f32; 4]; 4], color: [f32; 3]) -> SilhouetteUniform {
+        SilhouetteUniform {
+            depth_coeffs: [proj[2][2], proj[3][2], proj[2][3], proj[3][3]],
+            color: [color[0], color[1], color[2], 1.0],
+            thresholds: [SILHOUETTE_COS, SILHOUETTE_DEPTH_JUMP, 0.0, 0.0],
         }
     }
 }
@@ -260,6 +307,10 @@ struct ViewTargets {
     normal: wgpu::Texture,
     normal_view: wgpu::TextureView,
     depth: wgpu::TextureView,
+    /// Normal + depth + silhouette uniform for the silhouettes pass; `Some` only when the
+    /// depth target was made sampleable (`TEXTURE_BINDING` can cost depth compression, so it
+    /// is set only while silhouettes are on).
+    silhouette_bind: Option<wgpu::BindGroup>,
     resolved: wgpu::TextureView,
     final_texture: wgpu::Texture,
     final_view: wgpu::TextureView,
@@ -429,7 +480,9 @@ struct ViewSlot {
     generation: u64,
     camera_buffer: wgpu::Buffer,
     style_buffer: wgpu::Buffer,
-    /// Instance slots of the visible instances in draw order (`u32`).
+    silhouette_buffer: wgpu::Buffer,
+    /// Instance slots of the visible instances in draw order (`u32`): the mesh plan's, then the
+    /// line plan's.
     visible_buffer: wgpu::Buffer,
     visible_capacity: u32,
     bind_group: wgpu::BindGroup,
@@ -454,6 +507,12 @@ pub struct Renderer {
     post_bind_layout: wgpu::BindGroupLayout,
     post_sampler: wgpu::Sampler,
     external_bind_layout: wgpu::BindGroupLayout,
+    /// Group 1 of the line and point pipelines (one storage buffer).
+    geometry_bind_layout: wgpu::BindGroupLayout,
+    /// Silhouette inputs at one sample (`[0]`) and several (`[1]`).
+    silhouette_bind_layouts: [wgpu::BindGroupLayout; 2],
+    /// `POLYGON_MODE_LINE` is available and enabled.
+    triangle_wire: bool,
     core_timings: Vec<PipelineTiming>,
     scene: RenderScene,
     views: SlotMap<ViewId, ViewSlot>,
@@ -464,6 +523,9 @@ pub struct Renderer {
     plan: DrawPlan,
     /// Pipeline chosen for each group of `plan` (the wanted variant or its core fallback).
     group_pipelines: Vec<PipelineKey>,
+    line_plan: LinePlan,
+    /// Pipeline of each draw of `line_plan`; `None` while it is being built.
+    line_pipelines: Vec<Option<PipelineKey>>,
 }
 
 impl Renderer {
@@ -503,8 +565,19 @@ impl Renderer {
                     wgpu::ShaderStages::FRAGMENT,
                     wgpu::BufferBindingType::Uniform,
                 ),
+                // Line records (RND-12).
+                buffer_entry(4, wgpu::ShaderStages::VERTEX, storage),
             ],
         });
+        let geometry_bind_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("amg line geometry"),
+                entries: &[buffer_entry(0, wgpu::ShaderStages::VERTEX, storage)],
+            });
+        let silhouette_bind_layouts = [
+            silhouette_bind_layout(device, false),
+            silhouette_bind_layout(device, true),
+        ];
         let external_bind_layout = external_bind_layout(device);
         let post_bind_layout = post_bind_layout(device);
         let final_bind_layout = texture_bind_layout(device, "amg final");
@@ -514,9 +587,13 @@ impl Renderer {
         let start = Instant::now();
         let factory = PipelineFactory::new(
             device,
-            &view_bind_layout,
-            &external_bind_layout,
-            &post_bind_layout,
+            Layouts {
+                view: &view_bind_layout,
+                external: &external_bind_layout,
+                post: &post_bind_layout,
+                geometry: &geometry_bind_layout,
+                silhouette: [&silhouette_bind_layouts[0], &silhouette_bind_layouts[1]],
+            },
         );
         let fullscreen = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("amg fullscreen"),
@@ -524,7 +601,7 @@ impl Renderer {
         });
         core_timings.push(PipelineTiming {
             label: "shader modules",
-            variant: "mesh, external layer, post, fullscreen".into(),
+            variant: "mesh, external layer, post, lines, silhouettes, fullscreen".into(),
             ms: start.elapsed().as_secs_f64() * 1e3,
         });
 
@@ -578,6 +655,9 @@ impl Renderer {
             post_bind_layout,
             post_sampler,
             external_bind_layout,
+            geometry_bind_layout,
+            silhouette_bind_layouts,
+            triangle_wire: cfg.polygon_mode_line && gpu.has(wgpu::Features::POLYGON_MODE_LINE),
             core_timings,
             scene: RenderScene::default(),
             views: SlotMap::with_key(),
@@ -586,8 +666,17 @@ impl Renderer {
             runs: Vec::new(),
             plan: DrawPlan::default(),
             group_pipelines: Vec::new(),
+            line_plan: LinePlan::default(),
+            line_pipelines: Vec::new(),
             gpu,
         })
+    }
+
+    /// Whether mesh bodies draw their triangle wireframe through `POLYGON_MODE_LINE` in the
+    /// wireframe styles (the device has the feature and [`RendererConfig::polygon_mode_line`]
+    /// is on). Otherwise they draw their edge set (feature edges).
+    pub fn triangle_wireframe(&self) -> bool {
+        self.triangle_wire
     }
 
     /// Time spent creating the shader modules and each core pipeline in [`Renderer::new`].
@@ -679,7 +768,35 @@ impl Renderer {
                         prepass,
                         samples,
                     ));
+                    if style.visual.depth_only_faces() {
+                        self.variants.request(PipelineKey {
+                            kind: PipelineKind::Depth { flat, double_sided },
+                            samples,
+                        });
+                    }
                 }
+            }
+            for pass in [LinePass::Hidden, LinePass::Visible, LinePass::Always] {
+                self.variants.request(PipelineKey {
+                    kind: PipelineKind::Line { pass },
+                    samples,
+                });
+                self.variants.request(PipelineKey {
+                    kind: PipelineKind::Point { pass },
+                    samples,
+                });
+                if self.triangle_wire && style.visual.is_wireframe() {
+                    self.variants.request(PipelineKey {
+                        kind: PipelineKind::Wire { pass },
+                        samples,
+                    });
+                }
+            }
+            if style.silhouettes {
+                self.variants.request(PipelineKey {
+                    kind: PipelineKind::Silhouette,
+                    samples,
+                });
             }
         }
         if style.fxaa {
@@ -737,6 +854,7 @@ impl Renderer {
         };
         let camera_buffer = uniform("amg camera", size_of::<crate::CameraUniform>() as u64);
         let style_buffer = uniform("amg view style", size_of::<StyleUniform>() as u64);
+        let silhouette_buffer = uniform("amg silhouettes", size_of::<SilhouetteUniform>() as u64);
         let visible_buffer = storage_buffer(
             device,
             "amg visible instances",
@@ -746,7 +864,7 @@ impl Renderer {
             device,
             &self.view_bind_layout,
             &camera_buffer,
-            &self.instance_gpu.buffer,
+            &self.instance_gpu,
             &visible_buffer,
             &style_buffer,
         );
@@ -761,6 +879,7 @@ impl Renderer {
             generation: 0,
             camera_buffer,
             style_buffer,
+            silhouette_buffer,
             visible_buffer,
             visible_capacity: INITIAL_VISIBLE_CAPACITY,
             bind_group,
@@ -797,6 +916,7 @@ impl Renderer {
     fn sync_instances(&mut self) {
         self.scene.flush_instances(&mut self.runs);
         let records = self.scene.table().records();
+        let line_records = self.scene.table().line_records();
         let len = records.len() as u32;
         let device = self.gpu.device();
         let queue = self.gpu.queue();
@@ -805,14 +925,27 @@ impl Renderer {
             self.instance_gpu =
                 InstanceGpu::new(device, capacity, self.instance_gpu.generation + 1);
             queue.write_buffer(&self.instance_gpu.buffer, 0, bytemuck::cast_slice(records));
+            queue.write_buffer(
+                &self.instance_gpu.lines,
+                0,
+                bytemuck::cast_slice(line_records),
+            );
             self.instance_bytes_uploaded += u64::from(len) * RECORD_BYTES;
         } else {
             for run in &self.runs {
-                let part = &records[run.start as usize..run.end as usize];
+                let range = run.start as usize..run.end as usize;
+                let part = &records[range.clone()];
                 queue.write_buffer(
                     &self.instance_gpu.buffer,
                     u64::from(run.start) * RECORD_BYTES,
                     bytemuck::cast_slice(part),
+                );
+                // The line records are a separate buffer and not counted in
+                // `instance_bytes_uploaded` (that counter is the 128-byte records only).
+                queue.write_buffer(
+                    &self.instance_gpu.lines,
+                    u64::from(run.start) * LINE_RECORD_BYTES,
+                    bytemuck::cast_slice(&line_records[range]),
                 );
                 self.instance_bytes_uploaded += part.len() as u64 * RECORD_BYTES;
             }
@@ -828,10 +961,14 @@ impl Renderer {
     /// Records all passes for `id` into `encoder`. Never blocks. A view with a zero dimension
     /// records nothing.
     ///
-    /// Passes: an optional depth pre-pass; the opaque pass (gradient background, meshes with
-    /// the view's lighting into colour + octahedral normal, the external layer, MSAA resolve);
-    /// the final pass (copy or FXAA into the sRGB image). A pipeline variant that is not built
-    /// yet is requested and the draw falls back to the core Studio pipeline.
+    /// Passes: an optional depth pre-pass (also the depth-only faces of the hidden-line
+    /// wireframe styles); the opaque pass (gradient background, meshes with the view's lighting
+    /// into colour + octahedral normal, the external layer, then hidden, visible and
+    /// always-on-top edges, points and triangle wireframes per [`ViewStyle::visual`], MSAA
+    /// resolve); the optional silhouettes pass over the resolved image; the final pass (copy or
+    /// FXAA into the sRGB image). A mesh variant that is not built yet is requested and the draw
+    /// falls back to the core Studio pipeline; line, point, silhouette and depth-only variants
+    /// are requested and skipped until they are ready.
     ///
     /// Several views may be encoded into one encoder (one submit, one frame): the scene's
     /// instance records are shared, each view has its own camera, visibility list and targets.
@@ -854,13 +991,17 @@ impl Renderer {
 
         let samples = self.active_samples;
         let prepass = self.active_prepass;
+        let triangle_wire = self.triangle_wire;
         let gpu = Arc::clone(&self.gpu);
         let device = gpu.device();
         let queue = gpu.queue();
         let scene = &self.scene;
         let plan = &mut self.plan;
+        let line_plan = &mut self.line_plan;
         let variants = &mut self.variants;
         let group_pipelines = &mut self.group_pipelines;
+        let line_pipelines = &mut self.line_pipelines;
+        let geometry_layout = &self.geometry_bind_layout;
         let slot = self
             .views
             .get_mut(id)
@@ -871,29 +1012,31 @@ impl Renderer {
         if size[0] == 0 || size[1] == 0 {
             return Ok(stats);
         }
-        if slot
-            .targets
-            .as_ref()
-            .is_none_or(|t| t.size != size || t.samples != samples)
-        {
+        if slot.targets.as_ref().is_none_or(|t| {
+            t.size != size
+                || t.samples != samples
+                || t.silhouette_bind.is_some() != slot.view.style.silhouettes
+        }) {
             slot.targets = Some(create_targets(
                 device,
-                &self.final_bind_layout,
-                &self.post_bind_layout,
-                &self.post_sampler,
+                TargetLayouts {
+                    final_bind: &self.final_bind_layout,
+                    post_bind: &self.post_bind_layout,
+                    post_sampler: &self.post_sampler,
+                    silhouette_bind: &self.silhouette_bind_layouts[usize::from(samples > 1)],
+                    silhouette_buffer: &slot.silhouette_buffer,
+                },
                 size,
                 samples,
+                slot.view.style.silhouettes,
             ));
             slot.generation += 1;
         }
 
         let camera = slot.view.camera;
         let style = slot.view.style;
-        queue.write_buffer(
-            &slot.camera_buffer,
-            0,
-            bytemuck::bytes_of(&camera.uniform(size, camera.default_near())),
-        );
+        let camera_uniform = camera.uniform(size, camera.default_near());
+        queue.write_buffer(&slot.camera_buffer, 0, bytemuck::bytes_of(&camera_uniform));
         queue.write_buffer(
             &slot.style_buffer,
             0,
@@ -918,18 +1061,89 @@ impl Renderer {
             style.flat_shading,
         );
         stats.culled = plan.culled;
+        let visual = style.visual;
+        let shade = visual.shades_faces();
 
         // Choose each group's pipeline; request variants that are not built yet.
         group_pipelines.clear();
-        for g in &plan.groups {
-            let want = PipelineKey::mesh(style.lighting, g.flat, g.double_sided, prepass, samples);
-            let chosen = if variants.has(want) {
-                want
+        if shade {
+            for g in &plan.groups {
+                let want =
+                    PipelineKey::mesh(style.lighting, g.flat, g.double_sided, prepass, samples);
+                let chosen = if variants.has(want) {
+                    want
+                } else {
+                    variants.request(want);
+                    PipelineKey::mesh(Lighting::Studio, g.flat, g.double_sided, prepass, samples)
+                };
+                group_pipelines.push(chosen);
+            }
+        }
+        // The hidden-line wireframe styles draw the faces into depth only. Until those
+        // pipelines are built, the style draws like `Wireframe`.
+        let wire_depth = visual.depth_only_faces() && !plan.groups.is_empty() && {
+            let mut ready = true;
+            for g in &plan.groups {
+                let key = PipelineKey {
+                    kind: PipelineKind::Depth {
+                        flat: g.flat,
+                        double_sided: g.double_sided,
+                    },
+                    samples,
+                };
+                if !variants.has(key) {
+                    variants.request(key);
+                    ready = false;
+                }
+            }
+            ready
+        };
+        let depth_pass = (prepass && shade) || wire_depth;
+
+        line_plan.build(
+            scene.table(),
+            &frustum,
+            LineView {
+                style: visual,
+                layers: slot.view.layers,
+                triangle_wire,
+                has_depth: shade || wire_depth,
+            },
+            |k| scene.mesh(k).is_some_and(|m| m.index_count() > 0),
+            |k| scene.edge_set(k).map(GpuEdges::segment_count),
+            |k| scene.point_set(k).is_some_and(|p| p.point_count() > 0),
+        );
+        stats.edge_segments = line_plan.segments;
+        line_pipelines.clear();
+        for draw in &line_plan.draws {
+            let key = line_key(draw, samples);
+            line_pipelines.push(if variants.has(key) {
+                Some(key)
             } else {
-                variants.request(want);
-                PipelineKey::mesh(Lighting::Studio, g.flat, g.double_sided, prepass, samples)
-            };
-            group_pipelines.push(chosen);
+                variants.request(key);
+                None
+            });
+        }
+        let silhouette_key = PipelineKey {
+            kind: PipelineKind::Silhouette,
+            samples,
+        };
+        let silhouettes = style.silhouettes && {
+            let ready = variants.has(silhouette_key);
+            if !ready {
+                variants.request(silhouette_key);
+            }
+            ready
+        };
+        if silhouettes {
+            queue.write_buffer(
+                &slot.silhouette_buffer,
+                0,
+                bytemuck::bytes_of(&SilhouetteUniform::new(
+                    &camera_uniform.proj,
+                    style.silhouette_color,
+                )),
+            );
         }
         let use_fxaa = style.fxaa && {
             let ready = variants.has(fxaa_key());
@@ -941,7 +1155,8 @@ impl Renderer {
         let variants = &*variants;
 
         let mut rebind = slot.bound_generation != self.instance_gpu.generation;
-        let needed = plan.slots.len() as u32;
+        let line_base = plan.slots.len() as u32;
+        let needed = line_base + line_plan.slots.len() as u32;
         if needed > slot.visible_capacity {
             slot.visible_capacity = needed.next_power_of_two().max(INITIAL_VISIBLE_CAPACITY);
             slot.visible_buffer = storage_buffer(
@@ -956,7 +1171,7 @@ impl Renderer {
                 device,
                 &self.view_bind_layout,
                 &slot.camera_buffer,
-                &self.instance_gpu.buffer,
+                &self.instance_gpu,
                 &slot.visible_buffer,
                 &slot.style_buffer,
             );
@@ -964,6 +1179,13 @@ impl Renderer {
         }
         if !plan.slots.is_empty() {
             queue.write_buffer(&slot.visible_buffer, 0, bytemuck::cast_slice(&plan.slots));
+        }
+        if !line_plan.slots.is_empty() {
+            queue.write_buffer(
+                &slot.visible_buffer,
+                u64::from(line_base) * 4,
+                bytemuck::cast_slice(&line_plan.slots),
+            );
         }
 
         let external_bind = scene.external_layer().and_then(|layer| {
@@ -991,10 +1213,11 @@ impl Renderer {
             }))
         });
 
-        let passes = if prepass {
-            PASSES_PREPASS
-        } else {
-            PASSES_PLAIN
+        let passes = match (depth_pass, silhouettes) {
+            (false, false) => PASSES_PLAIN,
+            (true, false) => PASSES_PREPASS,
+            (false, true) => PASSES_SILHOUETTES,
+            (true, true) => PASSES_PREPASS_SILHOUETTES,
         };
         let timer_slot = slot.timer.as_mut().and_then(|t| {
             t.harvest();
@@ -1009,7 +1232,7 @@ impl Renderer {
         let draw_meshes = |pass: &mut wgpu::RenderPass<'_>, depth_only: bool| {
             let mut drawn = (0u32, 0u64);
             let mut bound = None;
-            for (group, &key) in plan.groups.iter().zip(group_pipelines.iter()) {
+            for (i, group) in plan.groups.iter().enumerate() {
                 let Some(mesh) = scene.mesh(group.mesh) else {
                     continue;
                 };
@@ -1021,8 +1244,10 @@ impl Renderer {
                         },
                         samples,
                     }
-                } else {
+                } else if let Some(&key) = group_pipelines.get(i) {
                     key
+                } else {
+                    continue;
                 };
                 if bound != Some(key) {
                     let Some(pipeline) = variants.get(key) else {
@@ -1046,8 +1271,60 @@ impl Renderer {
             }
             drawn
         };
+        let draw_lines = |pass: &mut wgpu::RenderPass<'_>| {
+            let mut bound = None;
+            for (draw, key) in line_plan.draws.iter().zip(line_pipelines.iter()) {
+                let Some(key) = *key else {
+                    continue;
+                };
+                let instances = line_base + draw.first..line_base + draw.first + draw.count;
+                let pipeline = || variants.get(key);
+                match draw.geometry {
+                    LineGeometry::Wire(m) => {
+                        let (Some(mesh), Some(p)) = (scene.mesh(m), pipeline()) else {
+                            continue;
+                        };
+                        if bound != Some(key) {
+                            pass.set_pipeline(p);
+                            bound = Some(key);
+                        }
+                        pass.set_vertex_buffer(0, mesh.positions.slice(..));
+                        pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..mesh.index_count(), 0, instances);
+                    }
+                    LineGeometry::Edges(k) => {
+                        let (Some(edges), Some(p)) = (scene.edge_set(k), pipeline()) else {
+                            continue;
+                        };
+                        if bound != Some(key) {
+                            pass.set_pipeline(p);
+                            bound = Some(key);
+                        }
+                        let bind = edges.bind.get_or_init(|| {
+                            geometry_bind(device, geometry_layout, &edges.segments)
+                        });
+                        pass.set_bind_group(1, bind, &[]);
+                        pass.draw(0..edges.segment_count() * 6, instances);
+                    }
+                    LineGeometry::Points(k) => {
+                        let (Some(points), Some(p)) = (scene.point_set(k), pipeline()) else {
+                            continue;
+                        };
+                        if bound != Some(key) {
+                            pass.set_pipeline(p);
+                            bound = Some(key);
+                        }
+                        let bind = points
+                            .bind
+                            .get_or_init(|| geometry_bind(device, geometry_layout, &points.points));
+                        pass.set_bind_group(1, bind, &[]);
+                        pass.draw(0..points.point_count() * 6, instances);
+                    }
+                }
+            }
+        };
 
-        if prepass {
+        if depth_pass {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("amg depth prepass"),
                 color_attachments: &[],
@@ -1105,12 +1382,17 @@ impl Renderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &targets.depth,
                     depth_ops: Some(wgpu::Operations {
-                        load: if prepass {
+                        load: if depth_pass {
                             wgpu::LoadOp::Load
                         } else {
                             wgpu::LoadOp::Clear(0.0)
                         },
-                        store: wgpu::StoreOp::Discard,
+                        // The silhouettes pass reads the depth.
+                        store: if silhouettes {
+                            wgpu::StoreOp::Store
+                        } else {
+                            wgpu::StoreOp::Discard
+                        },
                     }),
                     stencil_ops: None,
                 }),
@@ -1128,9 +1410,11 @@ impl Renderer {
                 pass.set_pipeline(p);
                 pass.draw(0..3, 0..1);
             }
-            let (instances, triangles) = draw_meshes(&mut pass, false);
-            stats.instances_drawn = instances;
-            stats.triangles = triangles;
+            if shade {
+                let (instances, triangles) = draw_meshes(&mut pass, false);
+                stats.instances_drawn = instances;
+                stats.triangles = triangles;
+            }
             if let (Some(bind), Some(p)) = (
                 &external_bind,
                 variants.get(PipelineKey {
@@ -1142,6 +1426,34 @@ impl Renderer {
                 pass.set_bind_group(0, bind, &[]);
                 pass.draw(0..3, 0..1);
             }
+            if !line_plan.draws.is_empty() {
+                pass.set_bind_group(0, &slot.bind_group, &[]);
+                draw_lines(&mut pass);
+            }
+        }
+        if let Some(p) = variants
+            .get(silhouette_key)
+            .filter(|_| silhouettes && targets.silhouette_bind.is_some())
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("amg silhouettes"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.resolved,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: timer.map(|t| t.writes(pass_index("silhouettes"))),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(p);
+            pass.set_bind_group(0, targets.silhouette_bind.as_ref(), &[]);
+            pass.draw(0..3, 0..1);
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1317,13 +1629,15 @@ fn default_camera() -> Camera {
     }
 }
 
-/// The scene-wide instance storage buffer of 128-byte records.
+/// The scene-wide instance storage buffers: 128-byte instance records and the parallel 96-byte
+/// line records.
 #[derive(Debug)]
 struct InstanceGpu {
     buffer: wgpu::Buffer,
+    lines: wgpu::Buffer,
     /// Capacity in records.
     capacity: u32,
-    /// Bumped when `buffer` is replaced, so views rebuild their bind groups.
+    /// Bumped when the buffers are replaced, so views rebuild their bind groups.
     generation: u64,
 }
 
@@ -1331,10 +1645,81 @@ impl InstanceGpu {
     fn new(device: &wgpu::Device, capacity: u32, generation: u64) -> InstanceGpu {
         InstanceGpu {
             buffer: storage_buffer(device, "amg instances", u64::from(capacity) * RECORD_BYTES),
+            lines: storage_buffer(
+                device,
+                "amg line records",
+                u64::from(capacity) * LINE_RECORD_BYTES,
+            ),
             capacity,
             generation,
         }
     }
+}
+
+/// The pipeline of a line-plan draw.
+fn line_key(draw: &LineDraw, samples: u32) -> PipelineKey {
+    let pass = draw.pass;
+    let kind = match draw.geometry {
+        LineGeometry::Wire(_) => PipelineKind::Wire { pass },
+        LineGeometry::Edges(_) => PipelineKind::Line { pass },
+        LineGeometry::Points(_) => PipelineKind::Point { pass },
+    };
+    PipelineKey { kind, samples }
+}
+
+/// Group 1 of the line and point pipelines: their segment or point buffer.
+fn geometry_bind(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    buffer: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("amg line geometry"),
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: buffer.as_entire_binding(),
+        }],
+    })
+}
+
+/// Normal (0) and depth (1) targets, multisampled or not, and the silhouette uniform (2).
+fn silhouette_bind_layout(device: &wgpu::Device, multisampled: bool) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("amg silhouettes"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
 }
 
 fn storage_buffer(device: &wgpu::Device, label: &str, bytes: u64) -> wgpu::Buffer {
@@ -1350,7 +1735,7 @@ fn view_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     camera: &wgpu::Buffer,
-    instances: &wgpu::Buffer,
+    instances: &InstanceGpu,
     visible: &wgpu::Buffer,
     style: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
@@ -1364,7 +1749,7 @@ fn view_bind_group(
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: instances.as_entire_binding(),
+                resource: instances.buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 2,
@@ -1373,6 +1758,10 @@ fn view_bind_group(
             wgpu::BindGroupEntry {
                 binding: 3,
                 resource: style.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: instances.lines.as_entire_binding(),
             },
         ],
     })
@@ -1492,14 +1881,30 @@ fn external_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
+/// Layouts and per-view resources the target bind groups need.
+struct TargetLayouts<'a> {
+    final_bind: &'a wgpu::BindGroupLayout,
+    post_bind: &'a wgpu::BindGroupLayout,
+    post_sampler: &'a wgpu::Sampler,
+    /// For the sample count of the targets.
+    silhouette_bind: &'a wgpu::BindGroupLayout,
+    silhouette_buffer: &'a wgpu::Buffer,
+}
+
 fn create_targets(
     device: &wgpu::Device,
-    final_bind_layout: &wgpu::BindGroupLayout,
-    post_bind_layout: &wgpu::BindGroupLayout,
-    post_sampler: &wgpu::Sampler,
+    layouts: TargetLayouts<'_>,
     size: [u32; 2],
     samples: u32,
+    sampled_depth: bool,
 ) -> ViewTargets {
+    let TargetLayouts {
+        final_bind: final_bind_layout,
+        post_bind: post_bind_layout,
+        post_sampler,
+        silhouette_bind: silhouette_bind_layout,
+        silhouette_buffer,
+    } = layouts;
     let target = |label, format, sample_count, usage, view_formats: &'static [_]| {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
@@ -1531,7 +1936,34 @@ fn create_targets(
         };
     let normal = target("amg normal", NORMAL_FORMAT, samples, normal_usage, &[]);
     let normal_view = normal.create_view(&default_view);
-    let depth = target("amg depth", DEPTH_FORMAT, samples, attach, &[]).create_view(&default_view);
+    // Sampled by the silhouettes pass only when they are on.
+    let depth_usage = if sampled_depth {
+        attach | wgpu::TextureUsages::TEXTURE_BINDING
+    } else {
+        attach
+    };
+    let depth =
+        target("amg depth", DEPTH_FORMAT, samples, depth_usage, &[]).create_view(&default_view);
+    let silhouette_bind = sampled_depth.then(|| {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("amg silhouettes"),
+            layout: silhouette_bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&normal_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: silhouette_buffer.as_entire_binding(),
+                },
+            ],
+        })
+    });
     let resolved = target(
         "amg resolved",
         HDR_FORMAT,
@@ -1570,6 +2002,7 @@ fn create_targets(
         normal,
         normal_view,
         depth,
+        silhouette_bind,
         resolved,
         final_texture,
         final_view,
