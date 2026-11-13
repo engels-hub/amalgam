@@ -37,6 +37,7 @@ struct OcLoopsIn;
 struct OcPlanarIn;
 struct OcSection;
 struct OcFrame;
+struct OcOpHistory;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -68,6 +69,22 @@ class OcBuild {
 public:
   std::vector<TopoDS_Shape> shapes;
   std::vector<std::vector<std::uint32_t>> edge_maps;
+};
+
+// The result of one shape op (BREP-14): the shape, and its history from operand 0 in index
+// terms. Relation `i` maps input `(in_kinds[i], in_indices[i])` to the outputs
+// `out_starts[i]..out_starts[i + 1]`. Only read after the op returns.
+class OcOp {
+public:
+  TopoDS_Shape shape;
+  std::vector<std::uint8_t> in_kinds;
+  std::vector<std::uint32_t> in_indices;
+  std::vector<std::uint8_t> relations;
+  std::vector<std::uint32_t> out_starts{0};
+  std::vector<std::uint8_t> out_kinds;
+  std::vector<std::uint32_t> out_indices;
+  std::vector<std::uint32_t> role_faces;
+  std::vector<std::uint8_t> roles;
 };
 
 // CATEGORY: R (formats an exception; not bridged, used by trycatch below)
@@ -194,9 +211,6 @@ OcTessMesh tessellate_shape(const OcShape &shape, const OcTessParams &params,
 rust::Vec<V3> tessellate_edge(const OcIndex &index, std::uint32_t e, double linear,
                               double angular);
 
-// CATEGORY: R (takes no shape; builds new topology)
-std::unique_ptr<OcShape> make_sphere(double radius);
-
 // CATEGORY: N (BRepAlgoAPI_Cut with SetNonDestructive(true); a test probe for the BREP-08
 // concurrency test until BREP-04 lands the real booleans)
 std::unique_ptr<OcShape> boolean_cut_probe(const OcShape &object, const OcShape &tool);
@@ -235,6 +249,32 @@ OcSection plane_section(const OcShape &shape, const OcIndex &index, const OcFram
 // CATEGORY: R (GeomConvert / GeomConvert_ApproxCurve on a copy of the edge's curve; the edge is
 // only read)
 OcCurve edge_curve_recognised(const OcIndex &index, std::uint32_t e, double tol);
+
+// -- primitives, sweeps and transforms (BREP-14), implemented in occt_ops.cpp --
+
+// CATEGORY: R (takes no shape; BRepPrimAPI builds new topology)
+std::unique_ptr<OcShape> make_primitive(std::uint8_t kind, const OcFrame &frame,
+                                        rust::Slice<const double> params);
+
+// CATEGORY: C (BRepSweep adds pcurves to the edges of the base it sweeps, so it sweeps a private
+// BRepBuilderAPI_Copy of `profile` made here; draft and UnifySameDomain then run on that new
+// result only)
+std::unique_ptr<OcOp> prism(const OcShape &profile, const V3 &vec, std::uint8_t mode,
+                            double taper, bool merge_coplanar);
+
+// CATEGORY: C (as prism: the sweep runs on a private copy of `profile`)
+std::unique_ptr<OcOp> revol(const OcShape &profile, const V3 &origin, const V3 &axis,
+                            double angle);
+
+// CATEGORY: R (BRepBuilderAPI_Transform / BRepBuilderAPI_GTransform with copied geometry: the
+// input is only read)
+std::unique_ptr<OcOp> shape_gtransformed(const OcShape &shape, const OcMat34 &m);
+
+// CATEGORY: R (a new handle sharing the op's result TShape)
+std::unique_ptr<OcShape> op_shape(const OcOp &op);
+
+// CATEGORY: R
+OcOpHistory op_history(const OcOp &op);
 
 } // namespace amg::occt
 

@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_prism_ellipse (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 94.24777960769384
+area = 145.30177733449008
+faces = 6
+edges = 12
+vertices = 8
+classes = "OOOOPP"

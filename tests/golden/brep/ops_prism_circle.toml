@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_prism_circle (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 113.09733552923254
+area = 131.94689145077132
+faces = 3
+edges = 3
+vertices = 2
+classes = "YPP"

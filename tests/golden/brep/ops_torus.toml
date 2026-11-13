@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_torus (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 1776.5287921960844
+area = 1184.3525281307232
+faces = 1
+edges = 2
+vertices = 1
+classes = "T"

@@ -12,6 +12,7 @@ use crate::error::KernelError;
 use crate::extract::RawSeg;
 use crate::geom::{Curve3, Surface};
 use crate::index::RawTopology;
+use crate::ops::{PrimitiveKind, PrismIn, RawHistory};
 use crate::shape::{ShapeKind, SubKind};
 use crate::tess::{TessMesh, TessParams, TessProfile};
 
@@ -46,6 +47,10 @@ impl Occ {
     }
 
     pub(crate) fn wire(_edges: &LoopsIn, _closed: bool, _tol: f64) -> KResult<(Occ, Vec<u32>)> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn primitive(_kind: PrimitiveKind, _frame: &Plane, _params: &[f64]) -> KResult<Occ> {
         Err(KernelError::BackendUnavailable)
     }
 
@@ -167,6 +172,23 @@ impl Occ {
     }
 
     pub(crate) fn plane_section(&self, _plane: &Plane, _tol: f64) -> KResult<Vec<RawSeg>> {
+        match *self {}
+    }
+
+    pub(crate) fn prism(&self, _p: &PrismIn) -> KResult<(Occ, RawHistory)> {
+        match *self {}
+    }
+
+    pub(crate) fn revol(
+        &self,
+        _origin: Point3,
+        _axis: amg_core::Vec3,
+        _angle: f64,
+    ) -> KResult<(Occ, RawHistory)> {
+        match *self {}
+    }
+
+    pub(crate) fn gtransformed(&self, _t: &Transform) -> KResult<(Occ, RawHistory)> {
         match *self {}
     }
 

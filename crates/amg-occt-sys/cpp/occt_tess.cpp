@@ -21,7 +21,6 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
-#include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRep_Tool.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
 #include <IMeshTools_Parameters.hxx>
@@ -38,7 +37,6 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
-#include <gp.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
@@ -371,10 +369,6 @@ rust::Vec<V3> tessellate_edge(const OcIndex &index, std::uint32_t e, double line
     out.push_back(V3{p.X(), p.Y(), p.Z()});
   }
   return out;
-}
-
-std::unique_ptr<OcShape> make_sphere(double radius) {
-  return std::make_unique<OcShape>(BRepPrimAPI_MakeSphere(gp::Origin(), radius).Shape());
 }
 
 std::unique_ptr<OcShape> boolean_cut_probe(const OcShape &object, const OcShape &tool) {

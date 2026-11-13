@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_revol_triangle (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 100.53096491487338
+area = 140.8828696505485
+faces = 2
+edges = 3
+vertices = 2
+classes = "PC"

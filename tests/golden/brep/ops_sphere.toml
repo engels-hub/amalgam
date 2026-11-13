@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_sphere (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 1436.7550402417326
+area = 615.7521601035995
+faces = 1
+edges = 3
+vertices = 2
+classes = "S"

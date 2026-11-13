@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use amg_core::{Plane, Point3, Tolerance};
+use amg_core::{Line3, Plane, Point3, Tolerance, Vec3};
 use amg_jobs::JobCtx;
 use rayon::prelude::*;
 
@@ -17,7 +17,8 @@ use crate::error::{KResult, KernelError};
 use crate::extract;
 use crate::geom::{self, Tag};
 use crate::history::{FaceBuild, OpResult, ShapeHistory};
-use crate::opts::TessQuality;
+use crate::ops::{self, PrimitiveKind};
+use crate::opts::{PrismExtent, PrismOpts, TessQuality};
 use crate::shape::{EdgeId, FORMAT_VERSION, Shape, SubKind, SubShape};
 use crate::tess::{self, TessMesh, TessProfile};
 
@@ -143,6 +144,105 @@ pub trait BrepKernel: Send + Sync {
     /// `InvalidInput` for an empty list, a malformed segment (`Curve3::Other`, a periodic
     /// B-spline, an empty or out-of-range parameter range) or a gap.
     fn make_wire(&self, segs: &[geom::CurveSeg], tol: &Tolerance) -> KResult<OpResult>;
+
+    // -- primitives, sweeps and transforms (BREP-14) --
+
+    /// A box with one corner at `frame.origin`, `size` along `frame.x`, `frame.y` and
+    /// `frame.normal` (S02 §5). No history (a primitive has no input).
+    ///
+    /// # Errors
+    /// `InvalidInput` for a frame that is not orthonormal and right-handed or a size not larger
+    /// than the linear tolerance; `InvalidResult` under the validation policy.
+    fn make_box(&self, frame: &Plane, size: Vec3) -> KResult<OpResult>;
+
+    /// A cylinder of `radius` on `frame` (base centre at `frame.origin`, axis `frame.normal`),
+    /// `height` high, swept by `angle` rad in `(0, 2π]` from `frame.x` (CCW about the normal).
+    ///
+    /// # Errors
+    /// As [`BrepKernel::make_box`], also for an angle outside `(0, 2π]`.
+    fn make_cylinder(
+        &self,
+        frame: &Plane,
+        radius: f64,
+        height: f64,
+        angle: f64,
+    ) -> KResult<OpResult>;
+
+    /// A cone frustum on `frame`: radius `r1` at `frame.origin`, `r2` at `height` along the
+    /// normal (one may be 0 for a full cone), swept by `angle` rad from `frame.x`.
+    ///
+    /// # Errors
+    /// As [`BrepKernel::make_cylinder`], also for equal radii (a cylinder).
+    fn make_cone(
+        &self,
+        frame: &Plane,
+        r1: f64,
+        r2: f64,
+        height: f64,
+        angle: f64,
+    ) -> KResult<OpResult>;
+
+    /// A sphere of `radius` about `frame.origin`; its poles lie on `frame.normal` and its seam
+    /// in the `frame.x` half-plane.
+    ///
+    /// # Errors
+    /// As [`BrepKernel::make_box`].
+    fn make_sphere(&self, frame: &Plane, radius: f64) -> KResult<OpResult>;
+
+    /// A torus about `frame.normal` through `frame.origin`, swept by `angle` rad from
+    /// `frame.x`. Needs `major > minor` (no self-intersecting spindle tori).
+    ///
+    /// # Errors
+    /// As [`BrepKernel::make_cylinder`], also for `major ≤ minor`.
+    fn make_torus(&self, frame: &Plane, major: f64, minor: f64, angle: f64) -> KResult<OpResult>;
+
+    /// `profile` (a face, shell, wire, edge or a compound of them) swept along a straight line
+    /// (`BRepPrimAPI_MakePrism`): by a vector, or infinitely one or both ways. A face gives a
+    /// solid, a wire a shell. Prisms infinite both ways skip the validation policy: BRepCheck
+    /// rejects every such solid (no cap closes it).
+    ///
+    /// - `opts.taper` (rad, finite prisms of one planar face only) tilts every side face about
+    ///   the profile plane (`BRepOffsetAPI_DraftAngle` on the straight prism): positive grows
+    ///   the profile along the sweep, so holes shrink; negative shrinks it. Side faces must be
+    ///   planar, cylindrical or conical (profiles of lines and circle arcs).
+    /// - `opts.merge_coplanar` merges coplanar faces and collinear edges of the result
+    ///   (`ShapeUpgrade_UnifySameDomain`), with the history composed through it.
+    ///
+    /// History (operand 0 = `profile`): each profile face is `Modified` into the start cap and
+    /// `Generated` into the end cap; each edge `Modified` into its start-cap edge and
+    /// `Generated` into its side face(s) and end-cap edge; each vertex likewise into its
+    /// start vertex, side edge and end vertex. Roles `StartCap`, `EndCap` and `Lateral`.
+    /// Cancellation is checked before and after the OCCT call.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "profile" | "extent" | "taper" }`; `Occt` when OCCT fails (for
+    /// example a taper on a B-spline side face); `InvalidResult` under the validation policy
+    /// (for example an inward taper that collapses the profile); `Cancelled`.
+    fn prism(
+        &self,
+        profile: &Shape,
+        extent: &PrismExtent,
+        opts: &PrismOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// `profile` revolved about `axis` by `angle` rad in `(0, 2π]`, counter-clockwise about
+    /// `axis.dir` (`BRepPrimAPI_MakeRevol`). History and roles as for [`BrepKernel::prism`]; a
+    /// full turn has no caps. Edges on the axis sweep nothing. A profile crossing the axis gives
+    /// `InvalidResult` under the validation policy.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "profile" | "axis" | "angle" }`; `Occt`; `InvalidResult`;
+    /// `Cancelled`.
+    fn revol(&self, profile: &Shape, axis: &Line3, angle: f64, ctx: &JobCtx) -> KResult<OpResult>;
+
+    /// `s` reflected about `plane` into new geometry (S04 R-S04-6), faces still facing out of
+    /// the material; history `Modified` 1:1 ([`Shape::gtransformed`]). [`Shape::transformed`]
+    /// keeps rejecting reflections with `NonRigid`.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "frame" }` for a bad plane; `Occt`; `InvalidResult`.
+    fn mirrored(&self, s: &Shape, plane: &Plane) -> KResult<OpResult>;
 
     // -- geometry extraction (BREP-17) --
 
@@ -300,6 +400,39 @@ impl OcctKernel {
 
 /// `(edge, tag)` pairs from a backend edge map (one entry per input edge, `u32::MAX` where the
 /// edge did not survive).
+impl OcctKernel {
+    fn primitive(
+        &self,
+        op: &'static str,
+        kind: PrimitiveKind,
+        frame: &Plane,
+        params: &[f64],
+    ) -> KResult<OpResult> {
+        let shape = Shape::from_occ(Occ::primitive(kind, frame, params)?);
+        self.validate_result(op, &shape)?;
+        Ok(OpResult {
+            shape,
+            history: ShapeHistory::default(),
+            warnings: Vec::new(),
+        })
+    }
+
+    fn swept(
+        &self,
+        op: &'static str,
+        profile: &Shape,
+        (occ, raw): (Occ, ops::RawHistory),
+    ) -> KResult<OpResult> {
+        let shape = Shape::from_occ(occ);
+        self.validate_result(op, &shape)?;
+        Ok(OpResult {
+            history: ops::history(&raw, ops::counts(profile)),
+            shape,
+            warnings: Vec::new(),
+        })
+    }
+}
+
 fn edge_tags(map: &[u32], tags: &[Tag]) -> Vec<(EdgeId, Tag)> {
     map.iter()
         .zip(tags)
@@ -397,6 +530,91 @@ impl BrepKernel for OcctKernel {
             },
             warnings: Vec::new(),
         })
+    }
+
+    fn make_box(&self, frame: &Plane, size: Vec3) -> KResult<OpResult> {
+        backend::require()?;
+        let params = ops::box_params(frame, size, &self.cfg.tolerance)?;
+        self.primitive("make_box", PrimitiveKind::Box, frame, &params)
+    }
+
+    fn make_cylinder(
+        &self,
+        frame: &Plane,
+        radius: f64,
+        height: f64,
+        angle: f64,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let params = ops::cylinder_params(frame, radius, height, angle, &self.cfg.tolerance)?;
+        self.primitive("make_cylinder", PrimitiveKind::Cylinder, frame, &params)
+    }
+
+    fn make_cone(
+        &self,
+        frame: &Plane,
+        r1: f64,
+        r2: f64,
+        height: f64,
+        angle: f64,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let params = ops::cone_params(frame, r1, r2, height, angle, &self.cfg.tolerance)?;
+        self.primitive("make_cone", PrimitiveKind::Cone, frame, &params)
+    }
+
+    fn make_sphere(&self, frame: &Plane, radius: f64) -> KResult<OpResult> {
+        backend::require()?;
+        let params = ops::sphere_params(frame, radius, &self.cfg.tolerance)?;
+        self.primitive("make_sphere", PrimitiveKind::Sphere, frame, &params)
+    }
+
+    fn make_torus(&self, frame: &Plane, major: f64, minor: f64, angle: f64) -> KResult<OpResult> {
+        backend::require()?;
+        let params = ops::torus_params(frame, major, minor, angle, &self.cfg.tolerance)?;
+        self.primitive("make_torus", PrimitiveKind::Torus, frame, &params)
+    }
+
+    fn prism(
+        &self,
+        profile: &Shape,
+        extent: &PrismExtent,
+        opts: &PrismOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let input = ops::lower_prism(profile, extent, opts, &self.cfg.tolerance)?;
+        ctx.checkpoint()?;
+        let built = profile.occ().prism(&input)?;
+        ctx.checkpoint()?;
+        if input.mode == 2 {
+            // A prism unbounded both ways has no cap to close its shell, so BRepCheck always
+            // rejects it (`UnorientableShape`, `NotConnected`); S04 only splits with it.
+            let (occ, raw) = built;
+            return Ok(OpResult {
+                history: ops::history(&raw, ops::counts(profile)),
+                shape: Shape::from_occ(occ),
+                warnings: Vec::new(),
+            });
+        }
+        self.swept("prism", profile, built)
+    }
+
+    fn revol(&self, profile: &Shape, axis: &Line3, angle: f64, ctx: &JobCtx) -> KResult<OpResult> {
+        backend::require()?;
+        let (origin, dir, angle) = ops::lower_revol(profile, axis, angle, &self.cfg.tolerance)?;
+        ctx.checkpoint()?;
+        let built = profile.occ().revol(origin, dir, angle)?;
+        ctx.checkpoint()?;
+        self.swept("revol", profile, built)
+    }
+
+    fn mirrored(&self, s: &Shape, plane: &Plane) -> KResult<OpResult> {
+        backend::require()?;
+        ops::check_frame(plane)?;
+        let result = s.gtransformed(&ops::reflection(plane))?;
+        self.validate_result("mirrored", &result.shape)?;
+        Ok(result)
     }
 
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {
