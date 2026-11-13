@@ -779,7 +779,7 @@ pub mod display {
 |---|---|---|---|---|---|
 | INS-01 | `amg-features::inspect::measure` core on meshes: operands, `measure_one`/`measure`, exact min distance (dual BVH, tri–tri), angles, centres, smart planar region, feature chains, plane/circle fits, `snap_on_face`, `report_rows` | MESH-02, MESH-03, FND-10 | P0 | Done | Tests pass. 1. **Analytic:** a 10 mm cube gives face area 100 ± 1e-9 mm², edge length 10 ± 1e-12, opposite-face distance 10 ± 1e-12 and angle 180°, adjacent faces 90° ± 1e-12 rad, body volume 1000 ± 1e-9. A point 5 mm above the face centre gives distance 5 ± 1e-12. 2. **Brute force:** `min_distance` equals the O(n·m) brute force (≤ 1e-12 mm absolute, same witness features) on 1 000 random pairs of 1–2 k-tri meshes under random rigid transforms, including intersecting, touching and nested configurations. 3. A tessellated 128-segment hole r = 5 in a block: one feature-edge pick gives a closed 128-edge chain with fit radius 5 ± 1e-9 (vertices on the circle). A 64-segment chain with σ = 0.002 mm noise gives radius 5 ± 0.005. 4. `grow_planar_region` on a CAD-exported STL (corpus, f32) returns exactly the ground-truth face set of 10 planar faces. 5. Non-rigid transform → `NonRigidTransform`. 6. Bit-identical results with 1 and 16 threads. 7. Criterion: point → 1 M-tri body < 0.1 ms median; two separated 1 M-tri bodies (gap ≥ 1 mm) < 20 ms; concentric icospheres r = 50 / 50.1 (1 M each) < 3 s, cancellable within 50 ms. |
 | INS-08 | Measure tool in `amg-ui::inspect`: hand-built dialog (filters, smart toggle, 3-point circle, precision, units, results with copy), snapping, job-backed results with supersede, RND-07 overlay (witness line, Δ, angle arc, circle) | INS-01, MESH-16, UI-02, UI-03, UI-04, UI-10, RND-04, RND-07 | P0 | Todo | Manual script on 3 corpus models: measure a hole diameter (1 click), a wall distance, an angle between two faces, a body volume; values equal the INS-01 API values for the same picks. Snap to vertex within 8 px and to edge within 5 px (automated test with a synthetic camera). No frame > 16 ms in the tracing profile while measuring two 1 M-tri bodies. A newer selection cancels the running job within 50 ms. Results use the document display unit and the chosen precision (`1/4 in` part shows inches). |
-| INS-02 | `amg-features::inspect::section` caps on meshes: loop orientation, CDT with split constraints, non-zero / even–odd fill, multi-plane clipping (≤ 6), outlines, open curves, `SectionStats`, `section_plane` | MESH-09 | P0 | Todo | Tests pass. 1. **Watertight (note §3.4):** for every watertight MESH-28 corpus model and 3 seeded random planes, `plane_cut(keep = Negative, cap = false)` + caps welded at the snap tolerance is closed and manifold (100 %), including planes exactly through vertices and edges. 2. Cap area: 128-gon cylinder r = 10, perpendicular cut = ½·128·r²·sin(2π/128) within 1e-9 relative; axial cut = 2r·h exactly within 1e-9 relative. 3. Two overlapping closed cubes (one STL, two shells): cap area = area of the union of the squares (non-zero rule). 4. Box section with 6 planes: each cap lies inside the other 5 kept half-spaces (vertices ≤ 1e-9 mm outside). 5. Open cube (one face deleted): open curve reported, no cap through the gap. 6. Shoelace area of the oriented loops equals the cap triangle area within 1e-9 relative. 7. 1 M-tri body, one plane: < 50 ms; 10 M: < 500 ms. Deterministic across thread counts. |
+| INS-02 | `amg-features::inspect::section` caps on meshes: loop orientation, CDT with split constraints, non-zero / even–odd fill, multi-plane clipping (≤ 6), outlines, open curves, `SectionStats`, `section_plane` | MESH-09 | P0 | Review | Tests pass. 1. **Watertight (note §3.4):** for every watertight MESH-28 corpus model and 3 seeded random planes, `plane_cut(keep = Negative, cap = false)` + caps welded at the snap tolerance is closed and manifold (100 %), including planes exactly through vertices and edges. 2. Cap area: 128-gon cylinder r = 10, perpendicular cut = ½·128·r²·sin(2π/128) within 1e-9 relative; axial cut = 2r·h exactly within 1e-9 relative. 3. Two overlapping closed cubes (one STL, two shells): cap area = area of the union of the squares (non-zero rule). 4. Box section with 6 planes: each cap lies inside the other 5 kept half-spaces (vertices ≤ 1e-9 mm outside). 5. Open cube (one face deleted): open curve reported, no cap through the gap. 6. Shoelace area of the oriented loops equals the cap triangle area within 1e-9 relative. 7. 1 M-tri body, one plane: < 50 ms; 10 M: < 500 ms. Deterministic across thread counts. |
 | INS-09 | Section Analysis tool + persistence: `SectionAnalysis` ExtRecord (`inspect.section` v1, migration hook), hand-built dialog (origin plane / picked planar region, offset expression + slider, tilt, flip, hatch, cap colour, scope), browser "Analysis" folder entries, combining visible analyses, cap jobs feeding RND-06, stats panel | INS-02, INS-08, DOC-05, DOC-07, UI-07, RND-06 | P0 | Todo | Creating, editing, hiding and deleting a section are each one undo step and survive save/load byte-identically. Two visible analyses combine (box-corner cut visible in a screenshot test with RND-09, or a manual check before RND-09). Dragging the offset slider on a 1 M-tri body keeps ≥ 60 fps (GPU clip), and caps catch up ≤ 100 ms after the drag stops. Phase 1 manual script: open STL → section at XY + 10 mm → read the section area → flip → hatch on → save → reopen. |
 | INS-03 | Physical properties of mesh bodies: `props::mesh_mass_props`, `combine`, density from material with default material, Properties panel, CoM glyph | INS-01, INS-08, MAT-06 | P0 | Todo | 1. A 10×20×30 box rotated by 20 random rotations and translated: volume 6000 ± 1e-9, CoM within 1e-9 mm, inertia = R·diag(m(b²+c²)/12, …)·Rᵀ within 1e-9 relative. 2. Icosphere r = 10: volume and inertia converge to the analytic sphere values (error falls ≥ 3.5× per subdivision level). 3. Translating a body changes `inertia_com` by < 1e-9 relative. 4. Non-watertight → volume-based fields `None` with a reason; area still given. 5. `combine` of two halves equals the whole within 1e-9 relative. 6. 1 M tris < 30 ms; 10 M < 300 ms; bit-identical across thread counts. 7. Mass of a 1000 mm³ PLA cube shows 1.24 g. |
 | CON-01 | Construction framework + planes: `RefInput`/`OriginEntity`/`RefGeom`/`ConstructError`, `construct::math` plane functions (all 8 variants) and helpers, `ConstructPlane` feature registered (`construct.plane` v1) with inputs, `exprs`, compute against pre-resolved `RefGeom` (test resolver) | DOC-02, DOC-03, DOC-04 | P0 | Done | Table-driven tests: ≥ 5 analytic cases per variant plus every error in note §6. Examples: offset XY by 5 → z = 5. At-angle 30° about +X from XY → normal (0, −sin 30°, cos 30°) (right-hand rule). Tangent to cylinder r = 3 on Z at 0° from XZ → normal +Y, through (0, 3, 0). Midplane of z = 0 and z = 10 → z = 5. Three collinear points → `Collinear`. Results within 1e-12. The same inputs give a bit-identical frame. The feature serialises round-trip, recomputes from the cache, and an `Expr` parameter edit recomputes only it and its dependants (DOC-03 counter). |
@@ -1129,6 +1129,97 @@ wave machine, three other workers compiling):
   benchmarked here).
 - Separated 1 M bodies sit just under budget (19.1 ms) on this loaded machine; check on the
   reference machine.
+
+### 2026-11-13 - INS-02 section caps on meshes (lane A)
+
+*Landed* in `amg-features::inspect::section` (new module), plus a small orientation-flag cache in
+`inspect::cache`. No change in code another lane owns. New direct dependency `spade = "=2.15.1"`
+for `amg-features` (already in the workspace through `amg-mesh`, MIT / Apache-2.0; THIRD_PARTY.md
+row updated).
+- Every item of the Interfaces block: `MAX_SECTION_PLANES`, `SectionPlanes`, `FillRule`,
+  `CapOpts`, `Cap`, `SectionStats`, `BodySection`, `section_mesh`, `section_plane`, with the
+  signatures as in Interfaces.
+- Pipeline (note §3.2): the plane is mapped to the body frame, then `amg_mesh::section` gives the
+  polylines. MESH-09 orients closed loops with material on the left, so no winding-number probe
+  is needed; a mirroring `to_world` reverses them. The closed loops go into a `spade` CDT, the
+  triangles are classified, clipped by the other planes (Sutherland–Hodgman in the plane frame,
+  fan triangulation; cut points from canonically ordered endpoints so neighbours share bits) and
+  returned in world space with plane-local `uv`. Outlines and open curves are clipped
+  segment-wise. Planes run in parallel and the output is in plane order.
+- **Classification, two paths.**
+  - *Exact (loops do not cross, the normal case):* each segment is added with `add_constraint`.
+    The winding number is propagated from the outer face across every CDT edge by the signed
+    count of loop segments on it, so no geometric inside test is made. A first version (one
+    winding probe per region) misclassified sliver regions bounded only by loop segments and
+    failed 339 / 620 corpus cuts. The exact path removed all of them.
+  - *Crossing loops (overlapping shells):* `add_constraint_and_split`, then one winding-number
+    probe per constraint-bounded region, at the incentre of its fattest triangle.
+- With an identity `to_world` the plane is used bit for bit, so section points equal those of
+  `plane_cut` with the same plane. Rebuilding the plane through `Plane::from_normal` moved them
+  by ~1 ulp and broke exact welding at snap 0.
+
+*Done-when evidence* (`cargo nextest run -p amg-features` with `AMG_REQUIRE_TESTDATA=1`: 136 / 136
+pass; bench in release on the shared wave machine):
+1. **Corpus** (`tests/inspect_section.rs::corpus_caps_are_watertight`, all models ≤ 200 k faces
+   that are watertight as committed or after MESH-07 repair, SI-free): 124 models, 3 seeded random
+   planes + one exactly through a vertex + one containing an edge = 620 cuts. `plane_cut(keep =
+   Negative, cap = false)` + cap, welded at 1e-5 mm: **612 closed, manifold and oriented**. The 8
+   others are also not closed-and-manifold for MESH-09's own capped cut of the same plane (the
+   test asserts this; any other failure fails it):
+   - 6 pinch vertices: a vertex / edge plane where two section loops touch at one vertex, so any
+     planar cap makes that vertex non-manifold. The result is closed, with no non-manifold edge.
+     Seen on thingi10k 68339, 87720, 98672, 124709, 134637, 135460.
+   - 2 cuts whose loops cross in the plane after snapping. MESH-09 leaves them open as well.
+     Seen on thingi10k 42636 (edge plane) and 503947 (random plane).
+
+   29 self-intersecting models are skipped (their loops cross). Synthetic sphere and cube cuts
+   through vertices, edges and a corner are all watertight. So the literal 100 % is not met
+   (612 / 620); the 8 exceptions are outside what any planar cap can fix.
+2. 128-gon prism r = 10: the perpendicular cap equals ½·128·r²·sin(2π/128) within 1e-9 relative,
+   and the perimeter matches the polygon. The axial cut through vertices 0 / 64 and the axis
+   equals 2r·h within 1e-9.
+3. Two overlapping cubes in one mesh, z = 6: area 175 (the union) within 1e-12 under the
+   non-zero rule; even–odd gives 150.
+4. Box with 6 planes: axis-aligned planes give 10 × 10 caps (area 100). 20 seeded tilted sets:
+   every cap vertex and outline point is ≤ 1e-9 mm outside each of the other 5 planes and within
+   1e-9 of its own plane.
+5. Open cube (top removed): x = 5 gives 1 open curve, 0 cap triangles and area 0. z = 5 (below
+   the gap) gives a closed loop, capped by the even–odd fallback (area 100).
+6. Nested shells (outer cube, inverted cavity, island), axis and oblique planes: the shoelace
+   sum of the oriented outlines equals the stats area and the triangle area within 1e-9 relative.
+   Rigid and mirrored transforms keep the area and positive loop orientation.
+7. Criterion (`benches/inspect_section.rs`, displaced benchmark sphere, oblique plane, orientation
+   flag warm): **1 M tris 7.89 ms** [7.82, 7.97] (< 50 ms), **10 M 63.5 ms** [63.0, 64.1]
+   (< 500 ms). Test profile 1 M: 6–7 ms, asserted only with `AMG_STRICT_TIMING=1`. 1 vs 16
+   threads, each run twice: identical `BodySection` and position bits.
+
+*Deviations and additions (additive):*
+- `NonZero` keeps `w != 0`, the standard rule. The note says `w ≥ 1`; that is the same for
+  outward-oriented input and still caps inside-out shells.
+- `FillRule::Auto` uses a closed-and-oriented flag cached per mesh `Arc`. It reuses the INS-01
+  cache entry when there is one, else a separate weak-keyed cache with no BVH, because sections
+  need no `MeshSpatial`. The first call on a mesh pays for one edge sort (O(n log n)); the bench
+  numbers exclude it.
+- `to_world` may be any invertible affine map (singular → `Degenerate`). The snap distance is
+  scaled by |det|^(-1/3).
+- One `Cap` / `SectionStats` per plane, in plane order, empty when the plane misses the body.
+  `loops` / `open_loops` count curves with some part kept by the other planes. A loop fully
+  outside them counts 0 even though the cap still has area: a box-corner cap bounded only by the
+  other planes has area but no outline. `perimeter` sums the kept outline pieces only, not the
+  clip edges along other planes. A clipped loop's pieces are open polylines (`closed == false`).
+- `Default for CapOpts` (snap `Tolerance::mesh().linear`, `FillRule::Auto`).
+- `section_plane`: origin moved by `offset` along the base normal, rotated about it by `tilt[0]`
+  about base x, then `tilt[1]` about base y, then `Plane::flipped` if `flip` (x kept).
+
+*Leftovers:*
+- With `snap_tolerance = 0` the corpus run has 4 more exceptions (12 / 620). One of them
+  (thingi10k-130974, edge plane) has a non-manifold edge where MESH-09's cap is clean. Not
+  investigated; the default 1e-5 is clean.
+- Crossing loops in SI-free meshes, which come from snapping, could be capped without splitting
+  (MESH-09-style flood fill) when only the watertight half matters. The union semantics need
+  splitting, so this was left.
+- Golden section stats for 10 corpus models (`tests/golden/inspect/`, S05 §Testing) are not
+  added yet; they fit with INS-03's mass-property goldens.
 
 ## Interface changes
 

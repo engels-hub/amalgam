@@ -323,6 +323,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "spade",
  "thiserror 2.0.21",
 ]
 

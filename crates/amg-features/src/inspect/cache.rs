@@ -5,7 +5,7 @@
 //! a small process-wide cache keyed by the mesh's `Arc` address. An entry is dropped once the
 //! cache holds the only reference to its mesh, so meshes are not kept alive.
 
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use amg_jobs::JobCtx;
 use amg_mesh::{Bvh, BvhNodeKind, BvhOpts, IndexedMesh, MeshBody, MeshSpatial};
@@ -66,6 +66,40 @@ pub(crate) fn derived(body: &MeshBody, ctx: &JobCtx) -> Result<Arc<Derived>, Ins
     }
     c.push(Arc::clone(&built));
     Ok(built)
+}
+
+/// Closed-and-oriented flags of meshes that have no [`Derived`] entry (section caps need only
+/// the flag, not a BVH). Keyed by the mesh `Arc`; dead entries are dropped on insert.
+static ORIENTED: Mutex<Vec<(Weak<IndexedMesh>, bool)>> = Mutex::new(Vec::new());
+
+/// Whether `body`'s mesh is closed and every edge is used once in each direction, cached per
+/// mesh. Reuses the measurement cache's flag when that entry exists.
+pub(crate) fn oriented(body: &MeshBody, ctx: &JobCtx) -> Result<bool, InspectError> {
+    let mesh = body.mesh();
+    let existing = CACHE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .find(|d| Arc::ptr_eq(d.spatial.mesh(), mesh))
+        .cloned();
+    if let Some(d) = existing {
+        return d.watertight(ctx);
+    }
+    let find = |c: &[(Weak<IndexedMesh>, bool)]| {
+        c.iter()
+            .find(|(w, _)| std::ptr::eq(w.as_ptr(), Arc::as_ptr(mesh)))
+            .map(|&(_, f)| f)
+    };
+    if let Some(f) = find(&ORIENTED.lock().unwrap_or_else(PoisonError::into_inner)) {
+        return Ok(f);
+    }
+    let flag = closed_oriented(mesh, ctx)?;
+    let mut c = ORIENTED.lock().unwrap_or_else(PoisonError::into_inner);
+    c.retain(|(w, _)| w.strong_count() > 0);
+    if find(&c).is_none() {
+        c.push((Arc::downgrade(mesh), flag));
+    }
+    Ok(flag)
 }
 
 /// Every directed edge appears exactly once and its reverse exactly once.
