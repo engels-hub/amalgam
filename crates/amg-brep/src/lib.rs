@@ -13,6 +13,7 @@ mod history;
 mod index;
 mod kernel;
 mod lock;
+mod ops;
 pub mod opts;
 mod shape;
 mod tess;

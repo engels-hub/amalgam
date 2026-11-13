@@ -21,7 +21,7 @@ use amg_brep::{
     PrismExtent, PrismOpts, SewOpts, Shape, ShapeHistory, ShapeKind, ShellOpts, SubKind, SubShape,
     TessMesh, TessQuality, ThruSectionsOpts, Tolerance, Transition, UnifyOpts, VertexId,
 };
-use amg_core::{Dir3, Plane, Point2, Point3, Vec2, Vec3};
+use amg_core::{Dir3, Line3, Plane, Point2, Point3, Transform, Vec2, Vec3};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -46,6 +46,11 @@ fn op_parameter_types_are_capturable() {
     assert_op_param::<ShapeKind>();
     assert_op_param::<Tolerance>();
     assert_op_param::<Plane>();
+    // BREP-14 primitive, revol and transform parameters.
+    assert_op_param::<Vec3>();
+    assert_op_param::<Line3>();
+    assert_op_param::<Transform>();
+    assert_op_param::<f64>();
     // geom, including the BREP-03 builder inputs.
     assert_op_param::<Tag>();
     assert_op_param::<Curve2d>();
@@ -332,6 +337,65 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
         self.inner.make_wire(segs, tol)
     }
 
+    fn make_box(&self, frame: &Plane, size: Vec3) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_box(frame, size)
+    }
+
+    fn make_cylinder(
+        &self,
+        frame: &Plane,
+        radius: f64,
+        height: f64,
+        angle: f64,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_cylinder(frame, radius, height, angle)
+    }
+
+    fn make_cone(
+        &self,
+        frame: &Plane,
+        r1: f64,
+        r2: f64,
+        height: f64,
+        angle: f64,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_cone(frame, r1, r2, height, angle)
+    }
+
+    fn make_sphere(&self, frame: &Plane, radius: f64) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_sphere(frame, radius)
+    }
+
+    fn make_torus(&self, frame: &Plane, major: f64, minor: f64, angle: f64) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_torus(frame, major, minor, angle)
+    }
+
+    fn prism(
+        &self,
+        profile: &Shape,
+        extent: &PrismExtent,
+        opts: &PrismOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.prism(profile, extent, opts, ctx)
+    }
+
+    fn revol(&self, profile: &Shape, axis: &Line3, angle: f64, ctx: &JobCtx) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.revol(profile, axis, angle, ctx)
+    }
+
+    fn mirrored(&self, s: &Shape, plane: &Plane) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.mirrored(s, plane)
+    }
+
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<CurveSeg>> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.plane_section(s, plane)
@@ -435,4 +499,20 @@ fn builders_need_the_backend() {
         kernel.make_wire(&[], &tol),
         Err(amg_brep::KernelError::BackendUnavailable)
     ));
+}
+
+#[cfg(not(feature = "occt"))]
+#[test]
+fn primitives_need_the_backend() {
+    let kernel = OcctKernel::new(KernelConfig::default());
+    let unavailable =
+        |r: KResult<OpResult>| matches!(r, Err(amg_brep::KernelError::BackendUnavailable));
+    let f = Plane::XY;
+    assert!(unavailable(kernel.make_box(&f, Vec3::ONE)));
+    assert!(unavailable(kernel.make_cylinder(&f, 1.0, 1.0, 1.0)));
+    assert!(unavailable(kernel.make_cone(&f, 1.0, 0.0, 1.0, 1.0)));
+    assert!(unavailable(kernel.make_sphere(&f, 1.0)));
+    assert!(unavailable(kernel.make_torus(&f, 2.0, 1.0, 1.0)));
+    // Checked before validation, as for every op: bad parameters still say "no backend".
+    assert!(unavailable(kernel.make_box(&f, Vec3::ZERO)));
 }

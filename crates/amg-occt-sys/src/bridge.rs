@@ -223,6 +223,24 @@ pub mod ffi {
         loops: OcLoopsIn,
     }
 
+    /// The history of one shape op (BREP-14) from operand 0, in index terms (kinds: 0 face,
+    /// 1 edge, 2 vertex). Relation `i` maps input `(in_kinds[i], in_indices[i])` with
+    /// `relations[i]` (0 modified, 1 generated, 2 deleted: no outputs) to the outputs
+    /// `out_kinds/out_indices[out_starts[i]..out_starts[i + 1]]`; `out_starts` has one more
+    /// entry than there are relations. `roles[j]` (0 start cap, 1 end cap, 2 lateral) labels output
+    /// face `role_faces[j]`.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    struct OcOpHistory {
+        in_kinds: Vec<u8>,
+        in_indices: Vec<u32>,
+        relations: Vec<u8>,
+        out_starts: Vec<u32>,
+        out_kinds: Vec<u8>,
+        out_indices: Vec<u32>,
+        role_faces: Vec<u32>,
+        roles: Vec<u8>,
+    }
+
     extern "Rust" {
         /// The progress/cancel target of one shim call (S02 §1, occt-integration.md §3.4).
         type ProgressSink;
@@ -339,8 +357,6 @@ pub mod ffi {
         /// Points along edge `e` (parameter order) within `linear` mm and `angular` rad.
         /// Raises on a degenerated edge.
         fn tessellate_edge(index: &OcIndex, e: u32, linear: f64, angular: f64) -> Result<Vec<V3>>;
-        /// A sphere of `radius` mm about the origin (test geometry).
-        fn make_sphere(radius: f64) -> Result<UniquePtr<OcShape>>;
         /// `object` minus `tool`, non-destructive. A test probe until BREP-04.
         fn boolean_cut_probe(object: &OcShape, tool: &OcShape) -> Result<UniquePtr<OcShape>>;
 
@@ -382,6 +398,34 @@ pub mod ffi {
         /// Edge `e`'s curve as a line, circle, ellipse or B-spline (exact conversion where OCCT
         /// has one, else a C2 approximation within `tol`). `Absent` for a degenerated edge.
         fn edge_curve_recognised(index: &OcIndex, e: u32, tol: f64) -> Result<OcCurve>;
+
+        // -- primitives, sweeps and transforms (BREP-14), implemented in occt_ops.cpp --
+
+        /// The result of one shape op and its history. Immutable once built.
+        type OcOp;
+
+        /// A primitive solid on `frame` (`BRepPrimAPI_Make*` on `gp_Ax2(origin, normal, x)`).
+        /// `kind` and `params`: 0 box `[dx, dy, dz]`, 1 cylinder `[r, h, angle]`, 2 cone
+        /// `[r1, r2, h, angle]`, 3 sphere `[r]`, 4 torus `[major, minor, angle]`.
+        fn make_primitive(kind: u8, frame: &OcFrame, params: &[f64]) -> Result<UniquePtr<OcShape>>;
+        /// `profile` swept by `vec` (`mode` 0), or infinitely along `vec` (1 one way, 2 both
+        /// ways). A finite prism of a planar face may be tapered by `taper` rad (positive
+        /// grows the profile along the sweep) and have coplanar faces merged.
+        fn prism(
+            profile: &OcShape,
+            vec: &V3,
+            mode: u8,
+            taper: f64,
+            merge_coplanar: bool,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// `profile` revolved by `angle` rad about the axis through `origin` along `axis`.
+        fn revol(profile: &OcShape, origin: &V3, axis: &V3, angle: f64) -> Result<UniquePtr<OcOp>>;
+        /// `shape` mapped by the affine `m` into new geometry: a similarity (rotation, uniform
+        /// scale, reflection) keeps analytic geometry, any other map goes through
+        /// `BRepBuilderAPI_GTransform` (B-spline geometry).
+        fn shape_gtransformed(shape: &OcShape, m: &OcMat34) -> Result<UniquePtr<OcOp>>;
+        fn op_shape(op: &OcOp) -> Result<UniquePtr<OcShape>>;
+        fn op_history(op: &OcOp) -> Result<OcOpHistory>;
     }
 }
 

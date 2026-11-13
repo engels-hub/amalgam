@@ -2,6 +2,7 @@
 
 mod build;
 mod extract;
+mod ops;
 
 use std::num::NonZeroUsize;
 use std::sync::OnceLock;
@@ -309,11 +310,6 @@ impl Occ {
     #[cfg(test)]
     pub(crate) fn test_box(dx: f64, dy: f64, dz: f64) -> Occ {
         Occ::new(must(ffi::make_box(dx, dy, dz), "make_box"))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_sphere(radius: f64) -> Occ {
-        Occ::new(must(ffi::make_sphere(radius), "make_sphere"))
     }
 
     #[cfg(test)]

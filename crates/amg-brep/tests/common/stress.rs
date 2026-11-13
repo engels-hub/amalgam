@@ -12,9 +12,10 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use amg_brep::geom::Surface;
 use amg_brep::{
-    BrepKernel, CheckOpts, EdgeId, FaceId, JobCtx, OcctKernel, Shape, SubKind, SubShape, TessMesh,
-    TessQuality, VertexId,
+    BrepKernel, CheckOpts, Dir3, EdgeId, FaceId, JobCtx, KResult, Line3, OcctKernel, OpResult,
+    PrismExtent, PrismOpts, Shape, SubKind, SubShape, TessMesh, TessQuality, VertexId,
 };
 
 /// One deterministic operation on the shared shape.
@@ -46,6 +47,59 @@ pub enum StressOp {
     Tessellate(TessQuality),
     /// `tessellate_edge` (category R), BREP-08.
     TessellateEdge(EdgeId, TessQuality),
+    /// `prism` of a planar face of the shared shape (category C: sweeps a private copy) along
+    /// its normal, tapered by the given angle in milliradians, BREP-14.
+    Prism(FaceId, i32),
+    /// `revol` by 90° of a planar face of the shared shape about a line in its plane beside it
+    /// (category C), BREP-14.
+    Revol(FaceId),
+}
+
+/// The BREP-14 sweep ops: a straight prism and a revol of every planar face (at most `limit`
+/// faces), and a tapered prism of the ones with at most 16 edges (a draft of every side face of a
+/// large cap is slow).
+pub fn sweep_queries(shape: &Shape, limit: usize) -> Vec<StressOp> {
+    let mut ops = Vec::new();
+    for f in shape
+        .faces()
+        .filter(|&f| matches!(shape.surface(f), Surface::Plane(_)))
+        .take(limit)
+    {
+        ops.extend([StressOp::Prism(f, 0), StressOp::Revol(f)]);
+        if shape.face_edges(f).len() <= 16 {
+            ops.push(StressOp::Prism(f, -50));
+        }
+    }
+    ops
+}
+
+/// The face of `shape` as a standalone profile (shares its TShapes) and its plane.
+fn planar_profile(shape: &Shape, f: FaceId) -> (Shape, amg_brep::Plane) {
+    let Surface::Plane(plane) = shape.surface(f) else {
+        panic!("{f:?} is not planar");
+    };
+    let face = shape
+        .sub_shape(SubShape {
+            kind: SubKind::Face,
+            index: f.0,
+        })
+        .expect("sub_shape");
+    (face, plane)
+}
+
+/// An op result as an exact string: volume bits, counts and the whole history.
+fn sweep_digest(result: KResult<OpResult>) -> String {
+    match result {
+        Ok(r) => format!(
+            "{:016x} {} {} {} {:?}",
+            r.shape.volume().expect("volume").to_bits(),
+            r.shape.count(SubKind::Face),
+            r.shape.count(SubKind::Edge),
+            r.shape.count(SubKind::Vertex),
+            r.history
+        ),
+        Err(e) => format!("Err {e:?}"),
+    }
 }
 
 /// The BREP-08 tessellation ops: whole-shape meshes at two presets (first, so every worker
@@ -178,6 +232,30 @@ pub fn eval(kernel: &OcctKernel, shape: &Shape, op: StressOp) -> String {
                 .tessellate(shape, &q, &JobCtx::detached())
                 .expect("tessellate");
             format!("{} tris {:016x}", mesh.triangle_count(), mesh_hash(&mesh))
+        }
+        StressOp::Prism(f, milliradians) => {
+            let (profile, plane) = planar_profile(shape, f);
+            let opts = PrismOpts {
+                taper: f64::from(milliradians) * 1e-3,
+                merge_coplanar: false,
+            };
+            let extent = PrismExtent::Vector(3.0 * plane.normal.get());
+            sweep_digest(kernel.prism(&profile, &extent, &opts, &JobCtx::detached()))
+        }
+        StressOp::Revol(f) => {
+            let (profile, plane) = planar_profile(shape, f);
+            let bbox = profile.bbox();
+            let reach = (bbox.max - bbox.min).length() + 1.0;
+            let axis = Line3 {
+                point: (bbox.min + bbox.max) / 2.0 - reach * plane.y.get(),
+                dir: Dir3::new_unchecked(plane.x.get()),
+            };
+            sweep_digest(kernel.revol(
+                &profile,
+                &axis,
+                std::f64::consts::FRAC_PI_2,
+                &JobCtx::detached(),
+            ))
         }
         StressOp::TessellateEdge(e, q) => format!(
             "{:?}",

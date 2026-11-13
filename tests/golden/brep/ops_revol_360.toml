@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_revol_360 (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 490.08845396000766
+area = 571.7698629533423
+faces = 4
+edges = 6
+vertices = 4
+classes = "PYPY"

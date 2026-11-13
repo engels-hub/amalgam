@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_cylinder (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 1570.796326794897
+area = 785.3981633974482
+faces = 3
+edges = 3
+vertices = 2
+classes = "YPP"

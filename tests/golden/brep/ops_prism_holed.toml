@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_prism_holed (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 1049.20355262769
+area = 1014.8672587712815
+faces = 7
+edges = 15
+vertices = 10
+classes = "PPPPYPP"

@@ -1,0 +1,12 @@
+# Exact B-rep metrics of brep/ops_cone (S02 BREP-14). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 408.4070449666732
+area = 320.7005185614376
+faces = 3
+edges = 3
+vertices = 2
+classes = "CPP"

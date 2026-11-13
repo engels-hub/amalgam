@@ -139,11 +139,6 @@ impl Shape {
     }
 
     #[cfg(all(test, feature = "occt"))]
-    pub(crate) fn test_sphere(radius: f64) -> Shape {
-        Shape::from_occ(Occ::test_sphere(radius))
-    }
-
-    #[cfg(all(test, feature = "occt"))]
     pub(crate) fn test_open_wire_face() -> Shape {
         Shape::from_occ(Occ::test_open_wire_face())
     }
@@ -374,6 +369,26 @@ impl Shape {
             return Err(KernelError::NonRigid);
         }
         self.occ().moved(t).map(Shape::from_occ)
+    }
+
+    /// The shape mapped by any invertible affine transform into new geometry (S04 scale and
+    /// mirror). A similarity (rotation, uniform scale, reflection) keeps analytic surfaces and
+    /// curves (`BRepBuilderAPI_Transform` with copied geometry); any other map, such as a
+    /// non-uniform scale, converts to B-splines first (`BRepBuilderAPI_GTransform`). A
+    /// reflection keeps faces facing out of the material. History: every input face, edge and
+    /// vertex is `Modified` into its one image.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "transform" }` for a non-finite or singular map; `Occt` if OCCT
+    /// raises.
+    pub fn gtransformed(&self, t: &Transform) -> KResult<crate::OpResult> {
+        crate::ops::check_affine(t)?;
+        let (occ, raw) = self.occ().gtransformed(t)?;
+        Ok(crate::OpResult {
+            history: crate::ops::history(&raw, crate::ops::counts(self)),
+            shape: Shape::from_occ(occ),
+            warnings: Vec::new(),
+        })
     }
 
     /// Writes the binary form: `AMGB`, [`FORMAT_VERSION`], then `BinTools` data. Bit-exact, and

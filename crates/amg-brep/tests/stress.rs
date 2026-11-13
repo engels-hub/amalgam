@@ -11,9 +11,8 @@ mod stress;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use amg_brep::{KernelConfig, OcctKernel, Shape, SubKind, Validate};
-use amg_core::Transform;
-use stress::{StressOp, eval, read_queries, run, run_with, tess_queries};
+use amg_brep::{BrepKernel, KernelConfig, OcctKernel, Shape, SubKind, Validate};
+use stress::{StressOp, eval, read_queries, run, run_with, sweep_queries, tess_queries};
 
 const THREADS: usize = 8;
 const ITERATIONS: usize = 2_000;
@@ -109,8 +108,7 @@ fn the_check_is_deterministic_and_valid_on_every_fixture() {
 /// it. No crash, every mesh bit-identical to the single-threaded one, every boolean result the
 /// same, and the input's `BinTools` hash unchanged.
 fn stress_tessellation(name: &str, iterations: usize, seed: u64) {
-    let (Some(reference_shape), Some(shared), Some(block)) = (load(name), load(name), load("box"))
-    else {
+    let (Some(reference_shape), Some(shared)) = (load(name), load(name)) else {
         return;
     };
     let kernel = kernel();
@@ -121,11 +119,16 @@ fn stress_tessellation(name: &str, iterations: usize, seed: u64) {
         .iter()
         .map(|&op| eval(&kernel, &reference_shape, op))
         .collect();
-    // The tool: the 10 x 20 x 30 box fixture moved to overlap the part's lower corner.
+    // The tool: a 10 x 20 x 30 box overlapping the part's lower corner.
     let corner = reference_shape.bbox().min - amg_core::Vec3::splat(3.0);
-    let tool = block
-        .transformed(&Transform::from_translation(corner - block.bbox().min))
-        .unwrap();
+    let frame = amg_core::Plane {
+        origin: corner,
+        ..amg_core::Plane::XY
+    };
+    let tool = kernel
+        .make_box(&frame, amg_core::Vec3::new(10.0, 20.0, 30.0))
+        .unwrap()
+        .shape;
     let cut_reference = kernel.boolean_cut_probe(&reference_shape, &tool).unwrap();
     let cut_volume = cut_reference.volume().unwrap();
     let cut_faces = cut_reference.count(SubKind::Face);
@@ -183,4 +186,65 @@ fn shared_filleted_box_tessellates_during_booleans() {
 #[test]
 fn shared_plate_tessellates_during_booleans() {
     stress_tessellation("plate_with_holes", 16, 0x5EED_0802);
+}
+
+/// BREP-14 Done-when 4: 8 threads run prisms (straight and tapered) and revols of the faces of
+/// one shared shape, alongside reads. The sweeps share the input's TShapes through `sub_shape`,
+/// so this also checks that they sweep a private copy: the input's `BinTools` hash must not
+/// change, and every result (volume bits, counts, history) must equal the single-threaded one.
+fn stress_sweeps(name: &str, limit: usize, iterations: usize, seed: u64) {
+    let (Some(reference_shape), Some(shared)) = (load(name), load(name)) else {
+        return;
+    };
+    let kernel = kernel();
+    let mut ops = sweep_queries(&reference_shape, limit);
+    assert!(!ops.is_empty(), "{name}: no planar faces");
+    ops.extend([StressOp::Bbox, StressOp::Counts, StressOp::Check]);
+    let reference: Vec<String> = ops
+        .iter()
+        .map(|&op| eval(&kernel, &reference_shape, op))
+        .collect();
+    let failed = reference.iter().filter(|r| r.starts_with("Err")).count();
+    eprintln!(
+        "{name}: {} sweep ops, {failed} of them errors",
+        ops.len() - 3
+    );
+    let report = run(
+        &kernel, &shared, &ops, &reference, THREADS, iterations, seed,
+    );
+    eprintln!(
+        "{name}: {} threads x {} iterations over {} ops in {:.2} s; BinTools hash {:016x} -> {:016x}",
+        report.threads,
+        report.iterations,
+        report.ops,
+        report.elapsed.as_secs_f64(),
+        report.hash_before,
+        report.hash_after
+    );
+    assert!(
+        report.mismatches.is_empty(),
+        "{name}: {} mismatches, first: {}",
+        report.mismatches.len(),
+        report.mismatches[0]
+    );
+    assert!(report.input_unchanged, "{name}: the shared input changed");
+    assert_eq!(report.hash_before, report.hash_after);
+    for (k, &op) in ops.iter().enumerate() {
+        assert_eq!(eval(&kernel, &shared, op), reference[k], "{op:?}");
+    }
+}
+
+#[test]
+fn shared_box_survives_concurrent_sweeps() {
+    stress_sweeps("box", 6, 200, 0x5EED_1401);
+}
+
+#[test]
+fn shared_filleted_box_survives_concurrent_sweeps() {
+    stress_sweeps("filleted_box", 6, 60, 0x5EED_1402);
+}
+
+#[test]
+fn shared_plate_survives_concurrent_sweeps() {
+    stress_sweeps("plate_with_holes", 6, 6, 0x5EED_1403);
 }

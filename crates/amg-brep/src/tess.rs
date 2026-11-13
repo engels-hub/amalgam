@@ -381,9 +381,12 @@ mod occt_tests {
     #[test]
     fn sphere_area_converges_as_deflection_shrinks() {
         let radius = 10.0;
-        let sphere = Shape::test_sphere(radius);
-        let exact = 4.0 * std::f64::consts::PI * radius * radius;
         let kernel = OcctKernel::new(crate::KernelConfig::default());
+        let sphere = kernel
+            .make_sphere(&amg_core::Plane::XY, radius)
+            .unwrap()
+            .shape;
+        let exact = 4.0 * std::f64::consts::PI * radius * radius;
         let mut last = f64::INFINITY;
         for linear in [1.0, 0.3, 0.1, 0.03, 0.01, 0.003, 0.001] {
             let q = TessQuality {
