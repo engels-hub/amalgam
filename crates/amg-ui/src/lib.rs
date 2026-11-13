@@ -12,6 +12,9 @@
 //! UI-02 adds the command registry ([`command`]), the [`shortcut::ShortcutMap`] with scopes and
 //! `shortcuts.toml` overrides, and the S-key [`search`].
 //!
+//! UI-20 adds the [`scene`] adapter (`DocEvent` → render scene, pick keys, [`scene::PickMap`],
+//! body tessellators, highlight and preview layers) and the [`pick`] target types.
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
@@ -26,7 +29,9 @@ mod jobs;
 pub mod module;
 pub mod notify;
 pub mod panel;
+pub mod pick;
 pub mod registry;
+pub mod scene;
 pub mod search;
 mod shell;
 pub mod shortcut;
@@ -49,7 +54,9 @@ pub mod testing;
 pub use app::{AmalgamApp, AppConfig, AppCx, CmdEnv, CommitBatch, DocTab, DocTabId};
 pub use command::{CmdAction, CmdId, CommandDef, Enablement, Enabler, Placement, RegistryError};
 pub use notify::{Notification, Notifications};
+pub use pick::PickTarget;
 pub use registry::UiRegistry;
+pub use scene::SceneAdapter;
 pub use shortcut::{Shortcut, ShortcutMap, ShortcutScope};
 
 /// Keeps every module's `inventory::submit!` in the final binary (the S01 linker caveat: an

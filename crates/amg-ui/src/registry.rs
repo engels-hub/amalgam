@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 
 use crate::command::{CmdId, CommandDef, DYNAMIC_PREFIX, Placement, RegistryError};
 use crate::module::{
@@ -9,6 +10,7 @@ use crate::module::{
     WorkspaceId,
 };
 use crate::panel::PanelDef;
+use crate::scene::BodyTessellator;
 
 /// Everything registered by the [`UiModule`]s, sorted for display.
 ///
@@ -30,6 +32,8 @@ pub struct UiRegistry {
     by_menu: BTreeMap<&'static str, Vec<(i32, CmdId)>>,
     /// Bumped by every command change; search and shortcut caches compare it.
     generation: u64,
+    /// Body tessellators in registration order (UI-20).
+    tessellators: Vec<(&'static str, Arc<dyn BodyTessellator>)>,
 }
 
 impl fmt::Debug for UiRegistry {
@@ -41,6 +45,14 @@ impl fmt::Debug for UiRegistry {
             .field("groups", &self.groups.len())
             .field("panels", &self.panels.keys().collect::<Vec<_>>())
             .field("commands", &self.commands.len())
+            .field(
+                "tessellators",
+                &self
+                    .tessellators
+                    .iter()
+                    .map(|(m, _)| *m)
+                    .collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
@@ -107,6 +119,24 @@ impl UiRegistry {
             return;
         }
         self.panels.insert(def.id, (module, def));
+    }
+
+    pub(crate) fn add_tessellator(&mut self, module: &'static str, t: Arc<dyn BodyTessellator>) {
+        self.tessellators.push((module, t));
+    }
+
+    /// The registered body tessellators in registration order (the scene adapter uses the
+    /// last one that handles a geometry).
+    pub fn tessellators(&self) -> Vec<Arc<dyn BodyTessellator>> {
+        self.tessellators
+            .iter()
+            .map(|(_, t)| Arc::clone(t))
+            .collect()
+    }
+
+    /// The modules that registered tessellators, in registration order.
+    pub fn tessellator_owners(&self) -> Vec<&'static str> {
+        self.tessellators.iter().map(|(m, _)| *m).collect()
     }
 
     pub(crate) fn add_command(&mut self, module: &'static str, def: CommandDef) {

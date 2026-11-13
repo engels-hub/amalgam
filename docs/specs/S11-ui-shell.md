@@ -900,7 +900,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-01 | App shell: `amg-app` start-up (diag, UI-thread mark, `Gpu` → `WgpuSetup::Existing`, `JobSystem` notifier → repaint), eframe 0.37 frame loop (`logic`/`ui`, end-of-frame `CommandQueue`), fixed panels + `DockHost` facade (egui_dock), theme tokens (light/dark/system), workspace/tab registry + `UiModule` inventory + stub modules for every domain lane, document tabs, undo/redo buttons, status bar, `amg_ui::testing::AppHarness` (kittest, `NullViewport`, `CpuPickService` stub) | RND-01, FND-07 | P0 | Done | 1. `amg-app` opens on the owner's machine showing the Fusion layout (app bar, toolbar, browser, timeline, status bar, viewport tab with the RND-01 mesh). Cold start to first interactive frame < 2 s (tracing span `startup`). 2. Kittest: switching workspace via the switcher changes the visible tabs (`get_by_label`). A test module registering a workspace + tab through `inventory` appears without editing framework files. 3. Light/dark snapshot tests pass on WARP. 4. With no input and no jobs, the app does not repaint (frame counter stays constant over 1 s). 5. A test job's notifier wakes the UI within one frame. 6. Two document tabs keep independent undo stacks (kittest). |
 | UI-02 | Command registry (`CommandDef`, `Placement`, `Enabler`, dynamic registration), toolbar tabs/groups/dropdowns, menus, `ShortcutMap` with scopes and `shortcuts.toml` overrides, S-key search (own fuzzy scorer, recency) | UI-01 | P0 | Done | 1. Kittest: pressing `S`, typing "remsh" lists a registered `test.remesh` first, and Enter runs it. 2. Disabled commands show their reason in the tooltip and are skipped by Enter. 3. A duplicate `CmdId` panics in debug (unit test). 4. Shortcut scope test: `L` in sketch scope and `L` in global scope resolve correctly. Single letters are ignored while a text field has focus. 5. Search over 1 000 synthetic commands < 1 ms per keystroke (criterion). 6. `register_dynamic` rejects ids without the `script.` prefix. |
 | UI-03 | `Tool` trait + router (priority chain, Esc/Enter, replace semantics), `ViewportEvent` synthesis from egui input, `PickService` trait + S10 implementation + latest-wins hover, Fusion navigation preset over S10 camera, `PreviewDriver`, `spawn_tracked`, `SelectTool` (click only) | UI-02, RND-04, RND-11 | P0 | Todo | 1. Kittest with a scripted test tool: events arrive in order, Esc cancels (`FinishReason::Cancel`), Enter commits one undo entry, and starting another command gives `Replaced`. 2. Middle-drag orbits even while a tool is active that ignores the event. 3. Hover pick → highlight within ≤ 2 frames on the owner's GPU and with `CpuPickService`. 4. `PreviewDriver`: 20 rapid `set` calls → exactly one preview computed (test counter feature), and none enters the undo stack. 5. No UI-thread frame > 16 ms while a 2 s test job runs (tracing assertion). |
-| UI-20 | Scene adapter: `DocEvent` → `RenderScene` (RND-03), `RenderEntityKey` allocation, `PickMap`, `BodyTessellator` registry with Mesh tessellator, highlight layers, preview layer feed, `CpuPickService` real implementation | UI-01, RND-03, DOC-09 | P0 | Todo | 1. Scripted test: add/edit/delete 3 mesh bodies → the RenderScene contains exactly the live bodies, and an unchanged body is never re-uploaded (upload counter). 2. `DocumentReplaced` rebuilds the scene, and keys are not reused within a session. 3. `PickMap` round-trips every face index of a 10 k-triangle body. 4. A registered test tessellator for a stub `BodyGeom` variant is used. 5. Updating 1 changed body in a 100-body scene < 1 ms of UI-thread time. |
+| UI-20 | Scene adapter: `DocEvent` → `RenderScene` (RND-03), `RenderEntityKey` allocation, `PickMap`, `BodyTessellator` registry with Mesh tessellator, highlight layers, preview layer feed, `CpuPickService` real implementation | UI-01, RND-03, DOC-09 | P0 | Review | 1. Scripted test: add/edit/delete 3 mesh bodies → the RenderScene contains exactly the live bodies, and an unchanged body is never re-uploaded (upload counter). 2. `DocumentReplaced` rebuilds the scene, and keys are not reused within a session. 3. `PickMap` round-trips every face index of a 10 k-triangle body. 4. A registered test tessellator for a stub `BodyGeom` variant is used. 5. Updating 1 changed body in a 100-body scene < 1 ms of UI-thread time. |
 | UI-04 | Selection system: `Selection`, `SelItem`, `EntityFilter` bar, select priority, click/Ctrl/Shift rules, window/crossing box (S10 region pick), select-through list, selection sets (`ExtRecord ui.selection_sets`), revalidation on events | UI-03, UI-20 | P0 | Todo | 1. Kittest on a fixture with 3 mesh bodies: window select left→right picks only fully enclosed bodies, and right→left also picks touching ones. 2. With the filter set to faces only, a click on an edge selects the adjacent face. 3. Select-through lists all 3 stacked bodies in depth order. 4. Save a selection set → reload the file → restore gives the same `EntityRef`s, and undo removes the set. 5. Deleting a selected body drops it from the selection without error. |
 | UI-15 | Dialog widgets: `ExprInput` (live parse via `ParamTable::try_eval`, error spans, autocomplete of params/functions/units, nudge, bound-param display), `SelectionField`, `ChoiceField`, toggle/int/flip, `DialogFrame` (banner, OK enablement), quantity formatting per `UnitPrefs` | UI-04, DOC-04 | P0 | Todo | 1. Kittest: typing `d1 + 5` in a length field with `d1 = 10 mm` shows `15.00 mm`. `12 kg` shows a unit-mismatch error underlined at the right span, and OK is disabled. 2. Typing `d` offers every parameter starting with `d`, and Tab completes. 3. `12,5` shows the `DecimalComma` hint (QUESTIONS #11). 4. Only one `SelectionField` is active at a time, and the active one sets the pick filter. 5. All widgets are queryable by label (AccessKit). |
 | UI-05 | Generic feature dialog renderer: `GenericFeatureTool` from `DialogRegistration` (conditions, auto-focus, live preview with debounce, preview-health banner), edit mode (preview rollback, `EditFeature` + `SetParamExpr` in one transaction), automatic `feature.<kind>` commands + toolbar placement + `FeatureUiInfo` | UI-15, SOL-01, DOC-12 | P0 | Todo | 1. The Extrude dialog is generated entirely from SOL-01's schema (no extrude-specific UI code; grep test). Changing extent type shows/hides the right fields. 2. Kittest: select a profile, type a distance → the preview appears ≤ debounce + 100 ms on a typical part. OK yields one undo entry with `AddFeature`. 3. Edit mode: changing the distance of an existing extrude keeps its model parameter `dN` and changes its expression. 4. An invalid input disables OK with the field error. Cancel leaves the document unchanged (revision equal). |
@@ -1327,6 +1327,158 @@ Also `open_log_folder_and_copy_details_buttons`.
 - No toast stacking limit or grouping of repeated messages; no toast hover-pause.
 - Re-creating a lost device and a Save command are outside this WP (UI-19 owns Save).
 
+### 2026-11-13 - UI-20 scene adapter
+Landed in `amg-ui` (status `Review`):
+- **`scene`** (`scene/mod.rs`): the `SceneAdapter`.
+  - Methods: `handle_events(events, design, evaluated, jobs)`, `rebuild`, `clear`, `poll`,
+    `set_preview`, `set_placement_overlay` (S06 request), `set_highlight` / `highlight`,
+    `set_theme`, `set_quality`, and `register_handles` / `release_key` (overlay owners: handle id ->
+    `PickTarget`), `raycast`.
+  - Queries: `pick_map`, `occurrence_path`, `bodies`, `display_mesh`, `mesh_slot`,
+    `instance_slots`, `uploads_of`, `pending`, `stats`, `backend`, `last_key`, `take_failures`.
+  - **Keys.** `RenderEntityKey(u32)` is S10's `PickId` (`pick_id()`). Keys are allocated densely
+    from 1 and never reused in a session, also not across `DocumentReplaced`. There is one key per
+    (occurrence path, body). Sketches and construction geometry get keys too; they are drawn later
+    as RND-07 overlays and have no scene mesh.
+  - **`PickMap`** maps `(key, Option<RenderSub>)` to `PickTarget` and back (`target`, `render`,
+    `body_key`, `body_keys`, `keys`, `generation`).
+  - **Events** are coalesced per drain. Each touched body is reconciled against the current
+    `Evaluated`: present means upsert, absent means remove. So an add plus a remove (or the
+    reverse) in one drain comes out right.
+  - **Geometry** is compared with `BodyGeom::same_as`, so an unchanged body is never tessellated
+    again.
+  - **Instance-only changes:** props and visibility, `ComponentTreeChanged` and
+    `OccurrenceTransform/VisibilityChanged` only rewrite instances.
+    - Transforms come from `Evaluated::placements()`, or from the placement overlay.
+    - A body is visible when it is visible and every occurrence on its path is visible.
+    - Opacity goes to `base_color.a`.
+  - **Tessellation and upload** run in one job per body (`spawn_fn`, Interactive, label "Display
+    body"). It is latest-wins: a newer geometry cancels the job in flight, and the old mesh stays
+    drawn meanwhile. When the new upload arrives, `poll` inserts the mesh, repoints the instances
+    and removes the old mesh in one op batch, so no frame lacks the body.
+  - **Preview:** a body goes on `Layer::Preview` when its `Arc<EvalBody>` in the preview
+    `Evaluated` differs from the committed one. It is drawn in the theme's preview colour at
+    alpha 0.4 and is not in the pick map. Its upload is kept while the preview `Arc` is unchanged;
+    `None` clears the layer.
+  - **Highlights:** for each `HighlightLayer` (Hover, Selected, Error, Preview) the adapter keeps
+    the targets. It resolves them to `HighlightItem { key, sub: Option<(RenderSubKind, Range32)> }`
+    again whenever the pick map changes, so a deleted body drops out. Colours come from the theme
+    tokens.
+- **`scene::tess`:**
+  - `BodyTessellator` (`handles`, `tessellate(geom, quality, ctx) -> DisplayMesh`),
+    `DisplayQuality`, `TessellateError`.
+  - `DisplayMesh { data: MeshData, face_ranges }`, with `face_of_triangle` and `face_count`.
+  - `MeshTessellator` calls `IndexedMesh::render_buffers`, rebased to the centre of the bounds. It
+    is flat shaded unless the mesh has vertex normals.
+  - Registration: `Registrar::tessellator` and `UiRegistry::{tessellators, tessellator_owners}`.
+    The last registered tessellator that handles a variant wins. `builtin` (module `app`, which
+    sorts first) registers the Mesh one.
+- **`scene::backend`:**
+  - Types: `SceneBackend` (`uploader`, `apply(Vec<SceneOp>)`, `as_any`), `MeshUploader`,
+    `UploadedMesh`, `SceneOp`, `InstanceDesc`, `MeshSlot` / `InstanceSlot`, `HighlightLayer`,
+    `HighlightItem`, `RenderSubKind`, `Range32`.
+  - `GpuSceneBackend` drives S10's `RenderScene`, built with `egui(rs)` (over
+    `egui_glue::with_renderer`), `shared(gpu, Arc<Mutex<RenderScene>>)` or `new(gpu, access)`.
+  - `CpuSceneBackend` needs no GPU. It records meshes, instances and highlights, and counts uploads.
+- **`pick`:** `PickTarget`, `PickMode`, `PickTicket`, `PickHitUi`.
+- **App:**
+  - `AmalgamApp` owns one `SceneAdapter` for the active document. `logic` rebuilds it when the
+    active tab changed (`add_document`, `activate`, ...); otherwise it feeds in the drained events.
+    It then `poll`s the adapter, which never blocks, and turns failures into an error toast.
+  - Additive: `AmalgamApp::{scene, scene_mut, set_scene_backend}`. The default backend is
+    `CpuSceneBackend`.
+  - `amg-app` installs `GpuSceneBackend::egui`. The RND-01 demo mesh is unchanged and sits next to
+    the adapter's instances.
+- **`testing`:**
+  - `CpuPickService` is real: `request_ray` returns a `PickTicket`, `poll(scene, ticket)` answers
+    it once, and `pick(scene, ray, mode)` picks synchronously.
+  - It ray-casts the adapter's display meshes: a lazy median-split BVH per mesh and amg-core's
+    watertight `ray_triangle`. Each instance gives its nearest hit, front to back; `AllAlongRay`
+    keeps them all.
+  - New `AppHarness::{picks_mut, poll_pick, pick_ray, scene}`. `drive_until_idle` also waits for
+    tessellations in flight.
+
+*Evidence (Done-when; `tests/scene.rs` has 12 tests, plus `benches/scene.rs`):*
+1. **Add, edit, delete.**
+   `add_edit_delete_three_mesh_bodies_keeps_the_scene_exact_and_skips_unchanged_bodies` runs
+   through `AppHarness` with a real recompute. After every step the scene's bodies equal the
+   evaluated bodies, each live body has exactly one instance and one mesh, and every instance key
+   maps to its body.
+   - The upload counter is 3 after adding.
+   - It is 4 after editing one feature. The other two bodies keep 1 upload each, the old mesh is
+     gone and the key survives.
+   - It stays at 4 after the opacity and visibility edits, and after deleting one body.
+   - Undo brings the body back as upload 5, with a new key.
+
+   `gpu_scene_adapter_drives_a_real_render_scene` repeats this on a real `RenderScene`, which
+   passed on the owner GPU. `instance_count` / `mesh_count` are 3/3, still 3/3 after the edit and
+   2/2 after the delete; `gpu_bytes` is 0 after `clear`.
+2. **`DocumentReplaced`.** In `document_replaced_rebuilds_the_scene_with_fresh_keys`, re-opening
+   the same design (`Document::from_design`) rebuilds the scene: `rebuilds` +1 and 6 uploads. The
+   new keys are disjoint from the old ones and all above the old maximum. See also
+   `document_replaced_event_rebuilds_without_the_app` and
+   `switching_document_tabs_shows_the_active_document_only`.
+3. **`PickMap` round trip.** `pick_map_round_trips_every_face_of_a_10k_triangle_body` uses a
+   100x50 grid (10 000 triangles). For every triangle, a CPU pick through its centroid returns
+   `Body { sub: (Face, i) }`, and `render` / `target` round-trip to `(key, Face i)`. The 10 000
+   picks took 12.5 ms in total. See also
+   `cpu_pick_service_is_asynchronous_and_select_through_is_depth_ordered` (3 stacked bodies).
+4. **Registered tessellator.** In `registered_test_tessellator_displays_a_stub_variant`, a test
+   file's `inventory` module registers a tessellator for `BodyGeom::Implicit` (the `SdfGraph`
+   stub). It is called once, and the body gets a 12-triangle mesh and is pickable. The mesh body
+   next to it still uses `MeshTessellator`.
+5. **1 of 100 bodies.** `timing_update_one_changed_body_of_100_under_1ms_ui_thread` uses 100
+   bodies and 20 rounds in the debug-opt test profile. One changed body spawns exactly one
+   tessellation. UI-thread time (the event frame plus the insert frame) is p50 11.6 us and worst
+   18.6 us. The budget is 1 ms, asserted under `AMG_STRICT_TIMING=1`. The criterion bench
+   `scene_update_1of100` (release, the same two UI-thread steps) gives a mean of 11.2 us
+   [11.0, 11.4].
+
+Further tests:
+- `latest_wins_keeps_the_old_mesh_until_the_new_one_arrives`: 3 edits during a gated
+  tessellation. 2 are superseded, the old mesh stays drawn throughout, and only the latest is
+  uploaded.
+- `highlights_resolve_through_the_pick_map_and_follow_the_theme`.
+- `preview_bodies_go_to_the_preview_layer_and_are_replaced_as_a_whole`.
+
+*Deviations:*
+- `BodyTessellator::tessellate` returns `DisplayMesh` (`MeshData` + `face_ranges`), not the
+  provisional `GpuMeshData`. The same job uploads it through the backend's `MeshUploader`.
+- **`PickTarget`:**
+  - `PickTarget::Body` has `instance: u32` (S06 request).
+  - `PickTarget` derives `Hash` but not `Ord`, because `amg_doc::TopoKind` is not `Ord`.
+  - The sketch variants are a single `Sketch(SketchId)` until UI-09 draws sketch overlays.
+    `SketchEntity` / `Profile` need `amg-sketch` ids, and `amg-ui` does not depend on
+    `amg-sketch` yet.
+  - A mesh triangle is `(TopoKind::Face, triangle)`. `TopoKind::FaceGroup` has no render sub-id;
+    the mesh lane maps groups to triangles.
+- **RND-04 gaps:**
+  - `RenderSubKind`, `Range32`, `HighlightLayer` and `HighlightItem` live in `amg_ui::scene` until
+    RND-04 adds S10's `SubKind` and highlight API.
+  - `GpuSceneBackend` stores the highlight lists and colours but cannot draw them yet.
+  - The pick id is not written to the instance record (its `w` lanes are reserved for RND-04).
+- Each body keeps a CPU copy of its display mesh (`Arc<DisplayMesh>`) for the CPU ray cast
+  (select-through). A mesh's BVH is built on its first ray cast, on the calling thread.
+- Mesh bodies are uploaded with `closed = false` (double-sided). `IndexedMesh` has no cheap
+  watertight flag; section caps (RND-06) will need one.
+- Switching document tabs rebuilds the scene and re-uploads everything; there is no per-document
+  scene cache.
+- `AppConfig` is unchanged, because `idle.rs` builds it as a struct literal. The backend is set
+  with `AmalgamApp::set_scene_backend` instead.
+
+*Leftovers:*
+- **RND-04:**
+  - write `RenderEntityKey` into the instance record;
+  - draw the highlight layers;
+  - back UI-03's `PickService` with GPU picks. `CpuPickService` and `raycast` stay for
+    `AllAlongRay`.
+- **UI-22:** the Solid tessellator. Placeholder `Shape`s and `Form` bodies have no tessellator
+  yet (counted in `stats().undisplayable`).
+- The preview keeps the committed version of a previewed body visible, and does not hide bodies
+  that the preview removes.
+- No camera fit when bodies arrive: navigation is UI-03/RND-11. In `amg-app`, document bodies can
+  therefore be outside the fixed home view.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1399,3 +1551,13 @@ additive pieces UI-05 should render:
 ### 2026-11-12: UI-10 (lane D)
 - No change outside lane D. `amg-ui` has no new dependency (`egui`'s own `ProgressBar`, `Area` and
   `copy_text`). `amg-app` reads `DiagGuard::log_dir()` and calls `AmalgamApp::set_log_dir`.
+
+### 2026-11-13: UI-20 (lane D)
+- No change outside lane D and no new dependency. `amg-ui` calls the inherent `render_buffers` / `aabb` of
+  `amg_doc::stub::IndexedMesh` (S07's `RenderBuffers` contract), with no direct `amg-mesh` dependency.
+  `amg-render` is used through its public API only (`RenderScene`, `upload_mesh`,
+  `egui_glue::with_renderer`, `Renderer::{gpu, scene_mut}`). No `amg-doc` type reaches `amg-render`.
+- For RND-04 (S10, lane D): `amg_ui::scene::{RenderSubKind, Range32, HighlightLayer, HighlightItem}`
+  mirror S10 §Interfaces. They become re-exports when `SubKind` / `set_highlight_layer` land.
+  `InstanceDesc::key` is the `PickId` to write into the instance record.
+- `amg-app` installs `GpuSceneBackend::egui` after `AmalgamApp::new`.

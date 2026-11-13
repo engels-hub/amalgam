@@ -175,4 +175,11 @@ impl Registrar<'_> {
     pub fn panel(&mut self, def: PanelDef) {
         self.reg.add_panel(self.module, def);
     }
+
+    /// Adds a body tessellator (UI-20). The most recently registered one that handles a
+    /// `BodyGeom` variant is used.
+    pub fn tessellator(&mut self, t: impl crate::scene::BodyTessellator) {
+        self.reg
+            .add_tessellator(self.module, std::sync::Arc::new(t));
+    }
 }

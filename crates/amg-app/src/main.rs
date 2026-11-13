@@ -23,6 +23,7 @@ use amg_jobs::{JobHandle, JobSystem, JobSystemConfig, SpawnOptions};
 use amg_render::egui_glue;
 use amg_render::{Camera, GpuMesh, Instance, Projection, RenderError, RendererConfig, ViewId};
 use amg_ui::app::{default_layout_path, repaint_notifier};
+use amg_ui::scene::GpuSceneBackend;
 use amg_ui::theme::Theme;
 use amg_ui::viewport::RenderViewport;
 use amg_ui::{AmalgamApp, AppConfig, UiRegistry};
@@ -158,6 +159,11 @@ fn main() -> anyhow::Result<()> {
                 layout_path: default_layout_path(),
             });
             app.set_log_dir(log_dir);
+            // UI-20: document bodies go through the scene adapter into S10's RenderScene.
+            match GpuSceneBackend::egui(rs.clone()) {
+                Some(backend) => app.set_scene_backend(Box::new(backend)),
+                None => tracing::warn!("no renderer installed: bodies are not displayed"),
+            }
             if let Some(path) = amg_ui::shortcut::default_shortcuts_path()
                 && let Err(e) = app.load_shortcuts_file(&path)
             {

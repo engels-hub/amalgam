@@ -1,4 +1,5 @@
-//! The framework's own commands (UI-02): search, undo/redo and new document.
+//! The framework's own commands (UI-02): search, undo/redo and new document; and the Mesh
+//! body tessellator (UI-20).
 //!
 //! They are search-and-shortcut only: the app bar already draws Undo/Redo buttons and the File
 //! menu (UI-01), and the toolbar groups are filled by the domain lanes.
@@ -10,6 +11,7 @@ inventory::submit! { UiModule { id: "app", register } }
 
 /// Registers the framework commands.
 pub fn register(r: &mut Registrar<'_>) {
+    r.tessellator(crate::scene::MeshTessellator);
     r.command(
         CommandDef::new(
             "app.search",
