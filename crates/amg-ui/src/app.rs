@@ -23,6 +23,7 @@ use crate::module::{ContextId, PanelId, TabId, WorkspaceId};
 use crate::notify::{Notification, Notifications};
 use crate::panel::Panel;
 use crate::registry::UiRegistry;
+use crate::scene::{CpuSceneBackend, SceneAdapter, SceneBackend};
 use crate::search::{Recency, SearchState};
 use crate::shortcut::{ShortcutMap, ShortcutOverrides};
 use crate::theme::{Theme, ThemeState, ThemeTokens};
@@ -339,6 +340,10 @@ pub struct AmalgamApp {
     pub(crate) jobs_panel_open: bool,
     log_dir: PathBuf,
     folder_opener: Box<dyn FnMut(&std::path::Path)>,
+    /// `DocEvent` → render scene (UI-20); shows the active document.
+    pub(crate) scene: SceneAdapter,
+    /// The document the scene shows (`None`: rebuild on the next `logic`).
+    scene_doc: Option<DocTabId>,
 }
 
 impl std::fmt::Debug for AmalgamApp {
@@ -395,7 +400,13 @@ impl AmalgamApp {
             jobs_panel_open: false,
             log_dir: amg_jobs::diag::default_log_dir(),
             folder_opener: Box::new(open_in_file_manager),
+            scene: SceneAdapter::new(Box::new(CpuSceneBackend::new()), Vec::new()),
+            scene_doc: None,
         };
+        app.scene = SceneAdapter::new(
+            Box::new(CpuSceneBackend::new()),
+            app.registry.tessellators(),
+        );
         app.shortcuts = ShortcutMap::build(&app.registry, &app.shortcut_overrides);
         app.load_layouts();
         app.new_document();
@@ -426,9 +437,24 @@ impl AmalgamApp {
         }
         self.poll_tracked_jobs();
         let jobs = Arc::clone(&self.jobs);
+        let scene_stale = self.scene_doc != self.docs.get(self.active).map(|d| d.id);
         for (i, doc) in self.docs.iter_mut().enumerate() {
             doc.document.poll(&jobs);
             let events = doc.document.drain_events();
+            if i == self.active {
+                if scene_stale {
+                    self.scene
+                        .rebuild(doc.document.design(), doc.document.evaluated(), &jobs);
+                    self.scene_doc = Some(doc.id);
+                } else {
+                    self.scene.handle_events(
+                        &events,
+                        doc.document.design(),
+                        doc.document.evaluated(),
+                        &jobs,
+                    );
+                }
+            }
             if i == self.active && !events.is_empty() {
                 let env = CmdEnv {
                     workspace: self.workspace,
@@ -441,6 +467,20 @@ impl AmalgamApp {
                     panel.on_doc_events(&events, &env);
                 }
             }
+        }
+        self.poll_scene();
+    }
+
+    /// Inserts finished tessellations and keeps the highlight colours on the theme. Never
+    /// blocks.
+    fn poll_scene(&mut self) {
+        self.scene.set_theme(&self.tokens);
+        self.scene.poll();
+        for (body, err) in self.scene.take_failures() {
+            self.notifications.push(Notification::error(
+                "Cannot display a body",
+                format!("{body:?}: {err}"),
+            ));
         }
     }
 
@@ -635,6 +675,25 @@ impl AmalgamApp {
     /// The most recently run commands (search recency).
     pub fn recent_commands(&self) -> &Recency {
         &self.recency
+    }
+
+    /// The scene adapter (UI-20).
+    pub fn scene(&self) -> &SceneAdapter {
+        &self.scene
+    }
+
+    /// The scene adapter, mutable (highlights, previews, placement overlays).
+    pub fn scene_mut(&mut self) -> &mut SceneAdapter {
+        &mut self.scene
+    }
+
+    /// Replaces the render backend (the app passes S10's `GpuSceneBackend`; the default is a
+    /// `CpuSceneBackend`). The scene is rebuilt from the active document on the next frame.
+    pub fn set_scene_backend(&mut self, backend: Box<dyn SceneBackend>) {
+        self.scene.clear();
+        self.scene = SceneAdapter::new(backend, self.registry.tessellators());
+        self.scene_doc = None;
+        self.repaint();
     }
 
     /// Number of frames run so far.

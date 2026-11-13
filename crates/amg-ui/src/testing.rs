@@ -1,31 +1,43 @@
 //! Test support (feature `testing`): [`AppHarness`] runs the real [`AmalgamApp`] in
-//! `egui_kittest` with a headless [`JobSystem`], a [`NullViewport`] and a [`CpuPickService`].
+//! `egui_kittest` with a headless [`JobSystem`], a [`NullViewport`], the default
+//! [`CpuSceneBackend`](crate::scene::CpuSceneBackend) and a [`CpuPickService`].
 //!
 //! Widgets are found through AccessKit labels (`kittest().get_by_label(..)`). Snapshot tests
 //! pass a wgpu setup ([`AppHarnessBuilder::wgpu`]); logic tests need no GPU.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 pub use egui_kittest;
 use egui_kittest::Harness;
 
+use amg_core::Ray3;
 use amg_doc::Document;
 use amg_jobs::{JobSystem, JobSystemConfig};
 
 use crate::app::{AmalgamApp, AppConfig, repaint_notifier};
+use crate::pick::{PickHitUi, PickMode, PickTicket};
 use crate::registry::UiRegistry;
+use crate::scene::SceneAdapter;
 use crate::theme::Theme;
 use crate::viewport::{NullViewport, ViewportBackend};
 
 /// How long [`AppHarness::drive_until_idle`] waits before it panics.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// CPU picking for tests. UI-01 has nothing to pick yet; UI-03 adds the `PickService` trait
-/// and UI-20 the ray cast over the scene adapter's triangle soups.
+/// CPU picking for tests: ray casts over the scene adapter's display meshes
+/// ([`SceneAdapter::raycast`]), mapped to document targets through its [`PickMap`].
+///
+/// Requests are asynchronous like S10's: [`request_ray`](Self::request_ray) returns a ticket
+/// and [`poll`](Self::poll) answers it once. UI-03 puts the `PickService` trait (screen
+/// positions, radius, filter) over this.
+///
+/// [`PickMap`]: crate::scene::PickMap
 #[derive(Debug, Default)]
 pub struct CpuPickService {
-    pending: usize,
+    next: u64,
+    requests: BTreeMap<PickTicket, (Ray3, PickMode)>,
 }
 
 impl CpuPickService {
@@ -36,7 +48,38 @@ impl CpuPickService {
 
     /// Number of requests not yet polled.
     pub fn pending(&self) -> usize {
-        self.pending
+        self.requests.len()
+    }
+
+    /// Queues a pick along a world ray.
+    pub fn request_ray(&mut self, ray: Ray3, mode: PickMode) -> PickTicket {
+        self.next += 1;
+        let t = PickTicket(self.next);
+        self.requests.insert(t, (ray, mode));
+        t
+    }
+
+    /// The result of a request, exactly once (`None` for an unknown or already polled
+    /// ticket).
+    pub fn poll(&mut self, scene: &SceneAdapter, t: PickTicket) -> Option<Vec<PickHitUi>> {
+        let (ray, mode) = self.requests.remove(&t)?;
+        Some(Self::pick(scene, &ray, mode))
+    }
+
+    /// Picks now: the hits along `ray` in document terms, front to back.
+    pub fn pick(scene: &SceneAdapter, ray: &Ray3, mode: PickMode) -> Vec<PickHitUi> {
+        scene
+            .raycast(ray, mode)
+            .into_iter()
+            .filter_map(|h| {
+                Some(PickHitUi {
+                    target: scene.pick_map().target(h.key, Some(h.sub))?,
+                    world: h.world,
+                    #[allow(clippy::cast_possible_truncation, reason = "S10 depth is f32")]
+                    depth: h.t as f32,
+                })
+            })
+            .collect()
     }
 }
 
@@ -194,6 +237,27 @@ impl AppHarness {
         &self.pick
     }
 
+    /// The pick service, mutable (queue requests, then [`Self::poll_pick`]).
+    pub fn picks_mut(&mut self) -> &mut CpuPickService {
+        &mut self.pick
+    }
+
+    /// Answers a queued pick against the current scene.
+    pub fn poll_pick(&mut self, t: PickTicket) -> Option<Vec<PickHitUi>> {
+        let scene = self.harness.state().scene();
+        self.pick.poll(scene, t)
+    }
+
+    /// Picks along a world ray now.
+    pub fn pick_ray(&self, ray: Ray3, mode: PickMode) -> Vec<PickHitUi> {
+        CpuPickService::pick(self.app().scene(), &ray, mode)
+    }
+
+    /// The scene adapter.
+    pub fn scene(&self) -> &SceneAdapter {
+        self.app().scene()
+    }
+
     /// Runs a registered command as a toolbar click would (queued, applied at the end of the
     /// next frame), then steps until idle. A disabled command does nothing.
     pub fn run_command(&mut self, id: crate::command::CmdId) {
@@ -207,7 +271,7 @@ impl AppHarness {
     }
 
     /// Steps frames until nothing is pending: no repaint requested, no unfinished job, every
-    /// document's recompute idle and no pick in flight.
+    /// document's recompute idle, no tessellation in flight and no pick queued.
     ///
     /// # Panics
     /// After [`IDLE_TIMEOUT`].
@@ -223,7 +287,8 @@ impl AppHarness {
                     amg_doc::RecomputeStatus::Idle | amg_doc::RecomputeStatus::Failed(_)
                 )
             });
-            let busy = busy_jobs || busy_docs || self.pick.pending() > 0;
+            let busy_scene = app.scene().pending() > 0;
+            let busy = busy_jobs || busy_docs || busy_scene || self.pick.pending() > 0;
             if !busy && !self.harness.ctx.has_requested_repaint() {
                 return;
             }
