@@ -600,9 +600,9 @@ pub mod egui_glue {
 | RND-01 | **Phase-0 spike: mesh spinning in an egui window.** `amg-render` skeleton (`Renderer`, `View` targets: Rgba16Float ×4 MSAA colour, Depth32Float reversed-Z, resolve, final Rgba8UnormSrgb), f64 `Camera` with RTE matrices, one Lambert+headlight pipeline (smooth normals, or flat via derivatives when normals are empty), `upload_mesh` (positions/normals/indices), `egui_glue::{install, with_renderer, Viewport}` with the `CallbackTrait` prepare/paint flow and sRGB-aware composite, `capture`. Example `crates/amg-render/examples/spin.rs` (eframe 0.37, `WgpuSetup::Existing` from `Gpu::new_blocking(GpuConfig::from_env())`): a displaced icosphere generator (`--tris N`, default 1 M), optional `--stl <file>` (binary STL, in-example reader), auto-turntable 30°/s, LMB-drag orbit, wheel dolly, side panel showing adapter, backend, triangles, CPU and GPU frame ms, an MSAA 1/4 toggle and a flat/smooth toggle; `--bench <frames>` prints p50/p99. Measures FXC vs `StaticDxc` core pipeline creation time. | FND-09 | P0 | Done | 1. On the owner's RTX 5060 Ti / DX12, `cargo run -p amg-render --release --example spin -- --bench 600` at 1920×1080, 4× MSAA, 1 M tris prints frame-time p99 ≤ 16.7 ms (CPU wall) and GPU p50 ≤ 4 ms. The output is pasted into the PR. 2. `install` returns `DeviceMismatch` when given a different `Gpu` (test, WARP); with the same one, the example asserts `rs.device == *gpu.device()`. 3. `gpu_spin_smoke` (WARP in CI): a 256² capture of a sphere has a non-background centre pixel and background corners, and two captures are bit-identical. 4. RTE test: a 1 mm cube at the origin and at (1e5, 1e5, 0) mm, with the camera at the same relative pose, gives captures equal within 1 LSB per channel. 5. Debug build with validation: 10 s of continuous resizing plus MSAA toggling logs zero wgpu validation errors (recorded in the PR). 6. FXC vs StaticDxc timings and the resulting choice are recorded in the Refinement log. 7. fmt, clippy `-D warnings` and nextest pass. |
 | RND-02 | Shading and visual-style framework: PBR-lite (GGX, studio key/fill + hemisphere), procedural matcap, oct-encoded normals, `normal` target, MSAA 1/4, optional FXAA, gradient background, pipeline variants via `override` constants and lazy variant creation on jobs, GPU timestamps (`gpu_timings`), `Material`. Bench `benches/viewport.rs` (headless). | RND-01 | P0 | Done | 1. `cargo bench -p amg-render --bench viewport` (owner GPU, 2560×1440, 4× MSAA, Studio, a 5 M-tri displaced sphere, 600-frame orbit) reports GPU p99 ≤ 9 ms and wall p99 ≤ 16.6 ms; with 1 M tris, GPU p50 ≤ 3 ms. 2. Depth pre-pass on/off measured, and the faster one kept (recorded). 3. A flat-shaded mesh without normals uses exactly 12 B/vertex + 12 B/tri of VRAM (`gpu_bytes` test). 4. Headless tests (WARP): Lambert brightness at known normals matches the CPU reference within 2/255; MSAA 4 reduces edge-pixel aliasing (a staircase metric on a tilted quad); the core pipeline set is created in ≤ 150 ms on the owner GPU (logged). |
 | RND-03 | `RenderScene`: slotmap keys, `Instance` storage buffer with dirty tracking, shared meshes across instances, layers, visibility, CPU frustum culling and front-to-back sort, multiple views, `upload_*` helpers with `ctx.checkpoint()` and `TooLarge`/`InvalidData` checks, `CameraUniform` + `shaders/camera.wgsl`, `ExternalLayer` composite pass, `visible_bounds`, `gpu_bytes`. | RND-01 | P0 | Done | 1. Criterion: `encode` of 10 k instances over 100 meshes takes ≤ 2 ms p99 CPU. 2. Changing one transform rewrites exactly 128 B (upload counter). 3. `upload_mesh` of 5 M tris on a job thread ≤ 300 ms (owner machine); `insert_mesh` ≤ 50 µs. Cancelling mid-upload returns `Cancelled` within 20 ms. 4. ExternalLayer test: a synthetic layer whose depth plane cuts a cube composites with correct occlusion on both sides (pixel assertions). 5. Two views with different cameras render one scene in one frame. 6. 1000 add/remove cycles return `gpu_bytes` to baseline. 7. `InvalidData` for an index out of range and for a NaN position. |
-| RND-04 | GPU picking: id + depth pick passes (B-rep face-id attribute; mesh `primitive_index` or vertex-pulling fallback; edges and points widened by the radius), scissored point pick, priority resolution, f64 world reconstruction, rectangle window/crossing via compute flags, hover/selection highlight (instance tint, face-range redraw with `depth_compare: Equal`, edge/point state buffers). | RND-12, RND-03 | P0 | Todo | 1. On a synthetic box-with-hole test part (edges known): 1000 random cursor positions within 3 px of a projected 1-px edge return that edge in ≥ 99.5 %, and positions > 6 px from every edge or vertex return no edge in ≥ 99.5 %. 2. 1000 random interior face pixels (≥ 2 px from edges) return the correct face (100 %), and mesh triangle sub-ids are correct (100 %). 3. `PrimitiveIndex` and `VertexPulling` give identical results on the same scenes (WARP). 4. Results arrive ≤ 2 `encode` calls after the request (counted). 5. World position is within 1e-6 × distance of the analytic hit. 6. The rectangle test on a 3×3 box grid gives the expected window vs crossing sets. 7. Highlighted faces show the highlight colour with no z-fighting pixels (pixel test). 8. The pick pass costs ≤ 2 ms GPU at 5 M tris (owner bench). |
+| RND-04 | GPU picking: id + depth pick passes (B-rep face-id attribute; mesh `primitive_index` or vertex-pulling fallback; edges and points widened by the radius), scissored point pick, priority resolution, f64 world reconstruction, rectangle window/crossing via compute flags, hover/selection highlight (instance tint, face-range redraw with `depth_compare: Equal`, edge/point state buffers). Also RND-06 Done-when 5 (section picking), moved here: the pick pipelines get clipped variants (`section_clipped` in `shaders/section.wgsl`) and a cap pick variant (back faces, `section_ray` + `section_cap`, kind face, `CAP_SUB`) whose world point comes from `section_cap_point` in f64. | RND-12, RND-03 | P0 | Todo | 1. On a synthetic box-with-hole test part (edges known): 1000 random cursor positions within 3 px of a projected 1-px edge return that edge in ≥ 99.5 %, and positions > 6 px from every edge or vertex return no edge in ≥ 99.5 %. 2. 1000 random interior face pixels (≥ 2 px from edges) return the correct face (100 %), and mesh triangle sub-ids are correct (100 %). 3. `PrimitiveIndex` and `VertexPulling` give identical results on the same scenes (WARP). 4. Results arrive ≤ 2 `encode` calls after the request (counted). 5. World position is within 1e-6 × distance of the analytic hit. 6. The rectangle test on a 3×3 box grid gives the expected window vs crossing sets. 7. Highlighted faces show the highlight colour with no z-fighting pixels (pixel test). 8. The pick pass costs ≤ 2 ms GPU at 5 M tris (owner bench). 9. RND-06 Done-when 5 (section picking): picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). |
 | RND-05 | Transparency: WBOIT accum/revealage targets and composite, per-instance opacity (`base_color.a`), `Layer::Ghost`, x-ray style (all model instances at α 0.25 + dimmed always-on-top edges). | RND-02, RND-03 | P1 | Todo | 1. Three overlapping translucent quads rendered in all 6 submission orders differ by ≤ 2/255 per channel. 2. An opaque object behind and in front of translucent ones is correctly occluded. 3. X-ray shows hidden edges at the configured alpha. 4. Overhead ≤ 2 ms at 1440p with 1 M translucent tris (owner bench), and 0 when nothing is translucent (pass skipped). |
-| RND-06 | Section planes: up to 6 planes, `discard` in every `clipped` model/edge/pick pipeline, back-face ray–plane caps with `frag_depth`, per-instance `cap_color`, screen-constant hatching, `closed` gating, cap picking (`CAP_SUB`). | RND-02, RND-03 | P0 | Todo | 1. Closed sphere r = 10 cut by z = 0, viewed from +Z: every pixel inside the projected circle shrunk by 1 px is cap or hatch colour, and none is background (watertight). 2. A cube cut by 2 orthogonal planes gives an L-shaped cap; pixel test against analytic polygons. 3. An open mesh draws no cap. 4. Hatch spacing is 8 ± 1 px at zooms 0.01×–100×. 5. Picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). 6. Overhead ≤ 1 ms at 5 M tris (owner bench). |
+| RND-06 | Section planes: up to 6 planes, `discard` in every `clipped` model/edge/pick pipeline, back-face ray–plane caps with `frag_depth`, per-instance `cap_color`, screen-constant hatching, `closed` gating, cap picking (`CAP_SUB`). | RND-02, RND-03 | P0 | Review | 1. Closed sphere r = 10 cut by z = 0, viewed from +Z: every pixel inside the projected circle shrunk by 1 px is cap or hatch colour, and none is background (watertight). 2. A cube cut by 2 orthogonal planes gives an L-shaped cap; pixel test against analytic polygons. 3. An open mesh draws no cap. 4. Hatch spacing is 8 ± 1 px at zooms 0.01×–100×. 5. Picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). 6. Overhead ≤ 1 ms at 5 M tris (owner bench). |
 | RND-07 | Overlay layer: `OverlayList` (polylines, arrows, rings, triads, plane quads, adaptive grid, image planes, points, sprites, pickable handles), constant pixel size, `DepthMode` incl. x-ray dimming, own overlay depth, `project_labels` + `egui_glue::paint_labels` (egui text), view-cube rendering hook for RND-11. | RND-12, RND-03 | P0 | Todo | 1. Labels: projected anchors match `Camera::project` within 0.5 px for 20 random cameras, and text is egui-rasterised (crisp at every zoom by construction). 2. Arrow and ring sizes stay within ±1 px of the requested size across view distances 1e-2..1e5 mm. 3. Handle picking returns `SubKind::Handle` with the handle id. 4. Grid minor lines are never closer than 8 px. 5. An image plane shows a test PNG with correct orientation (corner-pixel test). 6. Overlays cost ≤ 0.5 ms GPU with 1000 primitives. |
 | RND-08 | Analyses and fields: `Shading::{Field, Analysis}`, zebra, draft and overhang shaders (note §11), scalar-field colormaps (Viridis, Turbo, Rainbow, BlueWhiteRed, Grey; LUT texture array), bands, isolines, out-of-range handling, `legend`, `colormap_rgb`, vector-field deformation with `Animation`. | RND-02, RND-03 | P0 | Todo | 1. A test-mode readback of a per-pixel class target: overhang classification on an icosphere matches the note §11 CPU formula for 100 % of pixels whose normal is > 0.5° from the threshold or plate band. 2. Zebra on a sphere shows N ± 1 stripes along the profile. 3. Draft sign is correct on a ±10° drafted prism. 4. LUT bytes equal the embedded reference tables, and `colormap_rgb` agrees with the shader within 1/255. 5. `legend` gives nice ticks (table test). 6. Deformed positions (test readback) match the CPU `p + s·A·d` within 1e-4 relative. 7. Switching shading never re-uploads geometry (counter). 8. A 5 M-tri mesh with field shading stays inside the RND-02 budget (bench). |
 | RND-09 | Headless and visual regression: `assert_render_golden!` over `tests/golden/render/` (amg-testkit golden dir, `AMG_BLESS=1`), WARP-generated goldens, thresholds per note §15, diff and actual PNGs on failure, `thumbnail(scene, size) -> png bytes` with a Home-view fit. | RND-02 | P1 | Todo | 1. ≥ 10 golden scenes (6 visual styles, a section, a field, an analysis, overlays) pass in CI on WARP. 2. A deliberate 1-px camera shift fails with diff images written. 3. Bless round-trip works. 4. A 256² thumbnail of a 1 M-tri scene takes < 100 ms on the owner GPU. |
@@ -1190,6 +1190,134 @@ machine):*
 - Tooling: the shared target dir is also built from other worktrees, and cargo hashes workspace
   members by their workspace-relative path, so a stale artifact newer than the edited sources
   was reused once. `touch` the sources to force a rebuild.
+
+### 2026-11-14 - RND-06 section planes
+
+*Landed in `crates/amg-render` (status `Review`):*
+- **API** (`section.rs`, re-exported): `SectionPlane { plane, caps, hatch, enabled }` (removes the
+  side `plane.normal` points to), `Hatch { angle, spacing_px, color, cross }` (`Hatch::NONE`,
+  default 45° every 8 px), `MAX_SECTIONS = 6`, `SectionKey`, `CAP_SUB`,
+  `RenderScene::{add_section, section, section_mut, remove_section, section_count,
+  active_sections}` (the first six enabled planes in insertion order apply), `Instance::sectioned`
+  (default true), `View::sections_enabled` (default true), and the f64 helper
+  `section_cap_point(planes, ray) -> Option<(plane index, point)>` (entry of the ray into the
+  kept region, projected onto the plane; the CPU twin of `section_cap` for RND-04 cap picks).
+  `Material::cap_color` (RND-02) is now used: `None` = base colour × 0.55.
+- **Clipping in every pipeline.** A per-view `SectionUniform` (496 B, group 0 binding 5: planes in
+  eye-relative coordinates as `(n, d)` computed in f64, hatch axes) and `shaders/section.wgsl`
+  with the shared functions `section_clipped`, `section_ray`, `section_cap`,
+  `section_hatch_coords`, `section_hatch_gradient`, `section_mark`. The mesh, depth-only, wide-line,
+  point and `POLYGON_MODE_LINE` wireframe pipelines have a clipped variant (WGSL override `CLIP`,
+  part of `PipelineKey`), built lazily; views without active planes keep the unclipped pipelines
+  and so lose nothing (the RND-02/RND-12 bench rows did not move). Lines clip per fragment with
+  the perspective-correct point along the segment; the per-instance `sectioned` flag and the cap
+  colour ride in the reserved `hidden.zw` of the 96-byte line record (the 128-byte instance record
+  is unchanged, so RND-03 Done-when 2 still holds).
+- **CPU classification** (`cull.rs`): the draw plan tests each sectioned instance's bounding
+  sphere against the planes: entirely removed instances are skipped (`FrameStats::sectioned_away`),
+  entirely kept ones draw unclipped, only cut ones go into clipped groups (`FrameStats::clipped`).
+- **Caps.** A cut closed mesh is drawn by its clipped pipeline without culling (override `CAPS`).
+  Back faces go through the ordinary depth test against their own depth, so only back faces seen
+  through the cut survive; there the fragment shader casts the view ray and finds where it enters
+  the kept region (note §10). The fragment shows the instance's cap colour with the plane's hatch
+  and writes the plane normal into the normal target, marked with the plane index
+  (`x + 4 (k + 1)`). Then a **cap depth pass** (fullscreen, per sample, depth attachment only, reads
+  the marks, `frag_depth` = the plane's depth at the sample) moves cap depth onto the plane, and
+  the opaque pass continues as an `edges` pass (external layer, lines, points, resolve) that
+  depth-tests against the caps. Open meshes (`closed == false`) never get caps and show shaded
+  back faces. A plane with `caps == false` shows the kept back faces shaded.
+- **Bounded kept regions** (two planes or more, e.g. a box section lying inside a body): back faces
+  past the exit of the kept region are cap candidates too, and front faces past the exit are drawn
+  first as depth-only occluders (`CapOccluder`), so a cap appears exactly where the first surface
+  after the entry point is a back face (inside the body), whatever was clipped.
+- **Hatching** is screen-constant: the CPU sets the spacing in mm = `spacing_px` × the pixel size at
+  the camera target's projection onto the plane, and the shader antialiases 1-px lines with the
+  analytic screen gradient of the hatch coordinate (lines closer than 3 px fade out). Cross
+  hatching draws a second set at +90°.
+- **Silhouettes** decode the cap marks (`silhouette.wgsl`), so caps outline like other faces.
+  `GpuTimings` gains `cap depth` and `edges` passes when caps are drawn; `FrameStats` gains
+  `clipped`, `capped`, `sectioned_away`.
+- **Bench** `benches/viewport.rs`: the 5 M sphere in `Shaded` with no planes, one plane through the
+  centre (hatched cap) and a three-plane corner cut; `AMG_BENCH_SECTIONS_ONLY=1` runs only these.
+
+*Evidence (`tests/section.rs`, 8 GPU tests; all 103 amg-render tests pass on WARP and on the
+RTX 5060 Ti / DX12; clippy `-p amg-render --all-targets -D warnings` clean):*
+1. **Watertight cap** (`gpu_closed_sphere_cut_shows_a_watertight_cap`): a closed UV sphere r = 10
+   (256 segments, equator ring at z = 0) cut by z = 0 seen from +Z: in the projected circle shrunk
+   by 1 px, 0 of 32 288 pixels (ortho, radius 102.4 px) and 0 of 23 708 (perspective, 87.9 px)
+   are not cap or hatch colour, at 1× and 4× MSAA; no cap colour 1.5 px outside; two captures are
+   bit-identical.
+2. **L-shaped cap** (`gpu_cube_cut_by_two_planes_gives_an_l_shaped_cap`): a 100 mm cube with x > 0
+   and y > 0 removed, oblique orthographic view: all 5344 pixels 1.5 px inside the two projected
+   cap rectangles are cap colour (1× and 4×); none 1.5 px outside them, except 1 pixel (1×) / 0
+   (4×) on the silhouette of the kept block (see Leftovers).
+3. **Open mesh** (`gpu_open_mesh_draws_no_cap`): the same sphere with `closed == false` has 0 cap
+   pixels and its inside shows shaded back faces; with `closed == true`, 8188 cap pixels.
+4. **Hatch spacing** (`gpu_hatch_spacing_is_constant_on_screen`): 1× MSAA, lines at 0° and 30°,
+   orthographic and perspective, world scale 0.01×–100× (view framing the cap) and camera zoom
+   1×–100× into a fixed sphere: the spacing perpendicular to the lines measured from line centres
+   along the centre column is 7.50–8.00 px at 0° (mean 7.978) and 7.86–8.41 px at 30° (mean
+   8.007) in all 32 cases (8 ± 1 required).
+5. **Picking: moved to RND-04** (coordinator decision, see Deviations).
+6. **Overhead** (`cargo bench -p amg-render --bench viewport`, owner RTX 5060 Ti / DX12, release,
+   2560×1440, 4× MSAA, Studio, `Shaded`, 600-frame orbit, 5 000 000 tris; run alone):
+
+   | Planes | Wall p50 / p99 | GPU p50 / p99 | Overhead GPU p50 / p99 | Passes p50 |
+   |---|---|---|---|---|
+   | none | 0.982 / 1.167 ms | 0.962 / 1.028 ms | — | opaque 0.918 |
+   | 1 (through the centre) | 1.921 / 2.085 ms | 1.902 / 2.016 ms | **+0.940 / +0.988 ms** | opaque 1.658, cap depth 0.111, edges 0.086 |
+   | 3 (corner, with occluders) | 2.490 / 2.658 ms | 2.463 / 2.573 ms | +1.501 / +1.545 ms | opaque 2.236, cap depth 0.108, edges 0.075 |
+
+   The one-plane case meets the 1 ms budget (asserted under `AMG_STRICT_TIMING=1`) with little
+   margin; the three-plane corner cut exceeds it and is reported only. The RND-02/RND-12 rows are
+   unchanged (5 M `Shaded` GPU p50 0.961 ms, `ShadedVisibleEdges` p99 1.155 ms).
+- More GPU tests: the bore of a tube cut lengthwise shows its inner wall, not a cap (1× and 4×),
+  and a slab |y| ≤ 10 through the tube caps the wall and not the bore (occluders); edges and
+  points above the plane are clipped, the kept part of an edge is drawn, an edge seen through the
+  cap is hidden by the cap depth, the triangle wireframe is clipped and an unsectioned instance is
+  not; a disabled plane, `View::sections_enabled == false` and a removed plane clip nothing; a
+  six-plane box section inside the cube shows caps on all 5516 pixels of the projected inner box
+  and none outside; the depth pre-pass renders like the single pass (0 values differ by > 2) and
+  silhouettes leave the cap interior alone.
+- Unit tests: uniform layout vs WGSL, sphere classification, `section_cap_point` (entry plane,
+  inside/never-entering rays, a point 1e5 mm from the origin on its plane within 1e-6 mm),
+  hatch axes and spacing in the uniform, plan split into kept / clipped / removed instances.
+
+*Deviations:*
+- **Done-when 5 (picking) moved to RND-04** (coordinator decision 2026-11-14: nobody is on RND-04,
+  no second pick pass). The shared WGSL clip and cap functions and the f64 `section_cap_point`
+  are in place for it; the RND-04 row now carries the item.
+- **Not a one-pass cap.** Note §10's single pass writing `frag_depth` from back faces paints holes:
+  through the bore of a tube cut lengthwise, the outer wall's back face computes a cap point in
+  front of the visible inner wall and wins the depth test with that depth. Here the back face is
+  depth-tested at its own depth (that keeps holes right) and a small cap depth pass then moves cap
+  samples onto the plane. With caps, the opaque pass is split into `opaque`, `cap depth` and
+  `edges`. Note §10 should be updated by its owner (lane D) to match.
+- **Bounded regions** need the occluder pass described above (also not in note §10); without it a
+  box section inside a body draws nothing, because every surface of the body is clipped.
+- Caps are drawn by the clipped mesh pipeline (no cull, `CAPS`) rather than a separate cap
+  pipeline, to save a geometry pass. A clipped depth pre-pass (to keep early depth testing in the
+  shaded pass) was measured and dropped: the pre-pass alone cost 0.94 ms at 5 M tris because its
+  discards defeat early depth testing too (one plane +1.42 ms total). Clipped groups therefore
+  never use the depth pre-pass even when `depth_prepass` is on.
+- The hatch spacing is exact for a plane facing the camera; on an oblique plane the lines keep their
+  spacing on the plane, so they foreshorten on screen like a real hatch.
+- Additive API not in §Interfaces: `MAX_SECTIONS`, `Hatch::{NONE, cross}`, `SectionPlane::{new,
+  distance}`, `section_cap_point`, `RenderScene::{section, section_count, active_sections}`,
+  `FrameStats::{clipped, capped, sectioned_away}`, `View::sections_enabled` (it was in
+  §Interfaces' `View`, now implemented). No new dependency; THIRD_PARTY.md is unchanged.
+
+*Leftovers:*
+- **Overhead:** one plane is within budget by about 0.01 ms (p99); the three-plane corner cut is
+  +1.55 ms. Most of it is fragment work: a clipped shader has a `discard`, so the cut bodies lose
+  early depth testing, and their back faces are rasterised and run the cap logic. Ideas: cluster
+  culling of the clipped-away part (RND-14), skipping the cap logic for back faces behind the
+  first layer, or a scissor for the cap depth pass (0.11 ms over the full view).
+- **Silhouette specks:** where rasterisation covers a back face but not the front face that shares
+  its silhouette edge, a single pixel can show cap colour (1 pixel in the L test at 1×, 0 at 4×).
+- Edges lying exactly in a section plane are clipped or not by f32 rounding.
+- RND-04: clipped pick pipelines and the cap pick variant (`CAP_SUB`, world point from
+  `section_cap_point`); RND-09 should add a section golden image.
 
 ## Interface changes
 

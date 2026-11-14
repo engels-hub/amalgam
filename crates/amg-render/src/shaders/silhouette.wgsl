@@ -49,7 +49,12 @@ fn texel(p: vec2<i32>, size: vec2<i32>) -> Texel {
     let q = clamp(p, vec2<i32>(0), size - vec2<i32>(1));
     let depth = textureLoad(depths, q, 0);
     var out: Texel;
-    out.normal = sil_oct_decode(textureLoad(normals, q, 0).xy);
+    var e = textureLoad(normals, q, 0).xy;
+    // Section caps mark their samples by adding 4 (plane + 1) to x (RND-06 `section_mark`).
+    if e.x > 2.0 {
+        e.x -= 4.0 * floor((e.x + 2.0) / 4.0);
+    }
+    out.normal = sil_oct_decode(e);
     out.dist = 0.0;
     if depth > 0.0 {
         let c = params.depth_coeffs;

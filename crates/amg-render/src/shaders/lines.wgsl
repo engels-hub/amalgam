@@ -14,9 +14,13 @@
 // Override constants:
 //   HIDDEN   false: visible pass (dash and colour of the style); true: hidden pass (depth test
 //            Less; the hidden dash and alpha factor of the record).
+//   CLIP     true: discard the parts of sectioned instances removed by the view's section
+//            planes (RND-06, `section.wgsl`; `LineRecord::hidden.z` = 1 marks a sectioned
+//            instance).
 // The depth compare (GreaterEqual, Less, Always) is pipeline state.
 
 override HIDDEN: bool = false;
+override CLIP: bool = false;
 
 // Pixels of world size an edge is moved toward the eye, plus its half width.
 const LINE_DEPTH_PX: f32 = 1.5;
@@ -61,6 +65,15 @@ fn toward_eye(v: vec3<f32>, eps: f32) -> vec3<f32> {
     return v * max(1.0 - eps / len, 1e-3);
 }
 
+// Eye-relative world position of the view-space position `v`.
+fn view_to_rte(v: vec3<f32>) -> vec3<f32> {
+    return transpose(mat3x3<f32>(camera.view_rte[0].xyz, camera.view_rte[1].xyz, camera.view_rte[2].xyz)) * v;
+}
+
+fn sectioned(lines: LineRecord) -> bool {
+    return CLIP && lines.hidden.z > 0.5;
+}
+
 fn depth_offset(v: vec3<f32>, half_width: f32) -> vec3<f32> {
     return toward_eye(v, (LINE_DEPTH_PX + half_width) * pixel_size(v));
 }
@@ -87,6 +100,11 @@ struct LineOut {
     // xy = dash (on, off) px; z = 1 if the start join is smooth, w = 1 if the end join is.
     @location(2) @interpolate(flat) dash: vec4<f32>,
     @location(3) @interpolate(flat) color: vec4<f32>,
+    // Eye-relative ends of the (near-clipped) segment and their view distances (x, y); z = 1
+    // when the instance is clipped by the section planes.
+    @location(4) @interpolate(flat) rte_a: vec3<f32>,
+    @location(5) @interpolate(flat) rte_b: vec3<f32>,
+    @location(6) @interpolate(flat) section: vec3<f32>,
 }
 
 // Corners of the quad as (end, side): two triangles (0, 1, 2) and (2, 1, 3).
@@ -124,6 +142,7 @@ fn vs_line(
         if !a_in && !b_in {
             out.clip = vec4<f32>(0.0, 0.0, 0.0, 1.0);
             out.color = vec4<f32>(0.0);
+            out.section = vec3<f32>(0.0);
             return out;
         }
         if !a_in {
@@ -171,6 +190,9 @@ fn vs_line(
     }
     out.dash = vec4<f32>(dash, select(0.0, 1.0, is_smooth(a.w)), select(0.0, 1.0, is_smooth(b.w)));
     out.color = color;
+    out.rte_a = view_to_rte(va);
+    out.rte_b = view_to_rte(vb);
+    out.section = vec3<f32>(max(-va.z, 1e-30), max(-vb.z, 1e-30), select(0.0, 1.0, sectioned(lines)));
     return out;
 }
 
@@ -206,6 +228,19 @@ fn fs_line(in: LineOut) -> LineFsOut {
         discard;
     }
     let t = clamp(along, 0.0, len);
+    if in.section.z > 0.5 {
+        // Screen fraction to segment fraction (perspective-correct with the view distances).
+        var s = 0.0;
+        if len > 0.0 {
+            s = t / len;
+        }
+        if camera.ortho == 0u {
+            s = (s / in.section.y) / ((1.0 - s) / in.section.x + s / in.section.y);
+        }
+        if section_clipped(mix(in.rte_a, in.rte_b, s)) {
+            discard;
+        }
+    }
     let dist = length(vec2<f32>(along - t, in.coord.y));
     var coverage = clamp(half + 0.5 - dist, 0.0, 1.0);
     var u = in.shape.z;
@@ -230,6 +265,8 @@ struct PointOut {
     // x = radius px.
     @location(1) @interpolate(flat) radius: f32,
     @location(2) @interpolate(flat) color: vec4<f32>,
+    // Eye-relative centre; w = 1 when the instance is clipped by the section planes.
+    @location(3) @interpolate(flat) rte: vec4<f32>,
 }
 
 @vertex
@@ -260,11 +297,15 @@ fn vs_point(
         color.a *= lines.hidden.y;
     }
     out.color = color;
+    out.rte = vec4<f32>(view_to_rte(v), select(0.0, 1.0, sectioned(lines)));
     return out;
 }
 
 @fragment
 fn fs_point(in: PointOut) -> LineFsOut {
+    if in.rte.w > 0.5 && section_clipped(in.rte.xyz) {
+        discard;
+    }
     let coverage = clamp(in.radius + 0.5 - length(in.offset), 0.0, 1.0);
     if coverage <= 0.0 {
         discard;
@@ -280,6 +321,8 @@ fn fs_point(in: PointOut) -> LineFsOut {
 struct WireOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) @interpolate(flat) color: vec4<f32>,
+    @location(1) rte: vec3<f32>,
+    @location(2) @interpolate(flat) clipped: f32,
 }
 
 @vertex
@@ -297,11 +340,16 @@ fn vs_wire(
         color.a *= lines.hidden.x;
     }
     out.color = color;
+    out.rte = view_to_rte(v);
+    out.clipped = select(0.0, 1.0, sectioned(lines));
     return out;
 }
 
 @fragment
 fn fs_wire(in: WireOut) -> LineFsOut {
+    if in.clipped > 0.5 && section_clipped(in.rte) {
+        discard;
+    }
     var out: LineFsOut;
     out.color = in.color;
     out.normal = vec2<f32>(0.0);

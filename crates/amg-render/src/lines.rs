@@ -490,9 +490,33 @@ pub(crate) fn build_line_record(
         edge_delta: [ex, ey, ez, e.width_px.max(0.0)],
         point_delta: [px, py, pz, p.size_px.max(0.0)],
         dash: [visible[0], visible[1], hidden_dash[0], hidden_dash[1]],
-        // The point pass reads `hidden.y`; edges read `hidden.x`.
-        hidden: [hidden_alpha, point_hidden, 0.0, 0.0],
+        // The point pass reads `hidden.y`; edges read `hidden.x`. `z` marks a sectioned
+        // instance and `w` holds its cap colour (RND-06; `cap_color` in `shaders/mesh.wgsl`).
+        hidden: [
+            hidden_alpha,
+            point_hidden,
+            f32::from(u8::from(inst.sectioned)),
+            pack_cap_color(inst.material.cap_color),
+        ],
     }
+}
+
+/// A cap colour (linear RGB) as sRGB 8-bit `r | g << 8 | b << 16`, stored as an exact f32
+/// integer; `-1` for the default (the darkened base colour).
+pub(crate) fn pack_cap_color(c: Option<[f32; 3]>) -> f32 {
+    let Some(c) = c else {
+        return -1.0;
+    };
+    let q = |v: f32| -> u32 {
+        let v = v.clamp(0.0, 1.0);
+        let s = if v <= 0.003_130_8 {
+            12.92 * v
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        };
+        (s * 255.0).round() as u32
+    };
+    (q(c[0]) | (q(c[1]) << 8) | (q(c[2]) << 16)) as f32
 }
 
 /// Depth test of a line draw.

@@ -19,6 +19,7 @@ use crate::pipelines::{
     PipelineKind, Variants, core_keys,
 };
 use crate::scene::{LayerMask, RECORD_BYTES, RenderScene};
+use crate::section::{SECTION_UNIFORM_BYTES, SectionUniform};
 use crate::shading::Lighting;
 use crate::{RenderError, ViewId};
 
@@ -34,8 +35,9 @@ const INITIAL_VISIBLE_CAPACITY: u32 = 64;
 
 /// In-flight timestamp readbacks per view; a frame with none free is simply not timed.
 const TIMER_SLOTS: usize = 4;
-/// Begin and end of up to four passes (depth pre-pass, opaque, silhouettes, final).
-const TIMER_QUERIES: u32 = 8;
+/// Begin and end of up to six passes (depth pre-pass, opaque, cap depth, edges, silhouettes,
+/// final).
+const TIMER_QUERIES: u32 = 12;
 /// Finished frames kept for [`Renderer::drain_gpu_timings`].
 const TIMER_HISTORY: usize = 256;
 
@@ -45,9 +47,26 @@ const TIMER_MAPPED: u8 = 2;
 const TIMER_FAILED: u8 = 3;
 
 const PASSES_PLAIN: &[&str] = &["opaque", "final"];
-const PASSES_PREPASS: &[&str] = &["depth prepass", "opaque", "final"];
-const PASSES_SILHOUETTES: &[&str] = &["opaque", "silhouettes", "final"];
-const PASSES_PREPASS_SILHOUETTES: &[&str] = &["depth prepass", "opaque", "silhouettes", "final"];
+/// The timed passes of a frame, indexed by `prepass | caps << 1 | silhouettes << 2`. With caps
+/// the opaque pass ends after the caps, the `cap depth` pass follows, and `edges` holds the
+/// external layer, the lines and points, and the MSAA resolve.
+const PASS_SETS: [&[&str]; 8] = [
+    PASSES_PLAIN,
+    &["depth prepass", "opaque", "final"],
+    &["opaque", "cap depth", "edges", "final"],
+    &["depth prepass", "opaque", "cap depth", "edges", "final"],
+    &["opaque", "silhouettes", "final"],
+    &["depth prepass", "opaque", "silhouettes", "final"],
+    &["opaque", "cap depth", "edges", "silhouettes", "final"],
+    &[
+        "depth prepass",
+        "opaque",
+        "cap depth",
+        "edges",
+        "silhouettes",
+        "final",
+    ],
+];
 
 /// Silhouette thresholds (design note §6): normal angle above 35°, or a linear-depth jump above
 /// 2 % of the nearer depth.
@@ -109,6 +128,12 @@ pub struct FrameStats {
     pub edge_segments: u64,
     /// Instances that were drawable but outside the view frustum.
     pub culled: u32,
+    /// Instances drawn clipped by the section planes (RND-06).
+    pub clipped: u32,
+    /// Clipped closed instances whose back faces were drawn as caps.
+    pub capped: u32,
+    /// Instances skipped because a section plane removes them entirely.
+    pub sectioned_away: u32,
 }
 
 /// GPU time of one finished frame; needs `TIMESTAMP_QUERY`.
@@ -119,7 +144,8 @@ pub struct GpuTimings {
     /// Per-pass times, milliseconds: `depth prepass` (when on, or the depth-only faces of the
     /// hidden-line wireframe styles), `opaque` (background, meshes, external layer, edges and
     /// points, MSAA resolve), `silhouettes` (when on), `final` (copy or FXAA into the sRGB
-    /// image).
+    /// image). When section caps are drawn, `opaque` ends after the caps and is followed by
+    /// `cap depth` and `edges` (external layer, lines and points, resolve).
     pub passes: Vec<(&'static str, f32)>,
 }
 
@@ -265,6 +291,8 @@ pub struct View {
     pub style: ViewStyle,
     /// Which instance layers this view draws. Default: all.
     pub layers: LayerMask,
+    /// Apply the scene's section planes (RND-06). Default true.
+    pub sections_enabled: bool,
     size_px: [u32; 2],
 }
 
@@ -307,6 +335,8 @@ struct ViewTargets {
     normal: wgpu::Texture,
     normal_view: wgpu::TextureView,
     depth: wgpu::TextureView,
+    /// The normal target for the cap depth pass (group 1).
+    cap_marks_bind: wgpu::BindGroup,
     /// Normal + depth + silhouette uniform for the silhouettes pass; `Some` only when the
     /// depth target was made sampleable (`TEXTURE_BINDING` can cost depth compression, so it
     /// is set only while silhouettes are on).
@@ -481,6 +511,8 @@ struct ViewSlot {
     camera_buffer: wgpu::Buffer,
     style_buffer: wgpu::Buffer,
     silhouette_buffer: wgpu::Buffer,
+    /// The view's section planes (`SectionUniform`), rewritten every frame.
+    section_buffer: wgpu::Buffer,
     /// Instance slots of the visible instances in draw order (`u32`): the mesh plan's, then the
     /// line plan's.
     visible_buffer: wgpu::Buffer,
@@ -511,6 +543,8 @@ pub struct Renderer {
     geometry_bind_layout: wgpu::BindGroupLayout,
     /// Silhouette inputs at one sample (`[0]`) and several (`[1]`).
     silhouette_bind_layouts: [wgpu::BindGroupLayout; 2],
+    /// Cap depth input (the normal target) at one sample (`[0]`) and several (`[1]`).
+    cap_marks_bind_layouts: [wgpu::BindGroupLayout; 2],
     /// `POLYGON_MODE_LINE` is available and enabled.
     triangle_wire: bool,
     core_timings: Vec<PipelineTiming>,
@@ -565,8 +599,14 @@ impl Renderer {
                     wgpu::ShaderStages::FRAGMENT,
                     wgpu::BufferBindingType::Uniform,
                 ),
-                // Line records (RND-12).
-                buffer_entry(4, wgpu::ShaderStages::VERTEX, storage),
+                // Line records (RND-12; the fragment stage reads the section cap colour).
+                buffer_entry(4, wgpu::ShaderStages::VERTEX_FRAGMENT, storage),
+                // Section planes (RND-06).
+                buffer_entry(
+                    5,
+                    wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    wgpu::BufferBindingType::Uniform,
+                ),
             ],
         });
         let geometry_bind_layout =
@@ -577,6 +617,10 @@ impl Renderer {
         let silhouette_bind_layouts = [
             silhouette_bind_layout(device, false),
             silhouette_bind_layout(device, true),
+        ];
+        let cap_marks_bind_layouts = [
+            cap_marks_bind_layout(device, false),
+            cap_marks_bind_layout(device, true),
         ];
         let external_bind_layout = external_bind_layout(device);
         let post_bind_layout = post_bind_layout(device);
@@ -593,6 +637,7 @@ impl Renderer {
                 post: &post_bind_layout,
                 geometry: &geometry_bind_layout,
                 silhouette: [&silhouette_bind_layouts[0], &silhouette_bind_layouts[1]],
+                cap_marks: [&cap_marks_bind_layouts[0], &cap_marks_bind_layouts[1]],
             },
         );
         let fullscreen = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -601,7 +646,7 @@ impl Renderer {
         });
         core_timings.push(PipelineTiming {
             label: "shader modules",
-            variant: "mesh, external layer, post, lines, silhouettes, fullscreen".into(),
+            variant: "mesh, external layer, post, lines, silhouettes, cap depth, fullscreen".into(),
             ms: start.elapsed().as_secs_f64() * 1e3,
         });
 
@@ -657,6 +702,7 @@ impl Renderer {
             external_bind_layout,
             geometry_bind_layout,
             silhouette_bind_layouts,
+            cap_marks_bind_layouts,
             triangle_wire: cfg.polygon_mode_line && gpu.has(wgpu::Features::POLYGON_MODE_LINE),
             core_timings,
             scene: RenderScene::default(),
@@ -751,46 +797,90 @@ impl Renderer {
     /// active and the requested configuration, without drawing. Non-blocking.
     pub fn request_view_variants(&mut self, id: ViewId) {
         self.settle_config();
-        let Some(style) = self.views.get(id).map(|s| s.view.style) else {
+        let Some((style, sections_enabled)) = self
+            .views
+            .get(id)
+            .map(|s| (s.view.style, s.view.sections_enabled))
+        else {
             return;
         };
+        // Clipped variants only when the view applies section planes.
+        let sectioned = sections_enabled && !self.scene.active_sections().is_empty();
+        let clip_modes: &[bool] = if sectioned { &[false, true] } else { &[false] };
         let configs = [
             (self.active_samples, self.active_prepass),
             (self.requested_samples, self.requested_prepass),
         ];
         for (samples, prepass) in configs {
-            for flat in [false, true] {
-                for double_sided in [false, true] {
-                    self.variants.request(PipelineKey::mesh(
-                        style.lighting,
-                        flat,
-                        double_sided,
-                        prepass,
+            for clip in clip_modes.iter().copied() {
+                for flat in [false, true] {
+                    for double_sided in [false, true] {
+                        // Clipped groups skip the pre-pass and test depth themselves.
+                        let equal = prepass && !clip;
+                        self.variants.request(
+                            PipelineKey::mesh(style.lighting, flat, double_sided, equal, samples)
+                                .with_clip(clip),
+                        );
+                        if clip {
+                            // The fallback while another lighting model is being built.
+                            self.variants.request(
+                                PipelineKey::mesh(
+                                    Lighting::Studio,
+                                    flat,
+                                    double_sided,
+                                    false,
+                                    samples,
+                                )
+                                .with_clip(true),
+                            );
+                        }
+                        if style.visual.depth_only_faces() {
+                            self.variants.request(PipelineKey {
+                                kind: PipelineKind::Depth {
+                                    flat,
+                                    double_sided,
+                                    clipped: clip,
+                                },
+                                samples,
+                            });
+                        }
+                    }
+                }
+                for pass in [LinePass::Hidden, LinePass::Visible, LinePass::Always] {
+                    self.variants.request(PipelineKey {
+                        kind: PipelineKind::Line {
+                            pass,
+                            clipped: clip,
+                        },
                         samples,
-                    ));
-                    if style.visual.depth_only_faces() {
+                    });
+                    self.variants.request(PipelineKey {
+                        kind: PipelineKind::Point {
+                            pass,
+                            clipped: clip,
+                        },
+                        samples,
+                    });
+                    if self.triangle_wire && style.visual.is_wireframe() {
                         self.variants.request(PipelineKey {
-                            kind: PipelineKind::Depth { flat, double_sided },
+                            kind: PipelineKind::Wire {
+                                pass,
+                                clipped: clip,
+                            },
                             samples,
                         });
                     }
                 }
             }
-            for pass in [LinePass::Hidden, LinePass::Visible, LinePass::Always] {
+            if sectioned {
                 self.variants.request(PipelineKey {
-                    kind: PipelineKind::Line { pass },
+                    kind: PipelineKind::CapDepth,
                     samples,
                 });
                 self.variants.request(PipelineKey {
-                    kind: PipelineKind::Point { pass },
+                    kind: PipelineKind::CapOccluder,
                     samples,
                 });
-                if self.triangle_wire && style.visual.is_wireframe() {
-                    self.variants.request(PipelineKey {
-                        kind: PipelineKind::Wire { pass },
-                        samples,
-                    });
-                }
             }
             if style.silhouettes {
                 self.variants.request(PipelineKey {
@@ -855,6 +945,7 @@ impl Renderer {
         let camera_buffer = uniform("amg camera", size_of::<crate::CameraUniform>() as u64);
         let style_buffer = uniform("amg view style", size_of::<StyleUniform>() as u64);
         let silhouette_buffer = uniform("amg silhouettes", size_of::<SilhouetteUniform>() as u64);
+        let section_buffer = uniform("amg sections", SECTION_UNIFORM_BYTES);
         let visible_buffer = storage_buffer(
             device,
             "amg visible instances",
@@ -867,12 +958,14 @@ impl Renderer {
             &self.instance_gpu,
             &visible_buffer,
             &style_buffer,
+            &section_buffer,
         );
         self.views.insert(ViewSlot {
             view: View {
                 camera: default_camera(),
                 style: ViewStyle::default(),
                 layers: LayerMask::ALL,
+                sections_enabled: true,
                 size_px,
             },
             targets: None,
@@ -880,6 +973,7 @@ impl Renderer {
             camera_buffer,
             style_buffer,
             silhouette_buffer,
+            section_buffer,
             visible_buffer,
             visible_capacity: INITIAL_VISIBLE_CAPACITY,
             bind_group,
@@ -1025,6 +1119,7 @@ impl Renderer {
                     post_sampler: &self.post_sampler,
                     silhouette_bind: &self.silhouette_bind_layouts[usize::from(samples > 1)],
                     silhouette_buffer: &slot.silhouette_buffer,
+                    cap_marks_bind: &self.cap_marks_bind_layouts[usize::from(samples > 1)],
                 },
                 size,
                 samples,
@@ -1043,8 +1138,20 @@ impl Renderer {
             bytemuck::bytes_of(&StyleUniform::new(&style)),
         );
 
+        let sections = if slot.view.sections_enabled {
+            scene.active_sections()
+        } else {
+            Vec::new()
+        };
+        let sectioned = !sections.is_empty();
+        queue.write_buffer(
+            &slot.section_buffer,
+            0,
+            bytemuck::bytes_of(&SectionUniform::new(&sections, &camera, size)),
+        );
+
         let frustum = Frustum::from_view_proj(&(camera.proj_matrix(size) * camera.view_matrix()));
-        plan.build(
+        plan.build_sectioned(
             scene.table(),
             |k| {
                 scene
@@ -1059,24 +1166,84 @@ impl Renderer {
             camera.eye,
             slot.view.layers,
             style.flat_shading,
+            &sections,
         );
         stats.culled = plan.culled;
+        stats.sectioned_away = plan.sectioned_away;
         let visual = style.visual;
         let shade = visual.shades_faces();
 
         // Choose each group's pipeline; request variants that are not built yet.
         group_pipelines.clear();
+        // Whether each group is drawn into the depth pre-pass. Clipped groups never are: their
+        // back faces are section caps, so they test and write depth themselves (a clipped
+        // depth pre-pass measured slower: its discards defeat early depth testing too).
+        let mut group_prepass = Vec::with_capacity(plan.groups.len());
         if shade {
             for g in &plan.groups {
+                let equal = prepass && !g.clipped;
                 let want =
-                    PipelineKey::mesh(style.lighting, g.flat, g.double_sided, prepass, samples);
+                    PipelineKey::mesh(style.lighting, g.flat, g.double_sided, equal, samples)
+                        .with_clip(g.clipped);
+                let core =
+                    PipelineKey::mesh(Lighting::Studio, g.flat, g.double_sided, equal, samples);
                 let chosen = if variants.has(want) {
                     want
                 } else {
                     variants.request(want);
-                    PipelineKey::mesh(Lighting::Studio, g.flat, g.double_sided, prepass, samples)
+                    // A clipped Studio variant before the unclipped core one.
+                    let studio = core.with_clip(g.clipped);
+                    if variants.has(studio) {
+                        studio
+                    } else {
+                        variants.request(studio);
+                        core
+                    }
                 };
                 group_pipelines.push(chosen);
+                group_prepass.push(equal);
+            }
+        }
+        // Section caps: the back faces of the clipped closed groups, in the shaded styles, drawn
+        // by their clipped mesh pipeline. Until it and the cap depth pipeline are built, cut
+        // closed bodies show their front faces only.
+        let cap_depth_key = PipelineKey {
+            kind: PipelineKind::CapDepth,
+            samples,
+        };
+        // A single plane's kept region is unbounded along every ray that enters it, so the
+        // occluders past its exit are needed only with two planes or more.
+        let occluder_key = PipelineKey {
+            kind: PipelineKind::CapOccluder,
+            samples,
+        };
+        let bounded = sections.len() >= 2;
+        let capped_group = |i: usize| {
+            let g = &plan.groups[i];
+            g.clipped
+                && !g.double_sided
+                && group_pipelines
+                    .get(i)
+                    .is_some_and(|k| matches!(k.kind, PipelineKind::Mesh { clipped: true, .. }))
+        };
+        let cap_groups = shade && (0..plan.groups.len()).any(capped_group);
+        let caps = cap_groups && {
+            let mut ready = true;
+            let keys = [cap_depth_key, occluder_key];
+            for &key in &keys[..if bounded { 2 } else { 1 }] {
+                if !variants.has(key) {
+                    variants.request(key);
+                    ready = false;
+                }
+            }
+            ready
+        };
+        for (i, g) in plan.groups.iter().enumerate() {
+            if g.clipped {
+                stats.clipped += g.count;
+                if cap_groups && capped_group(i) {
+                    stats.capped += g.count;
+                }
             }
         }
         // The hidden-line wireframe styles draw the faces into depth only. Until those
@@ -1088,6 +1255,7 @@ impl Renderer {
                     kind: PipelineKind::Depth {
                         flat: g.flat,
                         double_sided: g.double_sided,
+                        clipped: g.clipped,
                     },
                     samples,
                 };
@@ -1116,7 +1284,7 @@ impl Renderer {
         stats.edge_segments = line_plan.segments;
         line_pipelines.clear();
         for draw in &line_plan.draws {
-            let key = line_key(draw, samples);
+            let key = line_key(draw, samples).with_clip(sectioned);
             line_pipelines.push(if variants.has(key) {
                 Some(key)
             } else {
@@ -1174,6 +1342,7 @@ impl Renderer {
                 &self.instance_gpu,
                 &slot.visible_buffer,
                 &slot.style_buffer,
+                &slot.section_buffer,
             );
             slot.bound_generation = self.instance_gpu.generation;
         }
@@ -1213,12 +1382,8 @@ impl Renderer {
             }))
         });
 
-        let passes = match (depth_pass, silhouettes) {
-            (false, false) => PASSES_PLAIN,
-            (true, false) => PASSES_PREPASS,
-            (false, true) => PASSES_SILHOUETTES,
-            (true, true) => PASSES_PREPASS_SILHOUETTES,
-        };
+        let passes = PASS_SETS
+            [usize::from(depth_pass) | usize::from(caps) << 1 | usize::from(silhouettes) << 2];
         let timer_slot = slot.timer.as_mut().and_then(|t| {
             t.harvest();
             t.begin(passes)
@@ -1229,10 +1394,15 @@ impl Renderer {
         let Some(targets) = slot.targets.as_ref() else {
             return Ok(stats);
         };
+        // `depth_only`: the depth pre-pass (the groups in `group_prepass`), or the depth-only
+        // faces pass of a wireframe style (`wire_depth`, every group).
         let draw_meshes = |pass: &mut wgpu::RenderPass<'_>, depth_only: bool| {
             let mut drawn = (0u32, 0u64);
             let mut bound = None;
             for (i, group) in plan.groups.iter().enumerate() {
+                if depth_only && !wire_depth && !group_prepass.get(i).copied().unwrap_or(false) {
+                    continue;
+                }
                 let Some(mesh) = scene.mesh(group.mesh) else {
                     continue;
                 };
@@ -1241,6 +1411,7 @@ impl Renderer {
                         kind: PipelineKind::Depth {
                             flat: group.flat,
                             double_sided: group.double_sided,
+                            clipped: group.clipped,
                         },
                         samples,
                     }
@@ -1324,6 +1495,30 @@ impl Renderer {
             }
         };
 
+        // Back faces of the cut closed instances (positions only), with the cap pipeline.
+        // With a bounded kept region, the front faces of the cut closed groups past its exit,
+        // depth only, before the meshes (so a cap candidate behind them never writes colour).
+        let draw_occluders = |pass: &mut wgpu::RenderPass<'_>| {
+            if !bounded {
+                return;
+            }
+            if let Some(pipeline) = variants.get(occluder_key) {
+                pass.set_pipeline(pipeline);
+                for group in plan.groups.iter().filter(|g| g.clipped && !g.double_sided) {
+                    let Some(mesh) = scene.mesh(group.mesh) else {
+                        continue;
+                    };
+                    pass.set_vertex_buffer(0, mesh.positions.slice(..));
+                    pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(
+                        0..mesh.index_count(),
+                        0,
+                        group.first..group.first + group.count,
+                    );
+                }
+            }
+        };
+
         if depth_pass {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("amg depth prepass"),
@@ -1353,32 +1548,12 @@ impl Renderer {
                 },
                 Background::Gradient { .. } => wgpu::Color::BLACK,
             };
+            // With caps the pass ends after them (everything stored) so the cap depth pass can
+            // read the normal target; `opaque_attachments` then describes the edges pass too.
+            let first = opaque_attachments(targets, clear, caps, true);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("amg opaque"),
-                color_attachments: &[
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: targets.msaa_color.as_ref().unwrap_or(&targets.resolved),
-                        depth_slice: None,
-                        resolve_target: targets.msaa_color.as_ref().map(|_| &targets.resolved),
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(clear),
-                            store: if targets.msaa_color.is_some() {
-                                wgpu::StoreOp::Discard
-                            } else {
-                                wgpu::StoreOp::Store
-                            },
-                        },
-                    }),
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: &targets.normal_view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    }),
-                ],
+                color_attachments: &first.color,
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &targets.depth,
                     depth_ops: Some(wgpu::Operations {
@@ -1387,8 +1562,8 @@ impl Renderer {
                         } else {
                             wgpu::LoadOp::Clear(0.0)
                         },
-                        // The silhouettes pass reads the depth.
-                        store: if silhouettes {
+                        // The cap depth pass and the silhouettes pass read the depth.
+                        store: if silhouettes || caps {
                             wgpu::StoreOp::Store
                         } else {
                             wgpu::StoreOp::Discard
@@ -1410,10 +1585,60 @@ impl Renderer {
                 pass.set_pipeline(p);
                 pass.draw(0..3, 0..1);
             }
+            if caps {
+                draw_occluders(&mut pass);
+            }
             if shade {
                 let (instances, triangles) = draw_meshes(&mut pass, false);
                 stats.instances_drawn = instances;
                 stats.triangles = triangles;
+            }
+            if caps {
+                drop(pass);
+                // Cap samples get the depth of their plane.
+                let mut fix = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("amg cap depth"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &targets.depth,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: timer.map(|t| t.writes(pass_index("cap depth"))),
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                if let Some(p) = variants.get(cap_depth_key) {
+                    fix.set_pipeline(p);
+                    fix.set_bind_group(0, &slot.bind_group, &[]);
+                    fix.set_bind_group(1, &targets.cap_marks_bind, &[]);
+                    fix.draw(0..3, 0..1);
+                }
+                drop(fix);
+                let second = opaque_attachments(targets, clear, caps, false);
+                pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("amg edges"),
+                    color_attachments: &second.color,
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &targets.depth,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: if silhouettes {
+                                wgpu::StoreOp::Store
+                            } else {
+                                wgpu::StoreOp::Discard
+                            },
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: timer.map(|t| t.writes(pass_index("edges"))),
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_bind_group(0, &slot.bind_group, &[]);
             }
             if let (Some(bind), Some(p)) = (
                 &external_bind,
@@ -1660,9 +1885,18 @@ impl InstanceGpu {
 fn line_key(draw: &LineDraw, samples: u32) -> PipelineKey {
     let pass = draw.pass;
     let kind = match draw.geometry {
-        LineGeometry::Wire(_) => PipelineKind::Wire { pass },
-        LineGeometry::Edges(_) => PipelineKind::Line { pass },
-        LineGeometry::Points(_) => PipelineKind::Point { pass },
+        LineGeometry::Wire(_) => PipelineKind::Wire {
+            pass,
+            clipped: false,
+        },
+        LineGeometry::Edges(_) => PipelineKind::Line {
+            pass,
+            clipped: false,
+        },
+        LineGeometry::Points(_) => PipelineKind::Point {
+            pass,
+            clipped: false,
+        },
     };
     PipelineKey { kind, samples }
 }
@@ -1679,6 +1913,78 @@ fn geometry_bind(
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
             resource: buffer.as_entire_binding(),
+        }],
+    })
+}
+
+/// Colour attachments of the opaque pass. Without caps it is one pass that clears, resolves
+/// and keeps only the normal target. With caps it is split: the `first` part clears and stores
+/// everything (the cap depth pass reads the normal target), the second loads and resolves.
+struct OpaqueAttachments<'a> {
+    color: [Option<wgpu::RenderPassColorAttachment<'a>>; 2],
+}
+
+fn opaque_attachments<'a>(
+    targets: &'a ViewTargets,
+    clear: wgpu::Color,
+    split: bool,
+    first: bool,
+) -> OpaqueAttachments<'a> {
+    let msaa = targets.msaa_color.is_some();
+    let resolve = !split || !first;
+    OpaqueAttachments {
+        color: [
+            Some(wgpu::RenderPassColorAttachment {
+                view: targets.msaa_color.as_ref().unwrap_or(&targets.resolved),
+                depth_slice: None,
+                resolve_target: targets
+                    .msaa_color
+                    .as_ref()
+                    .filter(|_| resolve)
+                    .map(|_| &targets.resolved),
+                ops: wgpu::Operations {
+                    load: if first {
+                        wgpu::LoadOp::Clear(clear)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    store: if msaa && resolve {
+                        wgpu::StoreOp::Discard
+                    } else {
+                        wgpu::StoreOp::Store
+                    },
+                },
+            }),
+            Some(wgpu::RenderPassColorAttachment {
+                view: &targets.normal_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: if first {
+                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    store: wgpu::StoreOp::Store,
+                },
+            }),
+        ],
+    }
+}
+
+/// The normal target (marks of cap samples), multisampled or not.
+fn cap_marks_bind_layout(device: &wgpu::Device, multisampled: bool) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("amg cap marks"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled,
+            },
+            count: None,
         }],
     })
 }
@@ -1738,6 +2044,7 @@ fn view_bind_group(
     instances: &InstanceGpu,
     visible: &wgpu::Buffer,
     style: &wgpu::Buffer,
+    sections: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("amg view"),
@@ -1762,6 +2069,10 @@ fn view_bind_group(
             wgpu::BindGroupEntry {
                 binding: 4,
                 resource: instances.lines.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: sections.as_entire_binding(),
             },
         ],
     })
@@ -1889,6 +2200,8 @@ struct TargetLayouts<'a> {
     /// For the sample count of the targets.
     silhouette_bind: &'a wgpu::BindGroupLayout,
     silhouette_buffer: &'a wgpu::Buffer,
+    /// For the sample count of the targets.
+    cap_marks_bind: &'a wgpu::BindGroupLayout,
 }
 
 fn create_targets(
@@ -1904,6 +2217,7 @@ fn create_targets(
         post_sampler,
         silhouette_bind: silhouette_bind_layout,
         silhouette_buffer,
+        cap_marks_bind: cap_marks_bind_layout,
     } = layouts;
     let target = |label, format, sample_count, usage, view_formats: &'static [_]| {
         device.create_texture(&wgpu::TextureDescriptor {
@@ -1936,6 +2250,14 @@ fn create_targets(
         };
     let normal = target("amg normal", NORMAL_FORMAT, samples, normal_usage, &[]);
     let normal_view = normal.create_view(&default_view);
+    let cap_marks_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("amg cap marks"),
+        layout: cap_marks_bind_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&normal_view),
+        }],
+    });
     // Sampled by the silhouettes pass only when they are on.
     let depth_usage = if sampled_depth {
         attach | wgpu::TextureUsages::TEXTURE_BINDING
@@ -2002,6 +2324,7 @@ fn create_targets(
         normal,
         normal_view,
         depth,
+        cap_marks_bind,
         silhouette_bind,
         resolved,
         final_texture,

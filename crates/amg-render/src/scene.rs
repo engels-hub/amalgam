@@ -5,8 +5,9 @@
 use amg_core::{Aabb3, Mat3, Point3, SlotMap, Transform, Vec3};
 
 use crate::lines::{GpuEdges, GpuPoints, LineRecord, LineStyle, PointStyle, build_line_record};
+use crate::section::{MAX_SECTIONS, SectionPlane};
 use crate::upload::GpuMesh;
-use crate::{EdgesKey, InstanceKey, MeshKey, PickId, PointsKey};
+use crate::{EdgesKey, InstanceKey, MeshKey, PickId, PointsKey, SectionKey};
 
 /// What an instance belongs to. Views choose which layers they draw ([`LayerMask`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -93,6 +94,9 @@ pub struct Instance {
     /// (`POLYGON_MODE_LINE`), falling back to `edges` (feature edges) without the feature.
     /// False (B-rep bodies): the wireframe styles draw `edges`.
     pub mesh_wireframe: bool,
+    /// Clipped by the scene's section planes (RND-06). Default true. Closed meshes cut by a
+    /// plane show caps.
+    pub sectioned: bool,
 }
 
 impl Instance {
@@ -132,6 +136,7 @@ impl Instance {
             edge_style: LineStyle::default(),
             point_style: PointStyle::default(),
             mesh_wireframe: false,
+            sectioned: true,
         }
     }
 }
@@ -470,6 +475,10 @@ pub struct RenderScene {
     points: SlotMap<PointsKey, GpuPoints>,
     table: InstanceTable,
     external: Option<ExternalLayer>,
+    sections: SlotMap<SectionKey, SectionPlane>,
+    /// Section keys in the order they were added (which planes are active when more than
+    /// [`MAX_SECTIONS`] are enabled).
+    section_order: Vec<SectionKey>,
     revision: u64,
 }
 
@@ -565,6 +574,50 @@ impl RenderScene {
     pub fn set_external_layer(&mut self, layer: Option<ExternalLayer>) {
         self.revision += 1;
         self.external = layer;
+    }
+
+    /// Adds a section plane. At most [`MAX_SECTIONS`] enabled planes apply at once: the first
+    /// ones added; further enabled planes are ignored until one of those is disabled or removed.
+    pub fn add_section(&mut self, s: SectionPlane) -> SectionKey {
+        self.revision += 1;
+        let key = self.sections.insert(s);
+        self.section_order.push(key);
+        key
+    }
+
+    /// The section plane, if it exists.
+    pub fn section(&self, k: SectionKey) -> Option<&SectionPlane> {
+        self.sections.get(k)
+    }
+
+    /// Mutable access to a section plane (takes effect on the next `encode`).
+    pub fn section_mut(&mut self, k: SectionKey) -> Option<&mut SectionPlane> {
+        self.revision += 1;
+        self.sections.get_mut(k)
+    }
+
+    /// Removes a section plane. Returns whether it existed.
+    pub fn remove_section(&mut self, k: SectionKey) -> bool {
+        self.revision += 1;
+        self.section_order.retain(|&o| o != k);
+        self.sections.remove(k).is_some()
+    }
+
+    /// Number of section planes (enabled or not).
+    pub fn section_count(&self) -> usize {
+        self.sections.len()
+    }
+
+    /// The planes that apply: the enabled ones in the order they were added, at most
+    /// [`MAX_SECTIONS`].
+    pub fn active_sections(&self) -> Vec<SectionPlane> {
+        self.section_order
+            .iter()
+            .filter_map(|&k| self.sections.get(k))
+            .filter(|s| s.enabled)
+            .take(MAX_SECTIONS)
+            .copied()
+            .collect()
     }
 
     /// The external layer, if any.

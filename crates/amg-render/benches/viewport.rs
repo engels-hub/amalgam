@@ -16,6 +16,12 @@
 //! <= 12 ms, wall p99 <= 16.6 ms), `ShadedHiddenEdges` and `ShadedVisibleEdges` with
 //! silhouettes.
 //!
+//! RND-06 measures section planes on the 5 M sphere in `Shaded`: one plane through the centre
+//! (half the sphere cut away, a hatched cap the size of the sphere's cross-section) and a
+//! corner cut by three planes, against the same orbit without planes. Budget: caps cost
+//! <= 1 ms GPU (p99 difference), asserted for the one-plane case; the corner cut is reported.
+//! `AMG_BENCH_SECTIONS_ONLY=1` runs only these cases.
+//!
 //! The budgets are asserted only with `AMG_STRICT_TIMING=1`; the numbers are printed always.
 //!
 //! `cargo bench -p amg-render --bench viewport -- --test` (CI on WARP) runs a tiny version.
@@ -27,12 +33,12 @@ use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use amg_core::{Dir3, Point3, Transform, Vec3};
+use amg_core::{Dir3, Plane, Point3, Transform, Vec3};
 use amg_jobs::JobCtx;
 use amg_jobs::gpu::{Gpu, GpuConfig};
 use amg_render::{
     Camera, EdgeData, Instance, Lighting, MeshData, Polyline, Projection, Renderer, RendererConfig,
-    ViewId, ViewStyle, VisualStyle, upload_edges, upload_mesh, wgpu,
+    SectionPlane, ViewId, ViewStyle, VisualStyle, upload_edges, upload_mesh, wgpu,
 };
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -368,6 +374,16 @@ fn orbit_budgets(c: &mut Criterion) {
     let Some(gpu) = gpu() else {
         return;
     };
+    // `AMG_BENCH_SECTIONS_ONLY=1`: only the RND-06 section cases.
+    if std::env::var("AMG_BENCH_SECTIONS_ONLY").is_ok_and(|v| v == "1") {
+        let (size, frames) = if test_mode() {
+            ([64, 64], 5)
+        } else {
+            (SIZE, FRAMES)
+        };
+        section_budgets(&gpu, size, frames);
+        return;
+    }
     let (size, frames, sizes) = if test_mode() {
         ([64, 64], 5, vec![("20k", 20_000usize)])
     } else {
@@ -426,6 +442,7 @@ fn orbit_budgets(c: &mut Criterion) {
     }
 
     edge_budgets(&gpu, size, frames);
+    section_budgets(&gpu, size, frames);
 
     // Criterion: wall time of one synchronous frame (encode, submit, wait).
     let tris = if test_mode() { 20_000 } else { 5_000_000 };
@@ -522,6 +539,74 @@ fn edge_budgets(gpu: &Arc<Gpu>, size: [u32; 2], frames: usize) {
         if strict() && !test_mode() && name == "ShadedVisibleEdges" {
             assert!(g99 <= 12.0, "5M + edges GPU p99 {g99:.3} ms > 12 ms");
             assert!(w99 <= 16.6, "5M + edges wall p99 {w99:.3} ms > 16.6 ms");
+        }
+    }
+}
+
+/// RND-06 Done-when 6: section caps cost <= 1 ms GPU at 5 M tris.
+fn section_budgets(gpu: &Arc<Gpu>, size: [u32; 2], frames: usize) {
+    let tris = if test_mode() { 20_000 } else { 5_000_000 };
+    let mesh = displaced_icosphere(tris);
+    let plane =
+        |origin: Point3, normal: Dir3| SectionPlane::new(Plane::from_normal(origin, normal));
+    let cases: [(&str, Vec<SectionPlane>); 3] = [
+        ("no planes", Vec::new()),
+        ("1 plane", vec![plane(Point3::ZERO, Dir3::Z)]),
+        (
+            "3 planes (corner)",
+            vec![
+                plane(Point3::ZERO, Dir3::X),
+                plane(Point3::ZERO, Dir3::Y),
+                plane(Point3::ZERO, Dir3::Z),
+            ],
+        ),
+    ];
+    let mut baseline = None;
+    for (name, planes) in cases {
+        let mut f = fixture(gpu, &mesh, None, size, false, SHADED);
+        for p in &planes {
+            f.renderer.scene_mut().add_section(*p);
+        }
+        assert!(f.renderer.prepare_view(f.view));
+        run(&mut f, gpu, frames.min(60)); // warm-up
+        let r = run(&mut f, gpu, frames);
+        let (w50, w99) = (percentile(&r.wall_ms, 0.5), percentile(&r.wall_ms, 0.99));
+        let (g50, g99) = (percentile(&r.gpu_ms, 0.5), percentile(&r.gpu_ms, 0.99));
+        let mut passes: Vec<_> = r
+            .passes
+            .iter()
+            .map(|(k, v)| format!("{k} p50 {:.3}", percentile(v, 0.5)))
+            .collect();
+        passes.sort();
+        let extra = baseline.map_or(String::new(), |(b50, b99): (f64, f64)| {
+            format!(
+                "; overhead GPU p50 {:+.3} ms p99 {:+.3} ms",
+                g50 - b50,
+                g99 - b99
+            )
+        });
+        eprintln!(
+            "viewport sections {name} ({} tris) {}x{} 4x MSAA Studio Shaded: {} frames, wall p50 {w50:.3} ms p99 {w99:.3} ms; GPU p50 {g50:.3} ms p99 {g99:.3} ms ({} timed; {}){extra}",
+            f.triangles,
+            size[0],
+            size[1],
+            r.wall_ms.len(),
+            r.gpu_ms.len(),
+            passes.join(", ")
+        );
+        match baseline {
+            None => baseline = Some((g50, g99)),
+            // The budget is asserted for one plane; the corner cut (three planes, the occluder
+            // pass included) is reported only (S10 Refinement log, RND-06).
+            Some((_, b99)) => {
+                if strict() && !test_mode() && name == "1 plane" {
+                    assert!(
+                        g99 - b99 <= 1.0,
+                        "sections {name}: GPU p99 overhead {:.3} ms > 1 ms",
+                        g99 - b99
+                    );
+                }
+            }
         }
     }
 }

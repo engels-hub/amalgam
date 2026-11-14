@@ -7,6 +7,7 @@ use amg_core::{Mat4, Vec3};
 
 use crate::MeshKey;
 use crate::scene::{Instance, InstanceTable, LayerMask};
+use crate::section::{SectionPlane, SectionState, classify};
 
 /// View frustum as inward-facing planes `n·p + d >= 0` in world space, f64.
 #[derive(Clone, Copy, Debug)]
@@ -75,6 +76,9 @@ pub(crate) struct DrawGroup {
     pub flat: bool,
     /// The mesh is open: no back-face culling.
     pub double_sided: bool,
+    /// The instances cross a section plane: drawn with the clipped pipelines (and, when
+    /// closed, capped).
+    pub clipped: bool,
     /// First entry of [`DrawPlan::slots`].
     pub first: u32,
     pub count: u32,
@@ -88,6 +92,8 @@ pub(crate) struct DrawPlan {
     pub slots: Vec<u32>,
     /// Drawable instances rejected by the frustum.
     pub culled: u32,
+    /// Drawable instances entirely removed by a section plane.
+    pub sectioned_away: u32,
     items: Vec<Item>,
     order: Vec<(usize, usize)>,
 }
@@ -96,21 +102,24 @@ pub(crate) struct DrawPlan {
 struct Item {
     flat: bool,
     double_sided: bool,
+    clipped: bool,
     mesh: MeshKey,
     dist: f32,
     slot: u32,
 }
 
 impl Item {
-    /// Pipeline order: smooth before flat, closed before double-sided.
-    fn pipeline(&self) -> (bool, bool) {
-        (self.flat, self.double_sided)
+    /// Pipeline order: smooth before flat, closed before double-sided, unclipped before
+    /// clipped.
+    fn pipeline(&self) -> (bool, bool, bool) {
+        (self.flat, self.double_sided, self.clipped)
     }
 }
 
 impl DrawPlan {
     /// Rebuilds the plan. `mesh_info` describes a mesh ([`MeshDraw`], or a bare `has_normals`
     /// flag for a closed mesh); `None`: the mesh is gone or has nothing to draw.
+    #[cfg(test)]
     pub fn build<M: Into<MeshDraw>>(
         &mut self,
         table: &InstanceTable,
@@ -120,10 +129,31 @@ impl DrawPlan {
         layers: LayerMask,
         force_flat: bool,
     ) {
+        self.build_sectioned(table, mesh_info, frustum, eye, layers, force_flat, &[]);
+    }
+
+    /// [`DrawPlan::build`] with the view's active section planes: sectioned instances whose
+    /// bounding sphere lies entirely on the removed side of a plane are skipped, those that
+    /// cross a plane go into clipped groups.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "plain inputs of one planning step"
+    )]
+    pub fn build_sectioned<M: Into<MeshDraw>>(
+        &mut self,
+        table: &InstanceTable,
+        mesh_info: impl Fn(MeshKey) -> Option<M>,
+        frustum: &Frustum,
+        eye: Vec3,
+        layers: LayerMask,
+        force_flat: bool,
+        sections: &[SectionPlane],
+    ) {
         self.groups.clear();
         self.slots.clear();
         self.items.clear();
         self.culled = 0;
+        self.sectioned_away = 0;
 
         let instances: &[Instance] = table.instances();
         for (slot, (inst, info)) in instances.iter().zip(table.info()).enumerate() {
@@ -140,9 +170,19 @@ impl DrawPlan {
                 self.culled += 1;
                 continue;
             }
+            let state = if inst.sectioned {
+                classify(sections, sphere.center, sphere.radius)
+            } else {
+                SectionState::Kept
+            };
+            if state == SectionState::Removed {
+                self.sectioned_away += 1;
+                continue;
+            }
             self.items.push(Item {
                 flat: force_flat || !draw.has_normals,
                 double_sided: !draw.closed,
+                clipped: state == SectionState::Cut,
                 mesh,
                 dist: (sphere.center.distance(eye) - sphere.radius).max(0.0) as f32,
                 slot: slot as u32,
@@ -184,6 +224,7 @@ impl DrawPlan {
                 mesh: items[from].mesh,
                 flat: items[from].flat,
                 double_sided: items[from].double_sided,
+                clipped: items[from].clipped,
                 first: self.slots.len() as u32,
                 count: (to - from) as u32,
             });
@@ -366,6 +407,50 @@ mod tests {
         );
         assert_eq!(plan.slots, vec![3, 5]);
         assert_eq!(plan.culled, 1);
+    }
+
+    #[test]
+    fn section_planes_split_kept_cut_and_removed_instances() {
+        use amg_core::Plane;
+
+        let meshes = keys(1);
+        // Instances at z = -10, 0 and +10 (unit spheres); the plane z = 0 removes z > 0.
+        let mut table = table_of(
+            4,
+            |_| meshes[0],
+            |i| Vec3::new(0.0, 0.0, 10.0 * (i as f64 - 1.0)),
+        );
+        // Slot 3 sits above the plane too but is not sectioned.
+        table.instance_at_mut(3).sectioned = false;
+        let cam = camera(Projection::Orthographic { height: 100.0 });
+        let plane = SectionPlane::new(Plane::XY);
+        let mut plan = DrawPlan::default();
+        plan.build_sectioned(
+            &table,
+            |_| Some(true),
+            &frustum(&cam),
+            cam.eye,
+            LayerMask::ALL,
+            false,
+            &[plane],
+        );
+        assert_eq!(plan.sectioned_away, 1, "slot 2 is entirely removed");
+        let clipped: Vec<u32> = plan
+            .groups
+            .iter()
+            .filter(|g| g.clipped)
+            .flat_map(|g| plan.slots[g.first as usize..(g.first + g.count) as usize].to_vec())
+            .collect();
+        let kept: Vec<u32> = plan
+            .groups
+            .iter()
+            .filter(|g| !g.clipped)
+            .flat_map(|g| plan.slots[g.first as usize..(g.first + g.count) as usize].to_vec())
+            .collect();
+        assert_eq!(clipped, vec![1]);
+        let mut kept = kept;
+        kept.sort_unstable();
+        assert_eq!(kept, vec![0, 3]);
     }
 
     #[test]

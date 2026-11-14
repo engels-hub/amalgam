@@ -23,8 +23,13 @@
 //! with a capsule distance (any width, antialiasing, round joins, dashes) and a view-space depth
 //! offset, hidden-edge passes, point sprites, a silhouettes post pass and Fusion's six
 //! [`VisualStyle`]s, with the triangle wireframe of mesh bodies drawn through
-//! `POLYGON_MODE_LINE` (feature edges without it). The remaining S10 API arrives with the later
-//! work packages.
+//! `POLYGON_MODE_LINE` (feature edges without it).
+//!
+//! RND-06 adds section planes ([`SectionPlane`], up to [`MAX_SECTIONS`]): clipped pipeline
+//! variants that `discard` in the mesh, depth, line, point and wireframe passes, back-face caps
+//! by ray–plane intersection with a per-instance cap colour and screen-constant hatching, drawn
+//! only for closed meshes, and a cap depth pass that puts cap depth on the plane. The remaining
+//! S10 API arrives with the later work packages.
 
 #![warn(missing_docs)]
 
@@ -35,6 +40,7 @@ mod lines;
 mod pipelines;
 mod renderer;
 mod scene;
+mod section;
 mod shading;
 mod upload;
 
@@ -54,6 +60,7 @@ pub use renderer::{
     RgbaImage, View, ViewStyle,
 };
 pub use scene::{ExternalLayer, Instance, Layer, LayerMask, Material, RenderScene};
+pub use section::{Hatch, MAX_SECTIONS, SectionPlane, section_cap_point};
 pub use shading::{Lighting, oct_decode, oct_encode, shade_reference};
 pub use upload::{GpuMesh, MeshData, upload_mesh};
 
@@ -73,7 +80,13 @@ amg_core::define_id! {
     pub struct PointsKey;
     /// An instance in the [`RenderScene`].
     pub struct InstanceKey;
+    /// A section plane in the [`RenderScene`].
+    pub struct SectionKey;
 }
+
+/// Pick sub-id of a section cap (kind face): picking (RND-04) reports a cap hit with this
+/// sub-id and the world point from [`section_cap_point`].
+pub const CAP_SUB: u32 = (1 << 30) - 1;
 
 /// Dense id chosen by the scene adapter, written to the id buffer by picking (RND-04).
 /// 0 means nothing.
