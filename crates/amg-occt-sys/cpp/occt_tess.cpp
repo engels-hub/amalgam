@@ -18,7 +18,6 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
-#include <BRepAlgoAPI_Cut.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
@@ -369,23 +368,6 @@ rust::Vec<V3> tessellate_edge(const OcIndex &index, std::uint32_t e, double line
     out.push_back(V3{p.X(), p.Y(), p.Z()});
   }
   return out;
-}
-
-std::unique_ptr<OcShape> boolean_cut_probe(const OcShape &object, const OcShape &tool) {
-  NCollection_List<TopoDS_Shape> objects;
-  objects.Append(object.get());
-  NCollection_List<TopoDS_Shape> tools;
-  tools.Append(tool.get());
-  BRepAlgoAPI_Cut cut;
-  cut.SetArguments(objects);
-  cut.SetTools(tools);
-  cut.SetNonDestructive(true);
-  cut.SetRunParallel(false);
-  cut.Build();
-  if (!cut.IsDone()) {
-    throw std::runtime_error("boolean_cut_probe: BRepAlgoAPI_Cut failed");
-  }
-  return std::make_unique<OcShape>(cut.Shape());
 }
 
 } // namespace amg::occt

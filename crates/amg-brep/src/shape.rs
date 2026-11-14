@@ -360,6 +360,18 @@ impl Shape {
         self.occ().volume()
     }
 
+    /// [`Shape::volume`] by adaptive integration to the relative error bound `eps` (BREP-04
+    /// tests). The plain query uses fixed-order quadrature, which under-integrates faces whose
+    /// boundaries are not iso-lines (a sphere cut obliquely: 1e-4 relative). BREP-09's
+    /// `mass_props` supersedes it.
+    ///
+    /// # Errors
+    /// `Occt` if OCCT raises.
+    #[doc(hidden)]
+    pub fn volume_adaptive(&self, eps: f64) -> KResult<f64> {
+        self.occ().volume_adaptive(eps)
+    }
+
     /// The same shape moved by a rigid transform. Shares TShapes and keeps every index.
     ///
     /// # Errors

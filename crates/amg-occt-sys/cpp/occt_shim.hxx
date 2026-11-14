@@ -38,6 +38,8 @@ struct OcPlanarIn;
 struct OcSection;
 struct OcFrame;
 struct OcOpHistory;
+struct OcBoolOpts;
+struct OcBoolStatus;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -74,9 +76,14 @@ public:
 // The result of one shape op (BREP-14): the shape, and its history from operand 0 in index
 // terms. Relation `i` maps input `(in_kinds[i], in_indices[i])` to the outputs
 // `out_starts[i]..out_starts[i + 1]`. Only read after the op returns.
+//
+// Booleans (BREP-04) also fill `in_operands` (one per relation; empty means operand 0 for every
+// relation), use relation 3 (kept) and report `cancelled`, BOPAlgo `errors`/`warnings` and the
+// operand sub-shapes the errors name.
 class OcOp {
 public:
   TopoDS_Shape shape;
+  std::vector<std::uint16_t> in_operands;
   std::vector<std::uint8_t> in_kinds;
   std::vector<std::uint32_t> in_indices;
   std::vector<std::uint8_t> relations;
@@ -85,6 +92,18 @@ public:
   std::vector<std::uint32_t> out_indices;
   std::vector<std::uint32_t> role_faces;
   std::vector<std::uint8_t> roles;
+  bool cancelled = false;
+  std::vector<std::string> errors;
+  std::vector<std::string> warnings;
+  std::vector<std::uint16_t> offending_operands;
+  std::vector<std::uint8_t> offending_kinds;
+  std::vector<std::uint32_t> offending_indices;
+};
+
+// The argument or tool list of one boolean (BREP-04): handles sharing the callers' TShapes.
+class OcShapeList {
+public:
+  std::vector<TopoDS_Shape> shapes;
 };
 
 // CATEGORY: R (formats an exception; not bridged, used by trycatch below)
@@ -211,10 +230,6 @@ OcTessMesh tessellate_shape(const OcShape &shape, const OcTessParams &params,
 rust::Vec<V3> tessellate_edge(const OcIndex &index, std::uint32_t e, double linear,
                               double angular);
 
-// CATEGORY: N (BRepAlgoAPI_Cut with SetNonDestructive(true); a test probe for the BREP-08
-// concurrency test until BREP-04 lands the real booleans)
-std::unique_ptr<OcShape> boolean_cut_probe(const OcShape &object, const OcShape &tool);
-
 // -- face and wire builders (BREP-03), implemented in occt_build.cpp --
 
 // CATEGORY: R (takes no shape; builds new topology from plain curve data)
@@ -275,6 +290,31 @@ std::unique_ptr<OcShape> op_shape(const OcOp &op);
 
 // CATEGORY: R
 OcOpHistory op_history(const OcOp &op);
+
+// -- booleans, split and section (BREP-04), implemented in occt_bool.cpp --
+
+// CATEGORY: R (takes no shape; an empty list)
+std::unique_ptr<OcShapeList> new_shape_list();
+
+// CATEGORY: R (stores a handle sharing the TShape; nothing is written)
+void shape_list_push(OcShapeList &list, const OcShape &shape);
+
+// CATEGORY: N (BRepAlgoAPI_BooleanOperation / BRepAlgoAPI_Splitter with SetNonDestructive(true),
+// on arguments given private top-level TShapes, so the callers' TShapes are only read)
+std::unique_ptr<OcOp> boolean_op(std::uint8_t op, const OcShapeList &objects,
+                                 const OcShapeList &tools, const OcBoolOpts &opts,
+                                 const ProgressSink &sink);
+
+// CATEGORY: N (BRepAlgoAPI_Section with SetNonDestructive(true) on private top-level TShapes:
+// both shapes are only read)
+std::unique_ptr<OcOp> section_op(const OcShape &a, const OcShape &b, bool parallel,
+                                 const ProgressSink &sink);
+
+// CATEGORY: R
+OcBoolStatus op_bool_status(const OcOp &op);
+
+// CATEGORY: R (BRepGProp with an adaptive relative error bound `eps`, without triangulation)
+double volume_adaptive(const OcShape &shape, double eps);
 
 } // namespace amg::occt
 

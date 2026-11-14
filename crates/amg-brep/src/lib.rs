@@ -3,6 +3,7 @@
 //! Spec: S02, S20. Lane: A.
 
 mod backend;
+mod boolean;
 mod builders;
 mod check;
 mod config;
