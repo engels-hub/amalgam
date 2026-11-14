@@ -11,7 +11,9 @@ mod stress;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use amg_brep::{BrepKernel, KernelConfig, OcctKernel, Shape, SubKind, Validate};
+use amg_brep::{
+    BoolOp, BoolOpts, BrepKernel, JobCtx, KernelConfig, OcctKernel, Shape, SubKind, Validate,
+};
 use stress::{StressOp, eval, read_queries, run, run_with, sweep_queries, tess_queries};
 
 const THREADS: usize = 8;
@@ -129,7 +131,18 @@ fn stress_tessellation(name: &str, iterations: usize, seed: u64) {
         .make_box(&frame, amg_core::Vec3::new(10.0, 20.0, 30.0))
         .unwrap()
         .shape;
-    let cut_reference = kernel.boolean_cut_probe(&reference_shape, &tool).unwrap();
+    let cut = |s: &Shape| {
+        kernel
+            .boolean(
+                BoolOp::Cut,
+                std::slice::from_ref(s),
+                std::slice::from_ref(&tool),
+                &BoolOpts::default(),
+                &JobCtx::detached(),
+            )
+            .map(|r| r.shape)
+    };
+    let cut_reference = cut(&reference_shape).unwrap();
     let cut_volume = cut_reference.volume().unwrap();
     let cut_faces = cut_reference.count(SubKind::Face);
     assert!(cut_volume < reference_shape.volume().unwrap());
@@ -143,7 +156,7 @@ fn stress_tessellation(name: &str, iterations: usize, seed: u64) {
         iterations,
         seed,
         || {
-            let cut = kernel.boolean_cut_probe(&shared, &tool).expect("cut");
+            let cut = cut(&shared).expect("cut");
             let same = cut.count(SubKind::Face) == cut_faces
                 && cut.volume().unwrap().to_bits() == cut_volume.to_bits();
             if !same {

@@ -1,0 +1,13 @@
+# Exact B-rep metrics of brep/bool_steinmetz (S02 BREP-04). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 143.99999999998198
+area = 144.00000000122543
+solids = 1
+faces = 5
+edges = 8
+vertices = 5
+classes = "YYYYY"

@@ -878,7 +878,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-12 | Kernel infrastructure: `KernelConfig`, `init()` (OCCT message printer → `tracing`, `OSD_ThreadPool` size), progress/cancel bridge (`Message_ProgressIndicator` ↔ `JobCtx`), validation policy, `KernelError` + `Diagnostic`, `Shape::max_tolerance`, shim CATEGORY (R/N/C/G) lint test, concurrency stress-test harness, global I/O lock, serde-derive check for every op parameter type | BREP-02, FND-04 | P0 | Done | 1. An OCCT warning appears as a `tracing` event with target `occt`, and nothing goes to stdout. 2. A test op with a progress range reports monotone progress to a `JobCtx`. Cancelling the token makes it return `KernelError::Cancelled` within 50 ms. 3. A compile-time test asserts that every op parameter type is `Clone + Debug + PartialEq + Serialize + DeserializeOwned` (S20 KH-01 prerequisite), and a forwarding decorator implementing `BrepKernel` compiles (object safety). 4. The CATEGORY lint fails when a shim function lacks a category comment. 5. Stress harness: 8 threads × 2 000 iterations of R queries on one shared shape. No crash, results are bit-identical to single-threaded ones, and the input's BinTools hash is unchanged. |
 | BREP-03 | Face and wire builders: `make_planar_faces` (from `PlanarProfile` with tags + loop validation), `make_planar_polygon`, `make_face` (analytic + B-spline surfaces; `Natural`/`UvRect`/`Loops`/`Polylines` bounds), `make_wire` | BREP-12 | P0 | Done | 1. A profile with all 5 `Curve2d` kinds (line, circle hole, arc, ellipse arc, rational B-spline) gives a valid face whose area matches the analytic area within 1e-9 relative. Every edge has its input tag. 2. An open loop gives `OpenLoop` with the right loop/edge index. A hole outside the outer loop gives `InvalidInput`. 3. A 1000-vertex polygon with 10 holes builds in < 20 ms. A non-planar input gives `NotPlanar`. 4. `make_face` on cylinder/cone/sphere/torus with `Polylines` bounds taken from a tessellated reference face reproduces the face area within 0.1 %. A 5×5 B-spline patch with `Natural` bounds is valid. 5. 1000 random valid profiles (proptest) never crash and always give valid faces or a clean `Err`. |
 | BREP-14 | Primitives (box, cylinder, cone, sphere, torus) on a `Plane` frame; `prism` (vector, infinite, taper, `merge_coplanar`); `revol`; `gtransformed` | BREP-03 | P0 | Done | 1. Golden volume/area/topology counts for each primitive, for prism of 5 profile types and for revol (90°, 360°) within 1e-9 relative (`tests/golden/brep/`). 2. A tapered prism of a square at 5° matches the analytic frustum volume within 1e-9. 3. Results are BRepCheck-valid. 4. Prism and revol run in the stress test. |
-| BREP-04 | Booleans: `boolean` (fuse/cut/common, N objects × M tools), `split`, `section`; non-destructive always on; fuzzy/glue/OBB/check-inverted; progress + cancel; parallel-mode determinism test and `occt_threads` benchmark | BREP-14 | P0 | Todo | 1. A 100-case boolean corpus (`testdata/brep/bool/`: primitives, coplanar, tangent, fuzzy-needed cases from OCCT/FreeCAD trackers) gives valid results, with volumes within 1e-6 relative of reference values (or the expected `Err`). 2. Proptest: 500 random primitive pairs give `Ok(valid)` or a clean `Err`, never a crash. 3. Inputs' BinTools hashes are unchanged after every op. 4. Determinism: 20 cases × 10 runs with parallel on are byte-identical, or parallel defaults off and the Refinement log says so. 5. Criterion: a cut of two 1000-face parts, timed with 1 / half / all OCCT threads; the default is set from the result. 6. Cancelling a long boolean returns `Cancelled` within 200 ms. |
+| BREP-04 | Booleans: `boolean` (fuse/cut/common, N objects × M tools), `split`, `section`; non-destructive always on; fuzzy/glue/OBB/check-inverted; progress + cancel; parallel-mode determinism test and `occt_threads` benchmark | BREP-14 | P0 | Review (wp/BREP-04-booleans) | 1. A 100-case boolean corpus (`testdata/brep/bool/`: primitives, coplanar, tangent, fuzzy-needed cases from OCCT/FreeCAD trackers) gives valid results, with volumes within 1e-6 relative of reference values (or the expected `Err`). 2. Proptest: 500 random primitive pairs give `Ok(valid)` or a clean `Err`, never a crash. 3. Inputs' BinTools hashes are unchanged after every op. 4. Determinism: 20 cases × 10 runs with parallel on are byte-identical, or parallel defaults off and the Refinement log says so. 5. Criterion: a cut of two 1000-face parts, timed with 1 / half / all OCCT threads; the default is set from the result. 6. Cancelling a long boolean returns `Cancelled` within 200 ms. |
 | BREP-05 | History framework: `ShapeHistory` (entries, `Kept`, roles, tags, `sources_of`, `compose`), extraction from `BRepBuilderAPI_MakeShape`/`BRepTools_History`/op accessors, composition of internal steps, deterministic split order, `sub_geom`/`sub_geom_all` fingerprints; applied to BREP-03/14/04 ops | BREP-04 | P0 | Todo | 1. Completeness test: for every op in the BREP-03/14/04 corpora, every output face is Modified/Generated/Kept from some input or has a role, and no output index is out of range. 2. Prism of a tagged profile: each lateral face's `sources_of` is the generating edge, which carries the profile tag; caps have `StartCap`/`EndCap`. 3. Box cut by a cylinder through one face: the split face has 2 `Modified` outputs, in area-desc order, stable across 10 runs. 4. `compose` of prism + unify equals the history observed end-to-end on 5 cases. 5. `ShapeHistory` serde round-trips. 6. `sub_geom_all` on a 1000-face part takes < 20 ms. Usable by DOC-06 tests (box, prism, boolean cut). |
 | BREP-06 | Fillet (constant, variable, chord) and chamfer (equal, two-dist, dist-angle) with history (`FilletBlend`, `ChamferFace`) and `LocalOpFailed { offending }`; `fillet_max_radius` | BREP-05 | P0 | Todo | 1. Golden volumes for 20 fillet/chamfer cases (cube edge, edge chains, vertex blends of 3 edges) within 1e-6 relative. 2. A radius larger than the adjacent face fails with `offending` naming the failing edge(s), checked against the expected edge ids. 3. `fillet_max_radius` on 5 cases is within 1 % of the reference largest workable radius. 4. History: each blend face maps to its source edge. 5. 10 runs are byte-identical. 6. The op is in the stress test. |
 | BREP-07 | Shell / thick solid (removed faces, per-face thickness, join arc/intersection), `offset`, `thicken` with roles `ShellInner`/`OffsetFace` | BREP-05 | P0 | Todo | 1. Golden volumes: shelled box (1 face removed, 1 mm) equals the analytic volume within 1e-9 relative. Shelled cylinder, filleted box (arc join) and thickened B-spline face (0.5 %) pass. 2. Inward/outward offset of a sphere: radius within 1e-9. 3. A thickness exceeding the minimum radius gives `LocalOpFailed` with offending faces. 4. History roles are correct on 5 cases. |
@@ -1623,6 +1623,128 @@ BREP-12 `brep-ffi-overhead` re-measurement on an idle machine is still open.
 - Prism/revol take no `Message_ProgressRange` (OCCT reports none for them); cancellation is
   before/after only.
 
+### 2026-11-14 - BREP-04 booleans, split, section
+**Landed.**
+- `amg-brep`:
+  - `BrepKernel::{boolean, split, section}` on the trait and `OcctKernel`, replacing BREP-08's
+    hidden `boolean_cut_probe` (removed from the kernel, backend and shim; the BREP-08
+    tessellate-during-booleans stress test now loops `boolean(Cut, ..)`).
+  - New module `boolean`: operand-list and option checks in plain Rust (objects non-empty; a fuse
+    needs two shapes in all and may leave `tools` empty, which fuses the first object with the
+    others; cut/common need a tool; no null operand; `fuzzy` finite and ≥ 0), `BoolOpts`
+    lowering (`parallel: None` = `KernelConfig::bool_parallel`), the status → error mapping and
+    the warnings. Validation errors come after `BackendUnavailable`, as for every op.
+  - Results: `OpResult` with history over every operand (objects first, then tools;
+    `operand_counts` per operand): each face, edge and vertex `Kept` (its TShape is in the
+    result), `Modified` / `Generated` from `BRepAlgoAPI_BuilderAlgo`'s history, else `Deleted`.
+    `section` reports each face of `a` (operand 0) and `b` (operand 1) `Generated` into the
+    section edges on it (`HasAncestorFaceOn1/2`) and gives every edge the `SectionEdge` role.
+    Warnings: `FuzzyUsed` when `fuzzy > 0`; `ToleranceGrown { max }` when the result's largest
+    tolerance exceeds every input's and the kernel's linear tolerance. Failures:
+    `OpFailed { op: "boolean" | "split" | "section" }` whose message lists the BOPAlgo error
+    alert names (and the operand sub-shapes they name), `offending` holds those sub-shapes;
+    a cancelled run (BOPAlgo `AlertUserBreak` or the sink's break) is `Cancelled`. BOPAlgo
+    warnings go to `tracing` (debug).
+  - `ops::history_n` (multi-operand history; relation code 3 = kept); `ops::history` wraps it.
+  - Hidden `Shape::volume_adaptive(eps)` (`BRepGProp::VolumeProperties` with `Eps`), see the
+    findings.
+  - `KernelConfig::bool_parallel` now defaults to **`true`** (see Done-when 4 and 5).
+- `amg-occt-sys`: shared structs `OcBoolOpts`, `OcBoolStatus`, `OcOpHistory::in_operands` (empty
+  for the one-operand BREP-14 ops), opaque `OcShapeList`, shim functions `new_shape_list` (R),
+  `shape_list_push` (R), `boolean_op` (**N**), `section_op` (**N**), `op_bool_status` (R) and
+  `volume_adaptive` (R) in a new `cpp/occt_bool.cpp` (built by `build.rs`), declared and tagged
+  in `occt_shim.hxx`; `OcOp` gains `in_operands`, `cancelled`, `errors`, `warnings` and the
+  offending lists. `boolean_cut_probe` is gone. `SHIM_VERSION` unchanged (no existing function
+  changed behaviour). Every boolean runs `SetNonDestructive(true)`, `SetToFillHistory(true)`,
+  the fuzzy value, glue, check-inverted, OBB and parallel flags, under the BREP-12
+  progress/cancel bridge (`Build(Message_ProgressRange)`).
+- Corpus `testdata/brep/bool/cases.toml` (136 cases, one text file, each with its `source`),
+  tests `tests/boolean.rs` (13 tests + 1 ignored timing run), `tests/common/parts.rs`
+  (perforated plates, shared with the bench), forwarding arms and a no-backend test in
+  `api_contract.rs`, unit tests in `src/boolean.rs` and `src/ops.rs`. Goldens
+  `tests/golden/brep/bool_{blind_hole, steinmetz, cylinder_cross_fuse, spheres_split}.toml`
+  (exact metrics, 1e-9; their values match the closed forms: 1000 − 16π, Steinmetz 144 mm³ and
+  144 mm², 2·180π − 144, sphere union). Bench `benches/boolean.rs`.
+
+**Done-when status** (`cargo nextest run -p amg-occt-sys -p amg-brep --features occt`: 201 tests
+pass, 1 skipped (the ignored timing run); without the feature 72 pass. `cargo clippy -p
+amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is clean;
+`cargo build -p amg-brep --no-default-features` builds. Shared, loaded machine.)
+1. Met (`corpus_gives_reference_volumes_or_expected_errors`). 136 cases: 131 valid results
+   (`Validate::Always` plus an explicit `check`), largest relative volume error **1.67e-7**
+   (bound 1e-6), and 5 expected errors (`OpFailed` `BOPAlgo_AlertBOPNotAllowed` for a fuse of a
+   solid and a face; four `InvalidInput`). Cases: box/box (axis-aligned and rotated), through
+   holes, coaxial cylinders, sphere caps, sphere/sphere lenses, Steinmetz solids, napkin rings,
+   cone frusta, torus halves, tubes, N × M operand lists, split (by faces, by a box, objects by
+   each other), coplanar (stacked, flush slots, identical boxes, glue Shift/Full), tangent
+   (point and line contact), fuzzy-needed (1e-5 gap, 2e-6 / 3e-6 near-coincident faces, two
+   drills 5e-6 apart) and disjoint/contained. Expected solid counts are checked where they are
+   determined; history indices are in range for every result. The reference volumes are
+   analytic; the fuzzy/coplanar/tangent cases are modelled on the classes of reports on the
+   OCCT and FreeCAD trackers rather than harvested shapes (deviation below).
+2. Met (`random_primitive_pairs_give_valid_results_or_clean_errors`, 500 cases): random box,
+   cylinder, cone, sphere and torus pairs (random sizes, positions and axes), random fuse, cut,
+   common or split. **500 Ok(valid), 0 Err**, no crash; both inputs' hashes unchanged each time.
+3. Met: every corpus op and every proptest pair compares both operands' `BinTools` hashes before
+   and after. **Finding:** this first failed on 6 corpus cases (disjoint and contained operands,
+   two boxes 1e-5 apart): BOPAlgo puts an argument it leaves untouched into the result compound
+   as is, and `TopoDS_Builder::Add` clears that TShape's `Free` flag, which BinTools writes
+   (`1100000` → `0100000` in the text format). Non-destructive mode does not cover it. The shim
+   now gives every operand a private top-level TShape with the same children, location,
+   orientation and flags (`detached` in `occt_bool.cpp`), so the write lands on the copy; the
+   index order below the top is unchanged. Below the top, `Add` only rewrites the already-clear
+   flag of the operands' own children (a same-value write, as every OCCT builder that shares
+   sub-shapes does).
+4. Met (`parallel_mode_is_deterministic`): the 20 `determinism = true` cases, each 10 runs with
+   `parallel: Some(true)` on an 8-thread OCCT pool: **0 differ** byte for byte, and each equals
+   the serial run's bytes as well. `fuzzy_joins_a_gap_and_says_so` also checks that OBB,
+   check-inverted off, serial and parallel give identical bytes and history.
+5. Met (`benches/boolean.rs`, `occt-threads/cut-1030/*`, release, loaded shared machine with
+   16 logical cores): a cut of two 1030-face perforated plates (the tool shifted by half a
+   pitch and half the thickness, so every face of both meets the other; 3143 result faces):
+   serial **9.91 s**, parallel with 1 thread **12.25 s**, with 8 (half) **8.15 s**, with 16 (all) **7.56 s**.
+   (criterion medians, 10 samples each). **Defaults set from it:** `bool_parallel` is now on
+   (half the cores: 18 % faster than serial; all cores: 24 %), but the kernel runs serially when
+   its OCCT pool has one thread, since parallel mode on one thread is 24 % slower than serial.
+   `occt_threads` stays at `max(1, cores / 2)`: all 16 threads gain only 7 % over 8 and would
+   compete with the Interactive rayon pool (occt-integration.md §5).
+6. Met (`cancelling_a_long_boolean_returns_cancelled_quickly`): the same 1030-face cut (12.7 s to
+   completion in the test profile) cancelled 300 ms in returns `Cancelled` **15-16 ms** after
+   `cancel()` (two runs). The < 200 ms assertion runs with `AMG_STRICT_TIMING=1`.
+
+**Budget.** `budget/brep-bool-200` (cut of two 202-face perforated plates, the same layout as
+above): **442 ms** median with the new default (parallel, 8-thread pool; 657 ms serial),
+criterion, release, loaded machine, against the < 50 ms target: **not met** by this layout. It is a worst case rather than a typical one: every one of the 2 × 196
+holes and both caps of each part intersect the other part, and the plate caps carry ~200 hole
+loops each, which BOPAlgo's face builder splits. Simple cases are far below it (the whole
+136-case corpus, debug-built test profile, runs in about 1 s). A typical-part case (a 200-face
+filleted body cut by a pocket tool) needs a fixture BREP-06 can build; leftover below.
+
+**Findings and deviations.**
+- **`Shape::volume`'s fixed-order quadrature misreads boolean results** (third time after BREP-03
+  and BREP-14): the lens of two spheres whose centre line is oblique to their poles reads
+  **9.5e-5** relative low with `Shape::volume`, while `BRepGProp` with an adaptive `Eps`
+  (`Shape::volume_adaptive(1e-10)`) gets the analytic value within 1.7e-7. The corpus compares
+  adaptive volumes and prints both. BREP-09 `mass_props` should use the adaptive path.
+- A common of one object with several tools is BOPAlgo's group semantics (object ∩ union of
+  tools), returned as the pieces the tool boundaries split it into (3 solids for 2 overlapping
+  tools), not one solid; the corpus records it.
+- The corpus is synthesised from primitives with analytic reference volumes rather than
+  harvested tracker shapes: the trackers' attachments are mostly STEP/BREP files without a stated
+  licence and without reference volumes. The coplanar, tangent and fuzzy-needed cases reproduce
+  the configurations those reports are about. Harvesting real files is a leftover.
+- `split` gives no `SplitPiece` roles and the boolean history has no split order (area desc) yet:
+  both are BREP-05's (which applies the history framework to BREP-04).
+- `section` takes no options (as the trait): it runs with `KernelConfig::bool_parallel`, no fuzzy.
+- `KernelError::OpFailed::offending` holds sub-shapes of several operands; the message names the
+  operand of each.
+
+**Leftovers.**
+- The < 50 ms "typical boolean" budget needs a typical 200-face pair (after BREP-06) and an idle
+  machine; the perforated-plate case (442 ms) is a stress layout.
+- Harvest OCCT/FreeCAD tracker shapes into the corpus where licences allow.
+- R-S04-2 `OpResult::per_solid` (BREP-05) for cut/split results.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1777,3 +1899,16 @@ All additive:
   `SHIM_VERSION` unchanged.
 - `tests/golden/brep/ops_*.toml` (20 files); `toml` dev-dependency for amg-brep (workspace,
   `THIRD_PARTY.md` row names it); `Cargo.lock`.
+
+### 2026-11-14: additions and shared files changed by BREP-04 (lane A)
+All additive except the removal of the hidden BREP-08 probe:
+- `amg-brep`: `BrepKernel::{boolean, split, section}` (every `BrepKernel` implementor must add
+  them; the `api_contract.rs` decorator forwards them), hidden `Shape::volume_adaptive`.
+  `KernelConfig::bool_parallel` defaults to `true` (was `false` pending BREP-04). Removed: the
+  hidden `OcctKernel::boolean_cut_probe` (BREP-08 test probe; its one user now calls `boolean`).
+- `amg-occt-sys`: `OcBoolOpts`, `OcBoolStatus`, `OcOpHistory::in_operands`, opaque
+  `OcShapeList`, shim functions `new_shape_list`, `shape_list_push`, `boolean_op`, `section_op`,
+  `op_bool_status`, `volume_adaptive`; new `cpp/occt_bool.cpp` in `build.rs`. Removed: the
+  `boolean_cut_probe` shim. `SHIM_VERSION` unchanged.
+- `testdata/brep/bool/cases.toml` (new corpus), `tests/golden/brep/bool_*.toml` (4 files). No
+  new dependency.

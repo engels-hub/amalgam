@@ -50,7 +50,10 @@ pub struct KernelConfig {
     /// Size of OCCT's own thread pool (`OSD_ThreadPool`); `None` = `max(1, cores / 2)` (S02
     /// §7). Process-wide: the first [`crate::init`] call sets it.
     pub occt_threads: Option<NonZeroUsize>,
-    /// Default of `BoolOpts::parallel`. Off until BREP-04's determinism test sets it (S02 §7).
+    /// Default of `BoolOpts::parallel`: on (S02 §7). BREP-04's determinism test found parallel
+    /// booleans byte-identical to serial ones, and its bench found them faster from two OCCT
+    /// threads on. With a one-thread pool the kernel runs booleans serially regardless (parallel
+    /// mode on one thread is slower than serial).
     pub bool_parallel: bool,
     /// Model tolerance.
     pub tolerance: Tolerance,
@@ -61,7 +64,7 @@ impl Default for KernelConfig {
         KernelConfig {
             validate: Validate::default(),
             occt_threads: None,
-            bool_parallel: false,
+            bool_parallel: true,
             tolerance: Tolerance::DEFAULT,
         }
     }

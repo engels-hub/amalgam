@@ -396,6 +396,34 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
         self.inner.mirrored(s, plane)
     }
 
+    fn boolean(
+        &self,
+        op: BoolOp,
+        objects: &[Shape],
+        tools: &[Shape],
+        opts: &BoolOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.boolean(op, objects, tools, opts, ctx)
+    }
+
+    fn split(
+        &self,
+        objects: &[Shape],
+        tools: &[Shape],
+        opts: &BoolOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.split(objects, tools, opts, ctx)
+    }
+
+    fn section(&self, a: &Shape, b: &Shape, ctx: &JobCtx) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.section(a, b, ctx)
+    }
+
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<CurveSeg>> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.plane_section(s, plane)
@@ -515,4 +543,19 @@ fn primitives_need_the_backend() {
     assert!(unavailable(kernel.make_torus(&f, 2.0, 1.0, 1.0)));
     // Checked before validation, as for every op: bad parameters still say "no backend".
     assert!(unavailable(kernel.make_box(&f, Vec3::ZERO)));
+}
+
+#[cfg(not(feature = "occt"))]
+#[test]
+fn booleans_need_the_backend() {
+    let kernel = OcctKernel::new(KernelConfig::default());
+    let unavailable =
+        |r: KResult<OpResult>| matches!(r, Err(amg_brep::KernelError::BackendUnavailable));
+    let ctx = JobCtx::detached();
+    let opts = BoolOpts::default();
+    // No shape exists without the backend, so empty lists: still "no backend", not InvalidInput.
+    for op in [BoolOp::Fuse, BoolOp::Cut, BoolOp::Common] {
+        assert!(unavailable(kernel.boolean(op, &[], &[], &opts, &ctx)));
+    }
+    assert!(unavailable(kernel.split(&[], &[], &opts, &ctx)));
 }

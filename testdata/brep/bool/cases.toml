@@ -1,0 +1,1825 @@
+# BREP-04 boolean corpus (S02 Done-when 1). One [[case]] per boolean: operands are built from
+# primitives on frames (kind box: corner at origin, dims [dx, dy, dz]; cylinder [r, h] and cone
+# [r1, r2, h] from the base centre along `normal`; sphere [r] and torus [R, r] about the origin;
+# rect: a planar face with a corner at origin, [w, h] along xdir and normal x xdir).
+# `rotate = [ax, ay, az, angle]` turns every operand about that axis through the world origin.
+# `volume` is the reference (analytic unless `source` says otherwise), compared within 1e-6
+# relative (absolute 1e-9 mm^3 for 0); `error` names the expected KernelError variant; `solids`
+# the expected solid count. `determinism = true` marks the 20 cases of the parallel-mode
+# determinism test. `source` records where the case comes from.
+
+[[case]]
+name = "box_box_corner_fuse"
+op = "fuse"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 1875.0
+solids = 1
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_corner_cut"
+op = "cut"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 875.0
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_corner_common"
+op = "common"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 125.0
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_corner_fuse_rot1"
+op = "fuse"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 1875.0
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_corner_cut_rot1"
+op = "cut"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 875.0
+rotate = [0.3, -0.5, 0.8, 0.7]
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_corner_common_rot1"
+op = "common"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 125.0
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_corner_fuse_rot2"
+op = "fuse"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 1875.0
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_corner_cut_rot2"
+op = "cut"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 875.0
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_corner_common_rot2"
+op = "common"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (10, 10, 10) at (5, 5, 5); overlap is the product of interval overlaps"
+volume = 125.0
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "box_box_slab_fuse"
+op = "fuse"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 832.0
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_slab_cut"
+op = "cut"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 720.0
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_slab_common"
+op = "common"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 80.0
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_slab_fuse_rot1"
+op = "fuse"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 832.0
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_slab_cut_rot1"
+op = "cut"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 720.0
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_slab_common_rot1"
+op = "common"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 80.0
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_slab_fuse_rot2"
+op = "fuse"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 832.0
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_slab_cut_rot2"
+op = "cut"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 720.0
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_slab_common_rot2"
+op = "common"
+source = "analytic: boxes (20, 10, 4) at (0, 0, 0) and (4, 14, 2) at (5, -2, 1); overlap is the product of interval overlaps"
+volume = 80.0
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -2.0, 1.0], dims = [4.0, 14.0, 2.0] },
+]
+
+[[case]]
+name = "box_box_thin_fuse"
+op = "fuse"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 1000.125
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_thin_cut"
+op = "cut"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 999.375
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_thin_common"
+op = "common"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 0.625
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_thin_fuse_rot1"
+op = "fuse"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 1000.125
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_thin_cut_rot1"
+op = "cut"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 999.375
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_thin_common_rot1"
+op = "common"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 0.625
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_thin_fuse_rot2"
+op = "fuse"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 1000.125
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_thin_cut_rot2"
+op = "cut"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 999.375
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_thin_common_rot2"
+op = "common"
+source = "analytic: boxes (10, 10, 10) at (0, 0, 0) and (0.25, 0.25, 12) at (2.5, 2.5, -1); overlap is the product of interval overlaps"
+volume = 0.625
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.5, 2.5, -1.0], dims = [0.25, 0.25, 12.0] },
+]
+
+[[case]]
+name = "box_box_offset_fuse"
+op = "fuse"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 544.5
+solids = 1
+determinism = true
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_box_offset_cut"
+op = "cut"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 490.5
+determinism = true
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_box_offset_common"
+op = "common"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 13.5
+solids = 1
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_box_offset_fuse_rot1"
+op = "fuse"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 544.5
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+determinism = true
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_box_offset_cut_rot1"
+op = "cut"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 490.5
+rotate = [0.3, -0.5, 0.8, 0.7]
+determinism = true
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_box_offset_common_rot1"
+op = "common"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 13.5
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_box_offset_fuse_rot2"
+op = "fuse"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 544.5
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_box_offset_cut_rot2"
+op = "cut"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 490.5
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_box_offset_common_rot2"
+op = "common"
+source = "analytic: boxes (7, 8, 9) at (-3, 1, 2) and (12, 3, 1.5) at (1, 4, 6); overlap is the product of interval overlaps"
+volume = 13.5
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [-3.0, 1.0, 2.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [1.0, 4.0, 6.0], dims = [12.0, 3.0, 1.5] },
+]
+
+[[case]]
+name = "box_cyl_through_cut_0"
+op = "cut"
+source = "analytic: 20x20x10.0 box, cylinder r=2.0 through the slab; hole volume pi r^2 t"
+volume = 3874.3362938564082
+solids = 1
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 10.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [2.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_cyl_through_common_0"
+op = "common"
+source = "analytic: 20x20x10.0 box, cylinder r=2.0 through the slab; hole volume pi r^2 t"
+volume = 125.66370614359172
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 10.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [2.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_cyl_through_fuse_0"
+op = "fuse"
+source = "analytic: 20x20x10.0 box, cylinder r=2.0 through the slab; hole volume pi r^2 t"
+volume = 4125.663706143591
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 10.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [2.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_cyl_through_cut_1"
+op = "cut"
+source = "analytic: 20x20x6.0 box, cylinder r=3.5 through the slab; hole volume pi r^2 t"
+volume = 2169.09293996115
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 6.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [3.5, 16.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_cyl_through_common_1"
+op = "common"
+source = "analytic: 20x20x6.0 box, cylinder r=3.5 through the slab; hole volume pi r^2 t"
+volume = 230.90706003884978
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 6.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [3.5, 16.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_cyl_through_fuse_1"
+op = "fuse"
+source = "analytic: 20x20x6.0 box, cylinder r=3.5 through the slab; hole volume pi r^2 t"
+volume = 2784.8451000647497
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 6.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [3.5, 16.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_cyl_through_cut_2"
+op = "cut"
+source = "analytic: 20x20x3.0 box, cylinder r=0.75 through the slab; hole volume pi r^2 t"
+volume = 1194.6985623970672
+solids = 1
+rotate = [-0.2, 0.9, 0.1, -1.3]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 3.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [0.75, 13.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_cyl_through_common_2"
+op = "common"
+source = "analytic: 20x20x3.0 box, cylinder r=0.75 through the slab; hole volume pi r^2 t"
+volume = 5.301437602932776
+solids = 1
+rotate = [-0.2, 0.9, 0.1, -1.3]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 3.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [0.75, 13.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_cyl_through_fuse_2"
+op = "fuse"
+source = "analytic: 20x20x3.0 box, cylinder r=0.75 through the slab; hole volume pi r^2 t"
+volume = 1217.6714586764426
+solids = 1
+rotate = [-0.2, 0.9, 0.1, -1.3]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [20.0, 20.0, 3.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [10.0, 10.0, -5.0], dims = [0.75, 13.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_common_0"
+op = "common"
+source = "analytic: coaxial cylinders r=5 h=10 and r=3 from z=4 h=10"
+volume = 169.64600329384882
+solids = 1
+determinism = true
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [5.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, 4.0], dims = [3.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_fuse_0"
+op = "fuse"
+source = "analytic: coaxial cylinders r=5 h=10 and r=3 from z=4 h=10"
+volume = 898.4954989266809
+solids = 1
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [5.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, 4.0], dims = [3.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_cut_0"
+op = "cut"
+source = "analytic: coaxial cylinders r=5 h=10 and r=3 from z=4 h=10"
+volume = 615.7521601035995
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [5.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, 4.0], dims = [3.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_common_1"
+op = "common"
+source = "analytic: coaxial cylinders r=4 h=8 and r=4.5 from z=-2 h=5"
+volume = 150.79644737231007
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [4.0, 8.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, -2.0], dims = [4.5, 5.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_fuse_1"
+op = "fuse"
+source = "analytic: coaxial cylinders r=4 h=8 and r=4.5 from z=-2 h=5"
+volume = 569.4136684631501
+solids = 1
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [4.0, 8.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, -2.0], dims = [4.5, 5.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_cut_1"
+op = "cut"
+source = "analytic: coaxial cylinders r=4 h=8 and r=4.5 from z=-2 h=5"
+volume = 251.32741228718345
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [4.0, 8.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, -2.0], dims = [4.5, 5.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_common_2"
+op = "common"
+source = "analytic: coaxial cylinders r=2 h=20 and r=6 from z=5 h=2"
+volume = 25.132741228718345
+solids = 1
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [2.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, 5.0], dims = [6.0, 2.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_fuse_2"
+op = "fuse"
+source = "analytic: coaxial cylinders r=2 h=20 and r=6 from z=5 h=2"
+volume = 452.38934211693015
+solids = 1
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [2.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, 5.0], dims = [6.0, 2.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coaxial_cyl_cut_2"
+op = "cut"
+source = "analytic: coaxial cylinders r=2 h=20 and r=6 from z=5 h=2"
+volume = 226.1946710584651
+objects = [
+    { kind = "cylinder", origin = [1.0, 2.0, 0.0], dims = [2.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [1.0, 2.0, 5.0], dims = [6.0, 2.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "sphere_cap_common_0"
+op = "common"
+source = "analytic: sphere R=5 cut by the plane z=2; cap pi h^2 (3R - h) / 3, h = R - z"
+volume = 113.09733552923255
+solids = 1
+determinism = true
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [5.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 2.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "sphere_cap_cut_0"
+op = "cut"
+source = "analytic: sphere R=5 cut by the plane z=2; cap pi h^2 (3R - h) / 3, h = R - z"
+volume = 410.5014400690663
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [5.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 2.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "sphere_cap_common_1"
+op = "common"
+source = "analytic: sphere R=8 cut by the plane z=-3; cap pi h^2 (3R - h) / 3, h = R - z"
+volume = 1647.241748032248
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [8.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, -3.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "sphere_cap_cut_1"
+op = "cut"
+source = "analytic: sphere R=8 cut by the plane z=-3; cap pi h^2 (3R - h) / 3, h = R - z"
+volume = 497.41883681838385
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [8.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, -3.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "sphere_cap_common_2"
+op = "common"
+source = "analytic: sphere R=3 cut by the plane z=0; cap pi h^2 (3R - h) / 3, h = R - z"
+volume = 56.548667764616276
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [3.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 0.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "sphere_cap_cut_2"
+op = "cut"
+source = "analytic: sphere R=3 cut by the plane z=0; cap pi h^2 (3R - h) / 3, h = R - z"
+volume = 56.54866776461626
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [3.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 0.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "sphere_sphere_common_0"
+op = "common"
+source = "analytic: spheres R=5, r=5, centres 6 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 108.90854532444615
+solids = 1
+determinism = true
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [5.0] },
+]
+tools = [
+    { kind = "sphere", origin = [3.464101615137755, 3.464101615137755, 3.464101615137755], dims = [5.0] },
+]
+
+[[case]]
+name = "sphere_sphere_fuse_0"
+op = "fuse"
+source = "analytic: spheres R=5, r=5, centres 6 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 938.2890058721516
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [5.0] },
+]
+tools = [
+    { kind = "sphere", origin = [3.464101615137755, 3.464101615137755, 3.464101615137755], dims = [5.0] },
+]
+
+[[case]]
+name = "sphere_sphere_cut_0"
+op = "cut"
+source = "analytic: spheres R=5, r=5, centres 6 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 414.6902302738527
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [5.0] },
+]
+tools = [
+    { kind = "sphere", origin = [3.464101615137755, 3.464101615137755, 3.464101615137755], dims = [5.0] },
+]
+
+[[case]]
+name = "sphere_sphere_common_1"
+op = "common"
+source = "analytic: spheres R=6, r=3, centres 7 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 22.140748225299497
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [6.0] },
+]
+tools = [
+    { kind = "sphere", origin = [4.041451884327381, 4.041451884327381, 4.041451884327381], dims = [3.0] },
+]
+
+[[case]]
+name = "sphere_sphere_fuse_1"
+op = "fuse"
+source = "analytic: spheres R=6, r=3, centres 7 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 995.7352715377933
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [6.0] },
+]
+tools = [
+    { kind = "sphere", origin = [4.041451884327381, 4.041451884327381, 4.041451884327381], dims = [3.0] },
+]
+
+[[case]]
+name = "sphere_sphere_cut_1"
+op = "cut"
+source = "analytic: spheres R=6, r=3, centres 7 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 882.6379360085608
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [6.0] },
+]
+tools = [
+    { kind = "sphere", origin = [4.041451884327381, 4.041451884327381, 4.041451884327381], dims = [3.0] },
+]
+
+[[case]]
+name = "sphere_sphere_common_2"
+op = "common"
+source = "analytic: spheres R=4, r=2.5, centres 3 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 44.09683438241923
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [4.0] },
+]
+tools = [
+    { kind = "sphere", origin = [1.7320508075688774, 1.7320508075688774, 1.7320508075688774], dims = [2.5] },
+]
+
+[[case]]
+name = "sphere_sphere_fuse_2"
+op = "fuse"
+source = "analytic: spheres R=4, r=2.5, centres 3 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 289.4355856736971
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [4.0] },
+]
+tools = [
+    { kind = "sphere", origin = [1.7320508075688774, 1.7320508075688774, 1.7320508075688774], dims = [2.5] },
+]
+
+[[case]]
+name = "sphere_sphere_cut_2"
+op = "cut"
+source = "analytic: spheres R=4, r=2.5, centres 3 apart; lens volume (Wolfram MathWorld, Sphere-Sphere Intersection)"
+volume = 223.98573872390978
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [4.0] },
+]
+tools = [
+    { kind = "sphere", origin = [1.7320508075688774, 1.7320508075688774, 1.7320508075688774], dims = [2.5] },
+]
+
+[[case]]
+name = "steinmetz_common_0"
+op = "common"
+source = "analytic: perpendicular cylinders of equal radius 3 through each other; Steinmetz solid 16 r^3 / 3"
+volume = 144.0
+solids = 1
+determinism = true
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, -10.0], dims = [3.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [-10.0, 0.0, 0.0], dims = [3.0, 20.0], normal = [1.0, 0.0, 0.0] },
+]
+
+[[case]]
+name = "steinmetz_fuse_0"
+op = "fuse"
+source = "analytic: perpendicular cylinders of equal radius 3 through each other; Steinmetz solid 16 r^3 / 3"
+volume = 986.9733552923256
+solids = 1
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, -10.0], dims = [3.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [-10.0, 0.0, 0.0], dims = [3.0, 20.0], normal = [1.0, 0.0, 0.0] },
+]
+
+[[case]]
+name = "steinmetz_common_1"
+op = "common"
+source = "analytic: perpendicular cylinders of equal radius 2 through each other; Steinmetz solid 16 r^3 / 3"
+volume = 42.666666666666664
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, -10.0], dims = [2.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [-10.0, 0.0, 0.0], dims = [2.0, 20.0], normal = [1.0, 0.0, 0.0] },
+]
+
+[[case]]
+name = "steinmetz_fuse_1"
+op = "fuse"
+source = "analytic: perpendicular cylinders of equal radius 2 through each other; Steinmetz solid 16 r^3 / 3"
+volume = 459.9881579077002
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, -10.0], dims = [2.0, 20.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [-10.0, 0.0, 0.0], dims = [2.0, 20.0], normal = [1.0, 0.0, 0.0] },
+]
+
+[[case]]
+name = "napkin_cut_0"
+op = "cut"
+source = "analytic: sphere R=5 minus a coaxial cylinder r=3; napkin ring 4/3 pi (R^2 - r^2)^(3/2)"
+volume = 268.082573106329
+solids = 1
+determinism = true
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [5.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [0.0, 0.0, -7.0], dims = [3.0, 14.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "napkin_common_0"
+op = "common"
+source = "analytic: sphere R=5 minus a coaxial cylinder r=3; napkin ring 4/3 pi (R^2 - r^2)^(3/2)"
+volume = 255.51620249196986
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [5.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [0.0, 0.0, -7.0], dims = [3.0, 14.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "napkin_cut_1"
+op = "cut"
+source = "analytic: sphere R=10 minus a coaxial cylinder r=2; napkin ring 4/3 pi (R^2 - r^2)^(3/2)"
+volume = 3939.993078257246
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [10.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [0.0, 0.0, -12.0], dims = [2.0, 24.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "napkin_common_1"
+op = "common"
+source = "analytic: sphere R=10 minus a coaxial cylinder r=2; napkin ring 4/3 pi (R^2 - r^2)^(3/2)"
+volume = 248.79712652914486
+solids = 1
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [10.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [0.0, 0.0, -12.0], dims = [2.0, 24.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "cone_plane_common_0"
+op = "common"
+source = "analytic: cone r1=5 r2=2 h=10 cut at z=4; frustum pi h (a^2 + ab + b^2) / 3"
+volume = 163.61414539895642
+solids = 1
+objects = [
+    { kind = "cone", origin = [0.0, 0.0, 0.0], dims = [5.0, 2.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 4.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "cone_plane_cut_0"
+op = "cut"
+source = "analytic: cone r1=5 r2=2 h=10 cut at z=4; frustum pi h (a^2 + ab + b^2) / 3"
+volume = 244.79289956771666
+solids = 1
+objects = [
+    { kind = "cone", origin = [0.0, 0.0, 0.0], dims = [5.0, 2.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 4.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "cone_plane_common_1"
+op = "common"
+source = "analytic: cone r1=3 r2=0 h=9 cut at z=6; frustum pi h (a^2 + ab + b^2) / 3"
+volume = 3.141592653589793
+solids = 1
+objects = [
+    { kind = "cone", origin = [0.0, 0.0, 0.0], dims = [3.0, 0.0, 9.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 6.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "cone_plane_cut_1"
+op = "cut"
+source = "analytic: cone r1=3 r2=0 h=9 cut at z=6; frustum pi h (a^2 + ab + b^2) / 3"
+volume = 81.68140899333461
+solids = 1
+objects = [
+    { kind = "cone", origin = [0.0, 0.0, 0.0], dims = [3.0, 0.0, 9.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 6.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "cone_plane_common_2"
+op = "common"
+source = "analytic: cone r1=2 r2=6 h=8 cut at z=2; frustum pi h (a^2 + ab + b^2) / 3"
+volume = 395.84067435231395
+solids = 1
+objects = [
+    { kind = "cone", origin = [0.0, 0.0, 0.0], dims = [2.0, 6.0, 8.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 2.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "cone_plane_cut_2"
+op = "cut"
+source = "analytic: cone r1=2 r2=6 h=8 cut at z=2; frustum pi h (a^2 + ab + b^2) / 3"
+volume = 39.79350694547071
+solids = 1
+objects = [
+    { kind = "cone", origin = [0.0, 0.0, 0.0], dims = [2.0, 6.0, 8.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 2.0], dims = [40.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "torus_equator_common_0"
+op = "common"
+source = "analytic: torus R=10 r=3 and the half-space z >= 0 (or x >= 0); half volume pi^2 R r^2"
+volume = 888.2643960980422
+solids = 1
+determinism = true
+objects = [
+    { kind = "torus", origin = [0.0, 0.0, 0.0], dims = [10.0, 3.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 0.0], dims = [40.0, 40.0, 20.0] },
+]
+
+[[case]]
+name = "torus_meridian_cut_0"
+op = "cut"
+source = "analytic: torus R=10 r=3 and the half-space z >= 0 (or x >= 0); half volume pi^2 R r^2"
+volume = 888.2643960980422
+solids = 1
+objects = [
+    { kind = "torus", origin = [0.0, 0.0, 0.0], dims = [10.0, 3.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [0.0, -20.0, -20.0], dims = [20.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "torus_equator_common_1"
+op = "common"
+source = "analytic: torus R=6 r=1.5 and the half-space z >= 0 (or x >= 0); half volume pi^2 R r^2"
+volume = 133.23965941470635
+solids = 1
+objects = [
+    { kind = "torus", origin = [0.0, 0.0, 0.0], dims = [6.0, 1.5], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [-20.0, -20.0, 0.0], dims = [40.0, 40.0, 20.0] },
+]
+
+[[case]]
+name = "torus_meridian_cut_1"
+op = "cut"
+source = "analytic: torus R=6 r=1.5 and the half-space z >= 0 (or x >= 0); half volume pi^2 R r^2"
+volume = 133.23965941470635
+solids = 1
+objects = [
+    { kind = "torus", origin = [0.0, 0.0, 0.0], dims = [6.0, 1.5], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [0.0, -20.0, -20.0], dims = [20.0, 40.0, 40.0] },
+]
+
+[[case]]
+name = "tube_cut_0"
+op = "cut"
+source = "analytic: tube ro=5 ri=4 h=10; pi (ro^2 - ri^2) h"
+volume = 282.7433388230814
+solids = 1
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, 0.0], dims = [5.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [0.0, 0.0, -1.0], dims = [4.0, 12.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "tube_cut_1"
+op = "cut"
+source = "analytic: tube ro=3 ri=0.5 h=2; pi (ro^2 - ri^2) h"
+volume = 54.97787143782138
+solids = 1
+rotate = [-0.2, 0.9, 0.1, -1.3]
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, 0.0], dims = [3.0, 2.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [0.0, 0.0, -1.0], dims = [0.5, 4.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "box_minus_three_holes"
+op = "cut"
+source = "analytic: one box, three through holes r=2 in one call (1 object x 3 tools)"
+volume = 1311.5044407846124
+solids = 1
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [30.0, 10.0, 5.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [5.0, 5.0, -1.0], dims = [2.0, 7.0], normal = [0.0, 0.0, 1.0] },
+    { kind = "cylinder", origin = [15.0, 5.0, -1.0], dims = [2.0, 7.0], normal = [0.0, 0.0, 1.0] },
+    { kind = "cylinder", origin = [25.0, 5.0, -1.0], dims = [2.0, 7.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "two_boxes_minus_two_holes"
+op = "cut"
+source = "analytic: 2 objects x 2 tools, each box drilled once (r=2 and r=3)"
+volume = 795.7964775166635
+solids = 2
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 5.0] },
+    { kind = "box", origin = [20.0, 0.0, 0.0], dims = [10.0, 10.0, 5.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [5.0, 5.0, -1.0], dims = [2.0, 7.0], normal = [0.0, 0.0, 1.0] },
+    { kind = "cylinder", origin = [25.0, 5.0, -1.0], dims = [3.0, 7.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "fuse_three_boxes_chain"
+op = "fuse"
+source = "analytic: three boxes in a diagonal chain, fused with no tools (objects fuse each other); inclusion-exclusion"
+volume = 2750.0
+solids = 1
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+    { kind = "box", origin = [10.0, 10.0, 10.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = []
+
+[[case]]
+name = "common_box_with_two_tools"
+op = "common"
+source = "analytic: BOPAlgo common of one object with two tools is the object's part inside the tools' union, as the 3 pieces the tool boundaries split it into"
+volume = 940.0
+solids = 3
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+    { kind = "box", origin = [0.0, 3.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "cut_two_objects_one_tool"
+op = "cut"
+source = "analytic: one tool cutting the corner of two separate boxes"
+volume = 1500.0
+solids = 2
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+    { kind = "box", origin = [15.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, -1.0, 5.0], dims = [15.0, 12.0, 10.0] },
+]
+
+[[case]]
+name = "split_box_by_face"
+op = "split"
+source = "analytic: a box split by a plane face at z=3 gives two solids (30% / 70%)"
+volume = 1000.0
+solids = 2
+determinism = true
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "rect", origin = [-1.0, -1.0, 3.0], dims = [12.0, 12.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "split_box_by_two_faces"
+op = "split"
+source = "analytic: a box split by two crossing plane faces gives four solids"
+volume = 1000.0
+solids = 4
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "rect", origin = [-1.0, -1.0, 3.0], dims = [12.0, 12.0], normal = [0.0, 0.0, 1.0] },
+    { kind = "rect", origin = [4.0, -1.0, -1.0], dims = [12.0, 12.0], normal = [1.0, 0.0, 0.0], xdir = [0.0, 1.0, 0.0] },
+]
+
+[[case]]
+name = "split_box_by_box"
+op = "split"
+source = "analytic: splitting keeps only the object's pieces: inside and outside the tool, total volume unchanged"
+volume = 1000.0
+solids = 2
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "split_two_boxes_each_other"
+op = "split"
+source = "analytic: two overlapping boxes split each other (no tools): three pieces, the overlap once"
+volume = 1500.0
+solids = 3
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+    { kind = "box", origin = [5.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = []
+
+[[case]]
+name = "split_cylinder_by_face"
+op = "split"
+source = "analytic: a cylinder split by a plane face across its axis"
+volume = 502.6548245743669
+solids = 2
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, 0.0], dims = [4.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "rect", origin = [-5.0, -5.0, 2.5], dims = [10.0, 10.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coplanar_stacked_fuse"
+op = "fuse"
+source = "coplanar: two boxes sharing a full face (FreeCAD forum 'fuse of stacked boxes leaves inner face')"
+volume = 1000.0
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 5.0] },
+]
+tools = [
+    { kind = "box", origin = [0.0, 0.0, 5.0], dims = [10.0, 10.0, 5.0] },
+]
+
+[[case]]
+name = "coplanar_partial_fuse"
+op = "fuse"
+source = "coplanar: shared face partly overlapping"
+volume = 1000.0
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 5.0] },
+]
+tools = [
+    { kind = "box", origin = [3.0, 4.0, 5.0], dims = [10.0, 10.0, 5.0] },
+]
+
+[[case]]
+name = "coplanar_flush_cut"
+op = "cut"
+source = "coplanar: slot whose top is flush with the object's top face (OCCT tracker class: coincident faces in cut)"
+volume = 880.0
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.0, -1.0, 6.0], dims = [3.0, 12.0, 4.0] },
+]
+
+[[case]]
+name = "coplanar_cyl_on_box_fuse"
+op = "fuse"
+source = "coplanar: boss standing on a plate (cylinder base on the box top)"
+volume = 313.09733552923257
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 2.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [5.0, 5.0, 2.0], dims = [3.0, 4.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coplanar_cyl_flush_cut"
+op = "cut"
+source = "coplanar: blind hole flush with the top face"
+volume = 362.3008881569225
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 4.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [5.0, 5.0, 1.0], dims = [2.0, 3.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "coplanar_same_box_common"
+op = "common"
+source = "coplanar: common of two identical boxes (all faces coincide)"
+volume = 504.0
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [7.0, 8.0, 9.0] },
+]
+
+[[case]]
+name = "coplanar_same_box_fuse_glue_full"
+op = "fuse"
+source = "coplanar: fuse of two identical boxes with glue Full"
+volume = 504.0
+solids = 1
+glue = "full"
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [7.0, 8.0, 9.0] },
+]
+tools = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [7.0, 8.0, 9.0] },
+]
+
+[[case]]
+name = "glue_shift_side_by_side"
+op = "fuse"
+source = "coplanar: boxes touching along a face, glue Shift"
+volume = 1250.0
+solids = 1
+glue = "shift"
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [10.0, 2.0, 2.0], dims = [10.0, 5.0, 5.0] },
+]
+
+[[case]]
+name = "tangent_sphere_on_box_fuse"
+op = "fuse"
+source = "tangent: a sphere touching a box face at one point (OCCT tracker class: touching solids)"
+volume = 1113.0973355292326
+objects = [
+    { kind = "box", origin = [-5.0, -5.0, -10.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "sphere", origin = [0.0, 0.0, 3.0], dims = [3.0] },
+]
+
+[[case]]
+name = "tangent_sphere_on_box_common"
+op = "common"
+source = "tangent: common of solids touching at a point is empty"
+volume = 0.0
+objects = [
+    { kind = "box", origin = [-5.0, -5.0, -10.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "sphere", origin = [0.0, 0.0, 3.0], dims = [3.0] },
+]
+
+[[case]]
+name = "tangent_cyl_on_box_fuse"
+op = "fuse"
+source = "tangent: a cylinder lying on a box face (line contact)"
+volume = 1339.2920065876976
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [-1.0, 5.0, 13.0], dims = [3.0, 12.0], normal = [1.0, 0.0, 0.0] },
+]
+
+[[case]]
+name = "tangent_cyl_in_box_cut"
+op = "cut"
+source = "tangent: a cylinder inscribed in the box section touches four side faces along lines"
+volume = 214.60183660255166
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [5.0, 5.0, -1.0], dims = [5.0, 12.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "tangent_spheres_fuse"
+op = "fuse"
+source = "tangent: two spheres touching at one point"
+volume = 67.02064327658225
+objects = [
+    { kind = "sphere", origin = [0.0, 0.0, 0.0], dims = [2.0] },
+]
+tools = [
+    { kind = "sphere", origin = [4.0, 0.0, 0.0], dims = [2.0] },
+]
+
+[[case]]
+name = "fuzzy_gap_fuse"
+op = "fuse"
+source = "fuzzy-needed: a 1e-5 mm gap between faces (FreeCAD/OCCT reports of near-coincident faces); fuzzy 1e-4 fuses them"
+volume = 2000.001
+solids = 1
+fuzzy = 0.0001
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [10.00001, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "fuzzy_gap_fuse_exact"
+op = "fuse"
+source = "fuzzy-needed control: without fuzzy the 1e-5 mm gap keeps two solids"
+volume = 2000.0
+solids = 2
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [10.00001, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+
+[[case]]
+name = "fuzzy_overlap_cut"
+op = "cut"
+source = "fuzzy-needed: a tool face 2e-6 mm below the object's top face; fuzzy 1e-5 treats them as coincident"
+volume = 999.99995
+solids = 1
+fuzzy = 1e-05
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "box", origin = [2.0, 2.0, 9.999998], dims = [5.0, 5.0, 5.0] },
+]
+
+[[case]]
+name = "fuzzy_near_coaxial_holes"
+op = "cut"
+source = "fuzzy-needed: two drill tools 5e-6 mm apart (double-drilled hole); fuzzy 1e-5"
+volume = 437.1681469282041
+solids = 1
+fuzzy = 1e-05
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 5.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [5.0, 5.0, -1.0], dims = [2.0, 7.0], normal = [0.0, 0.0, 1.0] },
+    { kind = "cylinder", origin = [5.000005, 5.0, -1.0], dims = [2.0, 7.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "fuzzy_coplanar_shifted_fuse"
+op = "fuse"
+source = "fuzzy-needed: a boss 3e-6 mm above the plate top; fuzzy 1e-5 joins them"
+volume = 580.0
+solids = 1
+fuzzy = 1e-05
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 5.0] },
+]
+tools = [
+    { kind = "box", origin = [3.0, 3.0, 5.000003], dims = [4.0, 4.0, 5.0] },
+]
+
+[[case]]
+name = "disjoint_common"
+op = "common"
+source = "analytic: disjoint operands, empty common"
+volume = 0.0
+solids = 0
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [1.0, 2.0, 3.0] },
+]
+tools = [
+    { kind = "box", origin = [5.0, 5.0, 5.0], dims = [1.0, 1.0, 1.0] },
+]
+
+[[case]]
+name = "disjoint_cut"
+op = "cut"
+source = "analytic: disjoint tool leaves the object"
+volume = 6.0
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [1.0, 2.0, 3.0] },
+]
+tools = [
+    { kind = "sphere", origin = [10.0, 10.0, 10.0], dims = [1.0] },
+]
+
+[[case]]
+name = "disjoint_fuse"
+op = "fuse"
+source = "analytic: disjoint fuse keeps both solids"
+volume = 10.18879020478639
+solids = 2
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [1.0, 2.0, 3.0] },
+]
+tools = [
+    { kind = "sphere", origin = [10.0, 10.0, 10.0], dims = [1.0] },
+]
+
+[[case]]
+name = "contained_cut"
+op = "cut"
+source = "analytic: a sphere inside the box leaves a void (two shells)"
+volume = 886.9026644707675
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "sphere", origin = [5.0, 5.0, 5.0], dims = [3.0] },
+]
+
+[[case]]
+name = "contained_common"
+op = "common"
+source = "analytic: common with a contained sphere is the sphere"
+volume = 113.09733552923254
+solids = 1
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "sphere", origin = [5.0, 5.0, 5.0], dims = [3.0] },
+]
+
+[[case]]
+name = "err_fuse_solid_and_face"
+op = "fuse"
+source = "expected error: BOPAlgo forbids a fuse of arguments of different dimensions"
+error = "OpFailed"
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "rect", origin = [-1.0, -1.0, 5.0], dims = [12.0, 12.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "err_common_no_tools"
+op = "common"
+source = "expected error: common needs a tool"
+error = "InvalidInput"
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [1.0, 1.0, 1.0] },
+]
+tools = []
+
+[[case]]
+name = "err_cut_no_tools"
+op = "cut"
+source = "expected error: cut needs a tool"
+error = "InvalidInput"
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [1.0, 1.0, 1.0] },
+]
+tools = []
+
+[[case]]
+name = "err_fuse_one_shape"
+op = "fuse"
+source = "expected error: a fuse needs two shapes"
+error = "InvalidInput"
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [1.0, 1.0, 1.0] },
+]
+tools = []
+
+[[case]]
+name = "err_negative_fuzzy"
+op = "cut"
+source = "expected error: negative fuzzy value"
+error = "InvalidInput"
+fuzzy = -0.001
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [1.0, 1.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [0.5, 0.0, 0.0], dims = [1.0, 1.0, 1.0] },
+]
+
+[[case]]
+name = "plate_hole_rot_cut_0"
+op = "cut"
+source = "analytic: 12x12x4.0 plate with a through hole r=1.5, rotated"
+volume = 547.7256661176918
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [12.0, 12.0, 4.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [6.0, 6.0, -1.0], dims = [1.5, 6.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "sphere_in_box_rot_cut_0"
+op = "cut"
+source = "analytic: box corner cut by a sphere centred on the corner (one octant), rotated"
+volume = 985.8628330588459
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "sphere", origin = [10.0, 10.0, 10.0], dims = [3.0] },
+]
+
+[[case]]
+name = "cyl_quarter_rot_common_0"
+op = "common"
+source = "analytic: quarter of a cylinder (box covering the first quadrant), rotated"
+volume = 75.39822368615503
+solids = 1
+rotate = [0.3, -0.5, 0.8, 0.7]
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, 0.0], dims = [4.0, 6.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [0.0, 0.0, -1.0], dims = [20.0, 20.0, 8.0] },
+]
+
+[[case]]
+name = "plate_hole_rot_cut_1"
+op = "cut"
+source = "analytic: 12x12x4.0 plate with a through hole r=2.5, rotated"
+volume = 497.46018366025515
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [12.0, 12.0, 4.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [6.0, 6.0, -1.0], dims = [2.5, 6.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "sphere_in_box_rot_cut_1"
+op = "cut"
+source = "analytic: box corner cut by a sphere centred on the corner (one octant), rotated"
+volume = 966.4896783617089
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "sphere", origin = [10.0, 10.0, 10.0], dims = [4.0] },
+]
+
+[[case]]
+name = "cyl_quarter_rot_common_1"
+op = "common"
+source = "analytic: quarter of a cylinder (box covering the first quadrant), rotated"
+volume = 117.80972450961724
+solids = 1
+rotate = [1.0, 2.0, 3.0, 2.1]
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, 0.0], dims = [5.0, 6.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [0.0, 0.0, -1.0], dims = [20.0, 20.0, 8.0] },
+]
+
+[[case]]
+name = "plate_hole_rot_cut_2"
+op = "cut"
+source = "analytic: 12x12x4.0 plate with a through hole r=3.5, rotated"
+volume = 422.06195997410015
+solids = 1
+rotate = [-0.2, 0.9, 0.1, -1.3]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [12.0, 12.0, 4.0] },
+]
+tools = [
+    { kind = "cylinder", origin = [6.0, 6.0, -1.0], dims = [3.5, 6.0], normal = [0.0, 0.0, 1.0] },
+]
+
+[[case]]
+name = "sphere_in_box_rot_cut_2"
+op = "cut"
+source = "analytic: box corner cut by a sphere centred on the corner (one octant), rotated"
+volume = 934.5501530502127
+solids = 1
+rotate = [-0.2, 0.9, 0.1, -1.3]
+objects = [
+    { kind = "box", origin = [0.0, 0.0, 0.0], dims = [10.0, 10.0, 10.0] },
+]
+tools = [
+    { kind = "sphere", origin = [10.0, 10.0, 10.0], dims = [5.0] },
+]
+
+[[case]]
+name = "cyl_quarter_rot_common_2"
+op = "common"
+source = "analytic: quarter of a cylinder (box covering the first quadrant), rotated"
+volume = 169.64600329384882
+solids = 1
+rotate = [-0.2, 0.9, 0.1, -1.3]
+objects = [
+    { kind = "cylinder", origin = [0.0, 0.0, 0.0], dims = [6.0, 6.0], normal = [0.0, 0.0, 1.0] },
+]
+tools = [
+    { kind = "box", origin = [0.0, 0.0, -1.0], dims = [20.0, 20.0, 8.0] },
+]

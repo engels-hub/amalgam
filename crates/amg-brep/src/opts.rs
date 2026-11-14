@@ -42,7 +42,8 @@ pub struct BoolOpts {
     pub check_inverted: bool,
     /// Use oriented bounding boxes.
     pub use_obb: bool,
-    /// OCCT-internal parallelism; `None` = `KernelConfig::bool_parallel`.
+    /// OCCT-internal parallelism; `None` = `KernelConfig::bool_parallel` (off with a one-thread
+    /// OCCT pool).
     pub parallel: Option<bool>,
 }
 

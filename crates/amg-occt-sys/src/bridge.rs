@@ -229,8 +229,12 @@ pub mod ffi {
     /// `out_kinds/out_indices[out_starts[i]..out_starts[i + 1]]`; `out_starts` has one more
     /// entry than there are relations. `roles[j]` (0 start cap, 1 end cap, 2 lateral) labels output
     /// face `role_faces[j]`.
+    ///
+    /// Multi-operand ops (BREP-04) fill `in_operands` (one per relation; empty = operand 0 for
+    /// all) and use relation 3 (kept: the same TShape is in the result, one output).
     #[derive(Clone, Debug, Default, PartialEq, Eq)]
     struct OcOpHistory {
+        in_operands: Vec<u16>,
         in_kinds: Vec<u8>,
         in_indices: Vec<u32>,
         relations: Vec<u8>,
@@ -239,6 +243,28 @@ pub mod ffi {
         out_indices: Vec<u32>,
         role_faces: Vec<u32>,
         roles: Vec<u8>,
+    }
+
+    /// Boolean options (BREP-04). `glue`: 0 off, 1 shift, 2 full. Non-destructive is always on.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcBoolOpts {
+        fuzzy: f64,
+        glue: u8,
+        check_inverted: bool,
+        use_obb: bool,
+        parallel: bool,
+    }
+
+    /// How a boolean ended (BREP-04): cancelled, or the BOPAlgo alert names (`errors` non-empty
+    /// means it failed) and the operand sub-shapes (kinds 0 face, 1 edge, 2 vertex) they name.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    struct OcBoolStatus {
+        cancelled: bool,
+        errors: Vec<String>,
+        warnings: Vec<String>,
+        offending_operands: Vec<u16>,
+        offending_kinds: Vec<u8>,
+        offending_indices: Vec<u32>,
     }
 
     extern "Rust" {
@@ -357,8 +383,6 @@ pub mod ffi {
         /// Points along edge `e` (parameter order) within `linear` mm and `angular` rad.
         /// Raises on a degenerated edge.
         fn tessellate_edge(index: &OcIndex, e: u32, linear: f64, angular: f64) -> Result<Vec<V3>>;
-        /// `object` minus `tool`, non-destructive. A test probe until BREP-04.
-        fn boolean_cut_probe(object: &OcShape, tool: &OcShape) -> Result<UniquePtr<OcShape>>;
 
         // -- face and wire builders (BREP-03), implemented in occt_build.cpp --
 
@@ -426,6 +450,40 @@ pub mod ffi {
         fn shape_gtransformed(shape: &OcShape, m: &OcMat34) -> Result<UniquePtr<OcOp>>;
         fn op_shape(op: &OcOp) -> Result<UniquePtr<OcShape>>;
         fn op_history(op: &OcOp) -> Result<OcOpHistory>;
+
+        // -- booleans, split and section (BREP-04), implemented in occt_bool.cpp --
+
+        /// Argument or tool shapes of one boolean.
+        type OcShapeList;
+
+        fn new_shape_list() -> Result<UniquePtr<OcShapeList>>;
+        /// Appends a handle to `shape` (raises on a null shape).
+        fn shape_list_push(list: Pin<&mut OcShapeList>, shape: &OcShape) -> Result<()>;
+        /// `op`: 0 fuse, 1 cut, 2 common (`BRepAlgoAPI_BooleanOperation`), 3 split
+        /// (`BRepAlgoAPI_Splitter`). Non-destructive, history filled for every operand (objects
+        /// first, then tools). Progress and cancel through `sink`. A failure or cancellation is
+        /// reported by `op_bool_status`, and the op then has no shape.
+        fn boolean_op(
+            op: u8,
+            objects: &OcShapeList,
+            tools: &OcShapeList,
+            opts: &OcBoolOpts,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// The intersection edges and vertices of `a` and `b` (`BRepAlgoAPI_Section`,
+        /// approximated, no pcurves). History: each face of either operand `Generated` into the
+        /// section edges on it.
+        fn section_op(
+            a: &OcShape,
+            b: &OcShape,
+            parallel: bool,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+        fn op_bool_status(op: &OcOp) -> Result<OcBoolStatus>;
+        /// Volume by `BRepGProp::VolumeProperties` with the adaptive relative error bound `eps`
+        /// (the plain `volume` uses fixed-order quadrature, which under-integrates faces whose
+        /// boundaries are not iso-lines).
+        fn volume_adaptive(shape: &OcShape, eps: f64) -> Result<f64>;
     }
 }
 

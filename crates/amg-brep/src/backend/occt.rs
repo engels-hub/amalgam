@@ -1,5 +1,6 @@
 //! The OCCT backend of `Shape`. The only module that sees the bridge types.
 
+mod boolean;
 mod build;
 mod extract;
 mod ops;
@@ -489,6 +490,10 @@ impl Occ {
         ffi::volume(&self.shape).map_err(|e| to_kernel_error(&e))
     }
 
+    pub(crate) fn volume_adaptive(&self, eps: f64) -> KResult<f64> {
+        ffi::volume_adaptive(&self.shape, eps).map_err(|e| to_kernel_error(&e))
+    }
+
     pub(crate) fn moved(&self, transform: &Transform) -> KResult<Occ> {
         ffi::shape_moved(&self.shape, &mat34(transform))
             .map(|shape| self.derived(shape))
@@ -551,13 +556,6 @@ impl Occ {
     ) -> KResult<Vec<Point3>> {
         ffi::tessellate_edge(self.index(), edge, linear, angular)
             .map(|pts| pts.into_iter().map(point).collect())
-            .map_err(|e| to_kernel_error(&e))
-    }
-
-    /// `self` minus `tool`, non-destructive (BREP-08 stress-test probe until BREP-04).
-    pub(crate) fn boolean_cut_probe(&self, tool: &Occ) -> KResult<Occ> {
-        ffi::boolean_cut_probe(&self.shape, &tool.shape)
-            .map(Occ::new)
             .map_err(|e| to_kernel_error(&e))
     }
 }

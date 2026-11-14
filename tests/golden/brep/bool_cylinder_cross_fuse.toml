@@ -1,0 +1,13 @@
+# Exact B-rep metrics of brep/bool_cylinder_cross_fuse (S02 BREP-04). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 986.973355292361
+area = 723.0795723895586
+solids = 1
+faces = 8
+edges = 15
+vertices = 9
+classes = "YYYPYPPP"

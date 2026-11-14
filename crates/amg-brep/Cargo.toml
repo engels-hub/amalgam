@@ -68,5 +68,10 @@ name = "tess"
 harness = false
 required-features = ["occt"]
 
+[[bench]]
+name = "boolean"
+harness = false
+required-features = ["occt"]
+
 [lints]
 workspace = true

@@ -10,6 +10,7 @@ use amg_jobs::JobCtx;
 use rayon::prelude::*;
 
 use crate::backend::{self, Occ};
+use crate::boolean::{self, BoolCode, BoolOutcome};
 use crate::builders;
 use crate::check::{CheckOpts, CheckReport};
 use crate::config::KernelConfig;
@@ -18,7 +19,7 @@ use crate::extract;
 use crate::geom::{self, Tag};
 use crate::history::{FaceBuild, OpResult, ShapeHistory};
 use crate::ops::{self, PrimitiveKind};
-use crate::opts::{PrismExtent, PrismOpts, TessQuality};
+use crate::opts::{BoolOp, BoolOpts, PrismExtent, PrismOpts, TessQuality};
 use crate::shape::{EdgeId, FORMAT_VERSION, Shape, SubKind, SubShape};
 use crate::tess::{self, TessMesh, TessProfile};
 
@@ -244,6 +245,64 @@ pub trait BrepKernel: Send + Sync {
     /// `InvalidInput { what: "frame" }` for a bad plane; `Occt`; `InvalidResult`.
     fn mirrored(&self, s: &Shape, plane: &Plane) -> KResult<OpResult>;
 
+    // -- booleans (BREP-04) --
+
+    /// `objects` fused with, cut by or intersected with `tools` (`BRepAlgoAPI_BooleanOperation`;
+    /// N objects × M tools). A fuse may leave `tools` empty and fuse the objects with each other
+    /// (it needs two shapes in all); cut and common need a tool.
+    ///
+    /// Always non-destructive (category N): the inputs are never modified. `opts.fuzzy`,
+    /// `glue`, `check_inverted` and `use_obb` go to BOPAlgo as is; `opts.parallel` (default
+    /// `KernelConfig::bool_parallel`, off with a one-thread OCCT pool) turns on OCCT's internal
+    /// parallelism, which uses the OCCT thread pool (`KernelConfig::occt_threads`). Progress and
+    /// cancellation are mid-op, through OCCT's progress indicator.
+    ///
+    /// History: operands are numbered objects first, then tools. Every face, edge and vertex of
+    /// every operand is `Kept` (it is in the result unchanged), `Modified` (split or trimmed),
+    /// `Generated` (a face into the section edges on it, an edge into new vertices) or
+    /// `Deleted`. `operand_counts` has one entry per operand. Warnings: `FuzzyUsed` when
+    /// `fuzzy > 0`, `ToleranceGrown` when the result's largest tolerance exceeds every input's
+    /// and the kernel's linear tolerance. The result is a compound when it has several solids
+    /// (or none: an empty result is a valid empty compound).
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "objects" | "tools" | "fuzzy" }`; `OpFailed { op: "boolean" }`
+    /// with the BOPAlgo alert names in `message` (and the operands they name) and the alert
+    /// sub-shapes in `offending`, for example `BOPAlgo_AlertBOPNotAllowed` for a fuse of a solid
+    /// and a face; `InvalidResult` under the validation policy; `Cancelled`; `Occt`.
+    fn boolean(
+        &self,
+        op: BoolOp,
+        objects: &[Shape],
+        tools: &[Shape],
+        opts: &BoolOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// `objects` split by `tools` (`BRepAlgoAPI_Splitter`; with no tools, the objects split each
+    /// other): every piece is kept, so a solid cut by a face gives a compound of two solids.
+    /// Options, history, warnings and cancellation as for [`BrepKernel::boolean`].
+    ///
+    /// # Errors
+    /// As [`BrepKernel::boolean`], with `op: "split"`.
+    fn split(
+        &self,
+        objects: &[Shape],
+        tools: &[Shape],
+        opts: &BoolOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// The intersection curves of `a` and `b` (`BRepAlgoAPI_Section`, approximated, no
+    /// pcurves, non-destructive): a compound of edges and vertices, empty when they do not
+    /// meet. History: each face of `a` (operand 0) and `b` (operand 1) `Generated` into the
+    /// section edges on it, edges and vertices that are in the result `Kept`; every edge has the
+    /// `SectionEdge` role.
+    ///
+    /// # Errors
+    /// `OpFailed { op: "section" }`; `Cancelled`; `Occt`.
+    fn section(&self, a: &Shape, b: &Shape, ctx: &JobCtx) -> KResult<OpResult>;
+
     // -- geometry extraction (BREP-17) --
 
     /// `s` cut by `plane`: the 3D section curves (S03 SK-08/SK-09, S07 tests, S12 DXF).
@@ -383,19 +442,6 @@ impl OcctKernel {
     ) -> KResult<(TessMesh, TessProfile)> {
         tess::tessellate(s, q, ctx, true, true)
     }
-
-    /// `object` minus `tool` through a non-destructive `BRepAlgoAPI_Cut` (category N). A probe
-    /// for BREP-08's concurrency test until BREP-04 lands `boolean`; no history, no validation.
-    ///
-    /// # Errors
-    /// `Occt` when the cut fails, `BackendUnavailable` without OCCT.
-    #[doc(hidden)]
-    pub fn boolean_cut_probe(&self, object: &Shape, tool: &Shape) -> KResult<Shape> {
-        object
-            .occ()
-            .boolean_cut_probe(tool.occ())
-            .map(Shape::from_occ)
-    }
 }
 
 /// `(edge, tag)` pairs from a backend edge map (one entry per input edge, `u32::MAX` where the
@@ -415,6 +461,71 @@ impl OcctKernel {
             history: ShapeHistory::default(),
             warnings: Vec::new(),
         })
+    }
+
+    /// The `OpResult` of a boolean, split or section run over `operands`.
+    fn bool_result(
+        &self,
+        op: &'static str,
+        operands: &[&Shape],
+        fuzzy: f64,
+        outcome: BoolOutcome,
+    ) -> KResult<OpResult> {
+        let (occ, raw, status) = match outcome {
+            Ok(done) => done,
+            Err(status) => {
+                return Err(
+                    boolean::status_error(op, &status).unwrap_or(KernelError::OpFailed {
+                        op,
+                        message: "no result".into(),
+                        offending: Vec::new(),
+                    }),
+                );
+            }
+        };
+        if !status.warnings.is_empty() {
+            tracing::debug!("{op}: BOPAlgo warnings {}", status.warnings.join(", "));
+        }
+        let shape = Shape::from_occ(occ);
+        self.validate_result(op, &shape)?;
+        let counts = operands.iter().map(|s| ops::counts(s)).collect();
+        let mut history = ops::history_n(&raw, counts);
+        if op == "section" {
+            history.roles = boolean::section_roles(&shape);
+        }
+        let warnings = boolean::warnings(fuzzy, operands, &shape, self.cfg.tolerance.linear);
+        Ok(OpResult {
+            shape,
+            history,
+            warnings,
+        })
+    }
+
+    /// `KernelConfig::bool_parallel`, unless the OCCT pool has one thread (BREP-04 bench: parallel
+    /// mode on one thread is 24 % slower than serial).
+    fn default_parallel(&self) -> bool {
+        self.cfg.bool_parallel && self.cfg.effective_occt_threads().get() > 1
+    }
+
+    fn run_boolean(
+        &self,
+        op: &'static str,
+        code: BoolCode,
+        objects: &[Shape],
+        tools: &[Shape],
+        opts: &BoolOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let input = boolean::lower(code, objects, tools, opts, self.default_parallel())?;
+        ctx.checkpoint()?;
+        let (args, tools_in) = boolean::operand_split(code, objects, tools);
+        let args: Vec<&Occ> = args.into_iter().map(Shape::occ).collect();
+        let tools_in: Vec<&Occ> = tools_in.into_iter().map(Shape::occ).collect();
+        let outcome = Occ::boolean(code, &args, &tools_in, &input, ctx)?;
+        ctx.checkpoint()?;
+        let operands: Vec<&Shape> = objects.iter().chain(tools).collect();
+        self.bool_result(op, &operands, input.fuzzy, outcome)
     }
 
     fn swept(
@@ -615,6 +726,42 @@ impl BrepKernel for OcctKernel {
         let result = s.gtransformed(&ops::reflection(plane))?;
         self.validate_result("mirrored", &result.shape)?;
         Ok(result)
+    }
+
+    fn boolean(
+        &self,
+        op: BoolOp,
+        objects: &[Shape],
+        tools: &[Shape],
+        opts: &BoolOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.run_boolean("boolean", op.into(), objects, tools, opts, ctx)
+    }
+
+    fn split(
+        &self,
+        objects: &[Shape],
+        tools: &[Shape],
+        opts: &BoolOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.run_boolean("split", BoolCode::Split, objects, tools, opts, ctx)
+    }
+
+    fn section(&self, a: &Shape, b: &Shape, ctx: &JobCtx) -> KResult<OpResult> {
+        backend::require()?;
+        if a.is_null() || b.is_null() {
+            return Err(KernelError::InvalidInput {
+                what: "objects",
+                reason: "a section needs two non-null shapes".into(),
+                offending: Vec::new(),
+            });
+        }
+        ctx.checkpoint()?;
+        let outcome = a.occ().section(b.occ(), self.default_parallel(), ctx)?;
+        ctx.checkpoint()?;
+        self.bool_result("section", &[a, b], 0.0, outcome)
     }
 
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {

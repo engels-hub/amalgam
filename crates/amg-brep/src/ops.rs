@@ -47,6 +47,8 @@ pub(crate) struct PrismIn {
 /// An op history as the shim reports it (see `amg_occt_sys::ffi::OcOpHistory`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RawHistory {
+    /// One operand per relation; empty means operand 0 for all (one-operand ops).
+    pub in_operands: Vec<u16>,
     pub in_kinds: Vec<u8>,
     pub in_indices: Vec<u32>,
     pub relations: Vec<u8>,
@@ -336,10 +338,16 @@ fn sub(kind: u8, index: u32) -> SubShape {
 
 /// The `ShapeHistory` of a one-operand op from the shim's flat form.
 pub(crate) fn history(raw: &RawHistory, operand_counts: [u32; 3]) -> ShapeHistory {
+    history_n(raw, vec![operand_counts])
+}
+
+/// The `ShapeHistory` of an op with one entry of `operand_counts` per operand (relation codes:
+/// 0 modified, 1 generated, 2 deleted, 3 kept).
+pub(crate) fn history_n(raw: &RawHistory, operand_counts: Vec<[u32; 3]>) -> ShapeHistory {
     let mut entries: Vec<(InputSub, Relation)> = Vec::with_capacity(raw.in_kinds.len());
     for i in 0..raw.in_kinds.len() {
         let input = InputSub {
-            operand: 0,
+            operand: raw.in_operands.get(i).copied().unwrap_or(0),
             sub: sub(raw.in_kinds[i], raw.in_indices[i]),
         };
         let range = raw.out_starts[i] as usize..raw.out_starts[i + 1] as usize;
@@ -347,9 +355,10 @@ pub(crate) fn history(raw: &RawHistory, operand_counts: [u32; 3]) -> ShapeHistor
             .map(|k| sub(raw.out_kinds[k], raw.out_indices[k]))
             .collect();
         outs.sort();
-        let relation = match raw.relations[i] {
-            0 => Relation::Modified(outs),
-            1 => Relation::Generated(outs),
+        let relation = match (raw.relations[i], outs.first()) {
+            (0, _) => Relation::Modified(outs),
+            (1, _) => Relation::Generated(outs),
+            (3, Some(&kept)) => Relation::Kept(kept),
             _ => Relation::Deleted,
         };
         entries.push((input, relation));
@@ -374,7 +383,7 @@ pub(crate) fn history(raw: &RawHistory, operand_counts: [u32; 3]) -> ShapeHistor
         entries,
         roles,
         tags: Vec::new(),
-        operand_counts: vec![operand_counts],
+        operand_counts,
     }
 }
 
@@ -472,6 +481,7 @@ mod tests {
     #[test]
     fn history_is_converted_and_sorted() {
         let raw = RawHistory {
+            in_operands: Vec::new(),
             in_kinds: vec![1, 0, 0, 2],
             in_indices: vec![0, 0, 0, 3],
             relations: vec![1, 0, 1, 2],
@@ -511,5 +521,36 @@ mod tests {
         assert_eq!(h.role_of(sub(0, 2)), Some(&OpRole::Lateral));
         assert_eq!(h.operand_counts, vec![[1, 4, 4]]);
         assert_eq!(h.sources_of(sub(0, 5)).len(), 1);
+    }
+
+    #[test]
+    fn multi_operand_history_keeps_operands_and_kept_relations() {
+        let raw = RawHistory {
+            in_operands: vec![1, 0, 1],
+            in_kinds: vec![0, 0, 2],
+            in_indices: vec![0, 3, 1],
+            relations: vec![3, 0, 2],
+            out_starts: vec![0, 1, 3, 3],
+            out_kinds: vec![0, 0, 0],
+            out_indices: vec![7, 4, 2],
+            ..RawHistory::default()
+        };
+        let h = history_n(&raw, vec![[6, 12, 8], [3, 2, 2]]);
+        let at = |operand, kind, index| InputSub {
+            operand,
+            sub: sub(kind, index),
+        };
+        assert_eq!(h.entries[0].0, at(0, 0, 3));
+        assert_eq!(
+            h.entries[0].1,
+            Relation::Modified(SmallVec::from_slice(&[sub(0, 2), sub(0, 4)]))
+        );
+        assert_eq!(h.entries[1], (at(1, 0, 0), Relation::Kept(sub(0, 7))));
+        assert_eq!(h.entries[2], (at(1, 2, 1), Relation::Deleted));
+        assert_eq!(
+            h.sources_of(sub(0, 7)),
+            vec![(at(1, 0, 0), &Relation::Kept(sub(0, 7)))]
+        );
+        assert_eq!(h.operand_counts.len(), 2);
     }
 }

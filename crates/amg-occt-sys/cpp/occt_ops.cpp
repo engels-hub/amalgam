@@ -533,6 +533,9 @@ std::unique_ptr<OcShape> op_shape(const OcOp &op) { return std::make_unique<OcSh
 
 OcOpHistory op_history(const OcOp &op) {
   OcOpHistory out;
+  for (std::uint16_t o : op.in_operands) {
+    out.in_operands.push_back(o);
+  }
   for (std::uint8_t k : op.in_kinds) {
     out.in_kinds.push_back(k);
   }

@@ -6,6 +6,7 @@ use amg_core::{Aabb3, Plane, Point3, Transform};
 use amg_jobs::JobCtx;
 
 use crate::KResult;
+use crate::boolean::{BoolCode, BoolIn, BoolOutcome};
 use crate::builders::{BoundsIn, LoopsIn, PlanarIn};
 use crate::check::CheckReport;
 use crate::error::KernelError;
@@ -138,6 +139,10 @@ impl Occ {
         match *self {}
     }
 
+    pub(crate) fn volume_adaptive(&self, _eps: f64) -> KResult<f64> {
+        match *self {}
+    }
+
     pub(crate) fn moved(&self, _transform: &Transform) -> KResult<Occ> {
         match *self {}
     }
@@ -167,7 +172,22 @@ impl Occ {
         match *self {}
     }
 
-    pub(crate) fn boolean_cut_probe(&self, _tool: &Occ) -> KResult<Occ> {
+    pub(crate) fn boolean(
+        _code: BoolCode,
+        _objects: &[&Occ],
+        _tools: &[&Occ],
+        _opts: &BoolIn,
+        _ctx: &JobCtx,
+    ) -> KResult<BoolOutcome> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn section(
+        &self,
+        _other: &Occ,
+        _parallel: bool,
+        _ctx: &JobCtx,
+    ) -> KResult<BoolOutcome> {
         match *self {}
     }
 

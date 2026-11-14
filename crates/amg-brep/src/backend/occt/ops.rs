@@ -16,10 +16,11 @@ fn v3(p: Vec3) -> ffi::V3 {
     }
 }
 
-fn take(op: &ffi::OcOp) -> KResult<(Occ, RawHistory)> {
+pub(super) fn take(op: &ffi::OcOp) -> KResult<(Occ, RawHistory)> {
     let shape = ffi::op_shape(op).map_err(|e| to_kernel_error(&e))?;
     let raw = ffi::op_history(op).map_err(|e| to_kernel_error(&e))?;
     let history = RawHistory {
+        in_operands: raw.in_operands,
         in_kinds: raw.in_kinds,
         in_indices: raw.in_indices,
         relations: raw.relations,

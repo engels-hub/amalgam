@@ -1,0 +1,13 @@
+# Exact B-rep metrics of brep/bool_blind_hole (S02 BREP-04). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 949.7345175425635
+area = 650.2654824574365
+solids = 1
+faces = 8
+edges = 15
+vertices = 10
+classes = "PPPPPPYP"
