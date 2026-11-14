@@ -33,6 +33,8 @@ const LINES_WGSL: &str = include_str!("shaders/lines.wgsl");
 const SILHOUETTE_WGSL: &str = include_str!("shaders/silhouette.wgsl");
 const EXTERNAL_WGSL: &str = include_str!("shaders/external.wgsl");
 const POST_WGSL: &str = include_str!("shaders/post.wgsl");
+const SECTION_WGSL: &str = include_str!("shaders/section.wgsl");
+const CAP_DEPTH_WGSL: &str = include_str!("shaders/cap_depth.wgsl");
 pub(crate) const FULLSCREEN_WGSL: &str = include_str!("shaders/fullscreen.wgsl");
 
 /// What a pipeline draws.
@@ -47,21 +49,33 @@ pub(crate) enum PipelineKind {
         double_sided: bool,
         /// Depth test `Equal` without depth write, after a depth pre-pass.
         equal_depth: bool,
+        /// Discards what the section planes remove (RND-06). A clipped closed mesh is drawn
+        /// without culling and its back faces become section caps (`CAPS`).
+        clipped: bool,
     },
-    /// Depth pre-pass (no fragment stage).
-    Depth { flat: bool, double_sided: bool },
+    /// Depth pre-pass (no fragment stage unless clipped).
+    Depth {
+        flat: bool,
+        double_sided: bool,
+        clipped: bool,
+    },
+    /// Front faces of cut closed meshes past the exit of a bounded kept region, depth only
+    /// (colour writes masked; drawn in the opaque pass before the meshes).
+    CapOccluder,
+    /// Moves the depth of cap samples onto their plane (fullscreen, per sample, depth only).
+    CapDepth,
     /// Gradient background at the far plane.
     Background,
     /// `ExternalLayer` composite.
     External,
     /// FXAA into the final image (always single-sampled).
     Fxaa,
-    /// Wide-line edge segments (RND-12).
-    Line { pass: LinePass },
+    /// Wide-line edge segments (RND-12); `clipped` honours the section planes.
+    Line { pass: LinePass, clipped: bool },
     /// Point sprites.
-    Point { pass: LinePass },
+    Point { pass: LinePass, clipped: bool },
     /// Triangle wireframe through `POLYGON_MODE_LINE`.
-    Wire { pass: LinePass },
+    Wire { pass: LinePass, clipped: bool },
     /// Silhouettes over the resolved image; `samples` is the sample count of the targets it
     /// reads (it always draws single-sampled).
     Silhouette,
@@ -88,9 +102,25 @@ impl PipelineKey {
                 flat,
                 double_sided,
                 equal_depth,
+                clipped: false,
             },
             samples,
         }
+    }
+
+    /// This key with section clipping on or off (mesh, depth, line, point and wireframe kinds;
+    /// other kinds are returned unchanged).
+    #[must_use]
+    pub fn with_clip(mut self, on: bool) -> Self {
+        match &mut self.kind {
+            PipelineKind::Mesh { clipped, .. }
+            | PipelineKind::Depth { clipped, .. }
+            | PipelineKind::Line { clipped, .. }
+            | PipelineKind::Point { clipped, .. }
+            | PipelineKind::Wire { clipped, .. } => *clipped = on,
+            _ => {}
+        }
+        self
     }
 
     /// Family name for [`PipelineTiming::label`].
@@ -105,6 +135,8 @@ impl PipelineKey {
             PipelineKind::Point { .. } => "point",
             PipelineKind::Wire { .. } => "wireframe",
             PipelineKind::Silhouette => "silhouettes",
+            PipelineKind::CapOccluder => "cap occluders",
+            PipelineKind::CapDepth => "cap depth",
         }
     }
 
@@ -130,7 +162,11 @@ pub(crate) fn core_keys(samples: u32, prepass: bool) -> Vec<PipelineKey> {
             ));
             if prepass {
                 keys.push(PipelineKey {
-                    kind: PipelineKind::Depth { flat, double_sided },
+                    kind: PipelineKind::Depth {
+                        flat,
+                        double_sided,
+                        clipped: false,
+                    },
                     samples,
                 });
             }
@@ -169,17 +205,30 @@ fn shading_constants() -> String {
     out
 }
 
-/// Full WGSL of the mesh module (camera + shading + mesh passes).
+/// Full WGSL of the mesh module (camera + shading + sections + mesh passes and caps).
 pub(crate) fn mesh_wgsl() -> String {
     format!(
-        "{CAMERA_WGSL}\n{}\n{SHADING_WGSL}\n{SCENE_WGSL}\n{MESH_WGSL}",
+        "{CAMERA_WGSL}\n{}\n{SHADING_WGSL}\n{SCENE_WGSL}\n{SECTION_WGSL}\n{MESH_WGSL}",
         shading_constants()
     )
 }
 
 /// Full WGSL of the line, point and wireframe module.
 pub(crate) fn lines_wgsl() -> String {
-    format!("{CAMERA_WGSL}\n{SCENE_WGSL}\n{LINES_WGSL}")
+    format!("{CAMERA_WGSL}\n{SCENE_WGSL}\n{SECTION_WGSL}\n{LINES_WGSL}")
+}
+
+/// WGSL of the cap depth pass reading marks of `samples` samples.
+pub(crate) fn cap_depth_wgsl(samples: u32) -> String {
+    let marks = if samples > 1 {
+        "texture_multisampled_2d<f32>"
+    } else {
+        "texture_2d<f32>"
+    };
+    format!(
+        "{CAMERA_WGSL}\n{SCENE_WGSL}\n{SECTION_WGSL}\n{}",
+        CAP_DEPTH_WGSL.replace("MARK_TEXTURE", marks)
+    )
 }
 
 /// WGSL of the silhouette pass reading targets of `samples` samples.
@@ -207,6 +256,8 @@ pub(crate) struct Layouts<'a> {
     pub geometry: &'a wgpu::BindGroupLayout,
     /// Silhouette inputs at one sample and at several.
     pub silhouette: [&'a wgpu::BindGroupLayout; 2],
+    /// Group 1 of the cap depth pass (the normal target) at one sample and at several.
+    pub cap_marks: [&'a wgpu::BindGroupLayout; 2],
 }
 
 /// Everything needed to build any variant; cheap to share with job threads.
@@ -224,6 +275,9 @@ pub(crate) struct PipelineFactory {
     /// Silhouette modules and layouts at one sample (`[0]`) and several (`[1]`).
     silhouette_shader: [wgpu::ShaderModule; 2],
     silhouette_layout: [wgpu::PipelineLayout; 2],
+    /// Cap depth modules and layouts at one sample (`[0]`) and several (`[1]`).
+    cap_depth_shader: [wgpu::ShaderModule; 2],
+    cap_depth_layout: [wgpu::PipelineLayout; 2],
 }
 
 impl PipelineFactory {
@@ -263,6 +317,17 @@ impl PipelineFactory {
                 layout("amg silhouettes x1", layouts.silhouette[0]),
                 layout("amg silhouettes msaa", layouts.silhouette[1]),
             ],
+            cap_depth_shader: [
+                module("amg cap depth x1", cap_depth_wgsl(1)),
+                module("amg cap depth msaa", cap_depth_wgsl(4)),
+            ],
+            cap_depth_layout: [0, 1].map(|i| {
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("amg cap depth"),
+                    bind_group_layouts: &[Some(layouts.view), Some(layouts.cap_marks[i])],
+                    immediate_size: 0,
+                })
+            }),
         }
     }
 
@@ -322,6 +387,7 @@ impl PipelineFactory {
                 attributes: &normals,
             }),
         ];
+        let clip_constant = |on: bool| ("CLIP", f64::from(u8::from(on)));
         let geometry = |flat: bool, double_sided: bool| {
             (
                 wgpu::VertexState {
@@ -349,9 +415,22 @@ impl PipelineFactory {
                 flat,
                 double_sided,
                 equal_depth,
+                clipped,
             } => {
-                let (vertex, primitive) = geometry(flat, double_sided);
-                let constants = [("LIGHTING", f64::from(lighting.shader_id()))];
+                let caps = clipped && !double_sided;
+                let (mut vertex, primitive) = geometry(flat, double_sided || caps);
+                // After the clipped depth pre-pass (`Equal`) the shader needs no discard: the
+                // clipped fragments were never written, so they fail the depth test.
+                let constants = [
+                    ("LIGHTING", f64::from(lighting.shader_id())),
+                    clip_constant(clipped && !equal_depth),
+                    ("CAPS", f64::from(u8::from(caps))),
+                ];
+                let vertex_constants = [("CAPS", f64::from(u8::from(caps)))];
+                vertex.compilation_options = wgpu::PipelineCompilationOptions {
+                    constants: &vertex_constants,
+                    ..Default::default()
+                };
                 let targets = opaque_targets(None, true);
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some(&label),
@@ -377,8 +456,19 @@ impl PipelineFactory {
                     cache: None,
                 })
             }
-            PipelineKind::Depth { flat, double_sided } => {
-                let (vertex, primitive) = geometry(flat, double_sided);
+            PipelineKind::Depth {
+                flat,
+                double_sided,
+                clipped,
+            } => {
+                // A clipped closed mesh keeps its back faces that are section-cap candidates.
+                let caps = clipped && !double_sided;
+                let (mut vertex, primitive) = geometry(flat, double_sided || caps);
+                let caps_constant = [("CAPS", f64::from(u8::from(caps)))];
+                vertex.compilation_options = wgpu::PipelineCompilationOptions {
+                    constants: &caps_constant,
+                    ..Default::default()
+                };
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some(&label),
                     layout: Some(&self.mesh_layout),
@@ -386,7 +476,74 @@ impl PipelineFactory {
                     primitive,
                     depth_stencil: depth(true, wgpu::CompareFunction::GreaterEqual),
                     multisample,
-                    fragment: None,
+                    fragment: clipped.then(|| wgpu::FragmentState {
+                        module: &self.mesh_shader,
+                        entry_point: Some("fs_depth_clip"),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &caps_constant,
+                            ..Default::default()
+                        },
+                        targets: &[],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            PipelineKind::CapOccluder => {
+                let masked = |format| {
+                    Some(wgpu::ColorTargetState {
+                        format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    })
+                };
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(&label),
+                    layout: Some(&self.mesh_layout),
+                    vertex: wgpu::VertexState {
+                        module: &self.mesh_shader,
+                        entry_point: Some("vs_cap"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &smooth_buffers[..1],
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        front_face: wgpu::FrontFace::Ccw,
+                        cull_mode: Some(wgpu::Face::Back),
+                        ..Default::default()
+                    },
+                    depth_stencil: depth(true, wgpu::CompareFunction::GreaterEqual),
+                    multisample,
+                    fragment: Some(wgpu::FragmentState {
+                        module: &self.mesh_shader,
+                        entry_point: Some("fs_cap_occluder"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: &[masked(HDR_FORMAT), masked(NORMAL_FORMAT)],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            PipelineKind::CapDepth => {
+                let i = usize::from(key.samples > 1);
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(&label),
+                    layout: Some(&self.cap_depth_layout[i]),
+                    vertex: wgpu::VertexState {
+                        module: &self.cap_depth_shader[i],
+                        entry_point: Some("vs_cap_depth"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: depth(true, wgpu::CompareFunction::Always),
+                    multisample,
+                    fragment: Some(wgpu::FragmentState {
+                        module: &self.cap_depth_shader[i],
+                        entry_point: Some("fs_cap_depth"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: &[],
+                    }),
                     multiview_mask: None,
                     cache: None,
                 })
@@ -450,9 +607,9 @@ impl PipelineFactory {
                     cache: None,
                 })
             }
-            PipelineKind::Line { pass }
-            | PipelineKind::Point { pass }
-            | PipelineKind::Wire { pass } => {
+            PipelineKind::Line { pass, clipped }
+            | PipelineKind::Point { pass, clipped }
+            | PipelineKind::Wire { pass, clipped } => {
                 let alpha = wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::SrcAlpha,
@@ -471,7 +628,10 @@ impl PipelineFactory {
                     LinePass::Visible => wgpu::CompareFunction::GreaterEqual,
                     LinePass::Always => wgpu::CompareFunction::Always,
                 };
-                let constants = [("HIDDEN", f64::from(u8::from(pass == LinePass::Hidden)))];
+                let constants = [
+                    ("HIDDEN", f64::from(u8::from(pass == LinePass::Hidden))),
+                    clip_constant(clipped),
+                ];
                 let wire = matches!(key.kind, PipelineKind::Wire { .. });
                 let (vs, fs) = match key.kind {
                     PipelineKind::Line { .. } => ("vs_line", "fs_line"),
@@ -784,7 +944,8 @@ mod tests {
         assert!(with_prepass.contains(&PipelineKey {
             kind: PipelineKind::Depth {
                 flat: true,
-                double_sided: false
+                double_sided: false,
+                clipped: false,
             },
             samples: 1
         }));
