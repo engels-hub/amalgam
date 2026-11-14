@@ -476,11 +476,13 @@ fn apply_gpu(
                 return;
             }
             let key = scene.add_instance(Instance {
-                mesh: Some(mesh),
-                transform: desc.transform,
                 visible: desc.visible,
                 layer: desc.layer,
                 material: desc.material,
+                // Bodies arrive as triangle meshes (no B-rep edge sets yet), so the wireframe
+                // styles draw their triangle wireframe.
+                mesh_wireframe: true,
+                ..Instance::new(mesh, desc.transform)
             });
             instances.insert(slot, key);
         }
