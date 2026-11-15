@@ -28,12 +28,21 @@
 //! RND-06 adds section planes ([`SectionPlane`], up to [`MAX_SECTIONS`]): clipped pipeline
 //! variants that `discard` in the mesh, depth, line, point and wireframe passes, back-face caps
 //! by ray–plane intersection with a per-instance cap colour and screen-constant hatching, drawn
-//! only for closed meshes, and a cap depth pass that puts cap depth on the plane. The remaining
-//! S10 API arrives with the later work packages.
+//! only for closed meshes, and a cap depth pass that puts cap depth on the plane.
+//!
+//! RND-08 adds analyses and fields ([`Shading`] per instance, design note §11): zebra, draft and
+//! overhang shader modes computed live from the normal, per-vertex scalar fields
+//! ([`upload_scalar_field`]) through a colormap LUT texture array ([`ColorMap`], with
+//! [`colormap_rgb`] as the CPU reference) with bands, isolines and out-of-range colours, the
+//! [`legend`] ticks, and vector-field deformation ([`upload_vector_field`], [`Deformation`],
+//! [`Animation`]). Switching shading rewrites two 128-byte records, never geometry. The
+//! remaining S10 API arrives with the later work packages.
 
 #![warn(missing_docs)]
 
+mod analysis;
 mod camera;
+mod colormap_data;
 mod cull;
 mod error;
 mod lines;
@@ -49,6 +58,14 @@ pub mod egui_glue;
 
 pub use wgpu;
 
+pub use analysis::testing as analysis_testing;
+pub use analysis::{
+    Analysis, AnalysisOutput, Animation, CONTACT_COLOR, ColorMap, DRAFT_INSUFFICIENT_COLOR,
+    Deformation, FieldBinding, FieldKind, GpuField, ISOLINE_ALPHA, ISOLINE_COLOR, LUT_SIZE, Legend,
+    NAN_COLOR, OVERHANG_HIGH_COLOR, OVERHANG_LOW_COLOR, OutOfRange, Shading, ZEBRA_DARK,
+    ZEBRA_LIGHT, class, colormap_lut, colormap_rgb, decode_class, draft_angle, legend,
+    overhang_class, overhang_severity, upload_scalar_field, upload_vector_field, zebra_t,
+};
 pub use camera::{Camera, CameraUniform, Projection};
 pub use error::RenderError;
 pub use lines::{
@@ -62,7 +79,7 @@ pub use renderer::{
 pub use scene::{ExternalLayer, Instance, Layer, LayerMask, Material, RenderScene};
 pub use section::{Hatch, MAX_SECTIONS, SectionPlane, section_cap_point};
 pub use shading::{Lighting, oct_decode, oct_encode, shade_reference};
-pub use upload::{GpuMesh, MeshData, upload_mesh};
+pub use upload::{GpuMesh, MeshData, geometry_bytes_uploaded, upload_mesh};
 
 /// OR these into `GpuConfig::optional_features` before `Gpu::new` (all have fallbacks).
 pub const OPTIONAL_FEATURES: wgpu::Features = wgpu::Features::PRIMITIVE_INDEX
@@ -78,6 +95,8 @@ amg_core::define_id! {
     pub struct EdgesKey;
     /// A point set in the [`RenderScene`].
     pub struct PointsKey;
+    /// A per-vertex field in the [`RenderScene`] (RND-08).
+    pub struct FieldKey;
     /// An instance in the [`RenderScene`].
     pub struct InstanceKey;
     /// A section plane in the [`RenderScene`].

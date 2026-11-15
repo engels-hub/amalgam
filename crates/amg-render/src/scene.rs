@@ -1,13 +1,18 @@
 //! The renderer-owned scene mirror: meshes, edge and point sets, instances with dirty
 //! tracking, layers and the external layer. RND-03 covers the mesh path, RND-12 the edges and
-//! points; fields, sections and overlays arrive with their own work packages.
+//! points, RND-06 the section planes, RND-08 the fields and per-instance [`Shading`]; overlays
+//! arrive with their own work package.
 
 use amg_core::{Aabb3, Mat3, Point3, SlotMap, Transform, Vec3};
 
+use crate::analysis::{
+    AnalysisOutput, AnalysisRecord, Animation, GpuField, GroupShade, Shading,
+    build_analysis_record, deformation_of, group_shade,
+};
 use crate::lines::{GpuEdges, GpuPoints, LineRecord, LineStyle, PointStyle, build_line_record};
 use crate::section::{MAX_SECTIONS, SectionPlane};
 use crate::upload::GpuMesh;
-use crate::{EdgesKey, InstanceKey, MeshKey, PickId, PointsKey, SectionKey};
+use crate::{EdgesKey, FieldKey, InstanceKey, MeshKey, PickId, PointsKey, SectionKey};
 
 /// What an instance belongs to. Views choose which layers they draw ([`LayerMask`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -97,6 +102,9 @@ pub struct Instance {
     /// Clipped by the scene's section planes (RND-06). Default true. Closed meshes cut by a
     /// plane show caps.
     pub sectioned: bool,
+    /// How the surface is coloured (RND-08): material, a scalar field (with optional
+    /// deformation) or a live analysis. Changing it rewrites the instance's records only.
+    pub shading: Shading,
 }
 
 impl Instance {
@@ -137,6 +145,7 @@ impl Instance {
             point_style: PointStyle::default(),
             mesh_wireframe: false,
             sectioned: true,
+            shading: Shading::Material,
         }
     }
 }
@@ -235,6 +244,8 @@ pub(crate) struct Geometry {
     pub mesh: Option<(Point3, Aabb3)>,
     pub edges: Option<(Point3, Aabb3)>,
     pub points: Option<(Point3, Aabb3)>,
+    /// Largest local displacement of the instance's deformation (`|scale| · max |d|`), mm.
+    pub deform_pad: f64,
 }
 
 /// Builds the GPU record and world sphere of `inst`. `mesh` supplies the origin and bounds.
@@ -243,7 +254,7 @@ pub(crate) fn build_record(
     inst: &Instance,
     mesh: Option<(Point3, Aabb3)>,
 ) -> (InstanceRecord, DrawInfo) {
-    let (record, _, info) = build_records(
+    let (record, _, _, info) = build_records(
         inst,
         Geometry {
             mesh,
@@ -253,13 +264,14 @@ pub(crate) fn build_record(
     (record, info)
 }
 
-/// Builds the instance record, the line record and the world sphere of `inst`. The record is
-/// built around the mesh origin (else the edge-set, else the point-set origin); the line record
-/// holds the other sets' offsets from it. The sphere encloses all three.
+/// Builds the instance record, the line record, the analysis record and the world sphere of
+/// `inst`. The record is built around the mesh origin (else the edge-set, else the point-set
+/// origin); the line record holds the other sets' offsets from it. The sphere encloses all
+/// three, grown by the largest deformation.
 pub(crate) fn build_records(
     inst: &Instance,
     geometry: Geometry,
-) -> (InstanceRecord, LineRecord, DrawInfo) {
+) -> (InstanceRecord, LineRecord, AnalysisRecord, DrawInfo) {
     let origin = geometry
         .mesh
         .or(geometry.edges)
@@ -298,6 +310,15 @@ pub(crate) fn build_records(
         geometry.edges.map(|(o, _)| o),
         geometry.points.map(|(o, _)| o),
     );
+    let analysis = build_analysis_record(&inst.shading, &inst.transform, translation);
+    // A deformed vertex moves at most `deform_pad` in local units; the linear part stretches
+    // that by at most its largest column length (an upper bound of its norm for these uses).
+    let stretch = [m.x_axis, m.y_axis, m.z_axis]
+        .iter()
+        .map(|c| c.length())
+        .fold(0.0, f64::max)
+        * 3f64.sqrt();
+    let pad = geometry.deform_pad * stretch;
     let sphere = bounds.filter(|b| !b.is_empty()).map(|b| {
         let mut world = Aabb3::EMPTY;
         for x in [b.min.x, b.max.x] {
@@ -311,10 +332,11 @@ pub(crate) fn build_records(
         let radius = [world.min, world.max]
             .iter()
             .map(|c| c.distance(center))
-            .fold(0.0, f64::max);
+            .fold(0.0, f64::max)
+            + pad;
         Sphere { center, radius }
     });
-    (record, lines, DrawInfo { sphere })
+    (record, lines, analysis, DrawInfo { sphere })
 }
 
 /// Dense instance storage: slot `i` of every vector describes the same instance, and the slot
@@ -326,6 +348,7 @@ pub(crate) struct InstanceTable {
     instances: Vec<Instance>,
     records: Vec<InstanceRecord>,
     line_records: Vec<LineRecord>,
+    analysis_records: Vec<AnalysisRecord>,
     info: Vec<DrawInfo>,
     dirty_flag: Vec<bool>,
     dirty: Vec<u32>,
@@ -343,10 +366,16 @@ impl InstanceTable {
         self.instances.push(inst);
         self.records.push(InstanceRecord::default());
         self.line_records.push(LineRecord::default());
+        self.analysis_records.push(AnalysisRecord::default());
         self.info.push(DrawInfo::default());
         self.dirty_flag.push(false);
         self.mark(slot);
         key
+    }
+
+    /// The GPU record slot of `k`.
+    pub fn slot(&self, k: InstanceKey) -> Option<u32> {
+        self.index.get(k).copied()
     }
 
     pub fn get(&self, k: InstanceKey) -> Option<&Instance> {
@@ -370,6 +399,7 @@ impl InstanceTable {
         self.instances.swap_remove(slot);
         self.records.swap_remove(slot);
         self.line_records.swap_remove(slot);
+        self.analysis_records.swap_remove(slot);
         self.info.swap_remove(slot);
         self.dirty_flag.swap_remove(slot);
         if slot != last {
@@ -391,6 +421,15 @@ impl InstanceTable {
                 self.compact_dirty();
             }
             self.dirty.push(slot);
+        }
+    }
+
+    /// Marks every instance matching `pred` dirty.
+    pub fn mark_where(&mut self, pred: impl Fn(&Instance) -> bool) {
+        for slot in 0..self.instances.len() {
+            if pred(&self.instances[slot]) {
+                self.mark(slot as u32);
+            }
         }
     }
 
@@ -431,9 +470,10 @@ impl InstanceTable {
         for &slot in &self.dirty {
             let i = slot as usize;
             let inst = &self.instances[i];
-            let (record, lines, info) = build_records(inst, geometry(inst));
+            let (record, lines, analysis, info) = build_records(inst, geometry(inst));
             self.records[i] = record;
             self.line_records[i] = lines;
+            self.analysis_records[i] = analysis;
             self.info[i] = info;
             self.dirty_flag[i] = false;
             match runs.last_mut() {
@@ -457,6 +497,10 @@ impl InstanceTable {
         &self.line_records
     }
 
+    pub fn analysis_records(&self) -> &[AnalysisRecord] {
+        &self.analysis_records
+    }
+
     pub fn instances(&self) -> &[Instance] {
         &self.instances
     }
@@ -473,6 +517,7 @@ pub struct RenderScene {
     meshes: SlotMap<MeshKey, GpuMesh>,
     edges: SlotMap<EdgesKey, GpuEdges>,
     points: SlotMap<PointsKey, GpuPoints>,
+    fields: SlotMap<FieldKey, GpuField>,
     table: InstanceTable,
     external: Option<ExternalLayer>,
     sections: SlotMap<SectionKey, SectionPlane>,
@@ -534,6 +579,66 @@ impl RenderScene {
     /// The point set, if it exists.
     pub fn points_ref(&self, k: PointsKey) -> Option<&GpuPoints> {
         self.points.get(k)
+    }
+
+    /// Adds a finished field upload ([`crate::upload_scalar_field`],
+    /// [`crate::upload_vector_field`]). Constant time; no GPU work.
+    pub fn insert_field(&mut self, f: GpuField) -> FieldKey {
+        self.revision += 1;
+        self.fields.insert(f)
+    }
+
+    /// Removes a field; instances bound to it fall back (a missing scalar field shows the
+    /// material, a missing displacement field draws undeformed). Returns whether it existed.
+    pub fn remove_field(&mut self, k: FieldKey) -> bool {
+        self.revision += 1;
+        if self.fields.remove(k).is_none() {
+            return false;
+        }
+        // Deformation pads the bounding sphere: re-derive it for the instances that used it.
+        self.table
+            .mark_where(|i| deformation_of(&i.shading).is_some_and(|d| d.field == k));
+        true
+    }
+
+    /// The field, if it exists.
+    pub fn field_ref(&self, k: FieldKey) -> Option<&GpuField> {
+        self.fields.get(k)
+    }
+
+    /// Number of live fields.
+    pub fn field_count(&self) -> usize {
+        self.fields.len()
+    }
+
+    /// Whether a visible instance has an animated deformation ([`Animation::Sine`] or
+    /// [`Animation::Ramp`]): the app should keep repainting and advancing
+    /// [`crate::Renderer::set_animation_time`].
+    pub fn is_animating(&self) -> bool {
+        self.table.instances().iter().any(|i| {
+            i.visible
+                && deformation_of(&i.shading).is_some_and(|d| {
+                    d.animation != Animation::Static && self.fields.contains_key(d.field)
+                })
+        })
+    }
+
+    /// How `inst` is drawn: its shading resolved against its mesh and the live fields.
+    pub(crate) fn group_shade(&self, inst: &Instance, out: AnalysisOutput) -> GroupShade {
+        let vertices = inst
+            .mesh
+            .and_then(|k| self.meshes.get(k))
+            .map_or(0, GpuMesh::vertex_count);
+        group_shade(
+            &inst.shading,
+            vertices,
+            |k| self.fields.get(k).map(|f| (f.kind(), f.vertex_count())),
+            out,
+        )
+    }
+
+    pub(crate) fn field(&self, k: FieldKey) -> Option<&GpuField> {
+        self.fields.get(k)
     }
 
     /// Adds an instance. Its GPU record is written by the next `encode`.
@@ -652,12 +757,13 @@ impl RenderScene {
         out
     }
 
-    /// VRAM used by the meshes, edge sets and point sets. The renderer's own instance and
+    /// VRAM used by the meshes, edge sets, point sets and fields. The renderer's own instance and
     /// visibility buffers are not included.
     pub fn gpu_bytes(&self) -> u64 {
         self.meshes.values().map(GpuMesh::gpu_bytes).sum::<u64>()
             + self.edges.values().map(GpuEdges::gpu_bytes).sum::<u64>()
             + self.points.values().map(GpuPoints::gpu_bytes).sum::<u64>()
+            + self.fields.values().map(GpuField::gpu_bytes).sum::<u64>()
     }
 
     /// Number of live edge sets.
@@ -671,7 +777,7 @@ impl RenderScene {
     }
 
     fn geometry(&self, inst: &Instance) -> Geometry {
-        geometry_of(inst, &self.meshes, &self.edges, &self.points)
+        geometry_of(inst, &self.meshes, &self.edges, &self.points, &self.fields)
     }
 
     /// Bumped on every mutation.
@@ -701,10 +807,14 @@ impl RenderScene {
             meshes,
             edges,
             points,
+            fields,
             table,
             ..
         } = self;
-        table.flush_geometry(|inst| geometry_of(inst, meshes, edges, points), runs);
+        table.flush_geometry(
+            |inst| geometry_of(inst, meshes, edges, points, fields),
+            runs,
+        );
     }
 }
 
@@ -713,8 +823,17 @@ fn geometry_of(
     meshes: &SlotMap<MeshKey, GpuMesh>,
     edges: &SlotMap<EdgesKey, GpuEdges>,
     points: &SlotMap<PointsKey, GpuPoints>,
+    fields: &SlotMap<FieldKey, GpuField>,
 ) -> Geometry {
+    let deform_pad = deformation_of(&inst.shading)
+        .and_then(|d| {
+            fields
+                .get(d.field)
+                .map(|f| f64::from(d.scale.abs()) * f64::from(f.max_displacement()))
+        })
+        .unwrap_or(0.0);
     Geometry {
+        deform_pad,
         mesh: inst
             .mesh
             .and_then(|k| meshes.get(k))

@@ -1,5 +1,7 @@
 //! GPU mesh upload (design note §5). Runs on job threads; no UI-thread work.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use amg_core::{Aabb3, Point3, Vec3};
 use amg_jobs::JobCtx;
 use amg_jobs::gpu::Gpu;
@@ -172,6 +174,16 @@ pub(crate) fn check_size(what: &'static str, bytes: u64, limit: u64) -> Result<(
     }
 }
 
+/// Bytes copied into GPU buffers by the `upload_*` functions (meshes, edges, points, fields)
+/// in this process.
+static GEOMETRY_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// Total bytes the `upload_*` functions (meshes, edge and point sets, fields) have copied to
+/// the GPU in this process. Rendering, shading changes and analyses never add to it.
+pub fn geometry_bytes_uploaded() -> u64 {
+    GEOMETRY_BYTES.load(Ordering::Relaxed)
+}
+
 /// Creates a buffer holding `data`, copying through the mapped range in chunks so the job can
 /// be cancelled between them.
 pub(crate) fn upload_chunked<T: bytemuck::Pod>(
@@ -182,6 +194,7 @@ pub(crate) fn upload_chunked<T: bytemuck::Pod>(
     ctx: &JobCtx,
 ) -> Result<wgpu::Buffer, RenderError> {
     let bytes: &[u8] = bytemuck::cast_slice(data);
+    GEOMETRY_BYTES.fetch_add(bytes.len() as u64, Ordering::Relaxed);
     let buffer = gpu.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: bytes.len() as u64,
@@ -219,6 +232,7 @@ fn upload_mapped<T, U: bytemuck::Pod>(
 ) -> Result<wgpu::Buffer, RenderError> {
     let elem = size_of::<U>();
     let bytes = (data.len() * elem) as u64;
+    GEOMETRY_BYTES.fetch_add(bytes, Ordering::Relaxed);
     let buffer = gpu.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: bytes,
@@ -263,7 +277,14 @@ pub fn upload_mesh(gpu: &Gpu, data: &MeshData, ctx: &JobCtx) -> Result<GpuMesh, 
     check_size("indices", data.indices.len() as u64 * 4, limit)?;
 
     let vertex = wgpu::BufferUsages::VERTEX;
-    let positions = upload_chunked(gpu, "amg mesh positions", &data.positions, vertex, ctx)?;
+    // COPY_SRC: the RND-08 deformation readback copies the positions (no VRAM cost).
+    let positions = upload_chunked(
+        gpu,
+        "amg mesh positions",
+        &data.positions,
+        vertex | wgpu::BufferUsages::COPY_SRC,
+        ctx,
+    )?;
     let normals = if data.normals.is_empty() {
         None
     } else {

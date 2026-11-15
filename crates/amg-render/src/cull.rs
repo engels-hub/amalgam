@@ -6,6 +6,7 @@ use amg_core::glam::DVec4;
 use amg_core::{Mat4, Vec3};
 
 use crate::MeshKey;
+use crate::analysis::GroupShade;
 use crate::scene::{Instance, InstanceTable, LayerMask};
 use crate::section::{SectionPlane, SectionState, classify};
 
@@ -79,6 +80,8 @@ pub(crate) struct DrawGroup {
     /// The instances cross a section plane: drawn with the clipped pipelines (and, when
     /// closed, capped).
     pub clipped: bool,
+    /// Material or analysis programme, and the field buffers it binds (RND-08).
+    pub shade: GroupShade,
     /// First entry of [`DrawPlan::slots`].
     pub first: u32,
     pub count: u32,
@@ -103,6 +106,7 @@ struct Item {
     flat: bool,
     double_sided: bool,
     clipped: bool,
+    shade: GroupShade,
     mesh: MeshKey,
     dist: f32,
     slot: u32,
@@ -110,9 +114,20 @@ struct Item {
 
 impl Item {
     /// Pipeline order: smooth before flat, closed before double-sided, unclipped before
-    /// clipped.
-    fn pipeline(&self) -> (bool, bool, bool) {
-        (self.flat, self.double_sided, self.clipped)
+    /// clipped, material before analyses.
+    fn pipeline(&self) -> (bool, bool, bool, crate::analysis::ShadeKey) {
+        (self.flat, self.double_sided, self.clipped, self.shade.key)
+    }
+
+    /// What one instanced draw shares: the pipeline, the mesh and the bound fields.
+    fn draw_key(&self) -> (bool, bool, bool, GroupShade, MeshKey) {
+        (
+            self.flat,
+            self.double_sided,
+            self.clipped,
+            self.shade,
+            self.mesh,
+        )
     }
 }
 
@@ -129,12 +144,21 @@ impl DrawPlan {
         layers: LayerMask,
         force_flat: bool,
     ) {
-        self.build_sectioned(table, mesh_info, frustum, eye, layers, force_flat, &[]);
+        self.build_sectioned(
+            table,
+            mesh_info,
+            |_| GroupShade::default(),
+            frustum,
+            eye,
+            layers,
+            force_flat,
+            &[],
+        );
     }
 
     /// [`DrawPlan::build`] with the view's active section planes: sectioned instances whose
     /// bounding sphere lies entirely on the removed side of a plane are skipped, those that
-    /// cross a plane go into clipped groups.
+    /// cross a plane go into clipped groups. `shade_of` resolves an instance's shading (RND-08).
     #[allow(
         clippy::too_many_arguments,
         reason = "plain inputs of one planning step"
@@ -143,6 +167,7 @@ impl DrawPlan {
         &mut self,
         table: &InstanceTable,
         mesh_info: impl Fn(MeshKey) -> Option<M>,
+        shade_of: impl Fn(&Instance) -> GroupShade,
         frustum: &Frustum,
         eye: Vec3,
         layers: LayerMask,
@@ -183,6 +208,7 @@ impl DrawPlan {
                 flat: force_flat || !draw.has_normals,
                 double_sided: !draw.closed,
                 clipped: state == SectionState::Cut,
+                shade: shade_of(inst),
                 mesh,
                 dist: (sphere.center.distance(eye) - sphere.radius).max(0.0) as f32,
                 slot: slot as u32,
@@ -193,6 +219,7 @@ impl DrawPlan {
             a.pipeline()
                 .cmp(&b.pipeline())
                 .then(a.mesh.cmp(&b.mesh))
+                .then(a.shade.fields.cmp(&b.shade.fields))
                 .then(a.dist.total_cmp(&b.dist))
                 .then(a.slot.cmp(&b.slot))
         });
@@ -201,9 +228,8 @@ impl DrawPlan {
         self.order.clear();
         let mut start = 0;
         for i in 1..=self.items.len() {
-            let boundary = i == self.items.len()
-                || (self.items[i].pipeline(), self.items[i].mesh)
-                    != (self.items[start].pipeline(), self.items[start].mesh);
+            let boundary =
+                i == self.items.len() || self.items[i].draw_key() != self.items[start].draw_key();
             if boundary {
                 if i > start {
                     self.order.push((start, i));
@@ -225,6 +251,7 @@ impl DrawPlan {
                 flat: items[from].flat,
                 double_sided: items[from].double_sided,
                 clipped: items[from].clipped,
+                shade: items[from].shade,
                 first: self.slots.len() as u32,
                 count: (to - from) as u32,
             });
@@ -340,6 +367,72 @@ mod tests {
         let mut m = SlotMap::<MeshKey, ()>::with_key();
         (0..n).map(|_| m.insert(())).collect()
     }
+    #[test]
+    fn instances_of_one_mesh_split_by_shading_and_fields() {
+        use crate::FieldKey;
+        use crate::analysis::{GroupShade, ShadeKey, ShadeMode};
+
+        let meshes = keys(1);
+        let mut fields = SlotMap::<FieldKey, ()>::with_key();
+        let (fa, fb) = (fields.insert(()), fields.insert(()));
+        let table = table_of(6, |_| meshes[0], |i| Vec3::new(0.0, 10.0 * i as f64, 0.0));
+        let field = |k| GroupShade {
+            key: ShadeKey {
+                mode: ShadeMode::Field,
+                scalar: true,
+                ..ShadeKey::default()
+            },
+            fields: [Some(k), None],
+        };
+        // Slots 0 and 3: material; 1 and 4: field A; 2: field B; 5: zebra.
+        let shade = |slot: usize| match slot {
+            1 | 4 => field(fa),
+            2 => field(fb),
+            5 => GroupShade {
+                key: ShadeKey {
+                    mode: ShadeMode::Zebra,
+                    ..ShadeKey::default()
+                },
+                fields: [None, None],
+            },
+            _ => GroupShade::default(),
+        };
+        let cam = camera(Projection::Perspective { fov_y: 0.8 });
+        let mut plan = DrawPlan::default();
+        let instances = table.instances();
+        plan.build_sectioned(
+            &table,
+            |_| Some(true),
+            |inst| {
+                let slot = instances
+                    .iter()
+                    .position(|i| std::ptr::eq(i, inst))
+                    .unwrap();
+                shade(slot)
+            },
+            &frustum(&cam),
+            cam.eye,
+            LayerMask::ALL,
+            false,
+            &[],
+        );
+        let groups: Vec<(ShadeMode, [Option<FieldKey>; 2], Vec<u32>)> = plan
+            .groups
+            .iter()
+            .map(|g| {
+                (
+                    g.shade.key.mode,
+                    g.shade.fields,
+                    plan.slots[g.first as usize..(g.first + g.count) as usize].to_vec(),
+                )
+            })
+            .collect();
+        assert_eq!(groups.len(), 4, "{groups:?}");
+        assert_eq!(groups[0], (ShadeMode::Material, [None, None], vec![0, 3]));
+        assert!(groups.contains(&(ShadeMode::Field, [Some(fa), None], vec![1, 4])));
+        assert!(groups.contains(&(ShadeMode::Field, [Some(fb), None], vec![2])));
+        assert!(groups.contains(&(ShadeMode::Zebra, [None, None], vec![5])));
+    }
 
     #[test]
     fn plan_groups_by_mesh_and_sorts_front_to_back() {
@@ -428,6 +521,7 @@ mod tests {
         plan.build_sectioned(
             &table,
             |_| Some(true),
+            |_| GroupShade::default(),
             &frustum(&cam),
             cam.eye,
             LayerMask::ALL,

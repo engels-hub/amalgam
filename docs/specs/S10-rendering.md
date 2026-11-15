@@ -604,7 +604,7 @@ pub mod egui_glue {
 | RND-05 | Transparency: WBOIT accum/revealage targets and composite, per-instance opacity (`base_color.a`), `Layer::Ghost`, x-ray style (all model instances at α 0.25 + dimmed always-on-top edges). | RND-02, RND-03 | P1 | Todo | 1. Three overlapping translucent quads rendered in all 6 submission orders differ by ≤ 2/255 per channel. 2. An opaque object behind and in front of translucent ones is correctly occluded. 3. X-ray shows hidden edges at the configured alpha. 4. Overhead ≤ 2 ms at 1440p with 1 M translucent tris (owner bench), and 0 when nothing is translucent (pass skipped). |
 | RND-06 | Section planes: up to 6 planes, `discard` in every `clipped` model/edge/pick pipeline, back-face ray–plane caps with `frag_depth`, per-instance `cap_color`, screen-constant hatching, `closed` gating, cap picking (`CAP_SUB`). | RND-02, RND-03 | P0 | Done | 1. Closed sphere r = 10 cut by z = 0, viewed from +Z: every pixel inside the projected circle shrunk by 1 px is cap or hatch colour, and none is background (watertight). 2. A cube cut by 2 orthogonal planes gives an L-shaped cap; pixel test against analytic polygons. 3. An open mesh draws no cap. 4. Hatch spacing is 8 ± 1 px at zooms 0.01×–100×. 5. Picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). 6. Overhead ≤ 1 ms at 5 M tris (owner bench). |
 | RND-07 | Overlay layer: `OverlayList` (polylines, arrows, rings, triads, plane quads, adaptive grid, image planes, points, sprites, pickable handles), constant pixel size, `DepthMode` incl. x-ray dimming, own overlay depth, `project_labels` + `egui_glue::paint_labels` (egui text), view-cube rendering hook for RND-11. | RND-12, RND-03 | P0 | Todo | 1. Labels: projected anchors match `Camera::project` within 0.5 px for 20 random cameras, and text is egui-rasterised (crisp at every zoom by construction). 2. Arrow and ring sizes stay within ±1 px of the requested size across view distances 1e-2..1e5 mm. 3. Handle picking returns `SubKind::Handle` with the handle id. 4. Grid minor lines are never closer than 8 px. 5. An image plane shows a test PNG with correct orientation (corner-pixel test). 6. Overlays cost ≤ 0.5 ms GPU with 1000 primitives. |
-| RND-08 | Analyses and fields: `Shading::{Field, Analysis}`, zebra, draft and overhang shaders (note §11), scalar-field colormaps (Viridis, Turbo, Rainbow, BlueWhiteRed, Grey; LUT texture array), bands, isolines, out-of-range handling, `legend`, `colormap_rgb`, vector-field deformation with `Animation`. | RND-02, RND-03 | P0 | Todo | 1. A test-mode readback of a per-pixel class target: overhang classification on an icosphere matches the note §11 CPU formula for 100 % of pixels whose normal is > 0.5° from the threshold or plate band. 2. Zebra on a sphere shows N ± 1 stripes along the profile. 3. Draft sign is correct on a ±10° drafted prism. 4. LUT bytes equal the embedded reference tables, and `colormap_rgb` agrees with the shader within 1/255. 5. `legend` gives nice ticks (table test). 6. Deformed positions (test readback) match the CPU `p + s·A·d` within 1e-4 relative. 7. Switching shading never re-uploads geometry (counter). 8. A 5 M-tri mesh with field shading stays inside the RND-02 budget (bench). |
+| RND-08 | Analyses and fields: `Shading::{Field, Analysis}`, zebra, draft and overhang shaders (note §11), scalar-field colormaps (Viridis, Turbo, Rainbow, BlueWhiteRed, Grey; LUT texture array), bands, isolines, out-of-range handling, `legend`, `colormap_rgb`, vector-field deformation with `Animation`. | RND-02, RND-03 | P0 | Review | 1. A test-mode readback of a per-pixel class target: overhang classification on an icosphere matches the note §11 CPU formula for 100 % of pixels whose normal is > 0.5° from the threshold or plate band. 2. Zebra on a sphere shows N ± 1 stripes along the profile. 3. Draft sign is correct on a ±10° drafted prism. 4. LUT bytes equal the embedded reference tables, and `colormap_rgb` agrees with the shader within 1/255. 5. `legend` gives nice ticks (table test). 6. Deformed positions (test readback) match the CPU `p + s·A·d` within 1e-4 relative. 7. Switching shading never re-uploads geometry (counter). 8. A 5 M-tri mesh with field shading stays inside the RND-02 budget (bench). |
 | RND-09 | Headless and visual regression: `assert_render_golden!` over `tests/golden/render/` (amg-testkit golden dir, `AMG_BLESS=1`), WARP-generated goldens, thresholds per note §15, diff and actual PNGs on failure, `thumbnail(scene, size) -> png bytes` with a Home-view fit. | RND-02 | P1 | Todo | 1. ≥ 10 golden scenes (6 visual styles, a section, a field, an analysis, overlays) pass in CI on WARP. 2. A deliberate 1-px camera shift fails with diff images written. 3. Bless round-trip works. 4. A 256² thumbnail of a 1 M-tri scene takes < 100 ms on the owner GPU. |
 | RND-10 | Appearance materials: PBR textures (base, normal, roughness/metal), image-based environment lighting (prefiltered cube, BRDF LUT), mapping from S17 appearances | RND-02, MAT-02 | P2 | Todo | 1. A material-ball scene matches its golden image. 2. Assigning an S17 appearance changes the rendering with no geometry re-upload. 3. With IBL on, the 5 M-tri budget holds. |
 | RND-11 | Navigation and view cube: `nav` module (orbit free/constrained about pivot, zoom-to-cursor, pan with grabbed point, fit, standard views, `look_at_plane`, projection switch, 300 ms transitions, near-plane policy), view-cube inset rendering (via RND-07) + `view_cube_hit` + face labels, `egui_glue::{view_cube, nav_bar}` emitting `CameraAction`. | RND-03, RND-07 | P0 | Todo | Unit tests (no GPU): 1. Orbit keeps the pivot pixel fixed (≤ 1e-6 px). 2. Zoom-to-cursor keeps the anchor pixel fixed (≤ 1e-6 px), perspective and ortho, over 1e-3..1e5 mm distances. 3. Pan keeps the grabbed point under the cursor (≤ 1e-6 px). 4. Fit: all 8 bound corners are inside the view, and the bounding sphere spans ≥ 90 % of the smaller viewport dimension. 5. Projection switch keeps apparent size at the target within 0.1 %. 6. Table test of all 26 cube regions + Home. 7. `look_at_plane` puts plane x to screen right and the normal toward the viewer (±1e-9). 8. Widget test (headless `egui::Context`): a click on each cube face region emits the matching `CameraAction`. 9. Headless (WARP): a 0.01 mm feature 1e4 mm from the origin, zoomed to fill the view, is stable within 0.5 px over a 360° orbit. |
@@ -1318,6 +1318,145 @@ RTX 5060 Ti / DX12; clippy `-p amg-render --all-targets -D warnings` clean):*
 - Edges lying exactly in a section plane are clipped or not by f32 rounding.
 - RND-04: clipped pick pipelines and the cap pick variant (`CAP_SUB`, world point from
   `section_cap_point`); RND-09 should add a section golden image.
+
+### 2026-11-15 - RND-08 analyses and scalar fields
+
+*Landed in `crates/amg-render` (status `Review`; tests run 2026-11-16):*
+- **API** (`analysis.rs`, re-exported, as in §Interfaces): `Shading::{Material, Field,
+  Analysis}` on `Instance::shading`, `FieldBinding` (+ `FieldBinding::new`), `OutOfRange`,
+  `Deformation`, `Animation` (+ `amplitude(τ)`), `Analysis::{Zebra, Draft, Overhang}`, `ColorMap`
+  (+ `ALL`), `Legend`, `legend`, `colormap_rgb`, `upload_scalar_field`, `upload_vector_field`,
+  `GpuField`, `RenderScene::{insert_field, remove_field, field_ref, field_count, is_animating}`,
+  `Renderer::set_animation_time`. Additive: `colormap_lut` (the reference bytes),
+  `Renderer::{colormap_lut_texture, set_analysis_output, analysis_bytes_uploaded,
+  deformed_positions}`, `AnalysisOutput { Lit, Unlit, Classes }` (test outputs), the CPU twins
+  `overhang_class`, `overhang_severity`, `draft_angle`, `zebra_t`, `decode_class`, the module
+  `class`, the colour constants (`NAN_COLOR`, `ISOLINE_*`, `ZEBRA_*`, `DRAFT_INSUFFICIENT_COLOR`,
+  `OVERHANG_*`, `CONTACT_COLOR`), `geometry_bytes_uploaded()` (process-wide upload counter), and
+  `analysis_testing::{overhang_classes, field_colors}` (compute kernels running the shader's own
+  WGSL functions, for golden tests). `RenderError::FieldLength`.
+- **Shaders.** `shaders/analysis_common.wgsl` holds the note §11 formulas once (overhang class and
+  severity, zebra `t` and AA coverage, draft angle, deformation amplitude and position, colormap
+  `u`, field `t` with bands, isolines); the analysis pipeline (`analysis.wgsl`, vertex entries
+  smooth and flat) and the test kernels (`analysis_test.wgsl`) both include it. Overrides `MODE`
+  (field, zebra, draft, overhang), `HAS_SCALAR`, `HAS_DEFORM`, `OUT` are part of the mesh
+  `PipelineKey` (new `ShadeKey`), built lazily like the RND-02 variants; clipping and caps
+  (RND-06 `CLIP`/`CAPS`) work in every analysis pipeline.
+- **Per-instance data.** A third parallel 128-byte `AnalysisRecord` (mode, flags, map layer,
+  bands; direction + stripes or cos α; plate height in local coordinates; range and isolines;
+  out-of-range colours; deformation scale and animation) next to the instance and line records,
+  written with the same dirty runs. The 128-byte instance record is unchanged. Switching shading
+  rewrites only this record and the instance record (Done-when 7).
+- **Fields** are storage buffers (`f32` or padded `vec3<f32>` per vertex), read in the vertex
+  shader by `vertex_index` (groups 2 and 3), so no vertex-layout permutations. A missing field,
+  one of the wrong kind or the wrong vertex count falls back to the material colour. Uploads are
+  checked against the mesh vertex count and `max_storage_buffer_binding_size`.
+- **LUT.** 256×1×5 `Rgba8UnormSrgb` texture array, one layer per `ColorMap`, linear filtering,
+  sampled at `u = (t·255 + 0.5)/256`; `colormap_rgb` interpolates the same decoded bytes, so CPU
+  and GPU agree. Viridis and Turbo are the matplotlib 3.9.2 256-entry tables
+  (`colormap_data.rs`); Rainbow, BlueWhiteRed and Grey are defined in code. NaN → `NAN_COLOR`.
+- **Draw plan.** Groups split by `(pipeline, mesh, shade key, fields)` (`DrawGroup::shade`);
+  analysis groups never use the depth pre-pass. Bounding spheres are padded by the largest
+  displacement × scale, so deformed parts are not culled.
+- **Animation.** One 16-byte globals uniform (time) per renderer; `set_animation_time` writes it
+  only when it changes. `RenderScene::is_animating` tells the host to keep repainting.
+- **Bench** `benches/viewport.rs`: the 5 M sphere in `Shaded` with material, a Rainbow field with
+  10 isolines, the same with 8 bands, an animated deformation, zebra and overhang;
+  `AMG_BENCH_FIELDS_ONLY=1` runs only these.
+
+*Evidence (`tests/analysis.rs`, 10 GPU tests; all 127 amg-render tests pass on WARP; clippy
+`-p amg-render --all-targets -D warnings` and `cargo fmt --all --check` clean):*
+1. **Overhang classes** (`gpu_overhang_classes_match_the_cpu_formula_on_an_icosphere`): an icosphere
+   r = 20 (3 subdivisions, flat), 45°, plate at z = −19.5 with tolerance 0.6, seen from below at
+   an oblique angle in a 320² class capture. Each pixel's f64 ray hit gives the facet and height:
+   **56 886 pixels checked (supported 42 231, overhang 11 738, contact 2 917), 0 wrong**; 3 714
+   skipped (within 0.5° of the critical angle or of horizontal, 0.01 mm of the plate band, 0.05 px
+   of a triangle edge or the outline); no class off the sphere. Rotating the instance changes the
+   classes with no geometry upload. The WGSL rule against the AM-02 golden file
+   (`gpu_overhang_wgsl_matches_the_am02_golden_file`, compute kernel on the same WGSL function):
+   **0 disagreements in 4 033 strict rows** (75 of the 967 rows flagged near a threshold differ,
+   as f32 allows); the f64 CPU twin agrees on all strict rows.
+2. **Zebra** (`gpu_zebra_on_a_sphere_shows_n_stripes_along_the_profile`, 1024², sphere radius
+   465 px, profile from the centre to 1.5 px inside the limb). Dark stripes on screen / by the CPU
+   formula at the same pixels / on the whole profile, finely sampled: N = 8: 7 / 7 / 7;
+   N = 12: 11 / 11 / 11; N = 16 (world-locked): 14 / 14 / 15; N = 10 (vertical): 9 / 9 / 9.
+   The formula itself gives N − 1 dark stripes from the centre to the limb, within N ± 1. On
+   screen the outermost one is lost at N = 16 because it lies within π²R/(32N²) = 0.6 px of the
+   limb (see Deviations).
+3. **Draft** (`gpu_draft_sign_is_correct_on_drafted_prisms`): square frusta with walls at +10°,
+   −10° and 0° to the pull direction +Z (β_max 30°, required 3°): at 9
+   points on each prism's visible wall the class (positive, negative, insufficient) is right and the
+   colour is the BlueWhiteRed colour of β within 2/255 (the insufficient colour at 0°); +10° is on
+   the red side, −10° on the blue side.
+4. **LUT** (`gpu_lut_bytes_equal_the_reference_tables_and_the_shader_matches_colormap_rgb`): the
+   texture bytes read back equal `colormap_lut()` for all 5 layers, and (unit test) the Viridis
+   and Turbo layers are the published sRGB tables rounded to 8 bits. The shader colour path (`field_t` + filtered sample) against `colormap_rgb` at
+   2 001 values per map over [−0.1, 1.1]: worst channel difference **0.033/255**; bands give the
+   band-centre colour. A rendered Turbo quad matches `colormap_rgb` at every pixel centre within
+   **1/255** (`gpu_field_shading_maps_bands_isolines_out_of_range_and_nan`, which also checks bands,
+   isolines, below/above colours, a transparent range end and NaN grey).
+5. **Legend** (unit tests): a table of ranges and tick limits (e.g. (−3.7, 12.2) with 6 →
+   −2.5…10 step 2.5, with 4 → 0, 5, 10; (250, 1000) with 4 → 400…1000 step 200, with 3 → 500,
+   1000; a point range, a reversed range, NaN, `max_ticks` 0) and 2 000 random ranges over 8
+   decades: ticks inside the range, at most `max_ticks`, steps of 1/2/2.5/5 × 10ᵏ.
+6. **Deformation** (`gpu_deformed_positions_match_the_cpu_formula`): a 33 × 33 grid with a
+   non-uniform displacement field (max √17 mm), scale 2.5, Static, two Sines and two Ramp times;
+   positions computed on the GPU by the vertex shader's `deformed_position` from the renderer's
+   own buffers: worst relative error **2.4e-6** (1e-4 required). Rendered, a +10 mm displacement
+   moves the left edge by exactly 20 px (0.5 mm/px), and a Ramp at τ = 0 and τ = T/2 moves it 0
+   and 10 px.
+7. **No geometry upload** (`gpu_switching_shading_never_reuploads_geometry`): cycling material →
+   field with isolines → zebra → draft → overhang → deformed field → material changes the image
+   each time, uploads exactly 128 instance bytes and 128 analysis bytes per switch, and leaves
+   `geometry_bytes_uploaded()` and `RenderScene::gpu_bytes` unchanged.
+8. **Bench**: (`cargo bench -p amg-render --bench viewport`, `AMG_BENCH_FIELDS_ONLY=1
+   AMG_STRICT_TIMING=1`, owner RTX 5060 Ti / DX12, release, 2560×1440, 4× MSAA, Studio, `Shaded`,
+   600-frame orbit, 5 000 000 tris; another worker was compiling on the CPU, which affects wall
+   times only):
+
+   | Shading | Wall p50 / p99 | GPU p50 / p99 | vs material GPU p50 / p99 |
+   |---|---|---|---|
+   | material | 0.960 / 1.175 ms | 0.941 / 0.996 ms | — |
+   | field, Rainbow, 10 isolines | 1.090 / 1.283 ms | 1.068 / 1.128 ms | +0.127 / +0.131 ms |
+   | field, 8 bands, 10 isolines | 1.088 / 1.399 ms | 1.068 / 1.122 ms | +0.127 / +0.126 ms |
+   | field + animated deformation | 1.157 / 1.431 ms | 1.137 / 1.200 ms | +0.196 / +0.204 ms |
+   | zebra (12 stripes) | 0.982 / 1.252 ms | 0.962 / 1.018 ms | +0.021 / +0.022 ms |
+   | overhang | 1.192 / 1.450 ms | 1.172 / 1.290 ms | +0.231 / +0.294 ms |
+
+   All cases are far inside the RND-02 budget (GPU p99 ≤ 9 ms, wall p99 ≤ 16.6 ms; asserted for the
+   field case under `AMG_STRICT_TIMING=1`, passed). The material row matches RND-02/RND-06
+   (0.96 ms GPU p50), so the RND-02 path did not move.
+- More tests: a field-shaded sphere cut by a section plane is clipped and capped; field uploads
+  reject wrong lengths; the plan splits instances of one mesh by shading and field (unit test);
+  record packing, overhang height in local coordinates far from the origin, animation amplitudes,
+  `decode_class`, LUT tables and code-defined maps (unit tests).
+
+*Deviations:*
+- **Zebra count (Done-when 2).** With note §11's formula, `t = acos(sin 2θ)·N/π` falls from N/2 at
+  the centre to 0 at θ = 45° and rises back to N/2 at the limb. So a centre-to-limb profile
+  crosses N − 1 dark stripes, and the last one is narrower than a pixel near the limb when
+  N ≥ 16 at this size. The test therefore checks the formula's count on the whole profile (N ± 1),
+  the on-screen count against the CPU formula at the same pixels (± 1, exact in all four cases),
+  and the on-screen count against N within ± 2.
+- **Overhang uses S16's severity** `clamp((c − cos α)/(1 − cos α), 0, 1)` rather than note §11's
+  `(α − φ)/α`; the classes are the same. Note §11 was updated. Contact is decided per fragment
+  (height of the fragment), while the AM-02 CPU class is per face; the overhang test compares
+  per pixel.
+- Overhang colours are constants (`OVERHANG_LOW/HIGH_COLOR`, `CONTACT_COLOR`, supported = the
+  material); S16 asked for configurable colours (see Leftovers).
+- Directions (`build_up`, `pull`) are world space; the height above the plate is computed in the
+  instance's local frame from the f64 transform, so a part far from the origin keeps its digits.
+- Analysis groups skip the depth pre-pass (they draw with depth writes in the shaded pass).
+- Edges and points are not deformed; they stay on the undeformed shape.
+- No new dependency. THIRD_PARTY.md: Viridis and Turbo tables `In use`.
+
+*Leftovers:*
+- S16: per-face class or scalar buffers indexed by `primitive_index` (exact CPU classes after the
+  fine job); configurable overhang colours; the 5 M-tri overhang ≥ 60 fps check belongs to AM-12
+  (the bench row above covers the renderer side).
+- RND-04: picking deformed instances (the pick pass draws the undeformed shape).
+- RND-12: deform edges and points with the field when they are drawn over a deformed mesh.
+- Normals are not recomputed under deformation (note §11 accepts this).
 
 ## Interface changes
 

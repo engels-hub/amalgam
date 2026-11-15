@@ -32,8 +32,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | bitflags 2 | `amg-render` `PickFilter`, `amg-features::dialog` `EntityFilter` (S10, S11; already transitive via wgpu) | MIT / Apache-2.0 | no | no | Planned |
 | png 0.18.1 | `amg-render` headless capture, goldens, thumbnails; `amg-io` 3MF thumbnails (S10, S12) | MIT / Apache-2.0 | no | no | Planned |
 | meshopt 0.7.0 (meshoptimizer) | `amg-render` clusters/LOD (S10 RND-14) | MIT / Apache-2.0 (meshoptimizer: MIT) | no | no | Planned (P2) |
-| Viridis colormap table (data) | `amg-render` (S10 RND-08) | CC0-1.0 (matplotlib colormaps) | no | no | Planned |
-| Turbo colormap table (data) | `amg-render` (S10 RND-08) | Apache-2.0 (Google) | no | no | Planned |
+| Viridis colormap table (data) | `amg-render` (S10 RND-08) | CC0-1.0 (matplotlib colormaps) | no | no | In use |
+| Turbo colormap table (data) | `amg-render` (S10 RND-08) | Apache-2.0 (Google) | no | no | In use |
 | mach-dxcompiler-rs (via wgpu `static-dxc`) | DX12 shader compiler, not adopted by RND-01 (FXC is inside the budget; only behind `amg-render` feature `static-dxc` for measuring, which needs the MSVC ATL component to link) (S10) | MIT wrapper; bundled DXC under University of Illinois/NCSA (verify in RND-01) | no | yes (`static-dxc`) | Planned (conditional) |
 | glam | geometry math (ADR-006) | MIT / Apache-2.0 | no | no | In use (0.34.1) |
 | nalgebra | small dense linear algebra, sketch solver (ADR-006); `amg-nurbs` internal dense solves (S20) | Apache-2.0 | no | no | Planned |

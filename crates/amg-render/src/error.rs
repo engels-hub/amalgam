@@ -26,6 +26,14 @@ pub enum RenderError {
     /// Input data is malformed (index out of range, non-finite position, bad lengths).
     #[error("invalid mesh data: {0}")]
     InvalidData(String),
+    /// A field does not have one value per mesh vertex.
+    #[error("field has {got} values, mesh has {expected} vertices")]
+    FieldLength {
+        /// Values given.
+        got: usize,
+        /// Vertices of the mesh.
+        expected: usize,
+    },
     /// The key does not name a live item.
     #[error("unknown {0} key")]
     UnknownKey(&'static str),

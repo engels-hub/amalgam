@@ -7,11 +7,12 @@
 //! variant is ready, draws fall back to the core Studio pipeline of the same geometry kind.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use amg_jobs::{Cancelled, JobSystem, Priority, SpawnOptions};
 
+use crate::analysis::{AnalysisOutput, ShadeKey, ShadeMode, common_wgsl};
 use crate::lines::LinePass;
 use crate::renderer::PipelineTiming;
 use crate::shading::{
@@ -52,6 +53,9 @@ pub(crate) enum PipelineKind {
         /// Discards what the section planes remove (RND-06). A clipped closed mesh is drawn
         /// without culling and its back faces become section caps (`CAPS`).
         clipped: bool,
+        /// Material (the RND-02 programme) or an analysis / field programme (RND-08,
+        /// `shaders/analysis.wgsl`).
+        shade: ShadeKey,
     },
     /// Depth pre-pass (no fragment stage unless clipped).
     Depth {
@@ -103,9 +107,24 @@ impl PipelineKey {
                 double_sided,
                 equal_depth,
                 clipped: false,
+                shade: ShadeKey::default(),
             },
             samples,
         }
+    }
+
+    /// This mesh key with another shading programme (other kinds are returned unchanged).
+    #[must_use]
+    pub fn with_shade(mut self, key: ShadeKey) -> Self {
+        if let PipelineKind::Mesh { shade, .. } = &mut self.kind {
+            *shade = key;
+        }
+        self
+    }
+
+    /// Whether this is an analysis / field pipeline (layout groups 1-3).
+    pub fn is_analysis(&self) -> bool {
+        matches!(self.kind, PipelineKind::Mesh { shade, .. } if !shade.is_material())
     }
 
     /// This key with section clipping on or off (mesh, depth, line, point and wireframe kinds;
@@ -126,6 +145,7 @@ impl PipelineKey {
     /// Family name for [`PipelineTiming::label`].
     pub fn family(&self) -> &'static str {
         match self.kind {
+            PipelineKind::Mesh { shade, .. } if !shade.is_material() => "analysis",
             PipelineKind::Mesh { .. } => "mesh",
             PipelineKind::Depth { .. } => "depth prepass",
             PipelineKind::Background => "background",
@@ -213,6 +233,17 @@ pub(crate) fn mesh_wgsl() -> String {
     )
 }
 
+/// Full WGSL of the analysis module: the mesh module plus the shared analysis formulas and the
+/// analysis entry points.
+pub(crate) fn analysis_module_wgsl() -> String {
+    format!(
+        "{}\n{}\n{}",
+        mesh_wgsl(),
+        common_wgsl(),
+        crate::analysis::ANALYSIS_WGSL
+    )
+}
+
 /// Full WGSL of the line, point and wireframe module.
 pub(crate) fn lines_wgsl() -> String {
     format!("{CAMERA_WGSL}\n{SCENE_WGSL}\n{SECTION_WGSL}\n{LINES_WGSL}")
@@ -258,6 +289,9 @@ pub(crate) struct Layouts<'a> {
     pub silhouette: [&'a wgpu::BindGroupLayout; 2],
     /// Group 1 of the cap depth pass (the normal target) at one sample and at several.
     pub cap_marks: [&'a wgpu::BindGroupLayout; 2],
+    /// Group 1 of the analysis pipelines (records, LUT, sampler, globals); groups 2 and 3 are
+    /// `geometry`-shaped (one storage buffer: scalar and displacement fields).
+    pub analysis: &'a wgpu::BindGroupLayout,
 }
 
 /// Everything needed to build any variant; cheap to share with job threads.
@@ -278,6 +312,9 @@ pub(crate) struct PipelineFactory {
     /// Cap depth modules and layouts at one sample (`[0]`) and several (`[1]`).
     cap_depth_shader: [wgpu::ShaderModule; 2],
     cap_depth_layout: [wgpu::PipelineLayout; 2],
+    /// The analysis module, compiled on first use (it is never in the core set).
+    analysis_shader: OnceLock<wgpu::ShaderModule>,
+    analysis_layout: wgpu::PipelineLayout,
 }
 
 impl PipelineFactory {
@@ -328,7 +365,28 @@ impl PipelineFactory {
                     immediate_size: 0,
                 })
             }),
+            analysis_shader: OnceLock::new(),
+            analysis_layout: device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("amg analysis"),
+                bind_group_layouts: &[
+                    Some(layouts.view),
+                    Some(layouts.analysis),
+                    Some(layouts.geometry),
+                    Some(layouts.geometry),
+                ],
+                immediate_size: 0,
+            }),
         }
+    }
+
+    fn analysis_shader(&self) -> &wgpu::ShaderModule {
+        self.analysis_shader.get_or_init(|| {
+            self.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("amg analysis"),
+                    source: wgpu::ShaderSource::Wgsl(analysis_module_wgsl().into()),
+                })
+        })
     }
 
     pub fn build(&self, key: PipelineKey) -> wgpu::RenderPipeline {
@@ -414,8 +472,84 @@ impl PipelineFactory {
                 lighting,
                 flat,
                 double_sided,
+                equal_depth: _,
+                clipped,
+                shade,
+            } if !shade.is_material() => {
+                // Analysis / field programme: the geometry state of the material pipeline.
+                // Analysis groups never use the depth pre-pass, so the depth test is always
+                // `GreaterEqual` with writes.
+                let caps = clipped && !double_sided;
+                let (_, primitive) = geometry(flat, double_sided || caps);
+                let module = self.analysis_shader();
+                let flag = |on: bool| f64::from(u8::from(on));
+                let out = match shade.out {
+                    AnalysisOutput::Lit => 0.0,
+                    AnalysisOutput::Unlit => 1.0,
+                    AnalysisOutput::Classes => 2.0,
+                };
+                let mode = match shade.mode {
+                    ShadeMode::Material | ShadeMode::Field => 1.0,
+                    ShadeMode::Zebra => 2.0,
+                    ShadeMode::Draft => 3.0,
+                    ShadeMode::Overhang => 4.0,
+                };
+                let vertex_constants = [
+                    ("HAS_SCALAR", flag(shade.scalar)),
+                    ("HAS_DEFORM", flag(shade.deform)),
+                ];
+                let fragment_constants = [
+                    ("LIGHTING", f64::from(lighting.shader_id())),
+                    clip_constant(clipped),
+                    ("CAPS", flag(caps)),
+                    ("MODE", mode),
+                    ("OUT", out),
+                    ("HAS_SCALAR", flag(shade.scalar)),
+                ];
+                let targets = opaque_targets(None, true);
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(&label),
+                    layout: Some(&self.analysis_layout),
+                    vertex: wgpu::VertexState {
+                        module,
+                        entry_point: Some(if flat {
+                            "vs_analysis_flat"
+                        } else {
+                            "vs_analysis_smooth"
+                        }),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &vertex_constants,
+                            ..Default::default()
+                        },
+                        buffers: if flat {
+                            &smooth_buffers[..1]
+                        } else {
+                            &smooth_buffers[..]
+                        },
+                    },
+                    primitive,
+                    depth_stencil: depth(true, wgpu::CompareFunction::GreaterEqual),
+                    multisample,
+                    fragment: Some(wgpu::FragmentState {
+                        module,
+                        entry_point: Some("fs_analysis"),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &fragment_constants,
+                            ..Default::default()
+                        },
+                        targets: &targets,
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            PipelineKind::Mesh {
+                lighting,
+                flat,
+                double_sided,
                 equal_depth,
                 clipped,
+                shade: _,
             } => {
                 let caps = clipped && !double_sided;
                 let (mut vertex, primitive) = geometry(flat, double_sided || caps);

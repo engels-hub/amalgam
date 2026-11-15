@@ -364,7 +364,9 @@ formulas, and an `amg-ui` test cross-checks them.
     (FFF default 45°, resin set by AM-01 profiles).
   - Down-facing means `n·b < 0`. The surface inclination from horizontal is
     `φ = acos(−n·b)`: 0 for a ceiling, 90° for a vertical wall.
-  - Overhang ⇔ `n·b < 0 ∧ φ < α`. Severity is `(α − φ)/α`, shown on a red ramp.
+  - Overhang ⇔ `n·b < 0 ∧ φ < α`, i.e. `c = −n·b > cos α` (strict, as AM-02). Severity is
+    `clamp((c − cos α)/(1 − cos α), 0, 1)` (S16), shown on a red ramp. The facet normal is used
+    (screen derivatives), and contact needs `c > 0` too (RND-08, 2026-11-16).
   - Fragments with height `dot(x, b) ≤ plate_height + plate_tol` are plate contact and get a
     neutral colour.
   - All of this is computed live in the shader from `b`, so rotating the part
