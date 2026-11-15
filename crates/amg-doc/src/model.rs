@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use amg_core::{PersistentId, Tolerance, Transform};
+use amg_materials::{Appearance, AppearanceId, Material, MaterialId};
 use serde::{Deserialize, Serialize};
 
 use crate::config::ConfigTable;
@@ -65,6 +66,20 @@ pub struct Design {
     /// `design.json` while empty, so files without pending moves are unchanged.
     #[serde(default, skip_serializing_if = "PendingPositions::is_empty")]
     pub(crate) pending: PendingPositions,
+    /// Physical material copies used by bodies (S17 MAT-06, see [`crate::materials`]). An
+    /// array of materials in id order; omitted while empty, so files without materials are
+    /// unchanged.
+    #[serde(
+        skip_serializing_if = "PMap::is_empty",
+        serialize_with = "crate::materials::table::serialize"
+    )]
+    pub(crate) materials: PMap<MaterialId, Arc<Material>>,
+    /// Appearance copies (S17 MAT-06); same encoding as `materials`.
+    #[serde(
+        skip_serializing_if = "PMap::is_empty",
+        serialize_with = "crate::materials::table::serialize"
+    )]
+    pub(crate) appearances: PMap<AppearanceId, Arc<Appearance>>,
     /// Runtime only: authored changes since the design was created or loaded.
     #[serde(skip)]
     revision: Revision,
@@ -354,6 +369,8 @@ impl Design {
             params: ParamTable::default(),
             configs: ConfigTable::default(),
             pending: PendingPositions::default(),
+            materials: PMap::new(),
+            appearances: PMap::new(),
             revision: Revision(0),
         }
     }
@@ -930,6 +947,7 @@ impl Design {
         if let Err(m) = self.validate_pending() {
             return bad(m);
         }
+        self.validate_materials().or_else(bad)?;
         for (bid, p) in self.explicit_body_props() {
             if let Err(e) = p.check() {
                 return bad(format!("body {bid:?}: {e}"));
@@ -997,6 +1015,12 @@ struct DesignRepr {
     /// Added by ASM-13 (defaulted: no format bump).
     #[serde(default)]
     pending: PendingPositions,
+    /// Added by MAT-06 (defaulted: no format bump).
+    #[serde(default, deserialize_with = "crate::materials::table::deserialize")]
+    materials: PMap<MaterialId, Arc<Material>>,
+    /// Added by MAT-06 (defaulted: no format bump).
+    #[serde(default, deserialize_with = "crate::materials::table::deserialize")]
+    appearances: PMap<AppearanceId, Arc<Appearance>>,
 }
 
 impl TryFrom<DesignRepr> for Design {
@@ -1015,6 +1039,8 @@ impl TryFrom<DesignRepr> for Design {
             params,
             configs: r.configs,
             pending: r.pending,
+            materials: r.materials,
+            appearances: r.appearances,
             revision: Revision(0),
         };
         d.validate()?;

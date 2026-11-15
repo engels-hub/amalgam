@@ -25,6 +25,7 @@ mod id;
 mod library;
 mod library_set;
 mod material;
+mod prefs;
 mod provenance;
 
 pub use appearance::{Appearance, Srgba8};
@@ -38,6 +39,7 @@ pub use material::{
     AmInfo, AmProcess, Category, Cost, Directional, Hardness, Material, MaterialFamily, Mechanical,
     Plasticity, Strength, TempRange, Thermal,
 };
+pub use prefs::MaterialPrefs;
 pub use provenance::{
     PropPath, Provenance, Quality, Source, SourceKey, SourceKind, SpecimenOrientation, ValueProv,
 };

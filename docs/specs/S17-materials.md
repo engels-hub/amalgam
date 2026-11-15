@@ -576,7 +576,7 @@ S01.
 | MAT-01 | `amg-materials` core: ids, `Material` + all sub-types (three elastic models with validation, `Directional`, strength, plasticity, thermal, `AmInfo`), minimal `Appearance` + `Srgba8`, `Provenance`, TOML format v1 reader/writer (unit strings, inline provenance tables, migration hook, `TooNew`), `Library` (in-memory, load/save atomic), `builtin()` embedding with a 2-material fixture, `MaterialError` + `Diagnostic`. Additive `amg-core::units` rows and typed quantities from note §2.5 (PR flagged as S00 interface change). | FND-10 | P0 | Done | Tests pass. (a) A fixture library using every property kind loads; load→save→load keeps all values within 2 ulp, and a second save is byte-identical. (b) `serde_json` round-trip of every `Material` is bit-exact. (c) Each validation rule in note §2.1–2.4 has a failing fixture giving the expected error with the TOML key path: ν = 0.5 isotropic, transversely isotropic `(1+ν_p)(1−ν_p−2ν_ptν_tp) ≤ 0`, orthotropic determinant ≤ 0, negative E, non-monotone plasticity table, `z` value with an `XZY` specimen. (d) `density = "1.24 MPa"` gives `Dimension` naming `material[0].density`. `density = "1.24"` gives `MissingUnit`. (e) An unknown `src` gives `UnknownSource`. `format_version = 2` gives `TooNew`. (f) New unit rows parse: `0.2 W/(m*K)`, `1800 J/(kg*K)` = 1.8e9 canonical, `68 ppm/K` = 6.8e-5, `12 %` = 0.12. (g) `Srgba8` hex round-trips for all 2^24 colours (alpha FF), and sRGB→linear→sRGB is identity for all 256 levels. (h) A 1000-material generated library parses in < 20 ms (criterion). `clippy -D warnings` is clean. |
 | MAT-05 | Built-in library v1 data: the 17 materials of §Design "Built-in library v1" with cited `[[source]]` records, per-value provenance, conditions, AM info (Orca `slicer_type`, temperature ranges) and one default appearance each, plus ~12 generic appearances (plastics in common filament colours, brushed aluminium, steel, titanium, grey and clear resin) | MAT-01 | P0 | Done | `builtin()` loads and validates. Provenance tests (note §3.2) pass: density, in-plane E and one tensile strength are `measured` for every material; no `estimate` on density; every `src` resolves; every material has a `condition`. Plausibility-bounds test (note §3.4) passes for every material. Each FFF material whose TDS reports Z specimens has `z` strengths. Every material's `appearance` resolves. The PR description lists 10 randomly chosen values (seeded) next to the page or table of the cited document, checked by the reviewer. No source is MatWeb, CAMPUS, Granta or the Fusion library. |
 | MAT-07 | `LibrarySet`: user library directory (load, create, skip-and-report bad files), `library_mut` + `upsert`/`remove` with revision bump, `search`, `match_name` (3MF/STEP import), `drift` | MAT-01 | P0 | Done | Tests pass. (a) A temp dir with 3 valid files and 1 broken file loads 3 libraries and returns exactly one error naming the broken file. (b) Editing a value via `upsert_material` bumps `revision` by 1; an unchanged upsert does not. (c) `save` with a simulated crash between write and rename (test hook) leaves the old file intact. (d) `match_name("PLA")`, `("pla")` and `("PETG Basic")` (via `slicer_type`/family) return the expected built-ins; a user material with the same name wins. (e) `drift` returns each of the 4 variants in a fixture. (f) `search` over 5000 materials < 1 ms median (criterion). (g) The built-in library rejects `library_mut`. |
-| MAT-06 | Document integration (additive `amg-doc` change, flagged): `Design` material/appearance tables, 4 commands + 2 events, `body_material`/`body_appearance`/`material_users`, `assign_material`/`assign_appearance`/`remove_unused_materials`, "Update from library" command builder, `default_material` preference read by mass-property callers; minimal Phase 1 assignment (Python/CLI command + body context-menu combo if UI-07 is done, else deferred to MAT-03) | MAT-07, DOC-05, DOC-07 | P0 | Todo | Tests pass. (a) `assign_material` of a built-in to 3 bodies applied as one transaction; one undo restores both the props and the table. (b) Save→load→save of the `.amg` keeps byte-identical `design.json` including materials. Loading with an empty `LibrarySet` resolves all body materials. (c) `RemoveMaterial` of a referenced material gives `CommandError::InUse`; `remove_unused_materials` removes exactly the unreferenced ones. (d) Bumping the library revision gives `Drift::LibraryNewer`, and the update command replaces the copy, undoable. (e) `BodyPropsChanged`/`MaterialChanged` events fire minimally (no `BodyGeometryChanged`). (f) A `Design` with 100 materials clones in < 1 µs (persistent map). |
+| MAT-06 | Document integration (additive `amg-doc` change, flagged): `Design` material/appearance tables, 4 commands + 2 events, `body_material`/`body_appearance`/`material_users`, `assign_material`/`assign_appearance`/`remove_unused_materials`, "Update from library" command builder, `default_material` preference read by mass-property callers; minimal Phase 1 assignment (Python/CLI command + body context-menu combo if UI-07 is done, else deferred to MAT-03) | MAT-07, DOC-05, DOC-07 | P0 | Review | Tests pass. (a) `assign_material` of a built-in to 3 bodies applied as one transaction; one undo restores both the props and the table. (b) Save→load→save of the `.amg` keeps byte-identical `design.json` including materials. Loading with an empty `LibrarySet` resolves all body materials. (c) `RemoveMaterial` of a referenced material gives `CommandError::InUse`; `remove_unused_materials` removes exactly the unreferenced ones. (d) Bumping the library revision gives `Drift::LibraryNewer`, and the update command replaces the copy, undoable. (e) `BodyPropsChanged`/`MaterialChanged` events fire minimally (no `BodyGeometryChanged`). (f) A `Design` with 100 materials clones in < 1 µs (persistent map). |
 | MAT-02 | Full appearance: emissive, transmission/IOR, clearcoat, `TextureSet` refs; appearance library entries; `to_3mf`/`from_3mf` incl. `pbmetallic` and `translucent`; per-face appearance overrides (`BodyProps.face_appearances`, additive S01 request) for solids (`EntityRef`) and meshes (face groups); render adapter conversion in `amg-ui::materials` | MAT-06, DOC-06 | P1 | Todo | Tests pass. (a) MAT-01 appearance files still load unchanged. (b) `to_3mf`→`from_3mf` round-trips colour exactly and metallic/roughness within 1/255. (c) A per-face override on a fillet face survives an upstream sketch edit (DOC-06 resolution) in a golden test. (d) The mesh face-group override survives save/load. (e) The adapter output for a fixture appearance matches expected linear floats within 1e-6. |
 | MAT-03 | Material browser (`amg-ui::materials`): "In this design" / built-in / user sections, search + filters, property sheet in display units with provenance tooltips and `estimate` warnings, drift badge + update, assign to selection, drag-drop onto browser-tree bodies and viewport bodies | UI-01, UI-04, UI-07, MAT-06 | P1 | Todo | Manual test script (in the PR) passes: assign PLA to 2 selected bodies, drag Ti-6Al-4V onto a third in the viewport, undo/redo each, and drift badge appears after editing the library file. The panel draws in < 2 ms per frame with 5000 materials (search runs only on input change). Every action goes through `Command`s (verified by an undo test). |
 | MAT-08 | Material and appearance editor + user library management UI: duplicate to user library, edit with unit-aware fields (FND-10 parse/format) and live validation, provenance fields, colour picker, create/rename user libraries | MAT-03, MAT-07 | P1 | Todo | Manual test script passes: duplicate `petg.fff` into a new user library, change E in GPa, see validation reject ν = 0.6, save, restart, and the edited value is shown with `revision` 2. The library file diff contains only the changed lines. Invalid input never reaches `Library::upsert_*` (unit test on the form model). |
@@ -841,6 +841,46 @@ hash golden (MAT-05). The `Interface changes` entry of S00 documents the unit-ta
 **Leftovers.** Cited ν for the 13 `estimate` entries; per-material AM defaults (S16 request);
 `cost` (no cited prices). MAT-04 upgrades the FFF entries to transversely isotropic.
 
+### 2026-11-15 - MAT-06 document integration (lane G; status Review)
+What landed (`amg-doc` additive change, recorded in S01 Interface changes 2026-11-15 - MAT-06):
+- `Design` gains `materials`/`appearances` persistent tables (`PMap<Id, Arc<_>>`), written to
+  `design.json` as arrays of values sorted by id, omitted when empty. Files without materials
+  serialize exactly as before and `FORMAT_VERSION` is unchanged. Load rejects duplicate ids,
+  invalid entries and key/id mismatches (`Design::validate`).
+- Read API as in Interfaces, plus `appearance_users` and
+  `mass_material(body, &MaterialPrefs, &LibrarySet) -> Option<MassMaterial>` (the assigned copy,
+  else the `default_material` preference from the design table, then the libraries;
+  `defaulted` tells callers which). Low-level `set_/remove_material`, `set_/remove_appearance`.
+- Commands `SetMaterial`/`RemoveMaterial`/`SetAppearance`/`RemoveAppearance`; events
+  `MaterialChanged`/`AppearanceChanged` from the authored diff (no geometry events).
+- Builders `assign_material`, `assign_material_in` (with a `LibrarySet` for the default
+  appearance), `assign_material_by_id` (id in design, then libraries, then `match_name`: the
+  Python/CLI entry point), `assign_appearance`, `remove_unused_materials`,
+  `update_from_library`.
+- `amg_materials::MaterialPrefs { default_material }` (default `amg.builtin/pla.fff`, serde,
+  missing fields default).
+
+Deviations:
+- `BodyProps.material`/`appearance` keep the `MaterialKey(String)`/`AppearanceKey(String)` stub
+  newtypes (wire-identical, `serde(transparent)`), with `MaterialKey::of`/`id()` converters;
+  a key that does not parse or is not in the table resolves to `None`. Replacing the types would
+  break an existing S01 test that uses a free-form key.
+- `CommandError::InUse` for materials/appearances reports `id: 0` (string ids do not fit `u64`)
+  and the users' body origin ids in `by`.
+- `assign_material` sets the material's default appearance only on bodies with no appearance or
+  with the previous material's default appearance; an explicitly chosen appearance is kept.
+- `body_appearance` falls back to the material's default appearance when the body has none.
+- `update_from_library` also applies to `Drift::LocallyModified` (the browser asks first);
+  `UpToDate` gives no commands, `NotInLibrary` gives `CommandError::Invalid`.
+- `remove_unused_materials` also removes appearances that no body uses and that are not the
+  default appearance of a kept material.
+
+Leftovers:
+- Python/CLI wiring of `assign_material_by_id` in `amg-script`/`amg-cli` (S18, lane E: both
+  are stubs today).
+- Body context-menu combo: UI-07 is `Todo`, so it moves to MAT-03.
+- Storing `MaterialPrefs` in the application preference file (app shell).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -860,3 +900,8 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 The unit rows, `Dimension` constants and typed quantities of note §2.5 are in `amg-core`, with
 the one deviation (`/K` instead of `1/K`) and the two extra canonical-unit rows. Details are in
 the S00 spec's Interface changes (2026-11-09 - MAT-01).
+
+### 2026-11-15: MAT-06 landed (additive `amg-doc` change)
+Material/appearance tables, 4 commands, 2 events and the builders are in `amg-doc`, as
+requested above under Interfaces, with the deviations of the Refinement log (2026-11-15 -
+MAT-06). Details are in the S01 spec's Interface changes (2026-11-15 - MAT-06).

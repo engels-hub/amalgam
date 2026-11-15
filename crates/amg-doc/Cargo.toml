@@ -74,5 +74,9 @@ harness = false
 name = "positions"
 harness = false
 
+[[bench]]
+name = "materials"
+harness = false
+
 [lints]
 workspace = true

@@ -26,6 +26,7 @@ pub mod history;
 pub mod id;
 pub mod io;
 pub mod joints;
+pub mod materials;
 pub mod model;
 pub mod naming;
 pub mod param;
@@ -65,6 +66,10 @@ pub use id::{
 pub use io::{
     BodyCodec, FORMAT_VERSION, FormatError, LoadedDocument, SaveOptions, load, load_job, save,
     save_job,
+};
+pub use materials::{
+    MassMaterial, assign_appearance, assign_material, assign_material_by_id, assign_material_in,
+    remove_unused_materials, update_from_library,
 };
 pub use model::{
     BakedBody, BlobRef, BodyProps, Component, Design, DesignMeta, DesignMode, DesignSnapshot,
