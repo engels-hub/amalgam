@@ -1861,3 +1861,36 @@ See `docs/specs/S13-simulation.md` Interfaces and `docs/notes/simulation-fem.md`
   compiling when the stub becomes `pub use amg_brep::Shape;` (TODO(BREP-02)). The stub codecs
   still write solids as the `stub:solid` tag (a real B-rep is not persisted yet).
 
+
+### 2026-11-15 - MAT-06 landed (lane G, additive; S17 request, QUESTIONS #39: typed tables)
+Flagged for lane E review. All additive; existing tests and the `design.json` of documents without
+materials are unchanged (`FORMAT_VERSION` unchanged, like ASM-13's `pending`).
+- **`Design` tables** `materials: PMap<MaterialId, Arc<amg_materials::Material>>` and
+  `appearances: PMap<AppearanceId, Arc<amg_materials::Appearance>>`, persisted as the top-level
+  `design.json` arrays `materials` / `appearances` (values in id order, each value holds its id;
+  omitted while empty; `#[serde(default)]` on load; duplicate ids rejected). `Design::validate`
+  checks key = value id and `Material::validate` / `Appearance::validate`.
+- **Read API** (`amg_doc::materials`, `impl Design`): `material`, `materials`, `appearance`,
+  `appearances`, `body_material`, `body_appearance` (own key, else the material's default
+  appearance), `material_users`, `appearance_users`, `mass_material(body, &MaterialPrefs,
+  &LibrarySet) -> Option<MassMaterial { material, defaulted }>`.
+- **Low-level edits**: `set_material`, `remove_material`, `set_appearance`, `remove_appearance`
+  (`ModelError::InvalidValue` for an invalid value or a missing id).
+- **Commands** (appended): `SetMaterial { material: Arc<Material> }`, `RemoveMaterial { id }`,
+  `SetAppearance { appearance: Arc<Appearance> }`, `RemoveAppearance { id }`. The `Arc` fields
+  serialize as the plain value (no serde `rc` feature). Removing a material or appearance a
+  body's props reference gives `CommandError::InUse { what: "material" | "appearance", id: 0,
+  by: <body origin feature ids> }` (the ids are strings, so `id` is 0).
+- **Events** (appended): `DocEvent::MaterialChanged(MaterialId)`,
+  `DocEvent::AppearanceChanged(AppearanceId)` from the authored diff. Editing a copy raises only
+  that event (no `BodyPropsChanged`, no geometry events). `DocEvent` gains non-`Copy` payloads; the
+  one exhaustive consumer (`amg-ui::scene`) already has a wildcard arm.
+- **Builders** (crate root): `assign_material`, `assign_material_in`, `assign_material_by_id`,
+  `assign_appearance`, `remove_unused_materials`, `update_from_library`.
+- **Deviation: `BodyProps.material` / `.appearance` keep the `stub::MaterialKey(String)` /
+  `stub::AppearanceKey(String)` newtypes** instead of becoming the `amg_materials` aliases.
+  Switching would make keys written before MAT-06 (free-form strings like `"PLA"`, used by an
+  existing `model.rs` test) fail to load. The stubs gained `MaterialKey::of(&MaterialId)`,
+  `MaterialKey::id() -> Option<MaterialId>` (same for `AppearanceKey`) and `From<&Id>`; a key
+  that is not a valid id resolves to "unassigned". The wire form is the same string either way,
+  so a later switch only changes the Rust type.

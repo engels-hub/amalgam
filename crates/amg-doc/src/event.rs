@@ -18,6 +18,8 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use amg_materials::{AppearanceId, MaterialId};
+
 use crate::eval::{Evaluated, Health};
 use crate::id::{
     BodyId, ComponentId, ConstructionId, ExtKey, FeatureId, OccurrenceId, Revision, SketchId,
@@ -67,6 +69,11 @@ pub enum DocEvent {
     PendingPositionsChanged,
     /// The active component (session state of the `Document`) changed.
     ActiveComponentChanged(ComponentId),
+    /// A material copy in the design table was added, replaced or removed (S17 MAT-06). Its
+    /// users are `Design::material_users`; their props did not change.
+    MaterialChanged(MaterialId),
+    /// An appearance copy in the design table was added, replaced or removed (S17 MAT-06).
+    AppearanceChanged(AppearanceId),
     /// A recompute job started for this revision.
     RecomputeStarted(Revision),
     /// A recompute result was swapped in; `failed` nodes have an error.
@@ -220,6 +227,12 @@ fn authored_events(old: &Design, new: &Design, out: &mut Vec<DocEvent>) {
     }
     for (key, _, _) in changed(&old.extensions, &new.extensions) {
         out.push(DocEvent::ExtChanged(key));
+    }
+    for (id, _, _) in changed(&old.materials, &new.materials) {
+        out.push(DocEvent::MaterialChanged(id));
+    }
+    for (id, _, _) in changed(&old.appearances, &new.appearances) {
+        out.push(DocEvent::AppearanceChanged(id));
     }
 }
 

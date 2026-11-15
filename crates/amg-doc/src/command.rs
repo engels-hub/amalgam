@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use amg_core::Transform;
+use amg_materials::{Appearance, AppearanceId, Material, MaterialId};
 use serde::{Deserialize, Serialize};
 
 use crate::direct::BaseFeature;
@@ -311,6 +312,32 @@ pub enum Command {
         /// The configuration.
         config: Option<ConfigId>,
     },
+    /// Inserts or replaces the design's copy of a physical material (S17 MAT-06). Refused if
+    /// `Material::validate` fails. Build assignments with
+    /// [`assign_material`](crate::materials::assign_material).
+    SetMaterial {
+        /// The material; its `id` is the table key.
+        #[serde(with = "crate::materials::arc")]
+        material: Arc<Material>,
+    },
+    /// Removes a material copy. Refused with [`CommandError::InUse`] while a body references
+    /// it (see [`remove_unused_materials`](crate::materials::remove_unused_materials)).
+    RemoveMaterial {
+        /// The material.
+        id: MaterialId,
+    },
+    /// Inserts or replaces the design's copy of an appearance (S17 MAT-06).
+    SetAppearance {
+        /// The appearance; its `id` is the table key.
+        #[serde(with = "crate::materials::arc")]
+        appearance: Arc<Appearance>,
+    },
+    /// Removes an appearance copy. Refused with [`CommandError::InUse`] while a body's props
+    /// reference it.
+    RemoveAppearance {
+        /// The appearance.
+        id: AppearanceId,
+    },
 }
 
 impl Command {
@@ -360,6 +387,10 @@ impl Command {
                 "Edit configuration"
             }
             Command::SetActiveConfig { .. } => "Activate configuration",
+            Command::SetMaterial { .. } => "Set material",
+            Command::RemoveMaterial { .. } => "Remove material",
+            Command::SetAppearance { .. } => "Set appearance",
+            Command::RemoveAppearance { .. } => "Remove appearance",
         }
     }
 }
@@ -418,7 +449,8 @@ pub enum CommandError {
     /// Another parameter has this name.
     #[error("name `{0}` already in use")]
     NameTaken(String),
-    /// Still referenced elsewhere.
+    /// Still referenced elsewhere. For a material or appearance (string ids, MAT-06) `id` is
+    /// 0 and `by` holds the origin feature ids of the bodies that use it.
     #[error("{what} {id} is still used by {by:?}")]
     InUse {
         /// Kind of entity.
@@ -868,6 +900,30 @@ fn run(d: &mut Design, cmd: Command) -> Result<Created, CommandError> {
             suppressed,
         } => d.set_config_suppressed(config, feature, suppressed)?,
         Command::SetActiveConfig { config } => d.set_active_config(config)?,
+        Command::SetMaterial { material } => d.set_material(material)?,
+        Command::RemoveMaterial { id } => {
+            let users = d.material_users(&id);
+            if !users.is_empty() {
+                return Err(CommandError::InUse {
+                    what: "material",
+                    id: 0,
+                    by: crate::materials::origins(&users),
+                });
+            }
+            d.remove_material(&id)?;
+        }
+        Command::SetAppearance { appearance } => d.set_appearance(appearance)?,
+        Command::RemoveAppearance { id } => {
+            let users = d.appearance_users(&id);
+            if !users.is_empty() {
+                return Err(CommandError::InUse {
+                    what: "appearance",
+                    id: 0,
+                    by: crate::materials::origins(&users),
+                });
+            }
+            d.remove_appearance(&id)?;
+        }
     }
     Ok(created)
 }
