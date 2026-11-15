@@ -908,7 +908,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-07 | Browser tree: framework nodes (settings, named views, origin, components/bodies/sketches/construction, selection sets), `BrowserProvider` API, virtualised rows, eye toggles (`SetBodyProps`, `SetOccurrenceVisible`, `ui.visibility` ExtRecord), rename, context menu, hover highlight, click select, double-click edit | UI-04, DOC-09 | P0 | Todo | 1. Kittest on a fixture with 2 components × 3 bodies: hiding a body hides it in the scene, and undo shows it again. Renaming a body persists through save/load. 2. A test provider adds a node under Root without framework changes. 3. 10 000 synthetic bodies: browser frame cost < 1 ms (criterion), and the tree is rebuilt only on affecting events (counter). 4. Hovering a row highlights the body (highlight layer contains it). |
 | UI-08 | Timeline panel: node icons via `FeatureUiInfo`, groups, rollback marker drag (`SetMarker`), drag reorder with valid-range shading (`MoveFeature`), context menu, health badges + tooltips, hover highlight of outputs and error entities, recompute progress ring, hidden in Direct mode | UI-04, DOC-05, DOC-12 | P0 | Todo | 1. Kittest on a 20-node test timeline: dragging the marker to index 5 sends `SetMarker{5}`, and nodes ≥ 5 render as rolled back. 2. Dragging a node before its input is refused (no command sent, red shading shown). A valid move sends one `MoveFeature`. 3. An erroring test feature shows an error badge with the diagnostic message as tooltip. 4. Suppress/rename/delete/group via the context menu each give one undo entry. 5. 500 nodes render < 1 ms (criterion). |
 | UI-10 | Job/progress panel (`JobSystem::jobs()`, grouped, cancel), status-bar recompute/job indicators, toasts from `Diagnostic` (severity, hint, details via `report`, copy, open log folder), cancelled-is-not-error rule, GPU device-lost banner | UI-01, FND-04, FND-07 | P0 | Done | 1. Kittest: a 2 s test job shows progress; pressing Cancel resolves it as `Cancelled` within 200 ms and no error toast appears. 2. A failing job with an `amg_core::Error::InvalidArgument` shows the user message and hint, and "Details" contains the `report` chain. 3. Info toasts auto-hide after 6 s, and errors stay. 4. Simulated `is_lost()` shows the banner and Save stays enabled. |
-| UI-19 | File operations & recovery: New/Open/Open Recent/Save/Save As/Save Compact, `rfd` on a dedicated thread parented to the window, save/load as jobs with progress, dirty-close prompt (`CancelClose` + `Modal`), recovery dialog from `find_recoverable`, `RecoverySession::on_commit` per batch, `Placement::Menu` slots for Import/Export | UI-10, DOC-07, DOC-14 | P0 | Todo | 1. Kittest with a fake file-dialog backend (trait): save → reopen gives an equal `design.json`. 2. Closing a dirty document shows the prompt, and Cancel keeps the app open. 3. Kill test: commit 5 commands, abort the process, restart → the recovery dialog offers the document and "Open recovered" restores it. 4. Opening a 50 MB file never blocks a frame > 16 ms (tracing assertion). |
+| UI-19 | File operations & recovery: New/Open/Open Recent/Save/Save As/Save Compact, `rfd` on a dedicated thread parented to the window, save/load as jobs with progress, dirty-close prompt (`CancelClose` + `Modal`), recovery dialog from `find_recoverable`, `RecoverySession::on_commit` per batch, `Placement::Menu` slots for Import/Export | UI-10, DOC-07, DOC-14 | P0 | Review | 1. Kittest with a fake file-dialog backend (trait): save → reopen gives an equal `design.json`. 2. Closing a dirty document shows the prompt, and Cancel keeps the app open. 3. Kill test: commit 5 commands, abort the process, restart → the recovery dialog offers the document and "Open recovered" restores it. 4. Opening a 50 MB file never blocks a frame > 16 ms (tracing assertion). |
 | UI-21 | Marking menu: radial 8 wedges + overflow + repeat-last, click/gesture/hold modes, `MarkingMenuProvider` + `ContextMenuProvider` APIs, framework default provider | UI-03, UI-04 | P0 | Todo | 1. Kittest: right-click opens the menu, clicking the N wedge runs its command. A right-drag gesture toward E runs E's command without the menu staying open. 2. "Repeat <last>" runs the previous command. 3. A test provider adds an entry for a selected mesh body only (context check). 4. Every wedge is queryable by label. |
 | UI-12 | Parameters dialog: table (favourite, name, unit, expression, value, comment), user/model grouping, filter, add/delete/rename/edit/favourite via S01 commands, inline cycle/unit errors | UI-15, DOC-05 | P0 | Todo | 1. Kittest: add user param `w = 20 mm`, set a model param to `w * 2` → value `40.00 mm`. Renaming `w` → `width` rewrites the model param text. 2. `a = b`, `b = a` shows a cycle error on the second edit, and the document is unchanged. 3. Each edit is one undo entry. 4. 1 000 params render < 2 ms (criterion). |
 | UI-22 | Solid body display: `BodyTessellator` for `BodyGeom::Solid` via BREP-08 (per-face ranges → face sub-ids, edge polylines → edge sub-ids), quality presets, latest-wins re-tessellation | UI-20, BREP-08 | P0 | Todo | 1. A STEP test part (≥ 1 000 faces) displays with every face and edge pickable (PickMap round-trip). 2. Editing an upstream parameter re-tessellates only changed bodies (counter). 3. Tessellation runs on a job (no frame > 16 ms). |
@@ -1479,6 +1479,159 @@ Further tests:
 - No camera fit when bodies arrive: navigation is UI-03/RND-11. In `amg-app`, document bodies can
   therefore be outside the fixed home view.
 
+### 2026-11-15 - UI-19 file operations and recovery
+Landed in `amg-ui` (status `Review`):
+- **`file`** (new framework module, `file.rs`):
+  - `FileDialogBackend` (`show(&FileDialogRequest) -> Option<PathBuf>`, blocking) with
+    `FileDialogRequest { kind: FileDialogKind::{Open, Save}, title, filters: Vec<FileFilter>,
+    directory, file_name }`. `RfdDialogs` is the `rfd` 0.17.2 backend; `RfdDialogs::with_parent(&W)`
+    (`W: HasWindowHandle + HasDisplayHandle`, e.g. eframe's `CreationContext`) keeps rfd's parent
+    handles, so every dialog is modal to the main window. Each dialog runs on a fresh thread
+    `amg-file-dialog` (its own COM apartment); the answer comes back over an `mpsc` channel plus
+    `request_repaint` and is polled in `logic`. One dialog at a time.
+  - `FileOp::{New, Open, OpenPath, Save, SaveAs, SaveCompact, Close}`, queued with the additive
+    `AppCx::file(op)` (end of frame, `ShellRequest::File`), or run by the host with
+    `AmalgamApp::file_op(doc, op)`.
+  - **Save** (`AmalgamApp::save_document(id, save_as, compact)`): a document without a path (or
+    Save As) asks first; the path gets `.amg` appended unless it ends in it. The save is an
+    `amg_jobs` job ("Save <name>", progress and Cancel in the job panel) running
+    `amg_doc::io::save_in_job` on `Document::snapshot()`; normal saves pass
+    `Document::cache_export()`, Save Compact passes `cache: None`. When the job succeeds the tab
+    gets the path and the file stem as name, the file goes to Open Recent, and
+    `History::mark_saved` runs only if the design revision is still the one that was saved
+    (edits made during the job keep the document dirty). Failures are error toasts with the
+    `report` chain; a cancellation shows nothing.
+  - **Open** (`open_path`): a job runs `load_in_job` + `LoadedDocument::into_document` (lazy cache
+    seed) + `mark_saved`, so the UI thread only adds the tab. An already open path activates its
+    tab. Load warnings become warning toasts; a bad file is an error toast and opens nothing.
+  - **Open Recent**: `RecentFiles` (10, most recent first, deduplicated), persisted as
+    `%APPDATA%\Amalgam\recent.json` (`default_recent_path`, `AmalgamApp::set_recent_path`;
+    in memory only by default).
+  - **Close prompt**: `logic` checks `viewport().close_requested()`. With dirty documents it sends
+    `ViewportCommand::CancelClose` and a `Modal` ("Unsaved changes", Save / Don't save / Cancel,
+    Esc or backdrop = Cancel) asks for each dirty document in tab order, activating it. Save
+    saves (via the dialog if needed) and continues when the job succeeded; a cancelled dialog or
+    a failed save stops the close. When all are resolved the app sends `ViewportCommand::Close`
+    and lets the next close request through (`CloseState::{Idle, Prompting, Saving, Closing}`,
+    `AmalgamApp::close_state`). `file.close` (Close document) uses the same flow for one tab;
+    the app always keeps one document.
+  - **Recovery** (`set_recovery(Some(RecoveryConfig))`): every open and later added document gets
+    `RecoverySession::start(cfg, design uuid)` + `attach`, so each applied `CommitBatch` (one
+    `Document::transaction`) is one journal record through `HistoryObserver::on_commit`; undo and
+    redo are journaled by DOC-14 itself. `logic` calls `tick` for documents that are dirty or
+    already have a snapshot. One FND-07 recovery hook (`amg-ui.recovery`) flushes all live
+    sessions (weak list, `try_lock` only) and reports the recovery folder.
+    `check_recovery()` lists `find_recoverable` (skipping the app's own documents), runs
+    `recover_with_report` per candidate on a job and opens the "Recover unsaved work" `Modal`:
+    per document its name, age and replayed edit count, Open recovered / Discard (a background
+    job calls `RecoveryCandidate::discard`), and Later (keeps the folders; offered again next
+    start). Open recovered adds "<name> (recovered)" (dirty), whose new session takes over the
+    folder. Closing a tab finishes its session on a helper thread; `AmalgamApp::shutdown` (the
+    host's `on_exit`) finishes all of them, so a clean exit leaves nothing to recover.
+    `check_recovery` also sweeps, on a background job, unlocked folders that never got a
+    snapshot (a crash before the first edit), by taking them over with `RecoverySession::start`
+    and `finish`; folders with a snapshot or a live lock are left alone.
+  - Window title `"<name>[ *] — Amalgam"` (`ViewportCommand::Title`, sent on change).
+  - Defaults: `default_recovery_dir()` = `%LOCALAPPDATA%\Amalgam\recovery` on Windows
+    (`$XDG_STATE_HOME/amalgam/recovery` on Linux).
+- **`builtin`** registers `file.new` "New document" (Ctrl+N), `file.open` "Open…" (Ctrl+O),
+  `file.save` "Save document" (Ctrl+S), `file.save_as` "Save As…" (Ctrl+Shift+S),
+  `file.save_compact` "Save Compact", `file.close` "Close document" (Ctrl+W), all
+  `Placement::Menu { path: "File" }`.
+- **`shell`**: the File menu draws the registered File commands (replacing UI-01's hand-drawn
+  "New document"), the Open Recent submenu, and the **Import** / **Export** slots: each is a
+  submenu that shows "No formats registered yet" until a module registers a command under
+  `File/Import` or `File/Export` (IO-01 then fills it with no framework change). Other `File/…`
+  submenus are drawn as before. The close prompt and the recovery dialog are drawn after the
+  toasts.
+- **`app`**: `DocTab::{path, recovery}`; `new_document` marks the empty document saved, so an
+  untouched Untitled closes without a prompt (`Document::new` has no saved marker). Tracing spans
+  `amg_ui.frame` (`AmalgamApp::frame`), `amg_ui.logic` and `amg_ui.ui` (debug level).
+- **`testing`**: `FakeFileDialog` (queued answers, an empty queue cancels; records requests).
+  `drive_until_idle` also waits while `AmalgamApp::file_busy()` (dialog, save, open or recovery
+  load pending).
+- **`amg-app`**: installs `RfdDialogs::with_parent(cc)`, `set_recent_path(default_recent_path())`,
+  `set_recovery` + `check_recovery` before the first frame (`--recovery-dir DIR`,
+  `--no-recovery`), opens a `FILE.amg` argument, and calls `shutdown()` in `on_exit`.
+
+*Evidence (Done-when; `tests/file_ops.rs`, 12 tests):*
+1. **Save → reopen.** `save_then_reopen_gives_an_equal_design_json`: two `AddParam` batches, then
+   File ▸ Save document (clicked in the menu). The fake save dialog is asked once (kind `Save`,
+   filter `amg`) and answers `bracket` with no extension; `bracket.amg` is written, the tab is
+   renamed "bracket", gets the path, and the document is clean. A later Save with a path shows no
+   dialog. Close document (clean, no prompt) leaves a fresh Untitled; File ▸ Open… (fake answers
+   the path) opens a clean "bracket" tab with the three parameters, and opening the same path again
+   only activates it. Save As `copy.amg` of the reopened document gives a `design.json` that is
+   **byte-equal** to the first file's, and so does Save Compact. Open Recent then lists
+   `copy.amg` first. Also `cancelled_dialog_and_failed_open_change_nothing` (a cancelled save keeps
+   the document dirty and pathless; a non-Amalgam file opens no tab and shows "Cannot open the
+   file"), `open_recent_persists_and_reopens` (recent.json survives a new app; File ▸ Open Recent ▸
+   r.amg opens it) and `import_and_export_slots_are_in_the_file_menu`.
+2. **Dirty close prompt.** `closing_a_dirty_document_prompts_and_cancel_keeps_the_app_open`: a
+   `ViewportEvent::Close` in the kittest input makes that frame send `ViewportCommand::CancelClose`
+   (and no `Close`); the "Unsaved changes" modal asks `Save changes to “Untitled 1” before
+   closing?` (`CloseState::Prompting`). Cancel: no `Close` in the next 5 frames, the state is
+   `Idle`, the modal is gone, the document is still open and dirty. Asking again and choosing
+   Don't save sends `Close` (`CloseState::Closing`), after which a close request is let through.
+   Also `save_in_the_close_prompt_saves_then_closes` (two dirty tabs: Save writes `one.amg` through
+   the dialog and moves on to the second; cancelling the second's dialog stops the close; Don't
+   save then closes), `clean_documents_close_without_a_prompt` and
+   `closing_a_dirty_tab_prompts_and_dont_save_removes_it` (Close document on a dirty tab).
+3. **Kill test.** `kill_test_recovery_dialog_offers_and_restores_the_document` re-runs the test
+   binary as a child (`AMG_UI19_KILL_CHILD`): an `AppHarness` with recovery on adds a "Bracket"
+   document, commits 5 `CommitBatch`es through the app, saves the expected state to
+   `expected.amg`, flushes the journal and calls `process::abort()`. The parent asserts the child
+   failed, starts a new app on the same recovery folder: `check_recovery()` returns 1, the "Recover
+   unsaved work" dialog names "Bracket"; "Open recovered" opens "Bracket (recovered)", dirty, with
+   p0..p4, a new recovery session, and its `design.json` is **byte-equal** to `expected.amg`'s. A
+   live session is not offered (`find_recoverable` empty), and after `shutdown()` the recovery
+   folder is empty (the child's untouched Untitled folder, which never had a snapshot, is swept).
+   Also `recovery_discard_deletes_and_later_keeps_the_data` ("1 edit(s)" shown; Later keeps the
+   folder and it is offered again; Discard deletes it) and `every_commit_batch_is_journaled` (a
+   two-command batch is one journal record; the last record is `"label":"Add c"`).
+4. **50 MB open.** `timing_opening_a_50mb_file_never_blocks_a_frame`: a 55 284 170-byte `.amg`
+   (one feature with 70 M base64 characters in `design.json`), opened through File ▸ Open… with
+   recovery on, stepping frames like a continuously repainting event loop. Every `amg_ui.frame`
+   span is timed by a test `tracing_subscriber::Layer`. Three runs with `AMG_STRICT_TIMING=1`
+   (debug test profile, opt-level 1, machine shared with 3 other workers): the open took
+   585-598 ms over 227-232 frames; UI-thread frame p50 191-195 µs, **max 2.1-2.8 ms** (budget
+   16 ms, asserted only under `AMG_STRICT_TIMING=1`).
+
+Unit tests: `file::tests::recent_files_dedupe_cap_and_round_trip`,
+`file::tests::save_paths_get_the_amg_extension`.
+
+*Deviations:*
+- The Save command is labelled "Save document", not "Save": the close prompt's button is "Save",
+  and UI-10's test registers its own `Save` menu command that `get_by_label("Save")` must find
+  uniquely (existing tests are unchanged).
+- Save, open and recovery jobs are tracked by the file module itself (`JobHandle::try_take` in
+  `logic`), not through `AppCx::spawn_tracked`: their callbacks need the whole app (any tab, the
+  close flow), and `spawn_tracked` callbacks only see the active document's `AppCx`. They still
+  appear in the job panel with progress and Cancel.
+- The kill test runs the real `AmalgamApp` through `AppHarness` in a child process (the test binary
+  re-run with `AMG_UI19_KILL_CHILD`), not the `amg-app` binary: `amg-app` needs a window and a GPU.
+  The child calls `flush_recovery()` before `process::abort()` so the test does not depend on the
+  journal writer thread's timing (the panic hook does the same flush on a crash).
+- "50 MB file" = a `design.json` feature payload (70 M pseudo-random base64 characters, which
+  deflates to ~53 MB on disk); the frame time comes from the `amg_ui.frame` tracing span through a
+  test `tracing_subscriber::Layer`, asserted < 16 ms only under `AMG_STRICT_TIMING=1`.
+- A successful save does not reset the recovery folder (DOC-14 has no "saved" call), so a crash
+  right after a save still offers the document; the recovered copy equals the saved one.
+- kittest clicks in a just-opened `Modal` wait a few frames: its first frame is a layout pass at
+  another position, so an immediate click lands on the backdrop (= Cancel), as UI-10 saw for
+  `Area`s.
+- `AppConfig` is unchanged (`idle.rs` builds it as a struct literal); the backend, recent path and
+  recovery are setters.
+
+*Leftovers:*
+- Drag-and-drop of `.amg` files, a document-tab close button (only File ▸ Close document / Ctrl+W),
+  and a dirty marker on the tab label (only in the window title) are not done.
+- Open Recent keeps paths that no longer exist (opening one shows the error toast).
+- The `rfd` dialog itself (and the `amg-app` close path through eframe) was not exercised by an
+  automated test; `RfdDialogs` is covered only by compiling. The owner should try File ▸ Open… /
+  Save As… and closing a dirty window once.
+- The recovery dialog shows a document's age, not its file path (DOC-14 candidates carry no path).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1561,3 +1714,20 @@ additive pieces UI-05 should render:
   mirror S10 §Interfaces. They become re-exports when `SubKind` / `set_highlight_layer` land.
   `InstanceDesc::key` is the `PickId` to write into the instance record.
 - `amg-app` installs `GpuSceneBackend::egui` after `AmalgamApp::new`.
+
+### 2026-11-15: UI-19 (lane D)
+- Workspace `Cargo.toml` (shared): new `[workspace.dependencies]` `rfd` 0.17.2
+  (`default-features = false`, `xdg-portal`) and `raw-window-handle` 0.6.2, both used by `amg-ui`
+  only; `zip` and `tracing-subscriber` become `amg-ui` dev-dependencies. `THIRD_PARTY.md` rows
+  updated (rfd MIT, its transitive crates MIT / Apache-2.0, raw-window-handle MIT / Apache-2.0 /
+  Zlib; the lock file gains `rfd` and, for Linux only, `pollster` 0.4.0 (MIT / Apache-2.0)).
+- No change to `amg-doc`, `amg-jobs` or `amg-core`: UI-19 uses the public DOC-07 / DOC-14 API
+  (`io::{save_in_job, load_in_job, SaveOptions, StubBodyCodec}`, `Document::{snapshot,
+  cache_export}`, `History::mark_saved`, `RecoverySession`, `find_recoverable`,
+  `recover_with_report`, `RecoveryCandidate::discard`) and `amg_jobs::diag::{register,
+  unregister}_recovery_hook`.
+- For IO-01 (lane G): register Import/Export commands with `Placement::Menu { path:
+  "File/Import" | "File/Export", .. }`; the placeholder submenu disappears once one exists.
+- `amg-app`: `RfdDialogs::with_parent(cc)`, `set_recent_path`, `set_recovery` + `check_recovery`
+  before the first frame, `--recovery-dir` / `--no-recovery` / a `FILE.amg` argument, and
+  `shutdown()` in `on_exit`.

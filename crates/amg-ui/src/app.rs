@@ -35,8 +35,8 @@ pub struct DocTabId(pub u64);
 
 /// One open document and its per-document UI state.
 ///
-/// Later work packages add the recovery session (UI-19), selection (UI-04), camera and active
-/// tool (UI-03) and the job tracker scope here.
+/// Later work packages add selection (UI-04), camera and active tool (UI-03) and the job
+/// tracker scope here.
 #[derive(Debug)]
 pub struct DocTab {
     /// Stable id.
@@ -47,6 +47,10 @@ pub struct DocTab {
     pub document: Document,
     /// Active UI contexts ("sketch", …), outermost first.
     pub contexts: Vec<ContextId>,
+    /// The file it was opened from or last saved to (UI-19).
+    pub path: Option<PathBuf>,
+    /// Crash-recovery journal and snapshots, when recovery is enabled (UI-19).
+    pub recovery: Option<Arc<amg_doc::RecoverySession>>,
 }
 
 /// A group of document commands applied as one undo entry at the end of the frame.
@@ -84,6 +88,7 @@ pub(crate) enum ShellRequest {
     FocusContextTab(ContextId),
     RunCommand(CmdId),
     OpenSearch,
+    File(DocTabId, crate::file::FileOp),
 }
 
 /// Read-only view for enablement, providers and panels.
@@ -183,6 +188,12 @@ impl AppCx<'_> {
     /// Opens the S-key command search at the cursor.
     pub fn open_search(&mut self) {
         self.requests.push(ShellRequest::OpenSearch);
+    }
+
+    /// Queues a file operation (New, Open, Save, …) on this document; it runs at the end of
+    /// the frame (UI-19).
+    pub fn file(&mut self, op: crate::file::FileOp) {
+        self.requests.push(ShellRequest::File(self.doc.id, op));
     }
 
     /// Queues undo for this document (applied at the end of the frame).
@@ -344,6 +355,8 @@ pub struct AmalgamApp {
     pub(crate) scene: SceneAdapter,
     /// The document the scene shows (`None`: rebuild on the next `logic`).
     scene_doc: Option<DocTabId>,
+    /// File dialogs, save/open jobs, close prompt and crash recovery (UI-19).
+    pub(crate) files: crate::file::FileState,
 }
 
 impl std::fmt::Debug for AmalgamApp {
@@ -402,6 +415,7 @@ impl AmalgamApp {
             folder_opener: Box::new(open_in_file_manager),
             scene: SceneAdapter::new(Box::new(CpuSceneBackend::new()), Vec::new()),
             scene_doc: None,
+            files: crate::file::FileState::default(),
         };
         app.scene = SceneAdapter::new(
             Box::new(CpuSceneBackend::new()),
@@ -419,12 +433,14 @@ impl AmalgamApp {
     /// One whole frame: [`Self::logic`] then [`Self::ui`] (which ends with
     /// [`Self::end_frame`]). For hosts without the eframe split (kittest).
     pub fn frame(&mut self, ui: &mut egui::Ui) {
+        let _span = tracing::debug_span!("amg_ui.frame").entered();
         self.logic(ui.ctx());
         self.ui(ui);
     }
 
     /// Per-frame work without layout: theme, document polling and events.
     pub fn logic(&mut self, ctx: &egui::Context) {
+        let _span = tracing::debug_span!("amg_ui.logic").entered();
         if self.ctx.is_none() {
             let _ = self.repaint.set(ctx.clone());
             self.ctx = Some(ctx.clone());
@@ -469,6 +485,7 @@ impl AmalgamApp {
             }
         }
         self.poll_scene();
+        self.poll_files(ctx);
     }
 
     /// Inserts finished tessellations and keeps the highlight colours on the theme. Never
@@ -498,6 +515,7 @@ impl AmalgamApp {
 
     /// Layout and widgets, then [`Self::end_frame`].
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        let _span = tracing::debug_span!("amg_ui.ui").entered();
         crate::shell::draw(self, ui);
         self.end_frame();
     }
@@ -540,6 +558,7 @@ impl AmalgamApp {
             match req {
                 ShellRequest::OpenPanel(id) => self.open_panel(id),
                 ShellRequest::RunCommand(_) => {}
+                ShellRequest::File(doc, op) => self.file_op(Some(doc), op),
                 ShellRequest::OpenSearch => {
                     let at = self
                         .ctx
@@ -696,6 +715,11 @@ impl AmalgamApp {
         self.repaint();
     }
 
+    /// The scene shows the active document again from scratch on the next `logic`.
+    pub(crate) fn invalidate_scene(&mut self) {
+        self.scene_doc = None;
+    }
+
     /// Number of frames run so far.
     pub fn frame_count(&self) -> u64 {
         self.frames
@@ -707,7 +731,9 @@ impl AmalgamApp {
     pub fn new_document(&mut self) -> DocTabId {
         self.untitled += 1;
         let name = format!("Untitled {}", self.untitled);
-        let document = Document::new(&name);
+        let mut document = Document::new(&name);
+        // Nothing to save yet: an untouched new document closes without a prompt (UI-19).
+        document.history_mut().mark_saved();
         self.add_document(name, document)
     }
 
@@ -720,8 +746,11 @@ impl AmalgamApp {
             name,
             document,
             contexts: Vec::new(),
+            path: None,
+            recovery: None,
         });
         self.active = self.docs.len() - 1;
+        self.start_recovery_session(id);
         self.repaint();
         id
     }

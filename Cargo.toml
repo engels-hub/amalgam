@@ -68,6 +68,11 @@ egui_dock = { version = "0.21.1", features = ["serde"] }
 egui_kittest = { version = "0.36.2", features = ["snapshot", "wgpu"] }
 # amg-ui (S11 UI-01): `%APPDATA%\Amalgam` for layout.json (later prefs, shortcuts).
 directories = "6.0.0"
+# amg-ui (S11 UI-19): native file dialogs behind `amg_ui::file::FileDialogBackend`.
+# `xdg-portal` is the Linux backend (pulls only pollster 0.4 there); Windows/macOS need no feature.
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+# Parent window of the file dialogs (already in the tree through winit/wgpu/rfd).
+raw-window-handle = "0.6.2"
 bytemuck = { version = "1.25.2", features = ["derive"] }
 pollster = "1.0.1"
 clap = { version = "4.6.7", features = ["derive"] }

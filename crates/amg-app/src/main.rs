@@ -4,11 +4,13 @@
 //!
 //! Start-up: diagnostics and the panic hook (FND-07), the UI-thread mark, the shared `Gpu`
 //! (FND-09) handed to eframe as `WgpuSetup::Existing`, the `JobSystem` whose notifier repaints
-//! egui, the feature and UI registries, then the first frame. The whole start-up is the
-//! tracing span `startup`; its event `first interactive frame` carries `elapsed_ms`.
+//! egui, the feature and UI registries, the recovery check (UI-19), then the first frame. The
+//! whole start-up is the tracing span `startup`; its event `first interactive frame` carries
+//! `elapsed_ms`.
 //!
 //! ```text
 //! amg-app [--tris N] [--no-demo] [--theme light|dark|system] [--exit-after-first-frame]
+//!         [--recovery-dir DIR | --no-recovery] [FILE.amg]
 //! ```
 
 mod demo;
@@ -17,12 +19,14 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use amg_core::{Aabb3, Dir3, Transform, Vec3};
+use amg_doc::RecoveryConfig;
 use amg_jobs::diag::{self, DiagConfig};
 use amg_jobs::gpu::{Gpu, GpuConfig};
 use amg_jobs::{JobHandle, JobSystem, JobSystemConfig, SpawnOptions};
 use amg_render::egui_glue;
 use amg_render::{Camera, GpuMesh, Instance, Projection, RenderError, RendererConfig, ViewId};
 use amg_ui::app::{default_layout_path, repaint_notifier};
+use amg_ui::file::{RfdDialogs, default_recent_path};
 use amg_ui::scene::GpuSceneBackend;
 use amg_ui::theme::Theme;
 use amg_ui::viewport::RenderViewport;
@@ -39,6 +43,9 @@ struct Args {
     demo: bool,
     theme: Theme,
     exit_after_first_frame: bool,
+    /// `None`: crash recovery off.
+    recovery_dir: Option<std::path::PathBuf>,
+    open: Option<std::path::PathBuf>,
 }
 
 fn parse_args() -> anyhow::Result<Args> {
@@ -47,6 +54,8 @@ fn parse_args() -> anyhow::Result<Args> {
         demo: true,
         theme: Theme::System,
         exit_after_first_frame: false,
+        recovery_dir: amg_ui::file::default_recovery_dir(),
+        open: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -68,9 +77,17 @@ fn parse_args() -> anyhow::Result<Args> {
                 };
             }
             "--exit-after-first-frame" => out.exit_after_first_frame = true,
+            "--recovery-dir" => {
+                out.recovery_dir = Some(it.next().context("--recovery-dir needs a folder")?.into());
+            }
+            "--no-recovery" => out.recovery_dir = None,
+            other if !other.starts_with("--") && out.open.is_none() => {
+                out.open = Some(other.into());
+            }
             other => bail!(
                 "unknown argument `{other}`; usage: amg-app [--tris N] [--no-demo] \
-                 [--theme light|dark|system] [--exit-after-first-frame]"
+                 [--theme light|dark|system] [--exit-after-first-frame] \
+                 [--recovery-dir DIR | --no-recovery] [FILE.amg]"
             ),
         }
     }
@@ -110,7 +127,6 @@ fn main() -> anyhow::Result<()> {
         tracing::info!(modules = ?registry.modules(), "UI registry built");
         Ok((gpu, jobs, slot, registry))
     })?;
-    // UI-19: the recovery check (`find_recoverable`) runs here, before the first frame.
 
     let native = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
@@ -159,6 +175,18 @@ fn main() -> anyhow::Result<()> {
                 layout_path: default_layout_path(),
             });
             app.set_log_dir(log_dir);
+            // UI-19: native dialogs modal to this window, Open Recent, crash recovery. The
+            // recovery check runs before the first frame; recovering happens on jobs.
+            app.set_file_dialog_backend(Arc::new(RfdDialogs::with_parent(cc)));
+            app.set_recent_path(default_recent_path());
+            if let Some(dir) = &args.recovery_dir {
+                app.set_recovery(Some(RecoveryConfig::new(dir)));
+                let n = app.check_recovery();
+                tracing::info!(candidates = n, dir = %dir.display(), "recovery check");
+            }
+            if let Some(path) = &args.open {
+                app.open_path(path.clone());
+            }
             // UI-20: document bodies go through the scene adapter into S10's RenderScene.
             match GpuSceneBackend::egui(rs.clone()) {
                 Some(backend) => app.set_scene_backend(Box::new(backend)),
@@ -283,6 +311,8 @@ impl eframe::App for Shell {
     }
 
     fn on_exit(&mut self) {
+        // Clean close: the recovery folders go, so nothing is offered at the next start.
+        self.app.shutdown();
         if let Err(e) = self.app.save_layout() {
             tracing::warn!("could not save the dock layout: {e}");
         }
