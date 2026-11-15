@@ -600,7 +600,7 @@ pub mod egui_glue {
 | RND-01 | **Phase-0 spike: mesh spinning in an egui window.** `amg-render` skeleton (`Renderer`, `View` targets: Rgba16Float ×4 MSAA colour, Depth32Float reversed-Z, resolve, final Rgba8UnormSrgb), f64 `Camera` with RTE matrices, one Lambert+headlight pipeline (smooth normals, or flat via derivatives when normals are empty), `upload_mesh` (positions/normals/indices), `egui_glue::{install, with_renderer, Viewport}` with the `CallbackTrait` prepare/paint flow and sRGB-aware composite, `capture`. Example `crates/amg-render/examples/spin.rs` (eframe 0.37, `WgpuSetup::Existing` from `Gpu::new_blocking(GpuConfig::from_env())`): a displaced icosphere generator (`--tris N`, default 1 M), optional `--stl <file>` (binary STL, in-example reader), auto-turntable 30°/s, LMB-drag orbit, wheel dolly, side panel showing adapter, backend, triangles, CPU and GPU frame ms, an MSAA 1/4 toggle and a flat/smooth toggle; `--bench <frames>` prints p50/p99. Measures FXC vs `StaticDxc` core pipeline creation time. | FND-09 | P0 | Done | 1. On the owner's RTX 5060 Ti / DX12, `cargo run -p amg-render --release --example spin -- --bench 600` at 1920×1080, 4× MSAA, 1 M tris prints frame-time p99 ≤ 16.7 ms (CPU wall) and GPU p50 ≤ 4 ms. The output is pasted into the PR. 2. `install` returns `DeviceMismatch` when given a different `Gpu` (test, WARP); with the same one, the example asserts `rs.device == *gpu.device()`. 3. `gpu_spin_smoke` (WARP in CI): a 256² capture of a sphere has a non-background centre pixel and background corners, and two captures are bit-identical. 4. RTE test: a 1 mm cube at the origin and at (1e5, 1e5, 0) mm, with the camera at the same relative pose, gives captures equal within 1 LSB per channel. 5. Debug build with validation: 10 s of continuous resizing plus MSAA toggling logs zero wgpu validation errors (recorded in the PR). 6. FXC vs StaticDxc timings and the resulting choice are recorded in the Refinement log. 7. fmt, clippy `-D warnings` and nextest pass. |
 | RND-02 | Shading and visual-style framework: PBR-lite (GGX, studio key/fill + hemisphere), procedural matcap, oct-encoded normals, `normal` target, MSAA 1/4, optional FXAA, gradient background, pipeline variants via `override` constants and lazy variant creation on jobs, GPU timestamps (`gpu_timings`), `Material`. Bench `benches/viewport.rs` (headless). | RND-01 | P0 | Done | 1. `cargo bench -p amg-render --bench viewport` (owner GPU, 2560×1440, 4× MSAA, Studio, a 5 M-tri displaced sphere, 600-frame orbit) reports GPU p99 ≤ 9 ms and wall p99 ≤ 16.6 ms; with 1 M tris, GPU p50 ≤ 3 ms. 2. Depth pre-pass on/off measured, and the faster one kept (recorded). 3. A flat-shaded mesh without normals uses exactly 12 B/vertex + 12 B/tri of VRAM (`gpu_bytes` test). 4. Headless tests (WARP): Lambert brightness at known normals matches the CPU reference within 2/255; MSAA 4 reduces edge-pixel aliasing (a staircase metric on a tilted quad); the core pipeline set is created in ≤ 150 ms on the owner GPU (logged). |
 | RND-03 | `RenderScene`: slotmap keys, `Instance` storage buffer with dirty tracking, shared meshes across instances, layers, visibility, CPU frustum culling and front-to-back sort, multiple views, `upload_*` helpers with `ctx.checkpoint()` and `TooLarge`/`InvalidData` checks, `CameraUniform` + `shaders/camera.wgsl`, `ExternalLayer` composite pass, `visible_bounds`, `gpu_bytes`. | RND-01 | P0 | Done | 1. Criterion: `encode` of 10 k instances over 100 meshes takes ≤ 2 ms p99 CPU. 2. Changing one transform rewrites exactly 128 B (upload counter). 3. `upload_mesh` of 5 M tris on a job thread ≤ 300 ms (owner machine); `insert_mesh` ≤ 50 µs. Cancelling mid-upload returns `Cancelled` within 20 ms. 4. ExternalLayer test: a synthetic layer whose depth plane cuts a cube composites with correct occlusion on both sides (pixel assertions). 5. Two views with different cameras render one scene in one frame. 6. 1000 add/remove cycles return `gpu_bytes` to baseline. 7. `InvalidData` for an index out of range and for a NaN position. |
-| RND-04 | GPU picking: id + depth pick passes (B-rep face-id attribute; mesh `primitive_index` or vertex-pulling fallback; edges and points widened by the radius), scissored point pick, priority resolution, f64 world reconstruction, rectangle window/crossing via compute flags, hover/selection highlight (instance tint, face-range redraw with `depth_compare: Equal`, edge/point state buffers). Also RND-06 Done-when 5 (section picking), moved here: the pick pipelines get clipped variants (`section_clipped` in `shaders/section.wgsl`) and a cap pick variant (back faces, `section_ray` + `section_cap`, kind face, `CAP_SUB`) whose world point comes from `section_cap_point` in f64. | RND-12, RND-03 | P0 | Todo | 1. On a synthetic box-with-hole test part (edges known): 1000 random cursor positions within 3 px of a projected 1-px edge return that edge in ≥ 99.5 %, and positions > 6 px from every edge or vertex return no edge in ≥ 99.5 %. 2. 1000 random interior face pixels (≥ 2 px from edges) return the correct face (100 %), and mesh triangle sub-ids are correct (100 %). 3. `PrimitiveIndex` and `VertexPulling` give identical results on the same scenes (WARP). 4. Results arrive ≤ 2 `encode` calls after the request (counted). 5. World position is within 1e-6 × distance of the analytic hit. 6. The rectangle test on a 3×3 box grid gives the expected window vs crossing sets. 7. Highlighted faces show the highlight colour with no z-fighting pixels (pixel test). 8. The pick pass costs ≤ 2 ms GPU at 5 M tris (owner bench). 9. RND-06 Done-when 5 (section picking): picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). |
+| RND-04 | GPU picking: id + depth pick passes (B-rep face-id attribute; mesh `primitive_index` or vertex-pulling fallback; edges and points widened by the radius), scissored point pick, priority resolution, f64 world reconstruction, rectangle window/crossing via compute flags, hover/selection highlight (instance tint, face-range redraw with `depth_compare: Equal`, edge/point state buffers). Also RND-06 Done-when 5 (section picking), moved here: the pick pipelines get clipped variants (`section_clipped` in `shaders/section.wgsl`) and a cap pick variant (back faces, `section_ray` + `section_cap`, kind face, `CAP_SUB`) whose world point comes from `section_cap_point` in f64. | RND-12, RND-03 | P0 | Review | 1. On a synthetic box-with-hole test part (edges known): 1000 random cursor positions within 3 px of a projected 1-px edge return that edge in ≥ 99.5 %, and positions > 6 px from every edge or vertex return no edge in ≥ 99.5 %. 2. 1000 random interior face pixels (≥ 2 px from edges) return the correct face (100 %), and mesh triangle sub-ids are correct (100 %). 3. `PrimitiveIndex` and `VertexPulling` give identical results on the same scenes (WARP). 4. Results arrive ≤ 2 `encode` calls after the request (counted). 5. World position is within 1e-6 × distance of the analytic hit. 6. The rectangle test on a 3×3 box grid gives the expected window vs crossing sets. 7. Highlighted faces show the highlight colour with no z-fighting pixels (pixel test). 8. The pick pass costs ≤ 2 ms GPU at 5 M tris (owner bench). 9. RND-06 Done-when 5 (section picking): picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). |
 | RND-05 | Transparency: WBOIT accum/revealage targets and composite, per-instance opacity (`base_color.a`), `Layer::Ghost`, x-ray style (all model instances at α 0.25 + dimmed always-on-top edges). | RND-02, RND-03 | P1 | Todo | 1. Three overlapping translucent quads rendered in all 6 submission orders differ by ≤ 2/255 per channel. 2. An opaque object behind and in front of translucent ones is correctly occluded. 3. X-ray shows hidden edges at the configured alpha. 4. Overhead ≤ 2 ms at 1440p with 1 M translucent tris (owner bench), and 0 when nothing is translucent (pass skipped). |
 | RND-06 | Section planes: up to 6 planes, `discard` in every `clipped` model/edge/pick pipeline, back-face ray–plane caps with `frag_depth`, per-instance `cap_color`, screen-constant hatching, `closed` gating, cap picking (`CAP_SUB`). | RND-02, RND-03 | P0 | Done | 1. Closed sphere r = 10 cut by z = 0, viewed from +Z: every pixel inside the projected circle shrunk by 1 px is cap or hatch colour, and none is background (watertight). 2. A cube cut by 2 orthogonal planes gives an L-shaped cap; pixel test against analytic polygons. 3. An open mesh draws no cap. 4. Hatch spacing is 8 ± 1 px at zooms 0.01×–100×. 5. Picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). 6. Overhead ≤ 1 ms at 5 M tris (owner bench). |
 | RND-07 | Overlay layer: `OverlayList` (polylines, arrows, rings, triads, plane quads, adaptive grid, image planes, points, sprites, pickable handles), constant pixel size, `DepthMode` incl. x-ray dimming, own overlay depth, `project_labels` + `egui_glue::paint_labels` (egui text), view-cube rendering hook for RND-11. | RND-12, RND-03 | P0 | Todo | 1. Labels: projected anchors match `Camera::project` within 0.5 px for 20 random cameras, and text is egui-rasterised (crisp at every zoom by construction). 2. Arrow and ring sizes stay within ±1 px of the requested size across view distances 1e-2..1e5 mm. 3. Handle picking returns `SubKind::Handle` with the handle id. 4. Grid minor lines are never closer than 8 px. 5. An image plane shows a test PNG with correct orientation (corner-pixel test). 6. Overlays cost ≤ 0.5 ms GPU with 1000 primitives. |
@@ -1318,6 +1318,141 @@ RTX 5060 Ti / DX12; clippy `-p amg-render --all-targets -D warnings` clean):*
 - Edges lying exactly in a section plane are clipped or not by f32 rounding.
 - RND-04: clipped pick pipelines and the cap pick variant (`CAP_SUB`, world point from
   `section_cap_point`); RND-09 should add a section golden image.
+
+### 2026-11-15 - RND-04 GPU picking and highlight
+
+*Landed in `crates/amg-render` (status `Review`):*
+- **API** (`pick.rs`, `highlight.rs`, re-exported): `Renderer::{request_pick, poll_picks,
+  pending_picks, pick_radius_px, pick_backend, encode_count, drain_pick_timings}`, `PickRequest`
+  (`point`, `rect`), `PickRegion`, `RectMode`, `PickFilter` (a hand-written bit set: `BODIES`, `FACES`,
+  `EDGES`, `VERTICES`, `HANDLES`, `ALL`; no `bitflags` dependency), `SubKind`, `PickHit`, `PickResult`,
+  `PickTicket`, `PickBackend` (`Auto`, `PrimitiveIndex`, `VertexPulling`), `BODY_SUB`,
+  `RendererConfig::{pick_radius_px (5), pick_backend}`; `Instance::{pick, pickable}`; `FaceRange`,
+  `upload_mesh_with_faces`, `UNASSIGNED_FACE`, `GpuMesh::{face_ranges, face_count}`;
+  `HighlightLayer`, `HighlightItem`, `Range32`, `RenderScene::{set_highlight_layer, highlight_layer,
+  set_highlight_color, highlight_color}`.
+- **Pick pass** (`shaders/pick.wgsl`, recorded by `Renderer::encode` after the view's frame, from
+  that frame's draw plans: same culling and section classification, minus instances that are not
+  `pickable` or on `Layer::Ghost`, hidden-pass lines and triangle wireframes). Targets: `Rg32Uint`
+  id (pick id, `kind << 30 | sub`) and `Rgba32Float` position (eye-relative world point + reversed-Z
+  depth), depth test `GreaterEqual`, single-sampled. Faces, then edges (visible and always-on-top
+  passes, at their drawn width, at least 1 px), then points; kinds left out of the filter are not
+  drawn, so they hide nothing.
+  - Face sub-ids: B-rep meshes (`upload_mesh_with_faces`) have a flat per-vertex `Uint32` face id
+    (4 B/vertex, validated: no vertex shared by two faces); plain meshes use
+    `@builtin(primitive_index)` (a second module with `enable primitive_index;`, built only when the
+    device has `PRIMITIVE_INDEX`) or vertex pulling (non-indexed draw reading indices and positions
+    as storage buffers, `vertex_index / 3`). Mesh position and index buffers now always have
+    `STORAGE` usage (no extra VRAM).
+  - **Point picks** render the `(2r + 1)²` square around the cursor into a target of that size
+    with an offset viewport (wgpu allows viewports outside the attachment), so no full-size pick
+    targets exist for hover. The projection is shifted by the cursor's sub-pixel offset so the centre
+    texel samples the exact cursor ray. CPU resolution (`resolve_point`, unit-tested on synthetic
+    id arrays): handles and vertices within `r`, edges within `r - 1`, the face under the cursor;
+    best = handle > vertex > edge > face, then distance, then nearer.
+  - **World positions in f64:** a face stores the intersection of the exact pixel ray (from
+    `inv_view_proj_rte`) with the triangle's plane (normal from screen derivatives) instead of the
+    interpolated position, because sub-pixel vertex snapping moves the interpolated point off the
+    ray (3.4e-5 x distance before, 5e-7 after); `world = eye (f64) + eye-relative point`. Edges store
+    the nearest point of the centre line and points their centre, both with the line depth offset
+    undone. A cap hit's world point is `section_cap_point` (f64) on the texel's ray.
+  - **Sections:** pick pipelines have clipped variants (`section_clipped`), and a cut closed mesh is
+    drawn without culling: a back face where `section_cap` says the ray entered the kept region is
+    a cap (kind face, `CAP_SUB`), with occluders before a bounded cut (as RND-06), then a pick cap
+    depth pass (`shaders/pick_fix.wgsl`) puts cap texels' depth on the plane so edges and points
+    under a cap are not picked through it.
+  - **Rectangles:** full-view pick render into targets made for the request, then a compute pass
+    (`shaders/pick_rect.wgsl`, built in the background at `Renderer::new`) ORs 1 (inside) / 2
+    (outside) into per-entity flags laid out by a per-pick-id table (body, faces or triangles,
+    edges, vertices, only for the kinds in the filter); window = `flags == 1`, crossing = `flags & 1`.
+    Whole owners come back as `(pick, SubKind::Face, BODY_SUB)`.
+  - Pick pipelines are lazy variants requested on every `encode` (and by `prepare_view`); a pick
+    whose pipelines are not built yet waits in the queue.
+- **Highlight** (`highlight.rs`, resolved in the scene when the layers or the scene change):
+  - whole owners: highlight bits in the instance record (`flags`); the mesh vertex stage replaces
+    the base colour with the layer colour (Error > Selected > Hover > Preview, Selected + Hover
+    lighter), edges and points of the instance too;
+  - faces / triangles: redrawn after the opaque meshes with the same vertex entry point and the
+    existing depth-`Equal` mesh pipelines (no depth write); visible-list entries carry the layer
+    bits above the slot (`slot | bits << 28`);
+  - edges and vertices: a state buffer (one `u32` of layer bits per edge id and per point id of a
+    highlighted instance; group 0 binding 6) read by the line and point vertex stages through the
+    per-segment / per-point id buffers (group 1 binding 1).
+  - The 128-byte instance record keeps its size: the three normal columns are `vec3` + `u32`
+    (pick id, highlight bits, state index); `StyleUniform` gains the four highlight colours.
+- **Bench** `benches/viewport.rs` `pick_budgets` (`AMG_BENCH_PICKS_ONLY=1` runs it alone).
+
+*Evidence (Done-when; `tests/pick.rs`, 9 GPU tests; all 126 amg-render tests pass on WARP and on
+the RTX 5060 Ti / DX12; clippy `-p amg-render --all-targets -D warnings` clean):*
+1. **Edges** (`gpu_edges_are_picked_within_three_pixels_and_not_beyond_six`, box with a square
+   through-hole, 24 known edges, 1-px edges, 4x MSAA, perspective): 1000 / 1000 cursors within 3 px
+   of a visible projected edge (visibility by f64 ray cast; samples where another edge is within
+   1.5 px more are skipped as ambiguous) return that edge, on DX12 and WARP; 1000 / 1000 cursors
+   more than 6 px from every edge and vertex return no edge.
+2. **Faces and triangles** (`gpu_interior_face_pixels_return_the_face_and_its_world_point`,
+   `gpu_mesh_triangle_ids_are_exact_and_both_backends_agree`): 1000 / 1000 interior pixels (>= 2 px
+   from every edge) return the ray-cast B-rep face, at the origin and at (1e5, 1e5, 0); 1000 / 1000
+   pixels >= 2 px from every triangle edge return the ray-cast triangle index with both backends.
+3. **Backends:** `PrimitiveIndex` and `VertexPulling` results are identical (`PickHit` equality,
+   1000 picks, WARP and DX12; both expose `PRIMITIVE_INDEX`).
+4. **Latency** (`gpu_pick_results_arrive_within_two_encodes`): answered after 1 `encode` in 5 / 5
+   rounds (counted with `Renderer::encode_count`), and every pick in the other tests within 2; the
+   bench checks it per frame with two frames in flight: <= 2 encodes in all three bench cases (600 frames each).
+5. **World position:** worst 4.67e-7 x distance on WARP, 5.84e-7 on DX12 (faces, both origins),
+   triangles 4.65e-7 / 7.5e-7 (limit 1e-6). Perspective only: an orthographic f32 depth (far =
+   1000 x distance) cannot meet 1e-6 from depth alone; faces now intersect the ray with the plane,
+   so ortho faces should do as well, but the test covers perspective.
+6. **Rectangle** (`gpu_rectangle_window_and_crossing_on_a_box_grid`, 3x3 boxes from the top,
+   ortho): a rectangle holding the centre box and reaching 20 px into its left and right neighbours
+   selects body 5 (window) and 4, 5, 6 (crossing); faces: window {5: face 0}, crossing the three top
+   faces; the whole view in window mode selects all nine; a background rectangle selects nothing.
+7. **Highlight** (`gpu_highlighted_faces_show_the_highlight_colour_without_z_fighting`): with face 0
+   selected, all 16 215 top-face pixels (>= 2 px from edges) equal the part drawn with the
+   highlight as its base colour (max difference 0), and all 12 121 other-face pixels equal the
+   plain render (max 0), at 1x and 4x MSAA; a whole-body highlight tints every face the same way.
+   `gpu_edge_highlight_tints_only_that_edge`: only the highlighted edge takes the Error colour.
+8. **Pick GPU cost** (owner RTX 5060 Ti / DX12, release, 2560x1440, 5 000 000 tris + 100 000 edge
+   segments, `ShadedVisibleEdges`, 4x MSAA view, one pick per orbit frame, 600 frames): point pick (`Auto` = `PrimitiveIndex`) GPU p50 0.697 ms, **p99 1.791 ms** (budget 2 ms); reported only: full-view crossing rectangle p50 1.272 ms, p99 2.407 ms; `VertexPulling` point pick p50 0.798 ms, p99 2.265 ms; frame GPU p50 1.1-2.0 ms. The core pipeline set including the pick shader modules took 104.8 ms for the first renderer (budget 150 ms) and 21-22 ms for later ones. An earlier run, while other workers were compiling, measured point p99 1.675 ms and a 209.8 ms cold pipeline set; neither run was fully alone on the machine. That earlier run also showed an empty rectangle pick reporting 0 ms (its timer had no end timestamp); fixed, and the bench instance now has a pick id.
+9. **Sections** (`gpu_section_picks_see_through_clipped_parts_and_hit_caps`, Auto and
+   VertexPulling): a cursor over the clipped half of a tilted open plate returns the plate behind
+   it (world z = -20 within 1e-3), the kept half returns the tilted plate; a cursor on the cap of
+   the cut box ring returns `CAP_SUB` with |world z| <= 1e-6 (exact f64 plane point, also within
+   1e-6 of the analytic ray-plane hit); a cursor right over a bottom edge under the cap returns the
+   cap and no edge (pick cap depth pass).
+- Unit tests: point resolution (priority, radii, nearest texel per edge, filters, depth ties),
+  region placement at the view borders, rectangle tables and window/crossing selection, face-id
+  validation, highlight resolution (whole owner, B-rep faces to triangles with precedence order,
+  plain triangle ranges, edge and point state regions).
+
+*Deviations:*
+- `MeshData` has no `face_ranges` field: existing tests, benches and `amg-app` build `MeshData`
+  literally, so B-rep face ranges are the extra argument of `upload_mesh_with_faces`.
+- The depth target of note §7 (`R32Float`) is an `Rgba32Float` position target (eye-relative point
+  + depth); point picks use a `(2r + 1)²` target with an offset viewport instead of a scissored
+  full-view one; rectangle targets are made per request (about 100 MB at 1440p, freed after the
+  pick) rather than kept.
+- Edges are rasterised at their drawn width (at least 1 px) and the radius is applied on the CPU
+  (nearest edge texel within `r - 1`), rather than drawing edges widened by `r`: a widened edge
+  loses which edge is nearest to the cursor. Dashes are ignored by the pick.
+- Handles rank above vertices (no overlay draws handles yet; RND-07).
+- `PickFilter::BODIES` alone still reports faces in a point pick (the caller maps them to the
+  owner); in rectangles it gives the whole-owner entries.
+- Rectangle picks draw edges and points only when the filter asks for them, so edges do not hide
+  face texels; with both, an edge covering a face's only visible texels can change its window /
+  crossing result.
+- Faces are pickable in every visual style (also wireframe), and only visible edges are pickable
+  (the hidden-edge pass is not drawn into the pick).
+- `ExternalLayer::pick` is not drawn into the pick pass (leftover).
+
+*Leftovers:*
+- S11 UI-03: a GPU `PickService` over `request_pick` / `poll_picks` (the trait does not exist yet);
+  UI-20's `GpuSceneBackend` now writes pick ids and forwards highlights (S11 Interface changes).
+- The external layer (IMP-05) pick; overlay handles (RND-07) write `SubKind::Handle`.
+- Note §7 should describe the position target, the region target and the pick cap depth pass
+  (lane D).
+- An orthographic world-position test, and a pick of a mesh larger than
+  `max_storage_buffer_binding_size` with vertex pulling (it is skipped with a warning; Auto uses
+  `PrimitiveIndex` on DX12).
 
 ## Interface changes
 

@@ -166,6 +166,29 @@ impl Camera {
         }
     }
 
+    /// [`Camera::uniform`] with the image shifted by `shift_px` pixels (x right, y down): a pick
+    /// pass uses it to put the centre of a texel exactly on the cursor (RND-04).
+    pub(crate) fn uniform_shifted(
+        &self,
+        size_px: [u32; 2],
+        near: f64,
+        shift_px: [f64; 2],
+    ) -> CameraUniform {
+        let mut u = self.uniform(size_px, near);
+        let shift = Mat4::from_translation(Vec3::new(
+            2.0 * shift_px[0] / f64::from(size_px[0].max(1)),
+            -2.0 * shift_px[1] / f64::from(size_px[1].max(1)),
+            0.0,
+        ));
+        let proj = shift * self.proj_with_near(size_px, near);
+        u.proj = proj.as_mat4().to_cols_array_2d();
+        u.inv_view_proj_rte = (proj * self.view_rotation())
+            .inverse()
+            .as_mat4()
+            .to_cols_array_2d();
+        u
+    }
+
     /// f64 world-to-view matrix.
     pub fn view_matrix(&self) -> Mat4 {
         self.view_rotation() * Mat4::from_translation(-self.eye)

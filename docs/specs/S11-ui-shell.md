@@ -1731,3 +1731,15 @@ additive pieces UI-05 should render:
 - `amg-app`: `RfdDialogs::with_parent(cc)`, `set_recent_path`, `set_recovery` + `check_recovery`
   before the first frame, `--recovery-dir` / `--no-recovery` / a `FILE.amg` argument, and
   `shutdown()` in `on_exit`.
+
+### 2026-11-15: RND-04 (S10, lane D) in `amg_ui::scene::backend`
+- `GpuSceneBackend` now writes `InstanceDesc::key.pick_id()` into `amg_render::Instance::pick` (on
+  insert and on every `SetInstance`), so the GPU pick pass reports the adapter's `RenderEntityKey`.
+- `SceneOp::Highlight` / `SceneOp::HighlightColor` are forwarded to
+  `RenderScene::set_highlight_layer` / `set_highlight_color` (mapped item by item; the backend still
+  keeps the last layers for `highlight` / `highlight_color`), so hover and selection highlights are
+  drawn. The `amg_ui::scene` mirror types stay (no re-export yet), to keep this change minimal.
+- Not done (leftover for UI-03): a GPU `PickService`. S10's `Renderer::request_pick` / `poll_picks`
+  are ready for it (point picks with radius and filter, window/crossing rectangles); `PickService`
+  does not exist yet (UI-03 defines it), and `CpuPickService` stays the CPU reference and the
+  select-through path.

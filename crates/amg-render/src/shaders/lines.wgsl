@@ -32,9 +32,12 @@ const FEATHER_PX: f32 = 1.0;
 // a smooth join at that end (the neighbour continues almost straight; the cap is skipped there so
 // translucent lines do not double-blend at every vertex of a tessellated curve).
 @group(1) @binding(0) var<storage, read> geometry: array<vec4<f32>>;
+// Pick sub-id of every segment (edge id) or point (vertex id): RND-04 picking and edge and
+// point highlights.
+@group(1) @binding(1) var<storage, read> geometry_ids: array<u32>;
 
 fn line_record(instance: u32) -> LineRecord {
-    return line_records[visible[instance]];
+    return line_records[slot_of(instance)];
 }
 
 // Eye-relative view-space position of `local` (relative to the record origin).
@@ -123,8 +126,13 @@ fn vs_line(
     @builtin(vertex_index) vertex: u32,
     @builtin(instance_index) instance: u32,
 ) -> LineOut {
+    return line_vertex(vertex, instance);
+}
+
+// The wide-line vertex stage (also used by the pick pass, `pick.wgsl`).
+fn line_vertex(vertex: u32, instance: u32) -> LineOut {
     var out: LineOut;
-    let record = instances[visible[instance]];
+    let record = instances[slot_of(instance)];
     let lines = line_record(instance);
     let seg = vertex / 6u;
     let corner = quad_corner(vertex % 6u);
@@ -183,6 +191,8 @@ fn vs_line(
     let db = abs(b.w) / max(pixel_size(vb), 1e-30);
     out.shape = vec4<f32>(len, half, da, db);
     var color = lines.edge_color;
+    let highlight = record.flags | element_highlight(record, geometry_ids[seg], false);
+    color = vec4<f32>(apply_highlight(color.rgb, highlight), color.a);
     var dash = lines.dash.xy;
     if HIDDEN {
         dash = lines.dash.zw;
@@ -274,8 +284,13 @@ fn vs_point(
     @builtin(vertex_index) vertex: u32,
     @builtin(instance_index) instance: u32,
 ) -> PointOut {
+    return point_vertex(vertex, instance);
+}
+
+// The point-sprite vertex stage (also used by the pick pass).
+fn point_vertex(vertex: u32, instance: u32) -> PointOut {
     var out: PointOut;
-    let record = instances[visible[instance]];
+    let record = instances[slot_of(instance)];
     let lines = line_record(instance);
     let p = geometry[vertex / 6u];
     let corner = quad_corner(vertex % 6u) * vec2<f32>(2.0, 1.0) - vec2<f32>(1.0, 0.0);
@@ -293,6 +308,8 @@ fn vs_point(
     out.offset = corner * ext;
     out.radius = radius;
     var color = lines.point_color;
+    let highlight = record.flags | element_highlight(record, geometry_ids[vertex / 6u], true);
+    color = vec4<f32>(apply_highlight(color.rgb, highlight), color.a);
     if HIDDEN {
         color.a *= lines.hidden.y;
     }
@@ -330,12 +347,13 @@ fn vs_wire(
     @location(0) position: vec3<f32>,
     @builtin(instance_index) instance: u32,
 ) -> WireOut {
-    let record = instances[visible[instance]];
+    let record = instances[slot_of(instance)];
     let lines = line_record(instance);
     let v = depth_offset(to_view(record, position), 0.5);
     var out: WireOut;
     out.clip = camera.proj * vec4<f32>(v, 1.0);
     var color = lines.edge_color;
+    color = vec4<f32>(apply_highlight(color.rgb, record.flags), color.a);
     if HIDDEN {
         color.a *= lines.hidden.x;
     }

@@ -1,5 +1,7 @@
 //! GPU mesh upload (design note §5). Runs on job threads; no UI-thread work.
 
+use std::sync::OnceLock;
+
 use amg_core::{Aabb3, Point3, Vec3};
 use amg_jobs::JobCtx;
 use amg_jobs::gpu::Gpu;
@@ -41,6 +43,13 @@ pub struct GpuMesh {
     vertex_count: u32,
     bounds: Aabb3,
     closed: bool,
+    /// Per-vertex B-rep face id (`Uint32`, RND-04 picking); `None` for plain meshes, whose
+    /// pick sub-id is the triangle index.
+    pub(crate) face_ids: Option<wgpu::Buffer>,
+    /// The B-rep face ranges (face highlights redraw their triangles).
+    pub(crate) face_ranges: Vec<FaceRange>,
+    /// Vertex-pulling pick bind group (indices and positions as storage), made on first use.
+    pub(crate) pull_bind: OnceLock<wgpu::BindGroup>,
 }
 
 impl GpuMesh {
@@ -74,12 +83,130 @@ impl GpuMesh {
         self.positions.size()
             + self.normals.as_ref().map_or(0, wgpu::Buffer::size)
             + self.indices.size()
+            + self.face_ids.as_ref().map_or(0, wgpu::Buffer::size)
     }
 
     /// True for a watertight mesh.
     pub fn is_closed(&self) -> bool {
         self.closed
     }
+
+    /// The B-rep face ranges given to [`upload_mesh_with_faces`]; empty for a plain mesh (whose
+    /// pick sub-id is the triangle index).
+    pub fn face_ranges(&self) -> &[FaceRange] {
+        &self.face_ranges
+    }
+
+    /// Number of pick sub-ids of the faces: one past the largest face id of a B-rep mesh, the
+    /// triangle count of a plain mesh.
+    pub fn face_count(&self) -> u32 {
+        if self.face_ids.is_some() {
+            self.face_ranges
+                .iter()
+                .map(|r| r.face.saturating_add(1))
+                .max()
+                .unwrap_or(0)
+        } else {
+            self.triangle_count()
+        }
+    }
+}
+
+/// The triangles of one B-rep face: `first_tri..first_tri + tri_count` of the index list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FaceRange {
+    /// First triangle.
+    pub first_tri: u32,
+    /// Number of triangles.
+    pub tri_count: u32,
+    /// The face's pick sub-id (the B-rep face index), below [`crate::CAP_SUB`].
+    pub face: u32,
+}
+
+/// Face id of the vertices that no [`FaceRange`] covers (their triangles report it as sub-id).
+pub const UNASSIGNED_FACE: u32 = crate::CAP_SUB - 1;
+
+/// The per-vertex face ids of `faces` over the triangle list `indices` of `vertex_count`
+/// vertices. Vertices no range covers get [`UNASSIGNED_FACE`].
+///
+/// # Errors
+/// [`RenderError::InvalidData`] when a range lies outside the triangles, a face id is not below
+/// [`UNASSIGNED_FACE`], or a vertex is used by triangles of two faces (B-rep tessellations share
+/// no vertex between faces; the face id is a flat vertex attribute); [`RenderError::Cancelled`].
+pub(crate) fn face_ids_of(
+    vertex_count: usize,
+    indices: &[u32],
+    faces: &[FaceRange],
+    ctx: &JobCtx,
+) -> Result<Vec<u32>, RenderError> {
+    let triangles = (indices.len() / 3) as u64;
+    let mut ids = vec![UNASSIGNED_FACE; vertex_count];
+    let mut since_checkpoint = 0usize;
+    for (i, r) in faces.iter().enumerate() {
+        let end = u64::from(r.first_tri) + u64::from(r.tri_count);
+        if end > triangles {
+            return Err(RenderError::InvalidData(format!(
+                "face range {i} covers triangles {}..{end}, but there are {triangles}",
+                r.first_tri
+            )));
+        }
+        if r.face >= UNASSIGNED_FACE {
+            return Err(RenderError::InvalidData(format!(
+                "face range {i} has face id {}, the limit is {}",
+                r.face,
+                UNASSIGNED_FACE - 1
+            )));
+        }
+        let first = r.first_tri as usize * 3;
+        for &v in &indices[first..first + r.tri_count as usize * 3] {
+            let slot = &mut ids[v as usize];
+            if *slot != UNASSIGNED_FACE && *slot != r.face {
+                return Err(RenderError::InvalidData(format!(
+                    "vertex {v} is shared by faces {} and {}; B-rep faces must not share vertices",
+                    *slot, r.face
+                )));
+            }
+            *slot = r.face;
+            since_checkpoint += 1;
+            if since_checkpoint >= CHUNK_ELEMENTS {
+                since_checkpoint = 0;
+                ctx.checkpoint()?;
+            }
+        }
+    }
+    Ok(ids)
+}
+
+/// [`upload_mesh`] for a tessellated B-rep body: `faces` gives each face's triangles, and a
+/// face pick reports the face id (a flat per-vertex attribute, 4 B per vertex) instead of the
+/// triangle index. Face highlights redraw the face's triangles.
+///
+/// # Errors
+/// As [`upload_mesh`], plus [`RenderError::InvalidData`] for bad face ranges (see
+/// `face_ids_of`: out of range, a face id at or above [`UNASSIGNED_FACE`], a vertex shared by
+/// two faces).
+pub fn upload_mesh_with_faces(
+    gpu: &Gpu,
+    data: &MeshData,
+    faces: &[FaceRange],
+    ctx: &JobCtx,
+) -> Result<GpuMesh, RenderError> {
+    let mut mesh = upload_mesh(gpu, data, ctx)?;
+    if faces.is_empty() {
+        return Ok(mesh);
+    }
+    let ids = face_ids_of(data.positions.len(), &data.indices, faces, ctx)?;
+    let limit = gpu.device().limits().max_buffer_size;
+    check_size("face ids", ids.len() as u64 * 4, limit)?;
+    mesh.face_ids = Some(upload_chunked(
+        gpu,
+        "amg mesh face ids",
+        &ids,
+        wgpu::BufferUsages::VERTEX,
+        ctx,
+    )?);
+    mesh.face_ranges = faces.to_vec();
+    Ok(mesh)
 }
 
 fn finite3(v: &[f32; 3]) -> bool {
@@ -263,7 +390,14 @@ pub fn upload_mesh(gpu: &Gpu, data: &MeshData, ctx: &JobCtx) -> Result<GpuMesh, 
     check_size("indices", data.indices.len() as u64 * 4, limit)?;
 
     let vertex = wgpu::BufferUsages::VERTEX;
-    let positions = upload_chunked(gpu, "amg mesh positions", &data.positions, vertex, ctx)?;
+    // `STORAGE` lets the vertex-pulling pick backend read positions and indices (RND-04).
+    let positions = upload_chunked(
+        gpu,
+        "amg mesh positions",
+        &data.positions,
+        vertex | wgpu::BufferUsages::STORAGE,
+        ctx,
+    )?;
     let normals = if data.normals.is_empty() {
         None
     } else {
@@ -282,7 +416,7 @@ pub fn upload_mesh(gpu: &Gpu, data: &MeshData, ctx: &JobCtx) -> Result<GpuMesh, 
         gpu,
         "amg mesh indices",
         &data.indices,
-        wgpu::BufferUsages::INDEX,
+        wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
         ctx,
     )?;
 
@@ -295,6 +429,9 @@ pub fn upload_mesh(gpu: &Gpu, data: &MeshData, ctx: &JobCtx) -> Result<GpuMesh, 
         vertex_count: data.positions.len() as u32,
         bounds,
         closed: data.closed,
+        face_ids: None,
+        face_ranges: Vec::new(),
+        pull_bind: OnceLock::new(),
     })
 }
 
@@ -381,6 +518,77 @@ mod tests {
             }
         ));
         assert!(err.to_string().contains("exceeds the device limit 100"));
+    }
+
+    #[test]
+    fn face_ids_follow_the_face_ranges() {
+        let ctx = JobCtx::detached();
+        // Two quads (two triangles each) sharing no vertex, plus one uncovered triangle.
+        let indices = vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10];
+        let faces = [
+            FaceRange {
+                first_tri: 0,
+                tri_count: 2,
+                face: 7,
+            },
+            FaceRange {
+                first_tri: 2,
+                tri_count: 2,
+                face: 3,
+            },
+        ];
+        let ids = face_ids_of(11, &indices, &faces, &ctx).unwrap();
+        assert_eq!(&ids[..8], &[7, 7, 7, 7, 3, 3, 3, 3]);
+        assert_eq!(&ids[8..], &[UNASSIGNED_FACE; 3]);
+
+        let shared = [
+            faces[0],
+            FaceRange {
+                first_tri: 4,
+                tri_count: 1,
+                face: 7,
+            },
+        ];
+        assert!(
+            face_ids_of(
+                11,
+                &[0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 2, 9, 10],
+                &shared,
+                &ctx
+            )
+            .is_ok()
+        );
+        let clash = [
+            faces[0],
+            FaceRange {
+                first_tri: 4,
+                tri_count: 1,
+                face: 9,
+            },
+        ];
+        let err = face_ids_of(
+            11,
+            &[0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 2, 9, 10],
+            &clash,
+            &ctx,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, RenderError::InvalidData(m) if m.contains("vertex 2")),
+            "{err}"
+        );
+        let out_of_range = [FaceRange {
+            first_tri: 4,
+            tri_count: 2,
+            face: 0,
+        }];
+        assert!(face_ids_of(11, &indices, &out_of_range, &ctx).is_err());
+        let too_big = [FaceRange {
+            first_tri: 0,
+            tri_count: 1,
+            face: UNASSIGNED_FACE,
+        }];
+        assert!(face_ids_of(11, &indices, &too_big, &ctx).is_err());
     }
 
     #[test]
