@@ -28,15 +28,24 @@
 //! RND-06 adds section planes ([`SectionPlane`], up to [`MAX_SECTIONS`]): clipped pipeline
 //! variants that `discard` in the mesh, depth, line, point and wireframe passes, back-face caps
 //! by ray–plane intersection with a per-instance cap colour and screen-constant hatching, drawn
-//! only for closed meshes, and a cap depth pass that puts cap depth on the plane. The remaining
-//! S10 API arrives with the later work packages.
+//! only for closed meshes, and a cap depth pass that puts cap depth on the plane.
+//!
+//! RND-04 adds GPU picking ([`Renderer::request_pick`] / [`Renderer::poll_picks`]): an id + depth
+//! pick pass (B-rep face-id attribute, mesh `primitive_index` or vertex pulling, edges and points
+//! by id), scissored point picks resolved vertex > edge > face with f64 world positions, section
+//! clipping and cap picks ([`CAP_SUB`]), rectangle window / crossing selection through compute
+//! flags, and hover / selection highlight ([`RenderScene::set_highlight_layer`]): instance tint,
+//! face-range redraws with depth `Equal`, edge and point state buffers. The remaining S10 API
+//! arrives with the later work packages.
 
 #![warn(missing_docs)]
 
 mod camera;
 mod cull;
 mod error;
+mod highlight;
 mod lines;
+mod pick;
 mod pipelines;
 mod renderer;
 mod scene;
@@ -51,9 +60,14 @@ pub use wgpu;
 
 pub use camera::{Camera, CameraUniform, Projection};
 pub use error::RenderError;
+pub use highlight::{HighlightItem, HighlightLayer, Range32};
 pub use lines::{
     DepthMode, EdgeData, GpuEdges, GpuPoints, HIDDEN_ALPHA, HIDDEN_DASH_PX, LineStyle, PointData,
     PointStyle, Polyline, VisualStyle, upload_edges, upload_points,
+};
+pub use pick::{
+    BODY_SUB, PickBackend, PickFilter, PickHit, PickRegion, PickRequest, PickResult, PickTicket,
+    RectMode, SubKind,
 };
 pub use renderer::{
     Background, Capture, FrameStats, GpuTimings, PipelineTiming, Renderer, RendererConfig,
@@ -62,7 +76,9 @@ pub use renderer::{
 pub use scene::{ExternalLayer, Instance, Layer, LayerMask, Material, RenderScene};
 pub use section::{Hatch, MAX_SECTIONS, SectionPlane, section_cap_point};
 pub use shading::{Lighting, oct_decode, oct_encode, shade_reference};
-pub use upload::{GpuMesh, MeshData, upload_mesh};
+pub use upload::{
+    FaceRange, GpuMesh, MeshData, UNASSIGNED_FACE, upload_mesh, upload_mesh_with_faces,
+};
 
 /// OR these into `GpuConfig::optional_features` before `Gpu::new` (all have fallbacks).
 pub const OPTIONAL_FEATURES: wgpu::Features = wgpu::Features::PRIMITIVE_INDEX
