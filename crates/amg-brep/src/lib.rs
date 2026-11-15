@@ -16,10 +16,13 @@ mod kernel;
 mod lock;
 mod ops;
 pub mod opts;
+mod query;
 mod shape;
 mod tess;
 
-pub use amg_core::{Aabb3, Dir3, Line3, Plane, Point2, Point3, Tolerance, Transform, Vec2, Vec3};
+pub use amg_core::{
+    Aabb3, Dir3, Line3, Mat3, Plane, Point2, Point3, Ray3, Tolerance, Transform, Vec2, Vec3,
+};
 pub use amg_jobs::JobCtx;
 
 pub use check::{CheckOpts, CheckReport};
@@ -31,6 +34,9 @@ pub use opts::{
     BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletShape, FilletSpec, Glue, HealOpts,
     HelixSpec, LoftSection, OffsetJoin, PipeMode, PipeOpts, PrismExtent, PrismOpts, SewOpts,
     ShellOpts, TessQuality, ThruSectionsOpts, Transition, UnifyOpts,
+};
+pub use query::{
+    Classification, DistanceResult, EdgeEnds, MASS_PROPS_EPS, MassProps, RayHit, SurfacePoint,
 };
 pub use shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, ShapeKind, SubKind, SubShape, VertexId};
 pub use tess::{EdgePolyline, TessMesh, TessProfile};

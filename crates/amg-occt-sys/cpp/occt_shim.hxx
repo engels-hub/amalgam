@@ -40,6 +40,11 @@ struct OcFrame;
 struct OcOpHistory;
 struct OcBoolOpts;
 struct OcBoolStatus;
+struct OcMassProps;
+struct OcDistance;
+struct OcRayHit;
+struct OcSurfacePoint;
+struct OcEdgeEnds;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -315,6 +320,34 @@ OcBoolStatus op_bool_status(const OcOp &op);
 
 // CATEGORY: R (BRepGProp with an adaptive relative error bound `eps`, without triangulation)
 double volume_adaptive(const OcShape &shape, double eps);
+
+// -- measurement queries (BREP-09), implemented in occt_query.cpp --
+
+// CATEGORY: R (BRepGProp with an adaptive relative error bound; the shape is only read)
+OcMassProps mass_props(const OcShape &shape, const OcIndex &index, double eps);
+
+// CATEGORY: R (BRepClass3d_SolidClassifier per solid of the index; only reads the solids)
+std::uint8_t classify_point(const OcIndex &index, const V3 &p, double tol);
+
+// CATEGORY: R (BRepExtrema_DistShapeShape, single-threaded; both shapes are only read)
+OcDistance distance_shapes(const OcShape &a, const OcIndex &ia, const OcShape &b,
+                           const OcIndex &ib);
+
+// CATEGORY: R (BRepExtrema_DistShapeShape against a new vertex; the shape is only read)
+OcDistance closest_point_on(const OcShape &shape, const OcIndex &index, const V3 &p);
+
+// CATEGORY: R (IntCurvesFace_Intersector per face; the faces are only read)
+OcRayHit ray_cast_faces(const OcIndex &index, const V3 &origin, const V3 &dir, double max_t,
+                        double tol);
+
+// CATEGORY: R (BRepLProp_SLProps on a BRepAdaptor_Surface of the face)
+OcSurfacePoint eval_face(const OcIndex &index, std::uint32_t f, double u, double v, double tol);
+
+// CATEGORY: R (BRepExtrema_DistShapeShape and ShapeAnalysis_Surface; the face is only read)
+OcDistance project_on_face(const OcIndex &index, std::uint32_t f, const V3 &p, double tol);
+
+// CATEGORY: R (BRepAdaptor_Curve D1 at both ends)
+OcEdgeEnds edge_ends(const OcIndex &index, std::uint32_t e);
 
 } // namespace amg::occt
 

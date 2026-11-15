@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use amg_core::{Line3, Plane, Point3, Tolerance, Vec3};
+use amg_core::{Line3, Plane, Point2, Point3, Ray3, Tolerance, Vec3};
 use amg_jobs::JobCtx;
 use rayon::prelude::*;
 
@@ -20,7 +20,10 @@ use crate::geom::{self, Tag};
 use crate::history::{FaceBuild, OpResult, ShapeHistory};
 use crate::ops::{self, PrimitiveKind};
 use crate::opts::{BoolOp, BoolOpts, PrismExtent, PrismOpts, TessQuality};
-use crate::shape::{EdgeId, FORMAT_VERSION, Shape, SubKind, SubShape};
+use crate::query::{
+    self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SurfacePoint,
+};
+use crate::shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, SubKind, SubShape};
 use crate::tess::{self, TessMesh, TessProfile};
 
 /// Version of the robustness policy, the third part of [`kernel_version`]. S20's
@@ -374,6 +377,86 @@ pub trait BrepKernel: Send + Sync {
     /// # Errors
     /// `InvalidInput` for an out-of-range or degenerated edge or a bad quality.
     fn tessellate_edge(&self, s: &Shape, e: EdgeId, q: &TessQuality) -> KResult<Vec<Point3>>;
+
+    // -- measurement queries (BREP-09) --
+
+    /// Volume, area, centroid, inertia about the centroid and principal axes at unit density
+    /// ([`MassProps`]), by adaptive `BRepGProp` integration to [`crate::MASS_PROPS_EPS`]
+    /// relative. A shape without solids is measured by its faces (or edges); see
+    /// [`MassProps`].
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" }` for a shape with nothing to measure (vertices only,
+    /// empty); `Occt`; `BackendUnavailable`.
+    fn mass_props(&self, s: &Shape) -> KResult<MassProps>;
+
+    /// Whether `p` is inside, outside or on the boundary (within `tol` mm) of the solids of `s`
+    /// (`BRepClass3d_SolidClassifier` per solid; inside any solid wins over on a boundary).
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" }` when `s` has no solid, `{ what: "tol" }` for a negative
+    /// or non-finite tolerance; `Occt`; `BackendUnavailable`.
+    fn classify(&self, s: &Shape, p: Point3, tol: f64) -> KResult<Classification>;
+
+    /// The minimum distance between `a` and `b` (`BRepExtrema_DistShapeShape`) with the
+    /// nearest points and the sub-shapes they lie on. Overlapping solids (or a shape inside a
+    /// solid) give 0 with no sub-shapes.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shapes" }` for a null shape; `Occt`; `BackendUnavailable`.
+    fn distance(&self, a: &Shape, b: &Shape) -> KResult<DistanceResult>;
+
+    /// The point of `s`'s boundary nearest to `p` (its faces; edges or vertices for a shape
+    /// without faces): `on_a`/`sub_a` are on `s`, `on_b` is `p`, `sub_b` is `None`. A point
+    /// inside a solid still gets its nearest boundary point (distance > 0).
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" }` for a null or empty shape; `Occt`; `BackendUnavailable`.
+    fn closest_point(&self, s: &Shape, p: Point3) -> KResult<DistanceResult>;
+
+    /// The first face hit by `ray` with `0 ≤ t ≤ max_t` (`IntCurvesFace_Intersector` per face,
+    /// within the kernel's linear tolerance of the face boundaries), with the outward normal
+    /// there. On a tie (an edge shared by two faces) the lower face index wins. `None` without
+    /// a hit.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "max_t" }` for a negative or NaN `max_t`; `Occt`;
+    /// `BackendUnavailable`.
+    fn ray_cast(&self, s: &Shape, ray: &Ray3, max_t: f64) -> KResult<Option<RayHit>>;
+
+    /// The common volume of the solids of `a` and `b` (`boolean(Common)` with default options;
+    /// history and warnings as for [`BrepKernel::boolean`]), or `None` when they do not overlap
+    /// (touching faces, edges or points included).
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "objects" | "tools" }` when `a` or `b` has no solid; as
+    /// [`BrepKernel::boolean`].
+    fn interference(&self, a: &Shape, b: &Shape, ctx: &JobCtx) -> KResult<Option<OpResult>>;
+
+    /// Face `f`'s surface at face parameters `uv`: point, outward normal, first derivatives
+    /// and principal curvatures with their directions ([`SurfacePoint`]: positive = convex).
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "face" }` for an out-of-range face; `OpFailed { op:
+    /// "eval_surface" }` where the normal or the curvature is undefined (a pole); `Occt`;
+    /// `BackendUnavailable`.
+    fn eval_surface(&self, s: &Shape, f: FaceId, uv: Point2) -> KResult<SurfacePoint>;
+
+    /// The point of face `f` (within its boundary) nearest to `p`, and its face parameters.
+    /// Where that point is on the boundary, `uv` comes from projecting it onto the surface,
+    /// wrapped into the face's parameter range on periodic surfaces.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "face" }` for an out-of-range face; `Occt`; `BackendUnavailable`.
+    fn project_point_on_face(&self, s: &Shape, f: FaceId, p: Point3) -> KResult<(Point2, Point3)>;
+
+    /// End points and unit tangents of edge `e` in its curve's parameter direction (S04
+    /// R-S04-1, tangent-chain propagation).
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "edge" }` for an out-of-range or degenerated edge, or one whose
+    /// tangent vanishes at an end; `Occt`; `BackendUnavailable`.
+    fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds>;
 }
 
 /// The OCCT backend. Cheap to clone; `Send + Sync`. Without the `occt` feature every op returns
@@ -805,6 +888,72 @@ impl BrepKernel for OcctKernel {
 
     fn tessellate_edge(&self, s: &Shape, e: EdgeId, q: &TessQuality) -> KResult<Vec<Point3>> {
         tess::tessellate_edge(s, e, q)
+    }
+
+    fn mass_props(&self, s: &Shape) -> KResult<MassProps> {
+        backend::require()?;
+        query::mass_props(s)
+    }
+
+    fn classify(&self, s: &Shape, p: Point3, tol: f64) -> KResult<Classification> {
+        backend::require()?;
+        query::classify(s, p, tol)
+    }
+
+    fn distance(&self, a: &Shape, b: &Shape) -> KResult<DistanceResult> {
+        backend::require()?;
+        query::distance(a, b)
+    }
+
+    fn closest_point(&self, s: &Shape, p: Point3) -> KResult<DistanceResult> {
+        backend::require()?;
+        query::closest_point(s, p)
+    }
+
+    fn ray_cast(&self, s: &Shape, ray: &Ray3, max_t: f64) -> KResult<Option<RayHit>> {
+        backend::require()?;
+        query::ray_cast(s, ray, max_t, &self.cfg.tolerance)
+    }
+
+    fn interference(&self, a: &Shape, b: &Shape, ctx: &JobCtx) -> KResult<Option<OpResult>> {
+        backend::require()?;
+        for (what, s) in [("objects", a), ("tools", b)] {
+            if s.is_null() || s.solids().is_empty() {
+                return Err(KernelError::InvalidInput {
+                    what,
+                    reason: "interference needs shapes with solids".into(),
+                    offending: Vec::new(),
+                });
+            }
+        }
+        let common = self.boolean(
+            BoolOp::Common,
+            std::slice::from_ref(a),
+            std::slice::from_ref(b),
+            &BoolOpts::default(),
+            ctx,
+        )?;
+        if common.shape.solids().is_empty() {
+            return Ok(None);
+        }
+        let tol = self.cfg.tolerance.linear;
+        let volume = query::mass_props(&common.shape)?.volume;
+        Ok((volume > tol * tol * tol).then_some(common))
+    }
+
+    fn eval_surface(&self, s: &Shape, f: FaceId, uv: Point2) -> KResult<SurfacePoint> {
+        backend::require()?;
+        query::eval_surface(s, f, uv, &self.cfg.tolerance)
+    }
+
+    fn project_point_on_face(&self, s: &Shape, f: FaceId, p: Point3) -> KResult<(Point2, Point3)> {
+        backend::require()?;
+        query::project_point_on_face(s, f, p, &self.cfg.tolerance)
+    }
+
+    fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds> {
+        backend::require()?;
+        query::edge_ends(s, e)
     }
 }
 

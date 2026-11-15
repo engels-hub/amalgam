@@ -387,7 +387,7 @@ impl Plane {
 // ---- Rays, lines, segments, triangles ---------------------------------------------------
 
 /// Half-line `origin + t·dir`, `t >= 0`.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Ray3 {
     /// Start point.
     pub origin: Point3,
