@@ -54,6 +54,7 @@ pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     search_popup(app, ui.ctx());
     job_panel(app, ui.ctx());
     toasts(app, ui.ctx());
+    app.draw_file_dialogs(ui.ctx());
 }
 
 /// The text of the device-lost banner (saving needs no GPU, so nothing is disabled).
@@ -202,19 +203,79 @@ fn env_of<'a>(app: &'a AmalgamApp) -> CmdEnv<'a> {
     }
 }
 
+/// Menu slots that always exist in the File menu; lane G fills them (IO-01) with
+/// `Placement::Menu { path: "File/Import" | "File/Export", .. }`.
+const FILE_SLOTS: [&str; 2] = ["Import", "Export"];
+
+/// The File menu (UI-19): the registered File commands (New, Open…, Save…, Close), Open
+/// Recent, the Import/Export slots and any other registered File submenu.
+fn file_menu(
+    ui: &mut egui::Ui,
+    reg: &UiRegistry,
+    env: &CmdEnv<'_>,
+    shortcuts: &ShortcutMap,
+    recent: &[std::path::PathBuf],
+    run: &mut Option<CmdId>,
+    open_recent: &mut Option<std::path::PathBuf>,
+) {
+    for def in reg.menu_commands("File") {
+        if command_button(ui, def, env, shortcuts) {
+            *run = Some(def.id);
+            ui.close();
+        }
+    }
+    ui.menu_button("Open Recent", |ui| {
+        if recent.is_empty() {
+            ui.weak("No recent files");
+        }
+        for p in recent {
+            let name = p.file_name().map_or_else(
+                || p.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            if ui
+                .button(name)
+                .on_hover_text(p.display().to_string())
+                .clicked()
+            {
+                *open_recent = Some(p.clone());
+                ui.close();
+            }
+        }
+    });
+    ui.separator();
+    let children = reg.menu_children("File");
+    for slot in FILE_SLOTS {
+        if !children.contains(&slot) {
+            ui.menu_button(slot, |ui| {
+                ui.weak("No formats registered yet");
+            });
+        }
+    }
+    for child in children {
+        let sub = format!("File/{child}");
+        ui.menu_button(child, |ui| menu_level(ui, reg, &sub, env, shortcuts, run));
+    }
+}
+
 fn app_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     let mut run: Option<CmdId> = None;
-    let mut new_doc = false;
+    let mut open_recent: Option<std::path::PathBuf> = None;
     ui.horizontal(|ui| {
         {
             let reg = &app.registry;
             let env = env_of(app);
+            let recent = app.files.recent.files();
             ui.menu_button("File", |ui| {
-                if ui.button("New document").clicked() {
-                    new_doc = true;
-                    ui.close();
-                }
-                menu_level(ui, reg, "File", &env, &app.shortcuts, &mut run);
+                file_menu(
+                    ui,
+                    reg,
+                    &env,
+                    &app.shortcuts,
+                    recent,
+                    &mut run,
+                    &mut open_recent,
+                );
             });
             for top in reg.menu_children("") {
                 if top != "File" {
@@ -283,8 +344,8 @@ fn app_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
             });
         });
     });
-    if new_doc {
-        app.new_document();
+    if let Some(p) = open_recent {
+        app.open_path(p);
     }
     if let Some(c) = run {
         app.request_command(c);

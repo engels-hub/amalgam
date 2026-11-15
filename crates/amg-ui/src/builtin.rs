@@ -1,10 +1,11 @@
-//! The framework's own commands (UI-02): search, undo/redo and new document; and the Mesh
-//! body tessellator (UI-20).
+//! The framework's own commands: search, undo/redo (UI-02), the File menu commands (UI-19);
+//! and the Mesh body tessellator (UI-20).
 //!
-//! They are search-and-shortcut only: the app bar already draws Undo/Redo buttons and the File
-//! menu (UI-01), and the toolbar groups are filled by the domain lanes.
+//! Search and undo/redo are search-and-shortcut only (the app bar draws Undo/Redo buttons).
+//! The File commands are in the File menu; the toolbar groups are filled by the domain lanes.
 
 use crate::command::{CmdAction, CommandDef};
+use crate::file::FileOp;
 use crate::module::{Registrar, UiModule};
 
 inventory::submit! { UiModule { id: "app", register } }
@@ -31,5 +32,72 @@ pub fn register(r: &mut Registrar<'_>) {
         CommandDef::new("edit.redo", "Redo", CmdAction::Run(|cx| cx.redo()))
             .with_shortcut("Ctrl+Y")
             .with_alt_shortcut("Ctrl+Shift+Z"),
+    );
+    register_file(r);
+}
+
+/// File menu commands (spec §15). Labels avoid a bare "Save": that one belongs to the
+/// Save / Don't save / Cancel prompt.
+fn register_file(r: &mut Registrar<'_>) {
+    r.command(
+        CommandDef::new(
+            "file.new",
+            "New document",
+            CmdAction::Run(|cx| cx.file(FileOp::New)),
+        )
+        .with_shortcut("Ctrl+N")
+        .with_keywords(&["create", "design"])
+        .in_menu("File", 10),
+    );
+    r.command(
+        CommandDef::new(
+            "file.open",
+            "Open…",
+            CmdAction::Run(|cx| cx.file(FileOp::Open)),
+        )
+        .with_tooltip("Open an Amalgam design (.amg)")
+        .with_shortcut("Ctrl+O")
+        .with_keywords(&["load", "file"])
+        .in_menu("File", 20),
+    );
+    r.command(
+        CommandDef::new(
+            "file.save",
+            "Save document",
+            CmdAction::Run(|cx| cx.file(FileOp::Save)),
+        )
+        .with_tooltip("Save to the document's file")
+        .with_shortcut("Ctrl+S")
+        .with_keywords(&["save", "write"])
+        .in_menu("File", 30),
+    );
+    r.command(
+        CommandDef::new(
+            "file.save_as",
+            "Save As…",
+            CmdAction::Run(|cx| cx.file(FileOp::SaveAs)),
+        )
+        .with_tooltip("Save to a new file")
+        .with_shortcut("Ctrl+Shift+S")
+        .in_menu("File", 40),
+    );
+    r.command(
+        CommandDef::new(
+            "file.save_compact",
+            "Save Compact",
+            CmdAction::Run(|cx| cx.file(FileOp::SaveCompact)),
+        )
+        .with_tooltip("Save without the geometry cache (smaller file, recomputes on open)")
+        .with_keywords(&["small", "no cache"])
+        .in_menu("File", 50),
+    );
+    r.command(
+        CommandDef::new(
+            "file.close",
+            "Close document",
+            CmdAction::Run(|cx| cx.file(FileOp::Close)),
+        )
+        .with_shortcut("Ctrl+W")
+        .in_menu("File", 60),
     );
 }
