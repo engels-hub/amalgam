@@ -37,11 +37,6 @@ fn closed_fixtures() -> impl Iterator<Item = &'static str> {
         .filter(|name| !OPEN_FIXTURES.contains(name))
 }
 
-/// Exact surface area of `shape` (sum of the faces' `BRepGProp` areas).
-fn exact_area(shape: &Shape) -> f64 {
-    shape.faces().map(|f| shape.face_area(f)).sum()
-}
-
 /// The layout guarantees of `TessMesh` (S02 §8 and the S10 request).
 fn check_layout(name: &str, shape: &Shape, mesh: &TessMesh) {
     let n_vertices = mesh.positions.len();
@@ -159,8 +154,10 @@ fn indexed_parts_of_closed_fixtures_are_watertight() {
             // Every weld id is used once: no duplicate positions left.
             assert_eq!(m.vertices, positions.len(), "{name}");
 
-            let exact = shape.volume().unwrap();
-            let area = exact_area(&shape);
+            // BREP-09 `mass_props` (adaptive), which replaces BREP-08's `Shape::volume` stand-in.
+            let props = kernel.mass_props(&shape).unwrap();
+            let exact = props.volume;
+            let area = props.area;
             let volume = signed_volume(soup);
             // A surface within `d` of the exact one encloses a volume within `d · area`.
             let bound = profile.deflection * area;

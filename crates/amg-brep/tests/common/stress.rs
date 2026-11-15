@@ -15,7 +15,8 @@ use std::time::{Duration, Instant};
 use amg_brep::geom::Surface;
 use amg_brep::{
     BrepKernel, CheckOpts, Dir3, EdgeId, FaceId, JobCtx, KResult, Line3, OcctKernel, OpResult,
-    PrismExtent, PrismOpts, Shape, SubKind, SubShape, TessMesh, TessQuality, VertexId,
+    Point2, Point3, PrismExtent, PrismOpts, Shape, SubKind, SubShape, TessMesh, TessQuality, Vec3,
+    VertexId,
 };
 
 /// One deterministic operation on the shared shape.
@@ -53,6 +54,53 @@ pub enum StressOp {
     /// `revol` by 90° of a planar face of the shared shape about a line in its plane beside it
     /// (category C), BREP-14.
     Revol(FaceId),
+    /// The BREP-09 measurement queries (category R).
+    MassProps,
+    Classify(Point3),
+    ClosestPoint(Point3),
+    RayCast(Point3, Dir3),
+    EvalSurface(FaceId, Point2),
+    ProjectOnFace(FaceId, Point3),
+    EdgeEnds(EdgeId),
+    /// `distance` to a sub-shape of the shared shape (both arguments share its TShapes).
+    DistanceToSub(SubShape),
+}
+
+/// The BREP-09 measurement ops: mass properties, then classification, closest points and rays
+/// from points around the bbox, surface evaluation and projection on up to `limit` faces, and
+/// the ends of up to `limit` edges.
+pub fn measure_queries(shape: &Shape, limit: usize) -> Vec<StressOp> {
+    let bbox = shape.bbox();
+    let centre = bbox.center();
+    let size = bbox.max - bbox.min;
+    let mut ops = vec![StressOp::MassProps];
+    for k in 0..8u32 {
+        let t = f64::from(k) / 8.0;
+        let inside = bbox.min + size * Vec3::new(0.3 + 0.4 * t, 0.5, 0.7 - 0.4 * t);
+        let outside = centre + size * Vec3::new(0.9 - 0.2 * t, -0.8, 0.6 + 0.1 * t);
+        ops.extend([
+            StressOp::Classify(inside),
+            StressOp::ClosestPoint(outside),
+            StressOp::ClosestPoint(inside),
+            StressOp::RayCast(outside, Dir3::new_unchecked((inside - outside).normalize())),
+        ]);
+    }
+    let step = (shape.count(SubKind::Face) as usize / limit).max(1);
+    for f in shape.faces().step_by(step).take(limit) {
+        let [u0, u1, v0, v1] = shape.face_uv_bounds(f);
+        let uv = Point2::new(0.37 * u0 + 0.63 * u1, 0.58 * v0 + 0.42 * v1);
+        ops.push(StressOp::EvalSurface(f, uv));
+        ops.push(StressOp::ProjectOnFace(f, centre + size));
+    }
+    let step = (shape.count(SubKind::Edge) as usize / limit).max(1);
+    for e in shape.edges().step_by(step).take(limit) {
+        ops.push(StressOp::EdgeEnds(e));
+    }
+    ops.push(StressOp::DistanceToSub(SubShape {
+        kind: SubKind::Face,
+        index: 0,
+    }));
+    ops
 }
 
 /// The BREP-14 sweep ops: a straight prism and a revol of every planar face (at most `limit`
@@ -256,6 +304,27 @@ pub fn eval(kernel: &OcctKernel, shape: &Shape, op: StressOp) -> String {
                 std::f64::consts::FRAC_PI_2,
                 &JobCtx::detached(),
             ))
+        }
+        StressOp::MassProps => format!("{:?}", kernel.mass_props(shape)),
+        StressOp::Classify(p) => format!("{:?}", kernel.classify(shape, p, 1e-7)),
+        StressOp::ClosestPoint(p) => format!("{:?}", kernel.closest_point(shape, p)),
+        StressOp::RayCast(origin, dir) => format!(
+            "{:?}",
+            kernel.ray_cast(shape, &amg_brep::Ray3 { origin, dir }, 1e6)
+        ),
+        StressOp::EvalSurface(f, uv) => format!("{:?}", kernel.eval_surface(shape, f, uv)),
+        StressOp::ProjectOnFace(f, p) => {
+            format!("{:?}", kernel.project_point_on_face(shape, f, p))
+        }
+        StressOp::EdgeEnds(e) => format!("{:?}", kernel.edge_ends(shape, e)),
+        StressOp::DistanceToSub(s) => {
+            let sub = shape.sub_shape(s).expect("sub_shape");
+            let moved = sub
+                .transformed(&amg_brep::Transform::from_translation(Vec3::new(
+                    0.0, 0.0, 1e3,
+                )))
+                .expect("transformed");
+            format!("{:?}", kernel.distance(shape, &moved))
         }
         StressOp::TessellateEdge(e, q) => format!(
             "{:?}",

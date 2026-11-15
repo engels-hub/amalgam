@@ -4,6 +4,7 @@ mod boolean;
 mod build;
 mod extract;
 mod ops;
+mod query;
 
 use std::num::NonZeroUsize;
 use std::sync::OnceLock;

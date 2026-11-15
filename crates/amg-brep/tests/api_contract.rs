@@ -15,13 +15,14 @@ use amg_brep::geom::{
     GeomClass, Loop2, PlanarProfile, ProfileEdge2, Surface, Tag,
 };
 use amg_brep::{
-    BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, DraftOpts, EdgeId,
-    FaceBuild, FaceId, FilletOpts, FilletShape, FilletSpec, Glue, HealOpts, HelixSpec, JobCtx,
-    KResult, KernelConfig, LoftSection, OcctKernel, OffsetJoin, OpResult, PipeMode, PipeOpts,
-    PrismExtent, PrismOpts, SewOpts, Shape, ShapeHistory, ShapeKind, ShellOpts, SubKind, SubShape,
-    TessMesh, TessQuality, ThruSectionsOpts, Tolerance, Transition, UnifyOpts, VertexId,
+    BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, Classification,
+    DistanceResult, DraftOpts, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletShape,
+    FilletSpec, Glue, HealOpts, HelixSpec, JobCtx, KResult, KernelConfig, LoftSection, MassProps,
+    OcctKernel, OffsetJoin, OpResult, PipeMode, PipeOpts, PrismExtent, PrismOpts, RayHit, SewOpts,
+    Shape, ShapeHistory, ShapeKind, ShellOpts, SubKind, SubShape, SurfacePoint, TessMesh,
+    TessQuality, ThruSectionsOpts, Tolerance, Transition, UnifyOpts, VertexId,
 };
-use amg_core::{Dir3, Line3, Plane, Point2, Point3, Transform, Vec2, Vec3};
+use amg_core::{Dir3, Line3, Plane, Point2, Point3, Ray3, Transform, Vec2, Vec3};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -51,6 +52,10 @@ fn op_parameter_types_are_capturable() {
     assert_op_param::<Line3>();
     assert_op_param::<Transform>();
     assert_op_param::<f64>();
+    // BREP-09 query parameters.
+    assert_op_param::<Point2>();
+    assert_op_param::<Point3>();
+    assert_op_param::<Ray3>();
     // geom, including the BREP-03 builder inputs.
     assert_op_param::<Tag>();
     assert_op_param::<Curve2d>();
@@ -452,6 +457,51 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
     fn tessellate_edge(&self, s: &Shape, e: EdgeId, q: &TessQuality) -> KResult<Vec<Point3>> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.tessellate_edge(s, e, q)
+    }
+
+    fn mass_props(&self, s: &Shape) -> KResult<MassProps> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.mass_props(s)
+    }
+
+    fn classify(&self, s: &Shape, p: Point3, tol: f64) -> KResult<Classification> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.classify(s, p, tol)
+    }
+
+    fn distance(&self, a: &Shape, b: &Shape) -> KResult<DistanceResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.distance(a, b)
+    }
+
+    fn closest_point(&self, s: &Shape, p: Point3) -> KResult<DistanceResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.closest_point(s, p)
+    }
+
+    fn ray_cast(&self, s: &Shape, ray: &Ray3, max_t: f64) -> KResult<Option<RayHit>> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.ray_cast(s, ray, max_t)
+    }
+
+    fn interference(&self, a: &Shape, b: &Shape, ctx: &JobCtx) -> KResult<Option<OpResult>> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.interference(a, b, ctx)
+    }
+
+    fn eval_surface(&self, s: &Shape, f: FaceId, uv: Point2) -> KResult<SurfacePoint> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.eval_surface(s, f, uv)
+    }
+
+    fn project_point_on_face(&self, s: &Shape, f: FaceId, p: Point3) -> KResult<(Point2, Point3)> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.project_point_on_face(s, f, p)
+    }
+
+    fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.edge_ends(s, e)
     }
 }
 

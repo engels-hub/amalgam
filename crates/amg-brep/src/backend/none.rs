@@ -14,8 +14,11 @@ use crate::extract::RawSeg;
 use crate::geom::{Curve3, Surface};
 use crate::index::RawTopology;
 use crate::ops::{PrimitiveKind, PrismIn, RawHistory};
+use crate::query::{RawDistance, RawHit, RawMass, RawSurfacePoint};
 use crate::shape::{ShapeKind, SubKind};
 use crate::tess::{TessMesh, TessParams, TessProfile};
+use crate::{Classification, EdgeEnds};
+use amg_core::{Point2, Vec3};
 
 pub(crate) fn occt_version() -> String {
     "occt-none".to_owned()
@@ -202,7 +205,7 @@ impl Occ {
     pub(crate) fn revol(
         &self,
         _origin: Point3,
-        _axis: amg_core::Vec3,
+        _axis: Vec3,
         _angle: f64,
     ) -> KResult<(Occ, RawHistory)> {
         match *self {}
@@ -217,6 +220,55 @@ impl Occ {
         _edge: u32,
         _tol: f64,
     ) -> KResult<Option<(Curve3, f64, f64)>> {
+        match *self {}
+    }
+}
+
+impl Occ {
+    pub(crate) fn mass_props(&self, _eps: f64) -> KResult<RawMass> {
+        match *self {}
+    }
+
+    pub(crate) fn has_solids(&self) -> bool {
+        match *self {}
+    }
+
+    pub(crate) fn classify(&self, _p: Point3, _tol: f64) -> KResult<Classification> {
+        match *self {}
+    }
+
+    pub(crate) fn distance(&self, _other: &Occ) -> KResult<RawDistance> {
+        match *self {}
+    }
+
+    pub(crate) fn closest_point(&self, _p: Point3) -> KResult<RawDistance> {
+        match *self {}
+    }
+
+    pub(crate) fn ray_cast(
+        &self,
+        _origin: Point3,
+        _dir: Vec3,
+        _max_t: f64,
+        _tol: f64,
+    ) -> KResult<Option<RawHit>> {
+        match *self {}
+    }
+
+    pub(crate) fn eval_face(&self, _face: u32, _uv: Point2, _tol: f64) -> KResult<RawSurfacePoint> {
+        match *self {}
+    }
+
+    pub(crate) fn project_on_face(
+        &self,
+        _face: u32,
+        _p: Point3,
+        _tol: f64,
+    ) -> KResult<RawDistance> {
+        match *self {}
+    }
+
+    pub(crate) fn edge_ends(&self, _edge: u32) -> KResult<Option<EdgeEnds>> {
         match *self {}
     }
 }

@@ -267,6 +267,77 @@ pub mod ffi {
         offending_indices: Vec<u32>,
     }
 
+    /// Mass properties (BREP-09). `basis`: 0 volume (the shape has solids), 1 surface (faces
+    /// only), 2 linear (edges only), 3 nothing to measure. `measure` is the mass of that basis
+    /// at unit density; `centroid` and `inertia` (row-major, about the centroid) belong to it.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcMassProps {
+        basis: u8,
+        volume: f64,
+        area: f64,
+        measure: f64,
+        centroid: V3,
+        inertia: [f64; 9],
+    }
+
+    /// A minimum distance (BREP-09). Supports are `kind` 0 face, 1 edge, 2 vertex, 255 none
+    /// (a point given by the caller, or `inner`: one shape lies inside a solid of the other);
+    /// `u`/`v` are the face parameters of a face support.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcDistance {
+        distance: f64,
+        inner: bool,
+        on_a: V3,
+        on_b: V3,
+        kind_a: u8,
+        index_a: u32,
+        kind_b: u8,
+        index_b: u32,
+        u_a: f64,
+        v_a: f64,
+        u_b: f64,
+        v_b: f64,
+    }
+
+    /// The nearest ray hit (BREP-09); `face` is `u32::MAX` without a hit.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcRayHit {
+        hit: bool,
+        t: f64,
+        point: V3,
+        face: u32,
+        u: f64,
+        v: f64,
+    }
+
+    /// OCCT's natural differential properties of a face's surface at `(u, v)`: the normal is
+    /// `D1U × D1V` (not flipped for a reversed face), curvatures are signed against it.
+    /// Directions are zero when `umbilic`.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcSurfacePoint {
+        point: V3,
+        d1u: V3,
+        d1v: V3,
+        normal_defined: bool,
+        normal: V3,
+        curvature_defined: bool,
+        k_min: f64,
+        k_max: f64,
+        umbilic: bool,
+        dir_min: V3,
+        dir_max: V3,
+    }
+
+    /// Edge end points and first derivatives in the 3D curve's parameter direction.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcEdgeEnds {
+        degenerated: bool,
+        p0: V3,
+        t0: V3,
+        p1: V3,
+        t1: V3,
+    }
+
     extern "Rust" {
         /// The progress/cancel target of one shim call (S02 §1, occt-integration.md §3.4).
         type ProgressSink;
@@ -484,6 +555,38 @@ pub mod ffi {
         /// (the plain `volume` uses fixed-order quadrature, which under-integrates faces whose
         /// boundaries are not iso-lines).
         fn volume_adaptive(shape: &OcShape, eps: f64) -> Result<f64>;
+
+        // -- measurement queries (BREP-09), implemented in occt_query.cpp --
+
+        /// Volume (over the closed shells), area, centroid and inertia about the centroid by
+        /// adaptive `BRepGProp` integration to the relative error bound `eps`.
+        fn mass_props(shape: &OcShape, index: &OcIndex, eps: f64) -> Result<OcMassProps>;
+        /// 0 inside some solid of the index, 1 outside all, 2 on a boundary within `tol`.
+        /// Raises for a shape without solids.
+        fn classify_point(index: &OcIndex, p: &V3, tol: f64) -> Result<u8>;
+        /// Minimum distance between two shapes (`BRepExtrema_DistShapeShape`).
+        fn distance_shapes(
+            a: &OcShape,
+            ia: &OcIndex,
+            b: &OcShape,
+            ib: &OcIndex,
+        ) -> Result<OcDistance>;
+        /// Nearest point of the shape's boundary to `p` (support on side `a`).
+        fn closest_point_on(shape: &OcShape, index: &OcIndex, p: &V3) -> Result<OcDistance>;
+        /// Nearest intersection with `t` in `[0, max_t]` of the ray with any face.
+        fn ray_cast_faces(
+            index: &OcIndex,
+            origin: &V3,
+            dir: &V3,
+            max_t: f64,
+            tol: f64,
+        ) -> Result<OcRayHit>;
+        /// Face `f`'s surface properties at `(u, v)`.
+        fn eval_face(index: &OcIndex, f: u32, u: f64, v: f64, tol: f64) -> Result<OcSurfacePoint>;
+        /// Nearest point of face `f` (within its boundary) to `p`, with its `(u, v)` in
+        /// `u_a`/`v_a`.
+        fn project_on_face(index: &OcIndex, f: u32, p: &V3, tol: f64) -> Result<OcDistance>;
+        fn edge_ends(index: &OcIndex, e: u32) -> Result<OcEdgeEnds>;
     }
 }
 

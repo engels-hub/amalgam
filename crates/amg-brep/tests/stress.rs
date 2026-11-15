@@ -14,7 +14,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, JobCtx, KernelConfig, OcctKernel, Shape, SubKind, Validate,
 };
-use stress::{StressOp, eval, read_queries, run, run_with, sweep_queries, tess_queries};
+use stress::{
+    StressOp, eval, measure_queries, read_queries, run, run_with, sweep_queries, tess_queries,
+};
 
 const THREADS: usize = 8;
 const ITERATIONS: usize = 2_000;
@@ -260,4 +262,61 @@ fn shared_filleted_box_survives_concurrent_sweeps() {
 #[test]
 fn shared_plate_survives_concurrent_sweeps() {
     stress_sweeps("plate_with_holes", 6, 6, 0x5EED_1403);
+}
+
+/// BREP-09: 8 threads run the measurement queries (mass properties, classify, closest point,
+/// ray cast, surface evaluation, projection, edge ends, distance to a moved sub-shape) on one
+/// shared shape, alongside reads. Every result must equal the single-threaded one and the
+/// input's `BinTools` hash must not change (all category R).
+fn stress_measurements(name: &str, limit: usize, iterations: usize, seed: u64) {
+    let (Some(reference_shape), Some(shared)) = (load(name), load(name)) else {
+        return;
+    };
+    let kernel = kernel();
+    let mut ops = measure_queries(&reference_shape, limit);
+    ops.extend([StressOp::Bbox, StressOp::Counts, StressOp::Check]);
+    let reference: Vec<String> = ops
+        .iter()
+        .map(|&op| eval(&kernel, &reference_shape, op))
+        .collect();
+    let failed = reference.iter().filter(|r| r.contains("Err(")).count();
+    eprintln!(
+        "{name}: {} measurement ops, {failed} of them errors",
+        ops.len() - 3
+    );
+    let report = run(
+        &kernel, &shared, &ops, &reference, THREADS, iterations, seed,
+    );
+    eprintln!(
+        "{name}: {} threads x {} iterations over {} ops in {:.2} s; BinTools hash {:016x} -> {:016x}",
+        report.threads,
+        report.iterations,
+        report.ops,
+        report.elapsed.as_secs_f64(),
+        report.hash_before,
+        report.hash_after
+    );
+    assert!(
+        report.mismatches.is_empty(),
+        "{name}: {} mismatches, first: {}",
+        report.mismatches.len(),
+        report.mismatches[0]
+    );
+    assert!(report.input_unchanged, "{name}: the shared input changed");
+    assert_eq!(report.hash_before, report.hash_after);
+}
+
+#[test]
+fn shared_box_survives_concurrent_measurements() {
+    stress_measurements("box", 6, 300, 0x5EED_0901);
+}
+
+#[test]
+fn shared_filleted_box_survives_concurrent_measurements() {
+    stress_measurements("filleted_box", 26, 100, 0x5EED_0902);
+}
+
+#[test]
+fn shared_torus_survives_concurrent_measurements() {
+    stress_measurements("torus", 4, 200, 0x5EED_0903);
 }

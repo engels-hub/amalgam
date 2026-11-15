@@ -573,6 +573,10 @@ pub struct RayHit { pub t: f64, pub point: Point3, pub face: FaceId, pub uv: Poi
 #[derive(Clone, Debug, PartialEq)]
 pub struct SurfacePoint { pub point: Point3, pub normal: Dir3, pub d1u: Vec3, pub d1v: Vec3,
                           pub k_min: f64, pub k_max: f64, pub dir_min: Vec3, pub dir_max: Vec3 }
+// BREP-09: normal out of the material; curvatures convex-positive against it (sphere +1/r).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EdgeEnds { pub p0: Point3, pub t0: Dir3, pub p1: Point3, pub t1: Dir3 }   // R-S04-1
+pub const MASS_PROPS_EPS: f64 = 1e-12;   // adaptive BRepGProp bound behind mass_props
 
 // ===== tessellation (BREP-08) ==============================================================
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -761,6 +765,7 @@ pub trait BrepKernel: Send + Sync {
     fn interference(&self, a: &Shape, b: &Shape, ctx: &JobCtx) -> KResult<Option<OpResult>>;   // common volume
     fn eval_surface(&self, s: &Shape, f: FaceId, uv: Point2) -> KResult<SurfacePoint>;
     fn project_point_on_face(&self, s: &Shape, f: FaceId, p: Point3) -> KResult<(Point2, Point3)>;
+    fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds>;   // R-S04-1, landed in BREP-09
     /// Plane ∩ shape → 3D section curves (S03 SK-08/SK-09, S07 tests, S12 DXF).
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>>;
     /// Edges orthogonally projected onto `plane` (S03 SK-09 "project").
@@ -884,7 +889,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-07 | Shell / thick solid (removed faces, per-face thickness, join arc/intersection), `offset`, `thicken` with roles `ShellInner`/`OffsetFace` | BREP-05 | P0 | Todo | 1. Golden volumes: shelled box (1 face removed, 1 mm) equals the analytic volume within 1e-9 relative. Shelled cylinder, filleted box (arc join) and thickened B-spline face (0.5 %) pass. 2. Inward/outward offset of a sphere: radius within 1e-9. 3. A thickness exceeding the minimum radius gives `LocalOpFailed` with offending faces. 4. History roles are correct on 5 cases. |
 | BREP-16 | Draft, defeature (delete face), replace face, split faces by tool, split body (via `split`) with history | BREP-05 | P0 | Todo | 1. Draft of 4 box side faces at 3° about the bottom plane: the measured face angles are 3° ± 1e-9 rad and the volume is analytic. 2. Deleting a fillet face and a boss face gives the pre-feature volume within 1e-6. 3. Replacing a top face with an offset plane changes the height exactly. 4. Splitting a face by a sketch wire gives 2 faces with the right areas. 5. Every result is BRepCheck-valid with complete history. |
 | BREP-08 | Tessellation: `tessellate` on a private topology copy (category C), `TessMesh` (per-face vertices, normals, `face_ranges`, exact `weld`, edge polylines), `to_indexed_parts`, `tessellate_many` (rayon, `InParallel` off), `tessellate_edge`, quality presets | BREP-12 | P0 | Review (wp/BREP-08-tess; Done-when 1 not met, see BREP-18) | 1. A 1000-face fixture part tessellates (display preset) in < 100 ms median, including the topology copy (criterion `budget/brep-tess-1000`); the copy share is recorded. 2. `to_indexed_parts` of every closed fixture is watertight (`amg_testkit::metrics`: 0 boundary and 0 non-manifold edges), and its volume matches `mass_props` within the deflection bound. 3. Sphere r=10 tessellations converge to the exact area as deflection shrinks. 4. Tessellating one shared `Shape` from 8 threads while another thread runs booleans on it: no crash, identical meshes, input hash unchanged. 5. `face_of_triangle` is consistent with `face_ranges` for all triangles. |
-| BREP-09 | Mass properties (volume, area, centroid, inertia, principal axes), `classify`, `distance`, `closest_point`, `ray_cast`, `eval_surface` (curvatures), `project_point_on_face`, `interference` | BREP-04 | P0 | Todo | 1. Box, cylinder, sphere and torus mass props match analytic values within 1e-9 relative. Inertia tensors match within 1e-9. 2. Distance between two spheres and between a point and a face matches analytic values within 1e-9. 3. `ray_cast` hits the expected face with the correct normal on 1000 random rays at a cylinder (vs analytic). 4. Curvatures of a torus at 10 points match analytic values within 1e-9. 5. `interference` volume of two overlapping boxes is analytic. |
+| BREP-09 | Mass properties (volume, area, centroid, inertia, principal axes), `classify`, `distance`, `closest_point`, `ray_cast`, `eval_surface` (curvatures), `project_point_on_face`, `interference` | BREP-04 | P0 | Review (wp/BREP-09-massprops) | 1. Box, cylinder, sphere and torus mass props match analytic values within 1e-9 relative. Inertia tensors match within 1e-9. 2. Distance between two spheres and between a point and a face matches analytic values within 1e-9. 3. `ray_cast` hits the expected face with the correct normal on 1000 random rays at a cylinder (vs analytic). 4. Curvatures of a torus at 10 points match analytic values within 1e-9. 5. `interference` volume of two overlapping boxes is analytic. |
 | BREP-17 | Geometry extraction for sketches and drawings: `plane_section` and `project_edges` to `CurveSeg` (lines/circles/ellipses recognised, others B-spline), `tessellate_edge` reuse | BREP-12 | P0 | Done | 1. A plane section of a cylinder (perpendicular) gives one `Curve3::Circle` with exact radius. An oblique section gives an `Ellipse` with analytic axes within 1e-9. 2. Projecting the edges of a filleted box top onto the XY plane gives lines and circle arcs with the correct radii and endpoints. 3. Section of a B-spline surface returns B-spline segments within 1e-6 mm of the true intersection (sampled). |
 | BREP-10 | Healing and assembly: `heal` (`ShapeFix_Shape`, `ShapeFix_Wireframe` on a copy), `unify_same_domain`, `sew` (+ `make_solid`, orientation fix), `make_compound`, `check` (BRepCheck + ArgumentAnalyzer) | BREP-05 | P0 | Todo | 1. Sewing the 6 planar polygon faces of a cube (with 1e-4 mm gaps) gives a valid closed solid with volume within 1e-6. 2. Sewing the faces of 20 fixture parts exploded via `sub_shape` gives back solids with the same volume and face count. 3. `heal` fixes 10 corpus shapes with known defects (BRepCheck invalid → valid). 4. `unify_same_domain` after a fuse of two coplanar boxes yields 6 faces, and history maps the merged faces. 5. `check` lists the expected problem kinds on 5 broken fixtures. |
 | BREP-13 | STEP (AP203/214/242) and IGES read/write via XCAF into `ForeignModel` (names, colours incl. per-face, assembly tree with shared prototypes, units → mm), heal on import, progress + cancel; IGES under the global lock | BREP-10 | P0 | Todo | 1. Round-trip of 10 STEP fixtures (≥ 1 assembly with reused parts, ≥ 1 coloured, ≥ 1 in inches): write then read again gives the same tree, names, colours, solid count, and per-solid volume within 1e-9 relative. Inch input is scaled to mm. 2. Reading the same STEP file on 4 threads in parallel gives identical results (on 8.0.0 the reads serialise through the global lock; after a bump to 8.0.1 the lock is removed and the test still passes). 3. IGES round-trip of 3 fixtures. 4. A 50 MB STEP read reports progress and cancels within 500 ms. 5. The owner's Fusion STEP exports (if present under `$AMG_TESTDATA_DIR/fusion/`) import as valid solids. |
@@ -1745,6 +1750,136 @@ filleted body cut by a pocket tool) needs a fixture BREP-06 can build; leftover 
 - Harvest OCCT/FreeCAD tracker shapes into the corpus where licences allow.
 - R-S04-2 `OpResult::per_solid` (BREP-05) for cut/split results.
 
+### 2026-11-15 - BREP-09 mass properties and measurement queries
+**Landed.**
+- `amg-brep`: new module `query` with `MassProps`, `Classification`, `DistanceResult`, `RayHit`,
+  `SurfacePoint` and `EdgeEnds` (R-S04-1), all also `Serialize`/`Deserialize`, and
+  `MASS_PROPS_EPS` (1e-12). `BrepKernel::{mass_props, classify, distance, closest_point,
+  ray_cast, interference, eval_surface, project_point_on_face, edge_ends}` on the trait and
+  `OcctKernel`, with forwarding arms in `api_contract.rs`. The crate re-exports
+  `amg_core::{Mat3, Ray3}`. The shim returns OCCT's raw values and the conventions are applied in
+  Rust, where they are unit-tested without OCCT:
+  - `mass_props`: adaptive `BRepGProp::VolumeProperties(eps, OnlyClosed)` over the closed shells,
+    and `SurfaceProperties(eps)` for the area. Inertia is about the centroid at unit density
+    (GProp's convention, `I_xy = −∫xy`). Principal moments (ascending) and axes come from a cyclic
+    Jacobi decomposition in Rust. The axes are right-handed, and axes 0 and 1 have their largest
+    component positive. Off-diagonal round-off below 1e-13 × the largest moment is cleared first,
+    so a sphere keeps its frame's axes, deterministically. A shape without solids is measured by
+    its faces (unit areal density) or its edges, and `volume` is then 0. A shape with only
+    vertices gives `InvalidInput`.
+  - `classify`: `BRepClass3d_SolidClassifier` per solid of the index (inside any solid wins over
+    on a boundary). A shape without solids gives `InvalidInput`.
+  - `distance`: `BRepExtrema_DistShapeShape` (MIN, single-threaded), first solution, with the
+    supports mapped to `SubShape`s through the index. Overlap or containment gives 0 with no
+    supports.
+  - `closest_point` measures to the boundary. Inside a solid, BRepExtrema returns an inner
+    solution at distance 0; it is replaced by the nearest of the faces, taken one by one. Putting
+    the faces into one compound would clear their TShapes' `Free` flag (the BREP-04 finding).
+    `on_a`/`sub_a` are on the shape, `on_b` is the point.
+  - `ray_cast`: `IntCurvesFace_Intersector` per face (states IN or ON, kernel linear tolerance),
+    nearest `t`, ties to the lower face index; `max_t` is clamped to the bbox reach. The normal
+    comes from `BRepLProp_SLProps` at the hit, flipped on reversed faces.
+  - `eval_surface`: `BRepLProp_SLProps` (order 2). The normal points out of the material and the
+    curvatures are **convex-positive** against it: a sphere is +1/r and a hole wall −1/r, which is
+    `−sign × OCCT`. Min/max and the directions swap with the sign. At an umbilic point `dir_min` is
+    the normalised `d1u` and `dir_max = normal × dir_min`. A point with no normal or curvature (a
+    sphere pole) gives `OpFailed { op: "eval_surface" }`.
+  - `project_point_on_face`: `BRepExtrema` against the face, so the result is within its boundary.
+    When the foot is on an edge or vertex, `uv` comes from `ShapeAnalysis_Surface::ValueOfUV`,
+    wrapped into the face's UV range on periodic surfaces.
+  - `interference`: `boolean(Common)` with default options. It returns `None` when the result has
+    no solid or a volume below `tol.linear³` (touching boxes). Both shapes must have solids.
+  - `edge_ends`: `BRepAdaptor_Curve::D1` at both ends, in the curve's parameter direction (the
+    order of `edge_vertices` and `curve`). Degenerated edges and vanishing tangents give
+    `InvalidInput { what: "edge" }`.
+- `amg-occt-sys`: shared structs `OcMassProps`, `OcDistance`, `OcRayHit`, `OcSurfacePoint` and
+  `OcEdgeEnds`, and shim functions `mass_props`, `classify_point`, `distance_shapes`,
+  `closest_point_on`, `ray_cast_faces`, `eval_face`, `project_on_face` and `edge_ends` (all
+  category **R**). They are in a new `cpp/occt_query.cpp` (built by `build.rs`) and are declared
+  and tagged in `occt_shim.hxx`. `SHIM_VERSION` is unchanged (no existing function changed).
+- BREP-08's `indexed_parts_of_closed_fixtures_are_watertight` now takes the exact volume and area
+  from `mass_props` instead of the `Shape::volume` stand-in.
+- Tests: `tests/query.rs` (17 tests), 6 unit tests in `src/query.rs`, and three measurement stress
+  tests in `tests/stress.rs` (`StressOp::{MassProps, Classify, ClosestPoint, RayCast,
+  EvalSurface, ProjectOnFace, EdgeEnds, DistanceToSub}`, `measure_queries` in
+  `common/stress.rs`). Bench `benches/query.rs`. There are no goldens, because no new geometry is
+  produced (`interference` is a boolean, covered by the BREP-04 goldens). The mass properties are
+  compared with closed forms directly, as §Testing asks.
+
+**Done-when status.** `cargo nextest run -p amg-occt-sys -p amg-brep --features occt`: 227 tests
+pass, 1 skipped (BREP-04's ignored timing run). Without the feature, 78 pass. `cargo clippy -p
+amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is clean, also without
+`--all-features`. `cargo build -p amg-brep --no-default-features` and `cargo check --workspace`
+build. All numbers are from a shared machine, and all bodies sit on a frame tilted off every axis.
+1. Met. Volume, area, centroid, the full inertia tensor (`R·diag·Rᵀ`) and the principal moments
+   were checked against closed forms. The tensor error is the largest entry error over the
+   largest entry. Largest relative errors (volume / tensor):
+   - box 10×20×30: 6e-16 / 8.6e-16; the principal axes are the frame axes;
+   - cylinder r 5, h 12: 6e-16 / 8.6e-12;
+   - sphere r 7: 1.6e-16 / 3.9e-16;
+   - torus R 10, r 3: 7.7e-15 / 1.5e-11;
+   - also a cone frustum (tensor 1.9e-11), two disjoint boxes as one compound (parallel-axis
+     rule, 8e-16) and a planar face (area basis, polar moment 1.1e-15).
+2. Met.
+   - Two spheres (r 3 and r 5) with centres 20 apart along an oblique direction: distance 12
+     within 4.4e-16, nearest points within 1e-9 × 20, both supports faces, symmetric.
+     Overlapping spheres give 0.
+   - Point to face: cylinder side 7 mm off (exact), cap plane 4.5 (5.9e-16), cap rim 5 (edge
+     support, 5.3e-16), sphere 5 (1.8e-16).
+   - A point 1.5 mm inside a cylinder to its boundary: 4.4e-16.
+3. Met (`rays_hit_a_cylinder_where_the_analytic_solution_does`). 1000 seeded rays start on a
+   sphere of radius 40 and are aimed at random points inside a cylinder r 5, h 12. 778 hit the
+   side, 120 the bottom and 102 the top, each on the analytic face. The worst `t` error is
+   **1.5e-14** relative and the worst normal error **1.1e-13**; every normal faces the ray. A miss
+   and a ray stopped short give `None`.
+4. Met (`torus_curvatures_are_analytic`). At 10 points on a torus R 10, r 3: point, outward
+   normal, `k = 1/r` and `cos v / (R + r cos v)`, and both principal directions. Worst curvature
+   error **5e-16** relative to 1/r. Sign checks: a sphere is +1/r (umbilic), a cylinder 1/r and
+   0, and a drilled hole's wall −1/r with the normal pointing into the hole.
+5. Met. A 10×20×30 box and a 10 mm cube at (5, 5, 5): common volume 500 within 8e-16, centroid
+   within 1e-9, symmetric. Touching faces and a 1 mm gap give `None`.
+
+**Concurrency** (`shared_{box, filleted_box, torus}_survives_concurrent_measurements`). 8 threads
+× 300 / 100 / 200 iterations over 55 / 115 / 41 ops, `Check` included, give 0 mismatches against
+the single-threaded reference. The BinTools hashes are unchanged (`e40ca138fde6fcd8`,
+`cad3beeac5e9c130`, `b189a803c8b4f159`). The filleted box's 3 expected errors (sphere-patch poles
+and degenerated edges) are deterministic too.
+
+**Cost** (`benches/query.rs`, release, criterion, shared machine; S02 has no budget for these).
+On the cylinder: `mass_props` 1.8 ms, closest point 82 µs, ray cast 16 µs, cylinder–sphere
+`distance` 0.61 ms, `eval_surface` 0.36 µs. On the 1030-face plate: ray cast 34 ms, closest point
+5.4 ms, and `mass_props` **1.8 s** (see the findings).
+
+**Findings and deviations.**
+- **Adaptive integration fixes the fixed-order misreads.**
+  - The BREP-04 oblique sphere lens is within 2.6e-11 (fixed order: 1.4e-7).
+  - The BREP-14 ellipsoid (sphere r 10 scaled (1, 2, 3)) is within **1.1e-9** for volume and
+    inertia (fixed order: 4.4e-4). The ellipsoid saturates there: eps 1e-13 gives the same digits.
+    OCCT's `VolumePropertiesGK` with spans returns a wrong centroid and inertia, so it is not
+    used. S04 SOL-06 Done-when 5 (1e-9) is therefore missed by 0.1e-9.
+- **Adaptive `mass_props` is slow on faces with many holes.** The plate (two caps with 1024 hole
+  loops each) takes 1.8 s; ordinary parts take milliseconds. eps 1e-10 is no faster and loses
+  accuracy (cylinder inertia 8e-10), so the eps stays 1e-12. `Shape::volume` (fixed order) stays
+  as the fast path, and S05 runs `mass_props` as a job.
+- `amg_core::Ray3` gains `serde::Serialize`/`Deserialize` (additive, in lane D's crate; see
+  Interface changes), so S20's `KernelOp` can capture `ray_cast`'s parameters like the others.
+- The result types also derive serde (not in the Interfaces), for S20 recording.
+- `MassProps` keeps the Interfaces' fields and has no explicit basis field. A shape without solids
+  reports `volume = 0` and its faces' (or edges') centroid and inertia, as documented on the type.
+  S05's `Volume | Surface | Linear` maps onto it.
+- `closest_point` measures to the boundary even for points inside a solid (S05 measure
+  semantics). `distance` keeps BRepExtrema's 0 for overlapping or nested solids.
+- `iso_curves` and `faces_of_edge` (S05 requests) are not part of BREP-09 as written;
+  `Shape::edge_faces` already gives the adjacency.
+
+**Leftovers.**
+- A fast `mass_props` path for faces bounded by iso-lines (fixed order there, adaptive elsewhere),
+  for parts like the perforated plate.
+- The ellipsoid's remaining 0.1e-9 for S04 SOL-06 Done-when 5: B-spline span splitting that keeps
+  the inertia, or an exact path for `gtransformed` similarity or affine images of primitives.
+- `ray_cast` intersects every face. A bbox or BVH prefilter would help large parts (34 ms on the
+  plate).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1912,3 +2047,18 @@ All additive except the removal of the hidden BREP-08 probe:
   `boolean_cut_probe` shim. `SHIM_VERSION` unchanged.
 - `testdata/brep/bool/cases.toml` (new corpus), `tests/golden/brep/bool_*.toml` (4 files). No
   new dependency.
+
+### 2026-11-15: additions and shared files changed by BREP-09 (lane A)
+All additive:
+- `amg-brep`: module `query` (`MassProps`, `Classification`, `DistanceResult`, `RayHit`,
+  `SurfacePoint`, `EdgeEnds`, `MASS_PROPS_EPS`); `BrepKernel::{mass_props, classify, distance,
+  closest_point, ray_cast, interference, eval_surface, project_point_on_face, edge_ends}` (every
+  `BrepKernel` implementor must add them; the `api_contract.rs` decorator forwards them);
+  re-exports `Mat3` and `Ray3`. `edge_ends` is R-S04-1.
+- `amg-occt-sys`: `OcMassProps`, `OcDistance`, `OcRayHit`, `OcSurfacePoint`, `OcEdgeEnds`, the
+  eight query shim functions, new `cpp/occt_query.cpp` in `build.rs`; `SHIM_VERSION` unchanged.
+- **`amg-core` (lane D, shared):** `Ray3` derives `serde::Serialize, serde::Deserialize` (one
+  derive line; `amg-core` already depends on serde), so `ray_cast`'s parameter is an op parameter
+  type like `Line3`.
+- New criterion bench `benches/query.rs` (`[[bench]]` in `amg-brep/Cargo.toml`). No new
+  dependency, no goldens.
