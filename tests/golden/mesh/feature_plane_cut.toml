@@ -1,0 +1,29 @@
+# Golden metrics for mesh/feature_plane_cut. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+hausdorff_abs = 0.001
+
+[metrics]
+volume = 1077.2386173399111
+area = 1147.7576693325905
+vertices = 2400
+triangles = 4800
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 0
+
+[metrics.bbox]
+min = [
+    -13.870720173713755,
+    -13.870720173713755,
+    1.0,
+]
+max = [
+    13.870720173713755,
+    13.870720173713755,
+    4.0,
+]
