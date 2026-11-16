@@ -36,7 +36,26 @@ const EXTERNAL_WGSL: &str = include_str!("shaders/external.wgsl");
 const POST_WGSL: &str = include_str!("shaders/post.wgsl");
 const SECTION_WGSL: &str = include_str!("shaders/section.wgsl");
 const CAP_DEPTH_WGSL: &str = include_str!("shaders/cap_depth.wgsl");
+const PICK_WGSL: &str = include_str!("shaders/pick.wgsl");
+const PICK_PRIM_WGSL: &str = include_str!("shaders/pick_prim.wgsl");
+const PICK_FIX_WGSL: &str = include_str!("shaders/pick_fix.wgsl");
 pub(crate) const FULLSCREEN_WGSL: &str = include_str!("shaders/fullscreen.wgsl");
+
+/// Pick id target (RND-04): pick id, `kind << 30 | sub`.
+pub(crate) const PICK_ID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Uint;
+/// Pick position target: eye-relative world point of the hit and its reversed-Z depth.
+pub(crate) const PICK_POS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+
+/// How a face pick pipeline gets its sub-id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum FaceMode {
+    /// B-rep face id vertex attribute.
+    Attribute,
+    /// `(primitive_index)` (needs `PRIMITIVE_INDEX`).
+    Primitive,
+    /// Indices and positions pulled from storage buffers; `vertex_index / 3`.
+    Pulling,
+}
 
 /// What a pipeline draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -83,6 +102,21 @@ pub(crate) enum PipelineKind {
     /// Silhouettes over the resolved image; `samples` is the sample count of the targets it
     /// reads (it always draws single-sampled).
     Silhouette,
+    /// Face ids into the pick targets (RND-04). A clipped closed mesh is drawn without culling
+    /// and its back faces seen through the cut report section caps.
+    PickFace {
+        mode: FaceMode,
+        double_sided: bool,
+        clipped: bool,
+    },
+    /// Pick-pass occluders past the exit of a bounded kept region (depth only).
+    PickOccluder,
+    /// Moves the pick depth of cap texels onto their plane (fullscreen, depth only).
+    PickFix,
+    /// Edge ids (`always`: depth `Always`, else `GreaterEqual`).
+    PickLine { clipped: bool, always: bool },
+    /// Vertex ids.
+    PickPoint { clipped: bool, always: bool },
 }
 
 /// A pipeline variant: what it draws and at which sample count.
@@ -136,7 +170,10 @@ impl PipelineKey {
             | PipelineKind::Depth { clipped, .. }
             | PipelineKind::Line { clipped, .. }
             | PipelineKind::Point { clipped, .. }
-            | PipelineKind::Wire { clipped, .. } => *clipped = on,
+            | PipelineKind::Wire { clipped, .. }
+            | PipelineKind::PickFace { clipped, .. }
+            | PipelineKind::PickLine { clipped, .. }
+            | PipelineKind::PickPoint { clipped, .. } => *clipped = on,
             _ => {}
         }
         self
@@ -157,6 +194,11 @@ impl PipelineKey {
             PipelineKind::Silhouette => "silhouettes",
             PipelineKind::CapOccluder => "cap occluders",
             PipelineKind::CapDepth => "cap depth",
+            PipelineKind::PickFace { .. } => "pick faces",
+            PipelineKind::PickOccluder => "pick occluders",
+            PipelineKind::PickFix => "pick cap depth",
+            PipelineKind::PickLine { .. } => "pick edges",
+            PipelineKind::PickPoint { .. } => "pick points",
         }
     }
 
@@ -249,6 +291,30 @@ pub(crate) fn lines_wgsl() -> String {
     format!("{CAMERA_WGSL}\n{SCENE_WGSL}\n{SECTION_WGSL}\n{LINES_WGSL}")
 }
 
+/// Full WGSL of the pick module (camera + sections + lines + pick passes); with
+/// `primitive_index` it starts with `enable primitive_index;` and adds `fs_pick_prim`.
+pub(crate) fn pick_wgsl(primitive_index: bool) -> String {
+    if primitive_index {
+        format!(
+            "enable primitive_index;
+{CAMERA_WGSL}
+{SCENE_WGSL}
+{SECTION_WGSL}
+{LINES_WGSL}
+{PICK_WGSL}
+{PICK_PRIM_WGSL}"
+        )
+    } else {
+        format!(
+            "{CAMERA_WGSL}
+{SCENE_WGSL}
+{SECTION_WGSL}
+{LINES_WGSL}
+{PICK_WGSL}"
+        )
+    }
+}
+
 /// WGSL of the cap depth pass reading marks of `samples` samples.
 pub(crate) fn cap_depth_wgsl(samples: u32) -> String {
     let marks = if samples > 1 {
@@ -292,6 +358,10 @@ pub(crate) struct Layouts<'a> {
     /// Group 1 of the analysis pipelines (records, LUT, sampler, globals); groups 2 and 3 are
     /// `geometry`-shaped (one storage buffer: scalar and displacement fields).
     pub analysis: &'a wgpu::BindGroupLayout,
+    /// Group 1 of the vertex-pulling face pick: indices and positions.
+    pub pull: &'a wgpu::BindGroupLayout,
+    /// Group 0 of the pick cap depth pass: the pick id and depth targets.
+    pub pick_targets: &'a wgpu::BindGroupLayout,
 }
 
 /// Everything needed to build any variant; cheap to share with job threads.
@@ -315,6 +385,14 @@ pub(crate) struct PipelineFactory {
     /// The analysis module, compiled on first use (it is never in the core set).
     analysis_shader: OnceLock<wgpu::ShaderModule>,
     analysis_layout: wgpu::PipelineLayout,
+    /// The pick module, and the one with `enable primitive_index;` when the device has it.
+    pick_shader: wgpu::ShaderModule,
+    pick_prim_shader: Option<wgpu::ShaderModule>,
+    pick_layout: wgpu::PipelineLayout,
+    pick_lines_layout: wgpu::PipelineLayout,
+    pick_pull_layout: wgpu::PipelineLayout,
+    pick_fix_shader: wgpu::ShaderModule,
+    pick_fix_layout: wgpu::PipelineLayout,
 }
 
 impl PipelineFactory {
@@ -376,6 +454,237 @@ impl PipelineFactory {
                 ],
                 immediate_size: 0,
             }),
+            pick_shader: module("amg pick", pick_wgsl(false)),
+            pick_prim_shader: device
+                .features()
+                .contains(wgpu::Features::PRIMITIVE_INDEX)
+                .then(|| module("amg pick primitive index", pick_wgsl(true))),
+            pick_layout: layout("amg pick", layouts.view),
+            pick_lines_layout: device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("amg pick lines"),
+                bind_group_layouts: &[Some(layouts.view), Some(layouts.geometry)],
+                immediate_size: 0,
+            }),
+            pick_pull_layout: device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("amg pick pull"),
+                bind_group_layouts: &[Some(layouts.view), Some(layouts.pull)],
+                immediate_size: 0,
+            }),
+            pick_fix_shader: module("amg pick cap depth", PICK_FIX_WGSL.to_owned()),
+            pick_fix_layout: layout("amg pick cap depth", layouts.pick_targets),
+        }
+    }
+
+    /// Whether the device can build [`FaceMode::Primitive`] pick pipelines.
+    pub fn has_primitive_index(&self) -> bool {
+        self.pick_prim_shader.is_some()
+    }
+
+    /// Builds a pick pipeline (`key.kind` is one of the `Pick*` kinds).
+    fn build_pick(&self, key: PipelineKey, label: &str) -> wgpu::RenderPipeline {
+        let device = &self.device;
+        let depth = |compare: wgpu::CompareFunction| {
+            Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(compare),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            })
+        };
+        let target = |format, write: bool| {
+            Some(wgpu::ColorTargetState {
+                format,
+                blend: None,
+                write_mask: if write {
+                    wgpu::ColorWrites::ALL
+                } else {
+                    wgpu::ColorWrites::empty()
+                },
+            })
+        };
+        let targets = [target(PICK_ID_FORMAT, true), target(PICK_POS_FORMAT, true)];
+        let masked = [
+            target(PICK_ID_FORMAT, false),
+            target(PICK_POS_FORMAT, false),
+        ];
+        let positions = [wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 0,
+            shader_location: 0,
+        }];
+        let faces = [wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Uint32,
+            offset: 0,
+            shader_location: 1,
+        }];
+        let buffers = [
+            Some(wgpu::VertexBufferLayout {
+                array_stride: 12,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &positions,
+            }),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: 4,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &faces,
+            }),
+        ];
+        let triangles = |cull: Option<wgpu::Face>| wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: cull,
+            ..Default::default()
+        };
+        match key.kind {
+            PipelineKind::PickFace {
+                mode,
+                double_sided,
+                clipped,
+            } => {
+                let caps = clipped && !double_sided;
+                let constants = [
+                    ("CLIP", f64::from(u8::from(clipped))),
+                    ("CAPS", f64::from(u8::from(caps))),
+                ];
+                let (module, layout, vs, fs, vertex_buffers): (_, _, _, _, &[_]) = match mode {
+                    FaceMode::Attribute => (
+                        &self.pick_shader,
+                        &self.pick_layout,
+                        "vs_pick_face",
+                        "fs_pick_face",
+                        &buffers[..],
+                    ),
+                    FaceMode::Primitive => (
+                        self.pick_prim_shader.as_ref().unwrap_or(&self.pick_shader),
+                        &self.pick_layout,
+                        "vs_pick_plain",
+                        "fs_pick_prim",
+                        &buffers[..1],
+                    ),
+                    FaceMode::Pulling => (
+                        &self.pick_shader,
+                        &self.pick_pull_layout,
+                        "vs_pick_pull",
+                        "fs_pick_face",
+                        &[],
+                    ),
+                };
+                let options = wgpu::PipelineCompilationOptions {
+                    constants: &constants,
+                    ..Default::default()
+                };
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(layout),
+                    vertex: wgpu::VertexState {
+                        module,
+                        entry_point: Some(vs),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: vertex_buffers,
+                    },
+                    primitive: triangles((!double_sided && !caps).then_some(wgpu::Face::Back)),
+                    depth_stencil: depth(wgpu::CompareFunction::GreaterEqual),
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module,
+                        entry_point: Some(fs),
+                        compilation_options: options,
+                        targets: &targets,
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            PipelineKind::PickOccluder => {
+                let constants = [("CLIP", 1.0)];
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&self.pick_layout),
+                    vertex: wgpu::VertexState {
+                        module: &self.pick_shader,
+                        entry_point: Some("vs_pick_plain"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &buffers[..1],
+                    },
+                    primitive: triangles(Some(wgpu::Face::Back)),
+                    depth_stencil: depth(wgpu::CompareFunction::GreaterEqual),
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &self.pick_shader,
+                        entry_point: Some("fs_pick_occluder"),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &constants,
+                            ..Default::default()
+                        },
+                        targets: &masked,
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            PipelineKind::PickFix => {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&self.pick_fix_layout),
+                    vertex: wgpu::VertexState {
+                        module: &self.pick_fix_shader,
+                        entry_point: Some("vs_pick_fix"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: depth(wgpu::CompareFunction::Always),
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &self.pick_fix_shader,
+                        entry_point: Some("fs_pick_fix"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: &[],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            PipelineKind::PickLine { clipped, always }
+            | PipelineKind::PickPoint { clipped, always } => {
+                let constants = [("HIDDEN", 0.0), ("CLIP", f64::from(u8::from(clipped)))];
+                let options = wgpu::PipelineCompilationOptions {
+                    constants: &constants,
+                    ..Default::default()
+                };
+                let (vs, fs) = if matches!(key.kind, PipelineKind::PickLine { .. }) {
+                    ("vs_pick_line", "fs_pick_line")
+                } else {
+                    ("vs_pick_point", "fs_pick_point")
+                };
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&self.pick_lines_layout),
+                    vertex: wgpu::VertexState {
+                        module: &self.pick_shader,
+                        entry_point: Some(vs),
+                        compilation_options: options.clone(),
+                        buffers: &[],
+                    },
+                    primitive: triangles(None),
+                    depth_stencil: depth(if always {
+                        wgpu::CompareFunction::Always
+                    } else {
+                        wgpu::CompareFunction::GreaterEqual
+                    }),
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &self.pick_shader,
+                        entry_point: Some(fs),
+                        compilation_options: options,
+                        targets: &targets,
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            }
+            _ => unreachable!("not a pick pipeline: {key:?}"),
         }
     }
 
@@ -468,6 +777,11 @@ impl PipelineFactory {
         };
         let device = &self.device;
         match key.kind {
+            PipelineKind::PickFace { .. }
+            | PipelineKind::PickOccluder
+            | PipelineKind::PickFix
+            | PipelineKind::PickLine { .. }
+            | PipelineKind::PickPoint { .. } => self.build_pick(key, &label),
             PipelineKind::Mesh {
                 lighting,
                 flat,
@@ -1049,6 +1363,10 @@ impl Variants {
     /// Timings of the variants built in the background so far.
     pub fn timings(&self) -> &[PipelineTiming] {
         &self.timings
+    }
+
+    pub fn factory(&self) -> &PipelineFactory {
+        &self.factory
     }
 }
 

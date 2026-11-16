@@ -325,7 +325,9 @@ pub type SceneAccess = Box<dyn FnMut(&mut dyn FnMut(&mut RenderScene))>;
 /// `insert_mesh` / `add_instance` on the UI thread. A geometry swap points the instance at
 /// the new mesh before the old one is removed (no frame without the body).
 ///
-/// Highlight layers are kept here until RND-04 adds `RenderScene::set_highlight_layer`.
+/// Instances carry their [`RenderEntityKey`] as the pick id, and highlight layers and colours
+/// are forwarded to `RenderScene::set_highlight_layer` / `set_highlight_color` (RND-04); the
+/// backend also keeps the last ones for queries.
 pub struct GpuSceneBackend {
     uploader: Arc<GpuUploader>,
     access: SceneAccess,
@@ -398,7 +400,7 @@ impl GpuSceneBackend {
         self.instances.get(&slot).copied()
     }
 
-    /// A highlight layer as last set (drawn once RND-04 lands).
+    /// A highlight layer as last set (also forwarded to the `RenderScene`).
     pub fn highlight(&self, layer: HighlightLayer) -> &[HighlightItem] {
         &self.highlights[layer.index()]
     }
@@ -418,8 +420,14 @@ impl SceneBackend for GpuSceneBackend {
         let mut scene_ops = Vec::with_capacity(ops.len());
         for op in ops {
             match op {
-                SceneOp::Highlight { layer, items } => self.highlights[layer.index()] = items,
-                SceneOp::HighlightColor { layer, rgba } => self.colors[layer.index()] = rgba,
+                SceneOp::Highlight { layer, items } => {
+                    self.highlights[layer.index()].clone_from(&items);
+                    scene_ops.push(SceneOp::Highlight { layer, items });
+                }
+                SceneOp::HighlightColor { layer, rgba } => {
+                    self.colors[layer.index()] = rgba;
+                    scene_ops.push(SceneOp::HighlightColor { layer, rgba });
+                }
                 other => scene_ops.push(other),
             }
         }
@@ -473,9 +481,11 @@ fn apply_gpu(
                 inst.visible = desc.visible;
                 inst.layer = desc.layer;
                 inst.material = desc.material;
+                inst.pick = desc.key.pick_id();
                 return;
             }
             let key = scene.add_instance(Instance {
+                pick: desc.key.pick_id(),
                 visible: desc.visible,
                 layer: desc.layer,
                 material: desc.material,
@@ -491,6 +501,38 @@ fn apply_gpu(
                 scene.remove_instance(k);
             }
         }
-        SceneOp::Highlight { .. } | SceneOp::HighlightColor { .. } => {}
+        SceneOp::Highlight { layer, items } => {
+            let items: Vec<amg_render::HighlightItem> = items.iter().map(render_item).collect();
+            scene.set_highlight_layer(render_layer(layer), &items);
+        }
+        SceneOp::HighlightColor { layer, rgba } => {
+            scene.set_highlight_color(render_layer(layer), rgba);
+        }
+    }
+}
+
+/// S10's layer of a scene-adapter highlight layer.
+fn render_layer(layer: HighlightLayer) -> amg_render::HighlightLayer {
+    match layer {
+        HighlightLayer::Hover => amg_render::HighlightLayer::Hover,
+        HighlightLayer::Selected => amg_render::HighlightLayer::Selected,
+        HighlightLayer::Error => amg_render::HighlightLayer::Error,
+        HighlightLayer::Preview => amg_render::HighlightLayer::Preview,
+    }
+}
+
+/// S10's item of a scene-adapter highlight item.
+fn render_item(item: &HighlightItem) -> amg_render::HighlightItem {
+    let kind = |k: RenderSubKind| match k {
+        RenderSubKind::Face => amg_render::SubKind::Face,
+        RenderSubKind::Edge => amg_render::SubKind::Edge,
+        RenderSubKind::Vertex => amg_render::SubKind::Vertex,
+        RenderSubKind::Handle => amg_render::SubKind::Handle,
+    };
+    amg_render::HighlightItem {
+        pick: item.key.pick_id(),
+        sub: item
+            .sub
+            .map(|(k, r)| (kind(k), amg_render::Range32::new(r.start, r.end))),
     }
 }

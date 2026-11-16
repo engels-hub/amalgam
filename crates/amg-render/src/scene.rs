@@ -9,6 +9,9 @@ use crate::analysis::{
     AnalysisOutput, AnalysisRecord, Animation, GpuField, GroupShade, Shading,
     build_analysis_record, deformation_of, group_shade,
 };
+use crate::highlight::{
+    FaceHighlight, HighlightItem, HighlightLayer, Resolved, SlotGeometry, resolve,
+};
 use crate::lines::{GpuEdges, GpuPoints, LineRecord, LineStyle, PointStyle, build_line_record};
 use crate::section::{MAX_SECTIONS, SectionPlane};
 use crate::upload::GpuMesh;
@@ -85,6 +88,11 @@ pub struct Instance {
     pub points: Option<PointsKey>,
     /// World-from-mesh-local (the mesh origin is handled internally), f64.
     pub transform: Transform,
+    /// The id written to the pick buffer (RND-04); the scene adapter's `RenderEntityKey`.
+    /// Default `PickId(0)` (picks report nothing for it, but it still hides what is behind).
+    pub pick: PickId,
+    /// Drawn into the pick pass. Default true; [`Layer::Ghost`] instances never are.
+    pub pickable: bool,
     /// Whether the instance is drawn.
     pub visible: bool,
     /// The layer it belongs to.
@@ -138,6 +146,8 @@ impl Instance {
             edges: None,
             points: None,
             transform,
+            pick: PickId(0),
+            pickable: true,
             visible: true,
             layer: Layer::Model,
             material: Material::default(),
@@ -203,7 +213,8 @@ pub struct ExternalLayer {
 ///
 /// Camera independent: the eye is subtracted in the shader from the split translation, so a
 /// moving camera never rewrites it, and a changed instance rewrites exactly this record.
-/// The `w` of the three normal-matrix columns is reserved (pick id and flags, RND-04/05).
+/// The three normal-matrix columns are each followed by a `u32`: the pick id, the highlight
+/// bits and the highlight-state index (RND-04).
 /// RND-02 put the packed metallic/roughness in the former `t_lo.w`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
@@ -214,8 +225,18 @@ pub(crate) struct InstanceRecord {
     pub t_lo: [f32; 3],
     /// `pack2x16unorm(metallic, roughness)`.
     pub material: u32,
-    /// Columns of the normal matrix (`xyz`), `w` reserved.
-    pub nrm: [[f32; 4]; 3],
+    /// First normal-matrix column.
+    pub nrm0: [f32; 3],
+    /// Pick id (RND-04).
+    pub pick: u32,
+    /// Second normal-matrix column.
+    pub nrm1: [f32; 3],
+    /// Whole-instance highlight bits (`HL_*` in `shaders/scene.wgsl`).
+    pub flags: u32,
+    /// Third normal-matrix column.
+    pub nrm2: [f32; 3],
+    /// Index + 1 of the edge and point highlight states (0 = none).
+    pub states: u32,
     /// Linear RGBA.
     pub color: [f32; 4],
 }
@@ -288,7 +309,7 @@ pub(crate) fn build_records(
     let lo = (translation - hi.as_dvec3()).as_vec3();
     let col = |c: Vec3, h: f32| [c.x as f32, c.y as f32, c.z as f32, h];
     let normal = Mat3::from(m).inverse().transpose();
-    let ncol = |c: Vec3| [c.x as f32, c.y as f32, c.z as f32, 0.0];
+    let ncol = |c: Vec3| [c.x as f32, c.y as f32, c.z as f32];
     let record = InstanceRecord {
         lin: [
             col(m.x_axis, hi.x),
@@ -297,11 +318,16 @@ pub(crate) fn build_records(
         ],
         t_lo: [lo.x, lo.y, lo.z],
         material: inst.material.packed_metallic_roughness(),
-        nrm: [
-            ncol(normal.x_axis),
-            ncol(normal.y_axis),
-            ncol(normal.z_axis),
-        ],
+        nrm0: ncol(normal.x_axis),
+        pick: if inst.pickable && inst.layer != Layer::Ghost {
+            inst.pick.0
+        } else {
+            0
+        },
+        nrm1: ncol(normal.y_axis),
+        flags: 0,
+        nrm2: ncol(normal.z_axis),
+        states: 0,
         color: inst.material.base_color,
     };
     let lines = build_line_record(
@@ -350,6 +376,8 @@ pub(crate) struct InstanceTable {
     line_records: Vec<LineRecord>,
     analysis_records: Vec<AnalysisRecord>,
     info: Vec<DrawInfo>,
+    /// Highlight bits and state index of each slot (RND-04), copied into its record.
+    hl: Vec<[u32; 2]>,
     dirty_flag: Vec<bool>,
     dirty: Vec<u32>,
 }
@@ -368,6 +396,7 @@ impl InstanceTable {
         self.line_records.push(LineRecord::default());
         self.analysis_records.push(AnalysisRecord::default());
         self.info.push(DrawInfo::default());
+        self.hl.push([0, 0]);
         self.dirty_flag.push(false);
         self.mark(slot);
         key
@@ -401,6 +430,7 @@ impl InstanceTable {
         self.line_records.swap_remove(slot);
         self.analysis_records.swap_remove(slot);
         self.info.swap_remove(slot);
+        self.hl.swap_remove(slot);
         self.dirty_flag.swap_remove(slot);
         if slot != last {
             // The former last instance now lives in `slot`; its record must be re-sent.
@@ -470,7 +500,8 @@ impl InstanceTable {
         for &slot in &self.dirty {
             let i = slot as usize;
             let inst = &self.instances[i];
-            let (record, lines, analysis, info) = build_records(inst, geometry(inst));
+            let (mut record, lines, analysis, info) = build_records(inst, geometry(inst));
+            [record.flags, record.states] = self.hl[i];
             self.records[i] = record;
             self.line_records[i] = lines;
             self.analysis_records[i] = analysis;
@@ -487,6 +518,19 @@ impl InstanceTable {
     #[cfg(test)]
     pub fn instance_at_mut(&mut self, slot: usize) -> &mut Instance {
         &mut self.instances[slot]
+    }
+
+    /// Sets the highlight bits and state index of `slot`; marks it dirty when they change.
+    pub fn set_highlight(&mut self, slot: usize, hl: [u32; 2]) {
+        if self.hl[slot] != hl {
+            self.hl[slot] = hl;
+            self.mark(slot as u32);
+        }
+    }
+
+    /// The key of each slot.
+    pub fn keys(&self) -> &[InstanceKey] {
+        &self.keys
     }
 
     pub fn records(&self) -> &[InstanceRecord] {
@@ -524,10 +568,126 @@ pub struct RenderScene {
     /// Section keys in the order they were added (which planes are active when more than
     /// [`MAX_SECTIONS`] are enabled).
     section_order: Vec<SectionKey>,
+    highlight: HighlightState,
     revision: u64,
 }
 
+/// The highlight layers of a scene and their resolution against the instance slots.
+#[derive(Debug)]
+struct HighlightState {
+    layers: [Vec<HighlightItem>; 4],
+    colors: [[f32; 4]; 4],
+    /// The layers changed since the last resolution.
+    dirty: bool,
+    /// Scene revision of the last resolution (instances or geometry may have moved).
+    revision: u64,
+    resolved: Resolved,
+    /// Bumped when `resolved.states` changes (the renderer re-uploads it).
+    states_revision: u64,
+}
+
+impl Default for HighlightState {
+    fn default() -> Self {
+        HighlightState {
+            layers: Default::default(),
+            colors: HighlightLayer::ALL.map(HighlightLayer::default_color),
+            dirty: false,
+            revision: 0,
+            resolved: Resolved::default(),
+            states_revision: 0,
+        }
+    }
+}
+
 impl RenderScene {
+    /// Replaces the whole item list of one highlight layer (applied on the next `encode`).
+    /// Items whose pick id no instance has are ignored.
+    pub fn set_highlight_layer(&mut self, layer: HighlightLayer, items: &[HighlightItem]) {
+        let list = &mut self.highlight.layers[layer as usize];
+        if list.as_slice() != items {
+            list.clear();
+            list.extend_from_slice(items);
+            self.highlight.dirty = true;
+        }
+    }
+
+    /// The items of a highlight layer.
+    pub fn highlight_layer(&self, layer: HighlightLayer) -> &[HighlightItem] {
+        &self.highlight.layers[layer as usize]
+    }
+
+    /// Sets the colour of a highlight layer (linear RGBA; alpha is ignored).
+    pub fn set_highlight_color(&mut self, layer: HighlightLayer, rgba: [f32; 4]) {
+        self.highlight.colors[layer as usize] = rgba;
+    }
+
+    /// Whether a highlight layer lists faces, edges or vertices (not only whole owners).
+    pub(crate) fn has_sub_highlights(&self) -> bool {
+        self.highlight
+            .layers
+            .iter()
+            .any(|l| l.iter().any(|i| i.sub.is_some()))
+    }
+
+    /// The colour of a highlight layer.
+    pub fn highlight_color(&self, layer: HighlightLayer) -> [f32; 4] {
+        self.highlight.colors[layer as usize]
+    }
+
+    /// Face-range redraws of the current highlight (after the last `encode`).
+    pub(crate) fn face_highlights(&self) -> &[FaceHighlight] {
+        &self.highlight.resolved.faces
+    }
+
+    /// The edge and point highlight states and their revision.
+    pub(crate) fn highlight_states(&self) -> (&[u32], u64) {
+        (
+            &self.highlight.resolved.states,
+            self.highlight.states_revision,
+        )
+    }
+
+    /// Re-resolves the highlight when the layers or the scene changed.
+    fn update_highlights(&mut self) {
+        let h = &mut self.highlight;
+        let any = h.layers.iter().any(|l| !l.is_empty());
+        let stale = any && h.revision != self.revision;
+        if !h.dirty && !stale {
+            return;
+        }
+        let (meshes, edges, points) = (&self.meshes, &self.edges, &self.points);
+        let slots: Vec<SlotGeometry<'_>> = self
+            .table
+            .instances()
+            .iter()
+            .map(|inst| SlotGeometry {
+                pick: inst.pick,
+                mesh: inst
+                    .mesh
+                    .and_then(|k| meshes.get(k))
+                    .map(|m| (m.triangle_count(), m.face_ranges())),
+                edge_ids: inst
+                    .edges
+                    .and_then(|k| edges.get(k))
+                    .map_or(0, |e| e.id_count),
+                point_ids: inst
+                    .points
+                    .and_then(|k| points.get(k))
+                    .map_or(0, |p| p.id_count),
+            })
+            .collect();
+        let resolved = resolve(&slots, &h.layers);
+        for (slot, hl) in resolved.slots.iter().enumerate() {
+            self.table.set_highlight(slot, *hl);
+        }
+        if resolved.states != h.resolved.states {
+            h.states_revision += 1;
+        }
+        h.resolved = resolved;
+        h.dirty = false;
+        h.revision = self.revision;
+    }
+
     /// Adds a finished upload. Constant time; no GPU work.
     pub fn insert_mesh(&mut self, m: GpuMesh) -> MeshKey {
         self.revision += 1;
@@ -803,6 +963,7 @@ impl RenderScene {
 
     /// Recomputes dirty records; see [`InstanceTable::flush_geometry`].
     pub(crate) fn flush_instances(&mut self, runs: &mut Vec<std::ops::Range<u32>>) {
+        self.update_highlights();
         let Self {
             meshes,
             edges,

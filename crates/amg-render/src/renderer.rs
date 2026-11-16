@@ -1,8 +1,8 @@
 //! The renderer: per-view offscreen targets, the frame recording and headless capture.
 
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use amg_core::{Dir3, Point3, SlotMap};
@@ -14,17 +14,26 @@ use crate::analysis::{
 };
 use crate::camera::{Camera, Projection};
 use crate::cull::{DrawPlan, Frustum, MeshDraw};
+use crate::highlight::HighlightLayer;
 use crate::lines::{
     GpuEdges, LINE_RECORD_BYTES, LineDraw, LineGeometry, LinePass, LinePlan, LineView, VisualStyle,
+};
+use crate::pick::{
+    InFlight, MAP_DONE, MAP_FAILED, MAP_PENDING, OwnerSizes, PickBackend, PickFilter, PickRegion,
+    PickRequest, PickResult, PickTicket, PointReadback, QueuedPick, ReadbackKind, RectReadback,
+    build_rect_table, point_region,
 };
 use crate::pipelines::{
     DEPTH_FORMAT, FINAL_FORMAT, HDR_FORMAT, Layouts, NORMAL_FORMAT, PipelineFactory, PipelineKey,
     PipelineKind, Variants, core_keys,
 };
+use crate::pipelines::{FaceMode, PICK_ID_FORMAT, PICK_POS_FORMAT};
+use crate::scene::Layer;
 use crate::scene::{LayerMask, RECORD_BYTES, RenderScene};
 use crate::section::{SECTION_UNIFORM_BYTES, SectionUniform};
 use crate::shading::Lighting;
-use crate::{InstanceKey, RenderError, ViewId};
+use crate::upload::GpuMesh;
+use crate::{InstanceKey, MeshKey, PickId, RenderError, ViewId};
 
 pub(crate) use crate::pipelines::FULLSCREEN_WGSL;
 
@@ -35,6 +44,8 @@ pub(crate) const FINAL_FORMAT_RAW: wgpu::TextureFormat = wgpu::TextureFormat::Rg
 const INITIAL_INSTANCE_CAPACITY: u32 = 64;
 /// Visibility entries (`u32`) a view's list holds before the first growth.
 const INITIAL_VISIBLE_CAPACITY: u32 = 64;
+/// Highlight-state words the buffer holds before the first growth.
+const INITIAL_STATE_WORDS: u64 = 64;
 
 /// In-flight timestamp readbacks per view; a frame with none free is simply not timed.
 const TIMER_SLOTS: usize = 4;
@@ -95,6 +106,11 @@ pub struct RendererConfig {
     /// it. Off, or without the feature, the wireframe styles show their feature edges. Default
     /// on.
     pub polygon_mode_line: bool,
+    /// Point-pick radius, physical pixels (RND-04): vertices count within it, edges within it
+    /// minus one pixel. Default 5.
+    pub pick_radius_px: u32,
+    /// How plain meshes report triangle indices to picks. Default [`PickBackend::Auto`].
+    pub pick_backend: PickBackend,
 }
 
 impl Default for RendererConfig {
@@ -104,6 +120,8 @@ impl Default for RendererConfig {
             depth_prepass: false,
             jobs: None,
             polygon_mode_line: true,
+            pick_radius_px: 5,
+            pick_backend: PickBackend::Auto,
         }
     }
 }
@@ -312,10 +330,12 @@ impl View {
 pub(crate) struct StyleUniform {
     bg_top: [f32; 4],
     bg_bottom: [f32; 4],
+    /// Highlight colours of the layers in [`HighlightLayer`] order (RND-04).
+    highlight: [[f32; 4]; 4],
 }
 
 impl StyleUniform {
-    fn new(style: &ViewStyle) -> StyleUniform {
+    fn new(style: &ViewStyle, highlight: [[f32; 4]; 4]) -> StyleUniform {
         let (top, bottom) = match style.background {
             Background::Solid(c) => (c, c),
             Background::Gradient { top, bottom } => (top, bottom),
@@ -323,6 +343,7 @@ impl StyleUniform {
         StyleUniform {
             bg_top: [top[0], top[1], top[2], 1.0],
             bg_bottom: [bottom[0], bottom[1], bottom[2], 1.0],
+            highlight,
         }
     }
 }
@@ -524,6 +545,26 @@ struct ViewSlot {
     /// The [`InstanceGpu::generation`] `bind_group` was built for.
     bound_generation: u64,
     timer: Option<GpuTimer>,
+    /// Pick targets at the view size, made on the first pick (RND-04).
+    pick_targets: Option<PickTargets>,
+    /// Instance slots of the pick pass in draw order.
+    pick_visible: wgpu::Buffer,
+    pick_visible_capacity: u32,
+    /// GPU time of pick passes (`["pick"]`).
+    pick_timer: Option<GpuTimer>,
+}
+
+/// The id, depth and depth-test targets of a view's pick passes (single-sampled).
+#[derive(Debug)]
+struct PickTargets {
+    size: [u32; 2],
+    ids: wgpu::Texture,
+    ids_view: wgpu::TextureView,
+    positions: wgpu::Texture,
+    positions_view: wgpu::TextureView,
+    depth_test: wgpu::TextureView,
+    /// `ids` and `positions` for the pick cap depth pass.
+    fix_bind: wgpu::BindGroup,
 }
 
 /// One per app; owns the pipelines, the scene and all views. `Send + Sync`.
@@ -581,6 +622,29 @@ pub struct Renderer {
     written_time: Option<f32>,
     /// Cumulative bytes written to the analysis record buffer.
     analysis_bytes_uploaded: u64,
+    /// Group 1 of the vertex-pulling face pick (indices, positions).
+    pull_bind_layout: wgpu::BindGroupLayout,
+    /// The pick id and depth targets, for the pick cap depth pass.
+    pick_targets_bind_layout: wgpu::BindGroupLayout,
+    pick_radius: u32,
+    pick_backend: PickBackend,
+    picks: PickQueue,
+    /// `encode` calls so far.
+    encodes: u64,
+    /// The rectangle-select compute pipeline, built in the background (`None`: it failed).
+    rect_pipeline: RectPipeline,
+}
+
+/// The rectangle-select compute pipeline once built.
+type RectPipeline = Arc<OnceLock<Option<Arc<wgpu::ComputePipeline>>>>;
+
+/// Pick requests waiting for an `encode`, in flight, and answered.
+#[derive(Debug, Default)]
+struct PickQueue {
+    next: u64,
+    queued: Vec<QueuedPick>,
+    in_flight: Vec<InFlight>,
+    done: Vec<(PickTicket, Result<PickResult, RenderError>)>,
 }
 
 impl Renderer {
@@ -617,7 +681,7 @@ impl Renderer {
                 buffer_entry(2, wgpu::ShaderStages::VERTEX, storage),
                 buffer_entry(
                     3,
-                    wgpu::ShaderStages::FRAGMENT,
+                    wgpu::ShaderStages::VERTEX_FRAGMENT,
                     wgpu::BufferBindingType::Uniform,
                 ),
                 // Line records (RND-12; the fragment stage reads the section cap colour).
@@ -628,13 +692,27 @@ impl Renderer {
                     wgpu::ShaderStages::VERTEX_FRAGMENT,
                     wgpu::BufferBindingType::Uniform,
                 ),
+                // Edge and point highlight states (RND-04).
+                buffer_entry(6, wgpu::ShaderStages::VERTEX, storage),
             ],
         });
         let geometry_bind_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("amg line geometry"),
-                entries: &[buffer_entry(0, wgpu::ShaderStages::VERTEX, storage)],
+                // Segments or points, and their pick sub-ids (RND-04).
+                entries: &[
+                    buffer_entry(0, wgpu::ShaderStages::VERTEX, storage),
+                    buffer_entry(1, wgpu::ShaderStages::VERTEX, storage),
+                ],
             });
+        let pull_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("amg pick pull"),
+            entries: &[
+                buffer_entry(2, wgpu::ShaderStages::VERTEX, storage),
+                buffer_entry(3, wgpu::ShaderStages::VERTEX, storage),
+            ],
+        });
+        let pick_targets_bind_layout = pick_targets_bind_layout(device);
         let silhouette_bind_layouts = [
             silhouette_bind_layout(device, false),
             silhouette_bind_layout(device, true),
@@ -661,6 +739,8 @@ impl Renderer {
                 silhouette: [&silhouette_bind_layouts[0], &silhouette_bind_layouts[1]],
                 cap_marks: [&cap_marks_bind_layouts[0], &cap_marks_bind_layouts[1]],
                 analysis: &analysis_layout,
+                pull: &pull_bind_layout,
+                pick_targets: &pick_targets_bind_layout,
             },
         );
         let fullscreen = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -726,7 +806,9 @@ impl Renderer {
             &analysis_globals,
         );
         let dummy_field = storage_buffer(device, "amg no field", 16);
-        let dummy_field_bind = geometry_bind(device, &geometry_bind_layout, &dummy_field);
+        // Binding 1 (pick sub-ids, RND-04) is unused by the analysis shader; bind the same buffer.
+        let dummy_field_bind =
+            geometry_bind(device, &geometry_bind_layout, &dummy_field, &dummy_field);
         let total: f64 = core_timings.iter().map(|t| t.ms).sum();
         tracing::debug!(
             ms = total,
@@ -772,6 +854,13 @@ impl Renderer {
             animation_time: 0.0,
             written_time: None,
             analysis_bytes_uploaded: 0,
+            pull_bind_layout,
+            pick_targets_bind_layout,
+            pick_radius: cfg.pick_radius_px,
+            pick_backend: cfg.pick_backend,
+            picks: PickQueue::default(),
+            encodes: 0,
+            rect_pipeline: spawn_rect_pipeline(&gpu),
             gpu,
         })
     }
@@ -1012,13 +1101,39 @@ impl Renderer {
         if style.fxaa {
             self.variants.request(fxaa_key());
         }
+        // Face-range highlight redraws use the depth-`Equal` mesh pipelines.
+        if self.scene.has_sub_highlights() {
+            for samples in [self.active_samples, self.requested_samples] {
+                for flat in [false, true] {
+                    for double_sided in [false, true] {
+                        self.variants.request(PipelineKey::mesh(
+                            style.lighting,
+                            flat,
+                            double_sided,
+                            true,
+                            samples,
+                        ));
+                    }
+                }
+            }
+        }
+        self.request_pick_variants(sectioned);
     }
 
     /// Blocks until no pipeline variant is pending (or `timeout` passes) and applies a pending
     /// sample-count or pre-pass switch. Returns true when nothing is pending. Job, test and
     /// headless threads only; the UI thread lets frames fall back instead.
     pub fn wait_for_variants(&mut self, timeout: Duration) -> bool {
-        let done = self.variants.wait(timeout);
+        let start = Instant::now();
+        let mut done = self.variants.wait(timeout);
+        // The rectangle-pick compute pipeline is built on its own thread.
+        while self.rect_pipeline.get().is_none() {
+            if start.elapsed() >= timeout {
+                done = false;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
         self.settle_config();
         done
     }
@@ -1099,6 +1214,14 @@ impl Renderer {
             bind_group,
             bound_generation: self.instance_gpu.generation,
             timer: GpuTimer::new(&self.gpu),
+            pick_targets: None,
+            pick_visible: storage_buffer(
+                device,
+                "amg pick visible",
+                u64::from(INITIAL_VISIBLE_CAPACITY) * 4,
+            ),
+            pick_visible_capacity: INITIAL_VISIBLE_CAPACITY,
+            pick_timer: GpuTimer::new(&self.gpu),
         })
     }
 
@@ -1176,6 +1299,22 @@ impl Renderer {
                 self.instance_bytes_uploaded += part.len() as u64 * RECORD_BYTES;
                 self.analysis_bytes_uploaded += part.len() as u64 * ANALYSIS_RECORD_BYTES;
             }
+        }
+        let (states, revision) = self.scene.highlight_states();
+        if revision != self.instance_gpu.states_revision {
+            let words = states.len() as u64;
+            if words > self.instance_gpu.states_capacity {
+                let capacity = words.next_power_of_two().max(INITIAL_STATE_WORDS);
+                self.instance_gpu.states =
+                    storage_buffer(device, "amg highlight states", 4 * capacity);
+                self.instance_gpu.states_capacity = capacity;
+                // Views rebuild their bind groups.
+                self.instance_gpu.generation += 1;
+            }
+            if !states.is_empty() {
+                queue.write_buffer(&self.instance_gpu.states, 0, bytemuck::cast_slice(states));
+            }
+            self.instance_gpu.states_revision = revision;
         }
         if self.analysis_bind_generation != self.instance_gpu.generation {
             self.analysis_bind = analysis_bind_group(
@@ -1298,7 +1437,22 @@ impl Renderer {
     ///
     /// # Errors
     /// [`RenderError::UnknownKey`] for a removed view, [`RenderError::Gpu`] on device loss.
+    ///
+    /// Pick requests of the view ([`Renderer::request_pick`]) are recorded after the frame
+    /// (RND-04); their results arrive through [`Renderer::poll_picks`] once the encoder is
+    /// submitted and the GPU finished it.
     pub fn encode(
+        &mut self,
+        id: ViewId,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<FrameStats, RenderError> {
+        self.encodes += 1;
+        let stats = self.encode_view(id, encoder)?;
+        self.record_picks(id, encoder);
+        Ok(stats)
+    }
+
+    fn encode_view(
         &mut self,
         id: ViewId,
         encoder: &mut wgpu::CommandEncoder,
@@ -1367,7 +1521,10 @@ impl Renderer {
         queue.write_buffer(
             &slot.style_buffer,
             0,
-            bytemuck::bytes_of(&StyleUniform::new(&style)),
+            bytemuck::bytes_of(&StyleUniform::new(
+                &style,
+                HighlightLayer::ALL.map(|l| scene.highlight_color(l)),
+            )),
         );
 
         let sections = if slot.view.sections_enabled {
@@ -1555,11 +1712,44 @@ impl Renderer {
             }
             ready
         };
+        // Face-range highlights (RND-04): the highlighted triangles of drawn instances again, with
+        // the same vertex stage and depth `Equal`, so they cover exactly the pixels the faces drew.
+        let mut hl_entries: Vec<u32> = Vec::new();
+        let mut hl_draws: Vec<HighlightDraw> = Vec::new();
+        let face_highlights = scene.face_highlights();
+        if shade && !face_highlights.is_empty() {
+            let mut group_of: HashMap<u32, usize> = HashMap::new();
+            for (i, g) in plan.groups.iter().enumerate() {
+                for &s in &plan.slots[g.first as usize..(g.first + g.count) as usize] {
+                    group_of.insert(s, i);
+                }
+            }
+            for fh in face_highlights {
+                let Some(&i) = group_of.get(&fh.slot) else {
+                    continue;
+                };
+                let g = &plan.groups[i];
+                let key = PipelineKey::mesh(style.lighting, g.flat, g.double_sided, true, samples);
+                if !variants.has(key) {
+                    variants.request(key);
+                    continue;
+                }
+                hl_draws.push(HighlightDraw {
+                    key,
+                    mesh: g.mesh,
+                    flat: g.flat,
+                    tris: fh.tris.clone(),
+                    entry: hl_entries.len() as u32,
+                });
+                hl_entries.push(fh.slot | (fh.bits << SLOT_BITS));
+            }
+        }
         let variants = &*variants;
 
         let mut rebind = slot.bound_generation != self.instance_gpu.generation;
         let line_base = plan.slots.len() as u32;
-        let needed = line_base + line_plan.slots.len() as u32;
+        let hl_base = line_base + line_plan.slots.len() as u32;
+        let needed = hl_base + hl_entries.len() as u32;
         if needed > slot.visible_capacity {
             slot.visible_capacity = needed.next_power_of_two().max(INITIAL_VISIBLE_CAPACITY);
             slot.visible_buffer = storage_buffer(
@@ -1589,6 +1779,13 @@ impl Renderer {
                 &slot.visible_buffer,
                 u64::from(line_base) * 4,
                 bytemuck::cast_slice(&line_plan.slots),
+            );
+        }
+        if !hl_entries.is_empty() {
+            queue.write_buffer(
+                &slot.visible_buffer,
+                u64::from(hl_base) * 4,
+                bytemuck::cast_slice(&hl_entries),
             );
         }
 
@@ -1670,7 +1867,7 @@ impl Renderer {
                                 .and_then(|k| scene.field(k))
                                 .map_or(dummy_field_bind, |f| {
                                     f.bind.get_or_init(|| {
-                                        geometry_bind(device, geometry_layout, &f.buffer)
+                                        geometry_bind(device, geometry_layout, &f.buffer, &f.buffer)
                                     })
                                 });
                         pass.set_bind_group(group, bind, &[]);
@@ -1721,7 +1918,7 @@ impl Renderer {
                             bound = Some(key);
                         }
                         let bind = edges.bind.get_or_init(|| {
-                            geometry_bind(device, geometry_layout, &edges.segments)
+                            geometry_bind(device, geometry_layout, &edges.segments, &edges.ids)
                         });
                         pass.set_bind_group(1, bind, &[]);
                         pass.draw(0..edges.segment_count() * 6, instances);
@@ -1734,9 +1931,9 @@ impl Renderer {
                             pass.set_pipeline(p);
                             bound = Some(key);
                         }
-                        let bind = points
-                            .bind
-                            .get_or_init(|| geometry_bind(device, geometry_layout, &points.points));
+                        let bind = points.bind.get_or_init(|| {
+                            geometry_bind(device, geometry_layout, &points.points, &points.ids)
+                        });
                         pass.set_bind_group(1, bind, &[]);
                         pass.draw(0..points.point_count() * 6, instances);
                     }
@@ -1841,6 +2038,7 @@ impl Renderer {
                 let (instances, triangles) = draw_meshes(&mut pass, false);
                 stats.instances_drawn = instances;
                 stats.triangles = triangles;
+                draw_highlights(&mut pass, &hl_draws, hl_base, scene, variants);
             }
             if caps {
                 drop(pass);
@@ -2110,6 +2308,12 @@ struct InstanceGpu {
     buffer: wgpu::Buffer,
     lines: wgpu::Buffer,
     analysis: wgpu::Buffer,
+    /// Edge and point highlight states (`u32`, RND-04).
+    states: wgpu::Buffer,
+    /// Capacity of `states` in words.
+    states_capacity: u64,
+    /// The scene highlight-state revision `states` holds.
+    states_revision: u64,
     /// Capacity in records.
     capacity: u32,
     /// Bumped when the buffers are replaced, so views rebuild their bind groups.
@@ -2120,6 +2324,9 @@ impl InstanceGpu {
     fn new(device: &wgpu::Device, capacity: u32, generation: u64) -> InstanceGpu {
         InstanceGpu {
             buffer: storage_buffer(device, "amg instances", u64::from(capacity) * RECORD_BYTES),
+            states: storage_buffer(device, "amg highlight states", 4 * INITIAL_STATE_WORDS),
+            states_capacity: INITIAL_STATE_WORDS,
+            states_revision: 0,
             lines: storage_buffer(
                 device,
                 "amg line records",
@@ -2161,14 +2368,21 @@ fn geometry_bind(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     buffer: &wgpu::Buffer,
+    ids: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("amg line geometry"),
         layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: buffer.as_entire_binding(),
-        }],
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: ids.as_entire_binding(),
+            },
+        ],
     })
 }
 
@@ -2361,6 +2575,10 @@ fn view_bind_group(
             wgpu::BindGroupEntry {
                 binding: 5,
                 resource: sections.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: instances.states.as_entire_binding(),
             },
         ],
     })
@@ -2619,5 +2837,1103 @@ fn create_targets(
         final_view,
         final_bind,
         post_bind,
+    }
+}
+
+/// Bits of a visible-list entry above the instance slot (`SLOT_BITS` in `shaders/scene.wgsl`).
+const SLOT_BITS: u32 = 28;
+
+/// The timed passes of a pick (one begin, one end).
+const PICK_PASSES: &[&str] = &["pick"];
+
+/// One face-range highlight redraw.
+#[derive(Clone, Debug)]
+struct HighlightDraw {
+    key: PipelineKey,
+    mesh: MeshKey,
+    flat: bool,
+    tris: std::ops::Range<u32>,
+    /// Its visible-list entry, after the highlight base.
+    entry: u32,
+}
+
+/// Redraws the highlighted triangles with the depth-`Equal` mesh pipelines (bind group 0 is
+/// set).
+fn draw_highlights(
+    pass: &mut wgpu::RenderPass<'_>,
+    draws: &[HighlightDraw],
+    base: u32,
+    scene: &RenderScene,
+    variants: &Variants,
+) {
+    let mut bound = None;
+    for d in draws {
+        let (Some(mesh), Some(pipeline)) = (scene.mesh(d.mesh), variants.get(d.key)) else {
+            continue;
+        };
+        if bound != Some(d.key) {
+            pass.set_pipeline(pipeline);
+            bound = Some(d.key);
+        }
+        pass.set_vertex_buffer(0, mesh.positions.slice(..));
+        if let Some(n) = mesh.normals.as_ref().filter(|_| !d.flat) {
+            pass.set_vertex_buffer(1, n.slice(..));
+        }
+        pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+        let instance = base + d.entry;
+        pass.draw_indexed(d.tris.start * 3..d.tris.end * 3, 0, instance..instance + 1);
+    }
+}
+
+/// A run of pickable instances of one mesh in the pick pass.
+#[derive(Clone, Copy, Debug)]
+struct PickGroup {
+    mesh: MeshKey,
+    mode: FaceMode,
+    double_sided: bool,
+    clipped: bool,
+    first: u32,
+    count: u32,
+}
+
+impl PickGroup {
+    fn key(&self) -> PipelineKey {
+        pick_key(PipelineKind::PickFace {
+            mode: self.mode,
+            double_sided: self.double_sided,
+            clipped: self.clipped,
+        })
+    }
+
+    /// A cut closed mesh: drawn without culling, its back faces are cap candidates.
+    fn capped(&self) -> bool {
+        self.clipped && !self.double_sided
+    }
+}
+
+/// A run of pickable edge or point sets in the pick pass.
+#[derive(Clone, Copy, Debug)]
+struct PickLines {
+    geometry: LineGeometry,
+    always: bool,
+    first: u32,
+    count: u32,
+}
+
+/// The pick-pass draws of one view: the view's own draw plan (same culling and section
+/// classification) without the instances that are not pickable, hidden-pass lines and
+/// triangle wireframes.
+#[derive(Debug, Default)]
+struct PickPlan {
+    groups: Vec<PickGroup>,
+    lines: Vec<PickLines>,
+    slots: Vec<u32>,
+    owners: Vec<(PickId, OwnerSizes)>,
+}
+
+fn pick_key(kind: PipelineKind) -> PipelineKey {
+    PipelineKey { kind, samples: 1 }
+}
+
+fn line_pick_key(l: &PickLines, clipped: bool) -> PipelineKey {
+    let always = l.always;
+    pick_key(match l.geometry {
+        LineGeometry::Points(_) => PipelineKind::PickPoint { clipped, always },
+        _ => PipelineKind::PickLine { clipped, always },
+    })
+}
+
+fn build_pick_plan(
+    plan: &DrawPlan,
+    line_plan: &LinePlan,
+    scene: &RenderScene,
+    mode: FaceMode,
+) -> PickPlan {
+    let instances = scene.table().instances();
+    let pickable = |slot: u32| {
+        let i = &instances[slot as usize];
+        i.pickable && i.layer != Layer::Ghost
+    };
+    let mut out = PickPlan::default();
+    for g in &plan.groups {
+        let Some(mesh) = scene.mesh(g.mesh) else {
+            continue;
+        };
+        let first = out.slots.len() as u32;
+        out.slots.extend(
+            plan.slots[g.first as usize..(g.first + g.count) as usize]
+                .iter()
+                .copied()
+                .filter(|&s| pickable(s)),
+        );
+        let count = out.slots.len() as u32 - first;
+        if count > 0 {
+            out.groups.push(PickGroup {
+                mesh: g.mesh,
+                mode: if mesh.face_ids.is_some() {
+                    FaceMode::Attribute
+                } else {
+                    mode
+                },
+                double_sided: g.double_sided,
+                clipped: g.clipped,
+                first,
+                count,
+            });
+        }
+    }
+    for d in &line_plan.draws {
+        let always = match d.pass {
+            LinePass::Hidden => continue,
+            LinePass::Visible => false,
+            LinePass::Always => true,
+        };
+        if matches!(d.geometry, LineGeometry::Wire(_)) {
+            continue;
+        }
+        let first = out.slots.len() as u32;
+        out.slots.extend(
+            line_plan.slots[d.first as usize..(d.first + d.count) as usize]
+                .iter()
+                .copied()
+                .filter(|&s| pickable(s)),
+        );
+        let count = out.slots.len() as u32 - first;
+        if count > 0 {
+            out.lines.push(PickLines {
+                geometry: d.geometry,
+                always,
+                first,
+                count,
+            });
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    for &slot in &out.slots {
+        if !seen.insert(slot) {
+            continue;
+        }
+        let inst = &instances[slot as usize];
+        out.owners.push((
+            inst.pick,
+            OwnerSizes {
+                faces: inst
+                    .mesh
+                    .and_then(|k| scene.mesh(k))
+                    .map_or(0, GpuMesh::face_count),
+                edges: inst
+                    .edges
+                    .and_then(|k| scene.edge_set(k))
+                    .map_or(0, |e| e.id_count),
+                vertices: inst
+                    .points
+                    .and_then(|k| scene.point_set(k))
+                    .map_or(0, |p| p.id_count),
+            },
+        ));
+    }
+    out
+}
+
+/// Rectangle-select parameters (`RectUniform` in `shaders/pick_rect.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+struct RectUniform {
+    min: [u32; 2],
+    max: [u32; 2],
+    size: [u32; 2],
+    picks: u32,
+    pad: u32,
+}
+
+const RECT_WGSL: &str = include_str!("shaders/pick_rect.wgsl");
+
+/// Builds the rectangle-select compute pipeline on a background thread.
+fn spawn_rect_pipeline(gpu: &Arc<Gpu>) -> RectPipeline {
+    let cell: RectPipeline = Arc::default();
+    let (out, gpu) = (Arc::clone(&cell), Arc::clone(gpu));
+    let spawned = std::thread::Builder::new()
+        .name("amg-render rect pick".into())
+        .spawn(move || {
+            let desc =
+                amg_jobs::gpu::ComputePipelineDesc::new("amg pick rect", RECT_WGSL, "rect_flags");
+            let built = gpu.compute_pipeline(&desc);
+            if let Err(e) = &built {
+                tracing::error!(error = %e, "rectangle pick pipeline failed");
+            }
+            let _ = out.set(built.ok());
+        });
+    if let Err(e) = spawned {
+        tracing::error!(error = %e, "cannot spawn the rectangle pick pipeline build");
+        let _ = cell.set(None);
+    }
+    cell
+}
+
+/// Pick id (uint) and depth (unfilterable float) textures for the pick cap depth pass.
+fn pick_targets_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    let texture = |binding, sample_type| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type,
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    };
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("amg pick targets"),
+        entries: &[
+            texture(0, wgpu::TextureSampleType::Uint),
+            texture(1, wgpu::TextureSampleType::Float { filterable: false }),
+        ],
+    })
+}
+
+fn create_pick_targets(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    size: [u32; 2],
+) -> PickTargets {
+    let texture = |label, format| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    };
+    let ids = texture("amg pick ids", PICK_ID_FORMAT);
+    let positions = texture("amg pick positions", PICK_POS_FORMAT);
+    let depth_test = texture("amg pick depth test", DEPTH_FORMAT);
+    let ids_view = ids.create_view(&wgpu::TextureViewDescriptor::default());
+    let positions_view = positions.create_view(&wgpu::TextureViewDescriptor::default());
+    let fix_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("amg pick targets"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&ids_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&positions_view),
+            },
+        ],
+    });
+    PickTargets {
+        size,
+        ids,
+        ids_view,
+        positions,
+        positions_view,
+        depth_test: depth_test.create_view(&wgpu::TextureViewDescriptor::default()),
+        fix_bind,
+    }
+}
+
+/// Maps `staging` once the encoder is submitted; the state flips to `MAP_DONE` / `MAP_FAILED`.
+fn map_on_submit(encoder: &mut wgpu::CommandEncoder, staging: &wgpu::Buffer) -> Arc<AtomicU8> {
+    let state = Arc::new(AtomicU8::new(MAP_PENDING));
+    let done = Arc::clone(&state);
+    encoder.map_buffer_on_submit(staging, wgpu::MapMode::Read, .., move |r| {
+        done.store(
+            if r.is_ok() { MAP_DONE } else { MAP_FAILED },
+            Ordering::Release,
+        );
+    });
+    state
+}
+
+/// Group 1 of the vertex-pulling face pick.
+fn pull_bind(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    indices: &wgpu::Buffer,
+    positions: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("amg pick pull"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: indices.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: positions.as_entire_binding(),
+            },
+        ],
+    })
+}
+
+/// What one pick request needs from its view and the renderer while it is recorded.
+struct PickContext<'a> {
+    device: &'a wgpu::Device,
+    scene: &'a RenderScene,
+    variants: &'a Variants,
+    plan: &'a PickPlan,
+    targets: &'a PickTargets,
+    bind: &'a wgpu::BindGroup,
+    geometry_layout: &'a wgpu::BindGroupLayout,
+    pull_layout: &'a wgpu::BindGroupLayout,
+    /// The view's planes apply (line pipelines clip).
+    sectioned: bool,
+    /// Two planes or more (occluders needed for caps).
+    bounded: bool,
+    /// Point picks: the view pixel at the target's top-left texel (the viewport is offset by it,
+    /// so the view transform is unchanged). Rectangles render the whole view.
+    viewport: Option<([i64; 2], [u32; 2])>,
+    filter: PickFilter,
+    query_set: Option<&'a wgpu::QuerySet>,
+    /// A compute pass follows the render passes (it writes the end timestamp).
+    compute_follows: bool,
+}
+
+/// Records the render passes of one pick: faces (with occluders before a bounded cut), then
+/// edges and points; with caps and lines, a cap depth pass in between.
+fn record_pick_passes(cx: &PickContext<'_>, encoder: &mut wgpu::CommandEncoder) {
+    let (device, scene, variants, plan, targets) =
+        (cx.device, cx.scene, cx.variants, cx.plan, cx.targets);
+    let faces = cx.filter.draws_faces();
+    let lines: Vec<PickLines> = plan
+        .lines
+        .iter()
+        .copied()
+        .filter(|l| match l.geometry {
+            LineGeometry::Edges(_) => cx.filter.contains(PickFilter::EDGES),
+            LineGeometry::Points(_) => cx.filter.contains(PickFilter::VERTICES),
+            LineGeometry::Wire(_) => false,
+        })
+        .collect();
+    let capped = faces && plan.groups.iter().any(PickGroup::capped);
+    let fix = capped && !lines.is_empty();
+    let writes = |begin: bool, end: bool| {
+        cx.query_set.map(|qs| wgpu::RenderPassTimestampWrites {
+            query_set: qs,
+            beginning_of_pass_write_index: begin.then_some(0),
+            end_of_pass_write_index: end.then_some(1),
+        })
+    };
+    let set_viewport = |pass: &mut wgpu::RenderPass<'_>| {
+        if let Some((origin, size)) = cx.viewport {
+            pass.set_viewport(
+                -(origin[0] as f32),
+                -(origin[1] as f32),
+                size[0] as f32,
+                size[1] as f32,
+                0.0,
+                1.0,
+            );
+        }
+    };
+    let color = |load: wgpu::LoadOp<wgpu::Color>| {
+        let ops = wgpu::Operations {
+            load,
+            store: wgpu::StoreOp::Store,
+        };
+        [
+            Some(wgpu::RenderPassColorAttachment {
+                view: &targets.ids_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops,
+            }),
+            Some(wgpu::RenderPassColorAttachment {
+                view: &targets.positions_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops,
+            }),
+        ]
+    };
+    let depth_attachment = |load: wgpu::LoadOp<f32>| {
+        Some(wgpu::RenderPassDepthStencilAttachment {
+            view: &targets.depth_test,
+            depth_ops: Some(wgpu::Operations {
+                load,
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        })
+    };
+    let draw_lines = |pass: &mut wgpu::RenderPass<'_>| {
+        let mut bound = None;
+        for l in &lines {
+            let key = line_pick_key(l, cx.sectioned);
+            let Some(pipeline) = variants.get(key) else {
+                continue;
+            };
+            let (bind, vertices) = match l.geometry {
+                LineGeometry::Edges(k) => {
+                    let Some(e) = scene.edge_set(k) else {
+                        continue;
+                    };
+                    let bind = e.bind.get_or_init(|| {
+                        geometry_bind(device, cx.geometry_layout, &e.segments, &e.ids)
+                    });
+                    (bind, e.segment_count() * 6)
+                }
+                LineGeometry::Points(k) => {
+                    let Some(p) = scene.point_set(k) else {
+                        continue;
+                    };
+                    let bind = p.bind.get_or_init(|| {
+                        geometry_bind(device, cx.geometry_layout, &p.points, &p.ids)
+                    });
+                    (bind, p.point_count() * 6)
+                }
+                LineGeometry::Wire(_) => continue,
+            };
+            if bound != Some(key) {
+                pass.set_pipeline(pipeline);
+                bound = Some(key);
+            }
+            pass.set_bind_group(1, bind, &[]);
+            pass.draw(0..vertices, l.first..l.first + l.count);
+        }
+    };
+    let last_end = !cx.compute_follows;
+    {
+        let attachments = color(wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT));
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("amg pick"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: depth_attachment(wgpu::LoadOp::Clear(0.0)),
+            timestamp_writes: writes(true, last_end && !fix),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        set_viewport(&mut pass);
+        pass.set_bind_group(0, cx.bind, &[]);
+        if faces {
+            if cx.bounded
+                && capped
+                && let Some(p) = variants.get(pick_key(PipelineKind::PickOccluder))
+            {
+                pass.set_pipeline(p);
+                for g in plan.groups.iter().filter(|g| g.capped()) {
+                    let Some(mesh) = scene.mesh(g.mesh) else {
+                        continue;
+                    };
+                    pass.set_vertex_buffer(0, mesh.positions.slice(..));
+                    pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..mesh.index_count(), 0, g.first..g.first + g.count);
+                }
+            }
+            let max_binding = device.limits().max_storage_buffer_binding_size;
+            for g in &plan.groups {
+                let (Some(mesh), Some(pipeline)) = (scene.mesh(g.mesh), variants.get(g.key()))
+                else {
+                    continue;
+                };
+                let instances = g.first..g.first + g.count;
+                match g.mode {
+                    FaceMode::Attribute | FaceMode::Primitive => {
+                        pass.set_pipeline(pipeline);
+                        pass.set_vertex_buffer(0, mesh.positions.slice(..));
+                        if g.mode == FaceMode::Attribute {
+                            let Some(face_ids) = mesh.face_ids.as_ref() else {
+                                continue;
+                            };
+                            pass.set_vertex_buffer(1, face_ids.slice(..));
+                        }
+                        pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..mesh.index_count(), 0, instances);
+                    }
+                    FaceMode::Pulling => {
+                        if mesh.indices.size() > max_binding || mesh.positions.size() > max_binding
+                        {
+                            tracing::warn!(
+                                triangles = mesh.triangle_count(),
+                                "mesh too large for vertex-pulling picks; not pickable"
+                            );
+                            continue;
+                        }
+                        let pull = mesh.pull_bind.get_or_init(|| {
+                            pull_bind(device, cx.pull_layout, &mesh.indices, &mesh.positions)
+                        });
+                        pass.set_pipeline(pipeline);
+                        pass.set_bind_group(1, pull, &[]);
+                        pass.draw(0..mesh.index_count(), instances);
+                    }
+                }
+            }
+        }
+        if !fix {
+            draw_lines(&mut pass);
+        }
+    }
+    if fix {
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("amg pick cap depth"),
+                color_attachments: &[],
+                depth_stencil_attachment: depth_attachment(wgpu::LoadOp::Load),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            if let Some(p) = variants.get(pick_key(PipelineKind::PickFix)) {
+                set_viewport(&mut pass);
+                pass.set_pipeline(p);
+                pass.set_bind_group(0, &targets.fix_bind, &[]);
+                pass.draw(0..3, 0..1);
+            }
+        }
+        let attachments = color(wgpu::LoadOp::Load);
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("amg pick edges"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: depth_attachment(wgpu::LoadOp::Load),
+            timestamp_writes: writes(false, last_end),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        set_viewport(&mut pass);
+        pass.set_bind_group(0, cx.bind, &[]);
+        draw_lines(&mut pass);
+    }
+}
+
+/// Copies both (region-sized) pick targets into a staging buffer: returns it, the byte offset of
+/// the positions and the padded row sizes of ids and positions.
+fn record_point_readback(
+    encoder: &mut wgpu::CommandEncoder,
+    device: &wgpu::Device,
+    targets: &PickTargets,
+) -> (wgpu::Buffer, u64, u32, u32) {
+    let extent = targets.size;
+    let ids_row = (extent[0] * 8).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let pos_row = (extent[0] * 16).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let pos_offset = u64::from(ids_row) * u64::from(extent[1]);
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("amg pick readback"),
+        size: pos_offset + u64::from(pos_row) * u64::from(extent[1]),
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    for (texture, offset, row) in [
+        (&targets.ids, 0, ids_row),
+        (&targets.positions, pos_offset, pos_row),
+    ] {
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &staging,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset,
+                    bytes_per_row: Some(row),
+                    rows_per_image: Some(extent[1]),
+                },
+            },
+            wgpu::Extent3d {
+                width: extent[0],
+                height: extent[1],
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+    (staging, pos_offset, ids_row, pos_row)
+}
+
+/// Records the rectangle compute pass over the full-view ids and the flag readback; `None` when
+/// nothing has flags.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "plain inputs of one recording step"
+)]
+fn record_rect(
+    encoder: &mut wgpu::CommandEncoder,
+    device: &wgpu::Device,
+    pipeline: &wgpu::ComputePipeline,
+    targets: &PickTargets,
+    table: &crate::pick::RectTable,
+    rect: ([u32; 2], [u32; 2]),
+    size: [u32; 2],
+    query_set: Option<&wgpu::QuerySet>,
+) -> wgpu::Buffer {
+    use wgpu::util::DeviceExt as _;
+    let clamp = |v: [u32; 2]| [v[0].min(size[0]), v[1].min(size[1])];
+    let uniform = RectUniform {
+        min: clamp(rect.0),
+        max: clamp(rect.1),
+        size,
+        picks: (table.table.len() / 8) as u32,
+        pad: 0,
+    };
+    let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("amg pick rect"),
+        contents: bytemuck::bytes_of(&uniform),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let table_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("amg pick rect table"),
+        contents: bytemuck::cast_slice(&table.table),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let bytes = u64::from(table.flags) * 4;
+    let flags = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("amg pick rect flags"),
+        size: bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let layout = pipeline.get_bind_group_layout(0);
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("amg pick rect"),
+        layout: &layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&targets.ids_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: uniform.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: table_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: flags.as_entire_binding(),
+            },
+        ],
+    });
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("amg pick rect"),
+            timestamp_writes: query_set.map(|qs| wgpu::ComputePassTimestampWrites {
+                query_set: qs,
+                beginning_of_pass_write_index: None,
+                end_of_pass_write_index: Some(1),
+            }),
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        pass.dispatch_workgroups(size[0].div_ceil(8), size[1].div_ceil(8), 1);
+    }
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("amg pick rect readback"),
+        size: bytes,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    encoder.copy_buffer_to_buffer(&flags, 0, &staging, 0, bytes);
+    staging
+}
+
+impl Renderer {
+    /// Queues a pick on `id`. It is rendered by the view's next [`Renderer::encode`] and
+    /// answered by [`Renderer::poll_picks`] once that work has finished on the GPU (normally by
+    /// the next frame). Suppressing hover picks during camera drags is the caller's job.
+    pub fn request_pick(&mut self, id: ViewId, req: PickRequest) -> PickTicket {
+        let ticket = PickTicket(self.picks.next);
+        self.picks.next += 1;
+        if self.views.contains_key(id) {
+            self.picks.queued.push(QueuedPick {
+                ticket,
+                view: id,
+                request: req,
+            });
+        } else {
+            self.picks
+                .done
+                .push((ticket, Err(RenderError::UnknownKey("view"))));
+        }
+        ticket
+    }
+
+    /// Non-blocking: polls the readbacks and returns the picks answered since the last call,
+    /// each ticket exactly once.
+    pub fn poll_picks(&mut self) -> Vec<(PickTicket, Result<PickResult, RenderError>)> {
+        if !self.picks.in_flight.is_empty()
+            && let Err(e) = self.gpu.poll()
+        {
+            let message = e.to_string();
+            for f in self.picks.in_flight.drain(..) {
+                self.picks
+                    .done
+                    .push((f.ticket, Err(RenderError::InvalidData(message.clone()))));
+            }
+        }
+        let views = &self.views;
+        let picks = &mut self.picks;
+        let mut gone = Vec::new();
+        picks.queued.retain(|q| {
+            let live = views.contains_key(q.view);
+            if !live {
+                gone.push(q.ticket);
+            }
+            live
+        });
+        for ticket in gone {
+            picks
+                .done
+                .push((ticket, Err(RenderError::UnknownKey("view"))));
+        }
+        if picks.in_flight.iter().any(InFlight::ready) {
+            let table = self.scene.table();
+            let mut owner: HashMap<PickId, InstanceKey> = HashMap::new();
+            for (inst, &key) in table.instances().iter().zip(table.keys()) {
+                owner.entry(inst.pick).or_insert(key);
+            }
+            let lookup = |p: PickId| owner.get(&p).copied();
+            let (ready, pending): (Vec<_>, Vec<_>) =
+                picks.in_flight.drain(..).partition(InFlight::ready);
+            picks.in_flight = pending;
+            for f in ready {
+                let ticket = f.ticket;
+                picks.done.push((ticket, f.finish(&lookup)));
+            }
+        }
+        std::mem::take(&mut self.picks.done)
+    }
+
+    /// Picks queued or in flight.
+    pub fn pending_picks(&self) -> usize {
+        self.picks.queued.len() + self.picks.in_flight.len()
+    }
+
+    /// The point-pick radius, physical pixels.
+    pub fn pick_radius_px(&self) -> u32 {
+        self.pick_radius
+    }
+
+    /// `encode` calls so far (pick latency is counted in these).
+    pub fn encode_count(&self) -> u64 {
+        self.encodes
+    }
+
+    /// The backend plain meshes use for triangle picks on this device:
+    /// [`PickBackend::PrimitiveIndex`] or [`PickBackend::VertexPulling`].
+    pub fn pick_backend(&self) -> PickBackend {
+        match self.face_mode() {
+            FaceMode::Primitive => PickBackend::PrimitiveIndex,
+            _ => PickBackend::VertexPulling,
+        }
+    }
+
+    /// GPU time of every finished pick since the last call (the passes of the first pick of
+    /// each frame; needs `TIMESTAMP_QUERY`), oldest first. One pass, `pick`.
+    pub fn drain_pick_timings(&mut self, id: ViewId) -> Vec<GpuTimings> {
+        self.views
+            .get_mut(id)
+            .and_then(|s| s.pick_timer.as_mut())
+            .map_or_else(Vec::new, |t| {
+                t.harvest();
+                t.finished.drain(..).collect()
+            })
+    }
+
+    fn face_mode(&self) -> FaceMode {
+        let prim = self.variants.factory().has_primitive_index();
+        match self.pick_backend {
+            PickBackend::VertexPulling => FaceMode::Pulling,
+            PickBackend::Auto | PickBackend::PrimitiveIndex if prim => FaceMode::Primitive,
+            PickBackend::PrimitiveIndex | PickBackend::Auto => FaceMode::Pulling,
+        }
+    }
+
+    /// Requests the pick pipelines (non-blocking; once they are built, picks are answered
+    /// within two `encode` calls).
+    fn request_pick_variants(&mut self, sectioned: bool) {
+        let mode = self.face_mode();
+        let clips: &[bool] = if sectioned { &[false, true] } else { &[false] };
+        for &clipped in clips {
+            for double_sided in [false, true] {
+                for m in [FaceMode::Attribute, mode] {
+                    self.variants.request(pick_key(PipelineKind::PickFace {
+                        mode: m,
+                        double_sided,
+                        clipped,
+                    }));
+                }
+            }
+            for always in [false, true] {
+                self.variants
+                    .request(pick_key(PipelineKind::PickLine { clipped, always }));
+                self.variants
+                    .request(pick_key(PipelineKind::PickPoint { clipped, always }));
+            }
+        }
+        if sectioned {
+            self.variants.request(pick_key(PipelineKind::PickOccluder));
+            self.variants.request(pick_key(PipelineKind::PickFix));
+        }
+    }
+
+    /// Records the queued picks of `id` after its frame (that frame's draw plans are still in
+    /// `self.plan` / `self.line_plan`). Picks whose pipelines are not built yet stay queued.
+    fn record_picks(&mut self, id: ViewId, encoder: &mut wgpu::CommandEncoder) {
+        let Some(view) = self.views.get(id).map(|s| s.view.clone()) else {
+            return;
+        };
+        let sections = if view.sections_enabled {
+            self.scene.active_sections()
+        } else {
+            Vec::new()
+        };
+        let sectioned = !sections.is_empty();
+        self.request_pick_variants(sectioned);
+        if !self.picks.queued.iter().any(|q| q.view == id) {
+            return;
+        }
+        let (mine, rest): (Vec<_>, Vec<_>) =
+            self.picks.queued.drain(..).partition(|q| q.view == id);
+        self.picks.queued = rest;
+        let size = view.size_px;
+        if size[0] == 0 || size[1] == 0 {
+            for q in mine {
+                self.picks.done.push((
+                    q.ticket,
+                    Err(RenderError::InvalidData(
+                        "the view has a zero dimension".into(),
+                    )),
+                ));
+            }
+            return;
+        }
+
+        let plan = build_pick_plan(&self.plan, &self.line_plan, &self.scene, self.face_mode());
+        let bounded = sections.len() >= 2;
+        let capped = plan.groups.iter().any(PickGroup::capped);
+        let mut keys: Vec<PipelineKey> = plan.groups.iter().map(PickGroup::key).collect();
+        keys.extend(plan.lines.iter().map(|l| line_pick_key(l, sectioned)));
+        if capped {
+            keys.push(pick_key(PipelineKind::PickFix));
+            if bounded {
+                keys.push(pick_key(PipelineKind::PickOccluder));
+            }
+        }
+        let mut ready = true;
+        for &k in &keys {
+            if self.variants.has(k) {
+                continue;
+            }
+            if self.variants.failed(k) {
+                tracing::warn!(variant = %k.describe(), "pick pipeline failed; that geometry is not pickable");
+            } else {
+                self.variants.request(k);
+                ready = false;
+            }
+        }
+        let rect_pipeline = self.rect_pipeline.get().cloned();
+
+        let gpu = Arc::clone(&self.gpu);
+        let device = gpu.device();
+        let queue = gpu.queue();
+        let Some(slot) = self.views.get_mut(id) else {
+            return;
+        };
+        // Point picks draw into a `(2r + 1)²` target kept by the view; rectangles into full-view
+        // targets made for the request.
+        let side = 2 * self.pick_radius + 1;
+        if slot
+            .pick_targets
+            .as_ref()
+            .is_none_or(|t| t.size != [side, side])
+        {
+            slot.pick_targets = Some(create_pick_targets(
+                device,
+                &self.pick_targets_bind_layout,
+                [side, side],
+            ));
+        }
+        let needed = plan.slots.len() as u32;
+        if needed > slot.pick_visible_capacity {
+            slot.pick_visible_capacity = needed.next_power_of_two().max(INITIAL_VISIBLE_CAPACITY);
+            slot.pick_visible = storage_buffer(
+                device,
+                "amg pick visible",
+                u64::from(slot.pick_visible_capacity) * 4,
+            );
+        }
+        if !plan.slots.is_empty() {
+            queue.write_buffer(&slot.pick_visible, 0, bytemuck::cast_slice(&plan.slots));
+        }
+        let Some(region_targets) = slot.pick_targets.as_ref() else {
+            return;
+        };
+        let mut timed = false;
+        for q in mine {
+            let rect = match (q.request.region, &rect_pipeline) {
+                (PickRegion::Rect { .. }, None) => {
+                    // The compute pipeline is still being built.
+                    self.picks.queued.push(q);
+                    continue;
+                }
+                (PickRegion::Rect { .. }, Some(None)) => {
+                    self.picks.done.push((
+                        q.ticket,
+                        Err(RenderError::InvalidData(
+                            "the rectangle pick pipeline could not be built".into(),
+                        )),
+                    ));
+                    continue;
+                }
+                (PickRegion::Rect { min, max, mode }, Some(Some(p))) => {
+                    Some((Arc::clone(p), min, max, mode))
+                }
+                (PickRegion::Point { .. }, _) => None,
+            };
+            if !ready {
+                self.picks.queued.push(q);
+                continue;
+            }
+            let filter = q.request.filter;
+            let camera = view.camera;
+            let near = camera.default_near();
+            let rect_targets;
+            let (uniform, viewport, point, targets) = match q.request.region {
+                PickRegion::Point { px } => {
+                    let px = [f64::from(px[0]), f64::from(px[1])];
+                    let (cursor, origin) = point_region(px, self.pick_radius, size);
+                    // The centre of the cursor texel samples the exact cursor ray.
+                    let shift = [
+                        f64::from(cursor[0]) + 0.5 - px[0],
+                        f64::from(cursor[1]) + 0.5 - px[1],
+                    ];
+                    let mut uniform = camera.uniform_shifted(size, near, shift);
+                    // The view pixel of the target's top-left texel (`surface_point`, pick.wgsl).
+                    uniform.eye_hi[3] = origin[0] as f32;
+                    uniform.eye_lo[3] = origin[1] as f32;
+                    (uniform, Some((origin, size)), Some(px), region_targets)
+                }
+                PickRegion::Rect { .. } => {
+                    rect_targets =
+                        create_pick_targets(device, &self.pick_targets_bind_layout, size);
+                    (camera.uniform(size, near), None, None, &rect_targets)
+                }
+            };
+            let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("amg pick camera"),
+                size: size_of::<crate::CameraUniform>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            queue.write_buffer(&camera_buffer, 0, bytemuck::bytes_of(&uniform));
+            let bind = view_bind_group(
+                device,
+                &self.view_bind_layout,
+                &camera_buffer,
+                &self.instance_gpu,
+                &slot.pick_visible,
+                &slot.style_buffer,
+                &slot.section_buffer,
+            );
+            let timer_slot = if timed {
+                None
+            } else {
+                slot.pick_timer.as_mut().and_then(|t| {
+                    t.harvest();
+                    t.begin(PICK_PASSES)
+                })
+            };
+            timed |= timer_slot.is_some();
+            let query_set = timer_slot.and(slot.pick_timer.as_ref()).map(|t| &t.queries);
+            // Built first: an empty table runs no compute pass, so the render passes then write
+            // the end timestamp.
+            let rect_table = rect
+                .as_ref()
+                .map(|_| build_rect_table(&plan.owners, filter));
+            let compute_follows = rect_table.as_ref().is_some_and(|t| t.flags != 0);
+            record_pick_passes(
+                &PickContext {
+                    device,
+                    scene: &self.scene,
+                    variants: &self.variants,
+                    plan: &plan,
+                    targets,
+                    bind: &bind,
+                    geometry_layout: &self.geometry_bind_layout,
+                    pull_layout: &self.pull_bind_layout,
+                    sectioned,
+                    bounded,
+                    viewport,
+                    filter,
+                    query_set,
+                    compute_follows,
+                },
+                encoder,
+            );
+            let (staging, kind) = match (point, rect) {
+                (Some(px), _) => {
+                    let (staging, pos_offset, ids_row, pos_row) =
+                        record_point_readback(encoder, device, targets);
+                    let readback = PointReadback {
+                        px,
+                        width: side,
+                        height: side,
+                        centre: [self.pick_radius, self.pick_radius],
+                        radius: self.pick_radius,
+                        pos_offset,
+                        ids_row,
+                        pos_row,
+                        camera,
+                        size,
+                        sections: sections.clone(),
+                    };
+                    (Some(staging), ReadbackKind::Point(readback))
+                }
+                (None, Some((pipeline, min, max, mode))) => {
+                    let table = rect_table.unwrap_or_default();
+                    if table.flags == 0 {
+                        (None, ReadbackKind::Empty(PickResult::Rect(Vec::new())))
+                    } else {
+                        let staging = record_rect(
+                            encoder,
+                            device,
+                            &pipeline,
+                            targets,
+                            &table,
+                            (min, max),
+                            size,
+                            query_set,
+                        );
+                        let readback = RectReadback {
+                            entries: table.entries,
+                            mode,
+                        };
+                        (Some(staging), ReadbackKind::Rect(readback))
+                    }
+                }
+                (None, None) => (None, ReadbackKind::Empty(PickResult::Point(Vec::new()))),
+            };
+            if let (Some(index), Some(t)) = (timer_slot, slot.pick_timer.as_ref()) {
+                t.finish(index, encoder);
+            }
+            let state = match &staging {
+                Some(s) => map_on_submit(encoder, s),
+                None => Arc::new(AtomicU8::new(MAP_DONE)),
+            };
+            self.picks.in_flight.push(InFlight {
+                ticket: q.ticket,
+                filter,
+                staging,
+                state,
+                kind,
+            });
+        }
     }
 }

@@ -83,6 +83,43 @@ impl CpuPickService {
     }
 }
 
+/// A [`FileDialogBackend`](crate::file::FileDialogBackend) for tests: answers dialogs from a
+/// queue (an empty queue cancels) and records every request. Install it with
+/// `app.set_file_dialog_backend(fake.clone())`.
+#[derive(Debug, Default)]
+pub struct FakeFileDialog {
+    answers: std::sync::Mutex<std::collections::VecDeque<Option<std::path::PathBuf>>>,
+    requests: std::sync::Mutex<Vec<crate::file::FileDialogRequest>>,
+}
+
+impl FakeFileDialog {
+    /// A fake with no queued answers.
+    pub fn new() -> Arc<FakeFileDialog> {
+        Arc::new(FakeFileDialog::default())
+    }
+
+    /// Queues the answer to the next dialog (`None`: the user cancels).
+    pub fn answer(&self, path: Option<std::path::PathBuf>) {
+        lock(&self.answers).push_back(path);
+    }
+
+    /// The dialogs shown so far.
+    pub fn requests(&self) -> Vec<crate::file::FileDialogRequest> {
+        lock(&self.requests).clone()
+    }
+}
+
+fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl crate::file::FileDialogBackend for FakeFileDialog {
+    fn show(&self, req: &crate::file::FileDialogRequest) -> Option<std::path::PathBuf> {
+        lock(&self.requests).push(req.clone());
+        lock(&self.answers).pop_front().flatten()
+    }
+}
+
 /// Options for [`AppHarness`].
 pub struct AppHarnessBuilder {
     size: egui::Vec2,
@@ -271,7 +308,8 @@ impl AppHarness {
     }
 
     /// Steps frames until nothing is pending: no repaint requested, no unfinished job, every
-    /// document's recompute idle, no tessellation in flight and no pick queued.
+    /// document's recompute idle, no tessellation in flight, no pick queued and no file
+    /// dialog, save, open or recovery load pending.
     ///
     /// # Panics
     /// After [`IDLE_TIMEOUT`].
@@ -288,7 +326,8 @@ impl AppHarness {
                 )
             });
             let busy_scene = app.scene().pending() > 0;
-            let busy = busy_jobs || busy_docs || busy_scene || self.pick.pending() > 0;
+            let busy =
+                busy_jobs || busy_docs || busy_scene || app.file_busy() || self.pick.pending() > 0;
             if !busy && !self.harness.ctx.has_requested_repaint() {
                 return;
             }

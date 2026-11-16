@@ -27,6 +27,12 @@
 //! zebra and the overhang mode. Budget: the RND-02 one (GPU p99 <= 9 ms, wall p99 <= 16.6 ms),
 //! asserted for the field case. `AMG_BENCH_FIELDS_ONLY=1` runs only these cases.
 //!
+//! RND-04 measures picking on the 5 M sphere with its 100 k edge segments in
+//! `ShadedVisibleEdges`: a point pick at the view centre on every orbit frame (budget: the pick
+//! passes cost GPU p99 <= 2 ms, from `Renderer::drain_pick_timings`), a full-view crossing
+//! rectangle on every frame, and the vertex-pulling backend (both reported only). Every pick
+//! must be answered within two `encode` calls. `AMG_BENCH_PICKS_ONLY=1` runs only these cases.
+//!
 //! The budgets are asserted only with `AMG_STRICT_TIMING=1`; the numbers are printed always.
 //!
 //! `cargo bench -p amg-render --bench viewport -- --test` (CI on WARP) runs a tiny version.
@@ -43,9 +49,10 @@ use amg_jobs::JobCtx;
 use amg_jobs::gpu::{Gpu, GpuConfig};
 use amg_render::{
     Analysis, Animation, Camera, ColorMap, Deformation, EdgeData, FieldBinding, Instance,
-    InstanceKey, Lighting, MeshData, Polyline, Projection, Renderer, RendererConfig, SectionPlane,
-    Shading, ViewId, ViewStyle, VisualStyle, upload_edges, upload_mesh, upload_scalar_field,
-    upload_vector_field, wgpu,
+    InstanceKey, Lighting, MeshData, PickBackend, PickFilter, PickId, PickRequest, PickTicket,
+    Polyline, Projection, RectMode, Renderer, RendererConfig, SectionPlane, Shading, ViewId,
+    ViewStyle, VisualStyle, upload_edges, upload_mesh, upload_scalar_field, upload_vector_field,
+    wgpu,
 };
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -267,6 +274,18 @@ fn fixture(
     prepass: bool,
     look: Look,
 ) -> Fixture {
+    fixture_with(gpu, mesh, edges, size, prepass, look, PickBackend::Auto)
+}
+
+fn fixture_with(
+    gpu: &Arc<Gpu>,
+    mesh: &MeshData,
+    edges: Option<&EdgeData>,
+    size: [u32; 2],
+    prepass: bool,
+    look: Look,
+    pick_backend: PickBackend,
+) -> Fixture {
     let mut renderer = Renderer::new(
         Arc::clone(gpu),
         &RendererConfig {
@@ -274,6 +293,8 @@ fn fixture(
             depth_prepass: prepass,
             jobs: None,
             polygon_mode_line: true,
+            pick_backend,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -281,6 +302,8 @@ fn fixture(
     let triangles = u64::from(gpu_mesh.triangle_count());
     let key = renderer.scene_mut().insert_mesh(gpu_mesh);
     let mut inst = Instance::new(key, Transform::IDENTITY);
+    // A non-zero pick id, so rectangle picks have an owner to flag.
+    inst.pick = PickId(1);
     if let Some(e) = edges {
         let gpu_edges = upload_edges(gpu, e, &JobCtx::detached()).unwrap();
         inst.edges = Some(renderer.scene_mut().insert_edges(gpu_edges));
@@ -389,6 +412,16 @@ fn orbit_budgets(c: &mut Criterion) {
     let Some(gpu) = gpu() else {
         return;
     };
+    // `AMG_BENCH_PICKS_ONLY=1`: only the RND-04 pick cases.
+    if std::env::var("AMG_BENCH_PICKS_ONLY").is_ok_and(|v| v == "1") {
+        let (size, frames) = if test_mode() {
+            ([64, 64], 5)
+        } else {
+            (SIZE, FRAMES)
+        };
+        pick_budgets(&gpu, size, frames);
+        return;
+    }
     // `AMG_BENCH_SECTIONS_ONLY=1`: only the RND-06 section cases.
     if std::env::var("AMG_BENCH_SECTIONS_ONLY").is_ok_and(|v| v == "1") {
         let (size, frames) = if test_mode() {
@@ -469,6 +502,7 @@ fn orbit_budgets(c: &mut Criterion) {
     edge_budgets(&gpu, size, frames);
     section_budgets(&gpu, size, frames);
     field_budgets(&gpu, size, frames);
+    pick_budgets(&gpu, size, frames);
 
     // Criterion: wall time of one synchronous frame (encode, submit, wait).
     let tris = if test_mode() { 20_000 } else { 5_000_000 };
@@ -742,6 +776,142 @@ fn field_budgets(gpu: &Arc<Gpu>, size: [u32; 2], frames: usize) {
         if strict() && !test_mode() && case == 1 {
             assert!(g99 <= 9.0, "5M field GPU p99 {g99:.3} ms > 9 ms");
             assert!(w99 <= 16.6, "5M field wall p99 {w99:.3} ms > 16.6 ms");
+        }
+    }
+}
+
+/// One pick-bench configuration: what each frame asks for.
+#[derive(Clone, Copy, Debug)]
+enum PickLoad {
+    /// A point pick at the view centre (hover).
+    Point,
+    /// A full-view crossing rectangle over bodies and faces.
+    Rect,
+}
+
+/// Collects answered picks (and the largest `encode` count one waited for) and pick timings.
+fn poll_bench_picks(
+    f: &mut Fixture,
+    asked: &mut HashMap<PickTicket, u64>,
+    latency: &mut u64,
+    pick_ms: &mut Vec<f64>,
+) {
+    for (t, res) in f.renderer.poll_picks() {
+        black_box(res.unwrap());
+        if let Some(at) = asked.remove(&t) {
+            *latency = (*latency).max(f.renderer.encode_count() - at);
+        }
+    }
+    pick_ms.extend(
+        f.renderer
+            .drain_pick_timings(f.view)
+            .iter()
+            .map(|t| f64::from(t.total_ms)),
+    );
+}
+
+/// Orbit frames with one pick requested per frame (two frames in flight); returns the pick GPU
+/// times, the frame GPU times and the largest number of `encode` calls a pick waited for.
+fn run_picks(
+    f: &mut Fixture,
+    gpu: &Gpu,
+    frames: usize,
+    load: PickLoad,
+) -> (Vec<f64>, Vec<f64>, u64) {
+    let device = gpu.device();
+    let queue = gpu.queue();
+    let size = f.renderer.view(f.view).unwrap().size_px();
+    let mut pick_ms = Vec::with_capacity(frames);
+    let mut frame_ms = Vec::with_capacity(frames);
+    let mut asked: HashMap<PickTicket, u64> = HashMap::new();
+    let mut latency = 0u64;
+    let mut in_flight: Option<wgpu::SubmissionIndex> = None;
+    for i in 0..frames {
+        f.renderer.view_mut(f.view).unwrap().camera = orbit(i, frames);
+        let request = match load {
+            PickLoad::Point => {
+                PickRequest::point([size[0] as f32 * 0.5 + 0.25, size[1] as f32 * 0.5 + 0.25])
+            }
+            PickLoad::Rect => PickRequest::rect(
+                [0, 0],
+                size,
+                RectMode::Crossing,
+                PickFilter::BODIES | PickFilter::FACES,
+            ),
+        };
+        let ticket = f.renderer.request_pick(f.view, request);
+        asked.insert(ticket, f.renderer.encode_count());
+        let mut encoder = device.create_command_encoder(&Default::default());
+        black_box(f.renderer.encode(f.view, &mut encoder).unwrap());
+        let index = queue.submit([encoder.finish()]);
+        if let Some(prev) = in_flight.replace(index) {
+            device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(prev),
+                    timeout: Some(Duration::from_secs(10)),
+                })
+                .unwrap();
+        }
+        poll_bench_picks(f, &mut asked, &mut latency, &mut pick_ms);
+        frame_ms.extend(
+            f.renderer
+                .drain_gpu_timings(f.view)
+                .iter()
+                .map(|t| f64::from(t.total_ms)),
+        );
+    }
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    poll_bench_picks(f, &mut asked, &mut latency, &mut pick_ms);
+    assert!(asked.is_empty(), "every pick is answered");
+    (pick_ms, frame_ms, latency)
+}
+
+/// RND-04 Done-when 8: the pick pass costs <= 2 ms GPU at 5 M tris (a point pick at the
+/// cursor; the 100 k edge segments are in the pick pass too), plus the full-view rectangle and
+/// the vertex-pulling backend (reported only).
+fn pick_budgets(gpu: &Arc<Gpu>, size: [u32; 2], frames: usize) {
+    let (tris, edges) = if test_mode() {
+        (20_000, sphere_edges(10, 10, 100))
+    } else {
+        (5_000_000, sphere_edges(50, 50, 1000))
+    };
+    let mesh = displaced_icosphere(tris);
+    let look = Look {
+        visual: VisualStyle::ShadedVisibleEdges,
+        silhouettes: false,
+    };
+    for (backend, load) in [
+        (PickBackend::Auto, PickLoad::Point),
+        (PickBackend::Auto, PickLoad::Rect),
+        (PickBackend::VertexPulling, PickLoad::Point),
+    ] {
+        let mut f = fixture_with(gpu, &mesh, Some(&edges), size, false, look, backend);
+        let core: f64 = f
+            .renderer
+            .core_pipeline_timings()
+            .iter()
+            .map(|t| t.ms)
+            .sum();
+        eprintln!("core pipeline set (incl. pick shader modules): {core:.1} ms (budget 150 ms)");
+        run_picks(&mut f, gpu, frames.min(60), load); // warm-up
+        let (pick, frame, latency) = run_picks(&mut f, gpu, frames, load);
+        let (p50, p99) = (percentile(&pick, 0.5), percentile(&pick, 0.99));
+        eprintln!(
+            "pick {load:?} backend {:?} ({} tris + edges) {}x{} 4x MSAA: {} timed picks, pick GPU p50 {p50:.3} ms p99 {p99:.3} ms; frame GPU p50 {:.3} ms; latency <= {latency} encode(s)",
+            f.renderer.pick_backend(),
+            f.triangles,
+            size[0],
+            size[1],
+            pick.len(),
+            percentile(&frame, 0.5),
+        );
+        assert!(latency <= 2, "pick answered after {latency} encodes");
+        if strict()
+            && !test_mode()
+            && matches!(load, PickLoad::Point)
+            && backend == PickBackend::Auto
+        {
+            assert!(p99 <= 2.0, "5M point pick GPU p99 {p99:.3} ms > 2 ms");
         }
     }
 }

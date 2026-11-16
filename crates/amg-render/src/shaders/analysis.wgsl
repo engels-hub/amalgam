@@ -39,10 +39,12 @@ struct AnalysisVsOut {
     // World-space normal (normal matrix applied, not normalised; zero when flat).
     @location(7) world_normal: vec3<f32>,
     @location(8) scalar: f32,
+    // RND-04 highlight bits (whole instance or face-range redraw entry).
+    @location(9) @interpolate(flat) highlight: u32,
 }
 
 fn analysis_vertex(position: vec3<f32>, vid: u32, instance: u32) -> AnalysisVsOut {
-    let slot = visible[instance];
+    let slot = slot_of(instance);
     let record = instances[slot];
     var local = position;
     if HAS_DEFORM {
@@ -61,6 +63,7 @@ fn analysis_vertex(position: vec3<f32>, vid: u32, instance: u32) -> AnalysisVsOu
     out.local = local;
     out.world_normal = vec3<f32>(0.0);
     out.scalar = 0.0;
+    out.highlight = record.flags | entry_highlight(instance);
     if HAS_SCALAR {
         out.scalar = scalars[vid];
     }
@@ -210,6 +213,10 @@ fn fs_analysis(in: AnalysisVsOut, @builtin(front_facing) front: bool) -> FsOut {
             rgb = CONTACT_COLOR;
         }
     }
+
+    // Highlight replaces the analysis colour, like the material colour in `mesh.wgsl`; the class
+    // output stays the raw class.
+    rgb = apply_highlight(rgb, in.highlight);
 
     var out: FsOut;
     if OUT == 2u {

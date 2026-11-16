@@ -193,6 +193,8 @@ pub struct GpuEdges {
     pub(crate) ids: wgpu::Buffer,
     pub(crate) origin: Point3,
     segment_count: u32,
+    /// One past the largest edge id (size of the edge highlight state region).
+    pub(crate) id_count: u32,
     bounds: Aabb3,
     /// Group-1 bind group, made by the renderer on first draw (one renderer owns a scene).
     pub(crate) bind: OnceLock<wgpu::BindGroup>,
@@ -224,6 +226,8 @@ pub struct GpuPoints {
     pub(crate) ids: wgpu::Buffer,
     pub(crate) origin: Point3,
     point_count: u32,
+    /// One past the largest vertex id.
+    pub(crate) id_count: u32,
     bounds: Aabb3,
     pub(crate) bind: OnceLock<wgpu::BindGroup>,
 }
@@ -382,6 +386,7 @@ pub fn upload_edges(gpu: &Gpu, data: &EdgeData, ctx: &JobCtx) -> Result<GpuEdges
         ids: upload_chunked(gpu, "amg edge ids", ids_or_dummy, usage, ctx)?,
         origin: data.origin,
         segment_count,
+        id_count: ids.iter().max().map_or(0, |m| m.saturating_add(1)),
         bounds,
         bind: OnceLock::new(),
     })
@@ -426,6 +431,11 @@ pub fn upload_points(gpu: &Gpu, data: &PointData, ctx: &JobCtx) -> Result<GpuPoi
         ids: upload_chunked(gpu, "amg point ids", &ids, usage, ctx)?,
         origin: data.origin,
         point_count: data.points.len() as u32,
+        id_count: if data.points.is_empty() {
+            0
+        } else {
+            ids.iter().max().map_or(0, |m| m.saturating_add(1))
+        },
         bounds,
         bind: OnceLock::new(),
     })

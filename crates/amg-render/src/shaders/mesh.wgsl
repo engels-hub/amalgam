@@ -59,9 +59,11 @@ fn vs_smooth(
     @location(1) normal_oct: vec2<f32>,
     @builtin(instance_index) instance: u32,
 ) -> VsOut {
-    let slot = visible[instance];
+    let slot = slot_of(instance);
     let record = instances[slot];
     var out = transform(position, record);
+    // Whole-instance highlight, or the highlight of a face-range redraw entry (RND-04).
+    out.color = vec4<f32>(apply_highlight(record.color.rgb, record.flags | entry_highlight(instance)), record.color.a);
     if CAPS {
         out.slot = slot;
     }
@@ -76,9 +78,11 @@ fn vs_flat(
     @location(0) position: vec3<f32>,
     @builtin(instance_index) instance: u32,
 ) -> VsOut {
-    let slot = visible[instance];
+    let slot = slot_of(instance);
     let record = instances[slot];
     var out = transform(position, record);
+    // Whole-instance highlight, or the highlight of a face-range redraw entry (RND-04).
+    out.color = vec4<f32>(apply_highlight(record.color.rgb, record.flags | entry_highlight(instance)), record.color.a);
     if CAPS {
         out.slot = slot;
     }
@@ -230,7 +234,7 @@ fn vs_cap(
     @location(0) position: vec3<f32>,
     @builtin(instance_index) instance: u32,
 ) -> CapOut {
-    let base = transform(position, instances[visible[instance]]);
+    let base = transform(position, instances[slot_of(instance)]);
     var out: CapOut;
     out.clip = base.clip;
     out.rte = base.rte;

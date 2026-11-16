@@ -15,6 +15,10 @@
 //! UI-20 adds the [`scene`] adapter (`DocEvent` → render scene, pick keys, [`scene::PickMap`],
 //! body tessellators, highlight and preview layers) and the [`pick`] target types.
 //!
+//! UI-19 adds [`file`]: New/Open/Open Recent/Save/Save As/Save Compact/Close as jobs, native
+//! dialogs on a dedicated thread behind [`file::FileDialogBackend`], the dirty-close prompt and
+//! crash recovery (per-document `RecoverySession`, the recovery dialog).
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
@@ -25,6 +29,7 @@ mod builtin;
 pub mod command;
 pub mod design;
 pub mod dock;
+pub mod file;
 mod jobs;
 pub mod module;
 pub mod notify;

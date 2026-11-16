@@ -27,7 +27,8 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | egui_dock 0.21.1 (feature `serde`; needs egui ^0.36; 0.22.x expected for 0.37) | `amg-ui::dock` behind `DockHost` (ADR-005, S11, UI-01) | MIT | no | no | In use (0.21.1) |
 | accesskit 0.24 (+ accesskit_winit, accesskit_windows, accesskit_consumer) | transitive: eframe feature `accesskit` in `amg-app` (screen readers, spec §1) and egui_kittest queries (UI-01) | MIT / Apache-2.0 | no | no | In use (0.24) |
 | egui_tiles 0.18.0 | `amg-ui::dock` fallback if egui_dock lags egui (S11, QUESTIONS #23) | MIT / Apache-2.0 | no | no | Planned (fallback only) |
-| rfd 0.17.2 | `amg-ui` native file dialogs (S11) | MIT | no | no | Planned |
+| rfd 0.17.2 (`default-features = false`, feature `xdg-portal`; + transitive windows-sys 0.61 on Windows, objc2 / objc2-app-kit / objc2-foundation / block2 / dispatch2 0.3–0.6 on macOS, pollster 0.4 / libc / percent-encoding on Linux, log 0.4, raw-window-handle 0.6; all already in the lock file except rfd itself and pollster 0.4.0, a Linux-only second pollster next to the workspace 1.0.1) | `amg-ui::file::RfdDialogs` native Open/Save dialogs, run on a dedicated thread and parented to the main window (S11 UI-19) | MIT (transitive: MIT / Apache-2.0; raw-window-handle MIT / Apache-2.0 / Zlib) | no | no | In use (0.17.2) |
+| raw-window-handle 0.6.2 | `amg-ui` direct dependency for `RfdDialogs::with_parent` (the window handle traits); already transitive via winit, wgpu and rfd (S11 UI-19) | MIT / Apache-2.0 / Zlib | no | no | In use (0.6.2) |
 | directories 6.0.0 (+ transitive dirs-sys 0.5, option-ext 0.2) | `amg-ui` `%APPDATA%\Amalgam\layout.json` (UI-01); later prefs and shortcuts (S11) | MIT / Apache-2.0 (option-ext: MPL-2.0, weak copyleft, unmodified) | weak (option-ext) | no | In use (6.0.0) |
 | bitflags 2 | `amg-render` `PickFilter`, `amg-features::dialog` `EntityFilter` (S10, S11; already transitive via wgpu) | MIT / Apache-2.0 | no | no | Planned |
 | png 0.18.1 | `amg-render` headless capture, goldens, thumbnails; `amg-io` 3MF thumbnails (S10, S12) | MIT / Apache-2.0 | no | no | Planned |
@@ -48,9 +49,9 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | slotmap | generational ids, `amg-core` (S00) | Zlib | no | no | In use (1.1.1) |
 | uuid | persistent ids, `amg-core` (S00) | MIT / Apache-2.0 | no | no | In use (1.28.0) |
 | thiserror, anyhow | errors (AGENTS.md conventions) | MIT / Apache-2.0 | no | no | thiserror in use (2.0.21); anyhow Planned |
-| tracing, tracing-subscriber | logging (S00), `amg-jobs::diag`, `amg-cli`; OCCT message bridge in `amg-occt-sys` (`occt` feature) and `amg-brep` (S02 BREP-12; tracing-subscriber only in `amg-brep` tests) | MIT | no | no | In use (tracing 0.1.44, tracing-subscriber 0.3.23 with `env-filter`) |
+| tracing, tracing-subscriber | logging (S00), `amg-jobs::diag`, `amg-cli`; OCCT message bridge in `amg-occt-sys` (`occt` feature) and `amg-brep` (S02 BREP-12; tracing-subscriber only in `amg-brep` tests and the `amg-ui` frame-timing test, UI-19) | MIT | no | no | In use (tracing 0.1.44, tracing-subscriber 0.3.23 with `env-filter`) |
 | serde, serde_json | `.amg` file format (ADR-010); `amg-io` Orca `project_settings.config` (IO-03) | MIT / Apache-2.0 | no | no | In use (serde 1.0.229; serde_json 1.0.154) |
-| zip (zip-rs/zip2) 9.0.5, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | In use (9.0.5; `amg-doc` .amg container, DOC-07; `amg-io` 3MF reader, IO-03) |
+| zip (zip-rs/zip2) 9.0.5, `default-features = false`, features `deflate-flate2-zlib-rs` | `.amg` container (ADR-010, S01), 3MF OPC in `amg-io` (S12) | MIT | no | no | In use (9.0.5; `amg-doc` .amg container, DOC-07; `amg-io` 3MF reader, IO-03; `amg-ui` tests read `design.json`, dev-only, UI-19) |
 | quick-xml 0.42.0, `default-features = false` | `amg-io` 3MF XML (S12) | MIT | no | no | In use (0.42.0; IO-03 reader) |
 | memchr 2.8.3 | `amg-io` parsers (S12; already transitive) | Unlicense / MIT | no | no | In use (2.8.3; IO-03 3MF scanner) |
 | image 0.25.10 (png + jpeg features) | `amg-io` canvas images (S12 IO-10) | MIT / Apache-2.0 | no | no | Planned |
