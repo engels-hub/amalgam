@@ -395,13 +395,27 @@ impl TripletBuilder {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ordering { Amd, Identity, Custom(Vec<u32>) /* , NestedDissection { coords } with CMP-10 */ }
+/// `PartialEq`/`Eq` by hand (coordinates compare bit-wise).
+#[derive(Clone, Debug, Default)]
+pub enum Ordering { #[default] Amd, Identity, Custom(Vec<u32>),
+    /// CMP-10: geometric nested dissection from one position per row.
+    NestedDissection { coords: Vec<[f64; 3]> } }
+impl Ordering {
+    /// Node positions, `dofs_per_node` rows per node (row `dofs·node + c`).
+    pub fn nested_dissection(node_coords: &[[f64; 3]], dofs_per_node: usize) -> Self;
+}
+/// CMP-10: the permutation (`perm[new] = old`) `Ordering::NestedDissection` uses.
+pub fn nested_dissection(a: &SymCsr, coords: &[[f64; 3]]) -> ComputeResult<Vec<u32>>;
 #[derive(Clone, Debug)]
 pub struct FactorOpts {
     pub ordering: Ordering,                           // Amd
     /// Report the row with the smallest d_ii / a_ii below this (relative) threshold.
     pub pivot_warn: f64,                              // 1e-12
     pub threads: Option<usize>,                       // None = rayon pool
+}
+impl FactorOpts {
+    /// CMP-10: the default for mesh problems (nested dissection from node positions).
+    pub fn for_mesh(node_coords: &[[f64; 3]], dofs_per_node: usize) -> Self;
 }
 /// Exact after symbolic analysis.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -438,6 +452,11 @@ impl Ldlt {
 
 // ───────────── amg_compute::testprob (CMP-03; used by S13/S14 benches) ─────────────
 #[derive(Clone, Copy, Debug)] pub enum Support { Clamped /* x = 0 face */, Free }
+/// CMP-10: row positions of the grid problems (`dofs` = 1 or 3).
+pub fn grid_coords(nodes: u32, dofs: usize) -> Vec<[f64; 3]>;
+/// CMP-10: TET10-pattern L-bracket (stand-in values, SPD); `tet10_bracket(15)` = 492 705 DOF.
+pub struct Bracket { pub k: SymCsr, pub f: Vec<f64>, pub coords: Vec<[f64; 3]> }
+pub fn tet10_bracket(cells_per_unit: u32) -> Bracket;
 pub fn q1_poisson(nodes: u32, coeff: Option<&DenseGrid<f32>> /* per cell */) -> (SymCsr, Vec<f64>);
 pub fn q1_elasticity(nodes: u32, support: Support, nu: f64) -> (SymCsr, SymCsr /* mass */, Vec<f64> /* load */);
 pub fn simp_field(cells: u32, contrast: f32, seed: u64) -> DenseGrid<f32>;
@@ -671,7 +690,7 @@ harness; measured numbers go into the Refinement log.
 | CMP-05 | Geometric multigrid for structured grids: `GridLevelOperator<R>`, `Gmg<R>` (Chebyshev–Jacobi smoothing, trilinear transfer, re-discretised coarse levels, padding to `2^k·m + 1`, fixed masks, coarse CPU Cholesky, `update`), `Q1Poisson<R>` reference operator, all generic over f32/f64; MGPCG | CMP-08, CMP-02 | P1 | Todo | 1. `Q1Poisson` with a `simp_field` coefficient (contrast 1e3), clamped on one face: MGPCG reaches 1e-6 relative residual in ≤ 25 iterations at 129³ nodes, and the 257³ count is ≤ 1.2× the 129³ count (h-independence); on the F32 path (reference GPU, DX12) and the F64 path (f64 gate). 2. Bench: 257³ nodes (16 974 593 DOF) solve < 2 s on the reference GPU on the F32 path (default DX12 device; headroom for GEN-03's 1 M-voxel elasticity < 2 s). F64-path time on Vulkan recorded (no bar; input to open question 8). 3. Contrast 1e6: iteration counts recorded for both paths (no limit). 4. Non-`2^k·m + 1` dims (e.g. 100³) converge within 1.3× the padded power-of-two case. 5. `update` after a coefficient change reuses all buffers (allocation counter) and gives the same iterations as a fresh `build`. 6. Matches `pcg_cpu` + Cholesky reference within 1e-5 relative on 33³, on both paths (f32 also on WARP). |
 | CMP-06 | Optional CUDA backend (`cudarc`, NVRTC at runtime) behind feature `cuda`: `VectorBackend` impl, CSR SpMV, Chebyshev, `SolverDevice::Cuda`, f32 and f64 (precision chosen by `SolverDevice::precision`); Phase 5, started only if the wgpu solver benchmarks miss their budgets (QUESTIONS #80 (b), ADR-004) | CMP-05, CMP-08 | P2 | Todo | Gate: scheduled only if CMP-08 bench 3 or CMP-05 bench 2, or the FEM-08 / GEN-03 budget benches built on them, miss their budgets on wgpu; otherwise it stays Todo. 1. Builds and tests pass with and without `cuda`; without a CUDA driver `SolverDevice::Cuda` creation returns an error, not a crash. 2. CMP-08 test 1 and CMP-05 test 1 pass on CUDA in f32 and f64. 3. Bench table CUDA vs wgpu for CMP-08 bench 3 and CMP-05 bench 2, per precision path, recorded; CUDA becomes the default only if ≥ 1.5× faster than wgpu on the same path (owner decides). |
 | CMP-09 | LOBPCG (`lobpcg<R>`): block, preconditioned, GPU operators (f32 or f64), f64 Rayleigh–Ritz on the CPU, soft locking | CMP-08, CMP-04 | P2 | Todo | 1. On `q1_elasticity(40, Clamped)`, 8 smallest eigenvalues within 1e-6 relative of CMP-04 Lanczos, on the F32 path (reference GPU, DX12) and the F64 path (f64 gate). 2. `q1_elasticity(88, Clamped)` (2 044 416 DOF), 8 modes with `BlockJacobi3`, < 120 s on the reference GPU on the F32 path; iterations recorded for both paths. 3. Deterministic over 2 runs. |
-| CMP-10 | Nested-dissection ordering: geometric ND from node coordinates (`Ordering::NestedDissection`), or METIS behind `metis` if geometric ND is not enough | CMP-03 | P2 | Todo | 1. On `q1_elasticity(55)` and the S13 500 k DOF bracket, factor nnz ≥ 25 % lower than AMD. 2. Becomes the default only if factor time drops ≥ 20 %; numbers recorded either way. Only scheduled if CMP-03 test 1 misses its budget or S13 FEM-04 bench 5 does (CMP-03 missed it; owner, 2026-11-11: CMP-10 goes ahead and takes over the direct-solve targets that fit on 32 GB, with S13 500 k+ cases routed to the GPU iterative solver, FEM-08). |
+| CMP-10 | Nested-dissection ordering: geometric ND from node coordinates (`Ordering::NestedDissection`), or METIS behind `metis` if geometric ND is not enough | CMP-03 | P2 | Review | 1. On `q1_elasticity(55)` and the S13 500 k DOF bracket, factor nnz ≥ 25 % lower than AMD. 2. Becomes the default only if factor time drops ≥ 20 %; numbers recorded either way. Only scheduled if CMP-03 test 1 misses its budget or S13 FEM-04 bench 5 does (CMP-03 missed it; owner, 2026-11-11: CMP-10 goes ahead and takes over the direct-solve targets that fit on 32 GB, with S13 500 k+ cases routed to the GPU iterative solver, FEM-08). |
 | CMP-11 | Smoothed-aggregation AMG preconditioner: CPU setup (strength of connection, aggregation, rigid-body near-null space for 3-DOF nodes), GPU V-cycle with `Chebyshev` smoothing, `GpuPreconditioner<R>` (f32 and f64) | CMP-08 | P2 | Todo | 1. Unstructured test (`q1_elasticity` with randomly perturbed nodes and a random symmetric renumbering): iterations to 1e-6 ≤ 2× `Gmg` on the unperturbed grid of equal size, on both precision paths. 2. Setup for 1 M DOF < 5 s CPU. 3. Iterations grow ≤ 1.5× from 125 k to 1 M DOF. |
 
 Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Review`, `Done`, `Blocked (reason)`.
@@ -706,7 +725,7 @@ Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Revie
 ## Performance targets
 | Target | Value | Tied to |
 |---|---|---|
-| Direct solve, 499 k DOF 3-D elasticity (CMP-03 measured; target moved to CMP-10 + FEM-08, owner 2026-11-11) | ≤ 20 s analyse + factor + solve (CMP-03: AMD 413 s under load, ND 42.6 s idle) | vision FEA 500 k DOF < 30 s (S13 note §8.1 split) |
+| Direct solve, 499 k DOF 3-D elasticity (CMP-03 measured; target moved to CMP-10 + FEM-08, owner 2026-11-11) | ≤ 20 s analyse + factor + solve (CMP-03: AMD 413 s under load, ND 42.6 s idle; CMP-10 `NestedDissection`: grid 33.5 s, TET10 bracket 18.4 s) | vision FEA 500 k DOF < 30 s (S13 note §8.1 split) |
 | Modal, 499 k DOF, 8 modes (CMP-04) | ≤ 40 s | FEM-07 < 60 s |
 | GPU PCG throughput, 1.03 M DOF elasticity (CMP-08) | ≥ 250 iterations/s | FEM-08 2 M DOF < 60 s |
 | MGPCG, 17 M DOF scalar Q1 (CMP-05) | < 2 s, ≤ 25 iterations at 129³ | GEN-03 1 M voxels < 2 s; vision topopt 1 M voxels × 100 iterations < 5 min |
@@ -1115,6 +1134,60 @@ stability property test vs `sort_by_key`. `amg-jobs` 61/61.
   path for large models). No CHOLMOD/MUMPS.
 - `docs/notes/compute-numerics.md` §5 corrected: the 1 M factor is ≈ 4.3e9 (AMD) / 2.3e9 (ND)
   non-zeros, not "a few hundred million".
+
+### 2026-11-16 - CMP-10 geometric nested dissection (lane F implementation)
+- **Landed** (`crates/amg-compute`, pure Rust, no new dependency, no `metis` feature):
+  `sparse::nd` with `nested_dissection(a, coords)`; `Ordering::NestedDissection { coords }`
+  (one position per row) and `Ordering::nested_dissection(node_coords, dofs_per_node)`;
+  `FactorOpts::for_mesh`; `testprob::grid_coords` and `testprob::tet10_bracket` (+ `Bracket`).
+  Tests: `tests/nested_dissection.rs` (5 + 1 ignored 500 k analysis), unit tests in `sparse::nd`
+  and `testprob`. Bench `benches/sparse_direct.rs`: `AMG_BENCH_ORDERING=nd` now uses the new
+  variant (`nd-grid` keeps CMP-03's hand-written grid dissection), plus `AMG_BENCH_BRACKET=1`,
+  `AMG_BENCH_ONCE=1`, `AMG_BENCH_GRID=0`. Existing orderings, tests and results unchanged.
+- **Algorithm:** recursive median cut along the bounding-box axes whose extent is ≥ 0.7 × the
+  largest (all tried, smallest separator wins); the separator is the smaller one-sided boundary
+  of the cut in the matrix graph restricted to the subset; halves first, separator last; subsets
+  of ≤ 192 rows keep input order. Rows of one node share a position, so they stay together.
+  Parallel (`rayon::join`) above 20 000 rows; the permutation is identical for 1, 4 and 16
+  threads (test). Analysis time is lower than AMD's (below).
+- **S13 bracket stand-in:** FEM-04's meshed 500 k DOF bracket does not exist yet, so
+  `tet10_bracket(15)` stands in: a 4 × 2 × 0.5 base plate and 0.5 × 2 × 3 upright with two
+  Ø 0.9 holes, voxelised at 15 cells/unit, 6 Kuhn tets per cell, TET10 nodes; 164 235 nodes,
+  492 705 DOF, 20.2 M stored entries. The pattern is TET10 elasticity; the values are
+  `(L ⊗ B)·h + h³·I` (SPD stand-in), which does not change fill or flops. FEM-04 should re-run
+  Done-when 1 on its real mesh with `FactorOpts::for_mesh`.
+- **Done-when 1 (met)**, `large_nd_estimates` (analysis only):
+  | Problem | AMD factor nnz | ND factor nnz | Reduction | AMD / ND flops |
+  |---|---|---|---|---|
+  | `q1_elasticity(55)`, 499 125 DOF | 1.792e9 (17.11 GiB) | 8.623e8 (7.68 GiB) | **51.9 %** | 2.53e13 / 4.89e12 |
+  | `tet10_bracket(15)`, 492 705 DOF | 8.079e8 (7.07 GiB) | 5.000e8 (4.25 GiB) | **38.1 %** | 3.49e12 / 1.29e12 |
+  (The grid result is slightly better than CMP-03's hand-written dissection, 8.66e8.) At small
+  sizes the thin-walled bracket gains less: at 12.5 k DOF ND has 6 % more non-zeros than AMD,
+  at 38 k DOF 7 % fewer (flops 28 % fewer).
+- **Done-when 2 (met; ND made the mesh default):** release bench, 16 rayon threads, one run
+  each (`AMG_BENCH_ONCE=1`), machine shared with one other worker:
+  - Bracket: AMD analyse 1.99 s + factor **26.60 s** + solve 0.81 s = 29.40 s; ND analyse 1.44 s
+    + factor **16.44 s** + solve 0.55 s = **18.43 s** (factor −38 %), residuals 1.97e-11 /
+    2.03e-11.
+  - Grid `q1_elasticity(55)`: ND analyse 1.83 s + factor **30.84 s** + solve 0.85 s =
+    **33.52 s**, residual 3.79e-12; `solve_many(6)` 1.94 s vs `solve_in_place` 0.87 s
+    (ratio 2.23). AMD was not re-run: its ≈ 18 GiB peak does not fit in the ≈ 15 GB free
+    during this run. Recorded AMD factor: 372.7 s (CMP-03, loaded machine); at the 131 GFLOP/s
+    the bracket AMD run reached, its 2.53e13 flops would be ≈ 190 s, so ND's factor time is
+    ≥ 80 % lower by any of these readings.
+  - Since ND needs positions, `FactorOpts::default()` stays AMD (it has no coordinates and the
+    existing behaviour must not change); `FactorOpts::for_mesh(node_coords, dofs)` is the
+    default for mesh problems, and FEM-04 / FEM-07 should use it.
+- **Budget status:** the 20 s analyse + factor + solve target is met on the bracket (18.4 s)
+  but not on the 55³ grid (33.5 s; the cube is the worst case for separators). Large S13 cases
+  stay on FEM-08 per the owner's 2026-11-11 decision. METIS not needed (Done-when 1 met by
+  geometric ND); the `metis` feature is not added.
+- **Gates:** `cargo fmt --all --check`, `cargo clippy -p amg-compute --all-targets
+  --all-features -- -D warnings`, `cargo nextest run -p amg-compute` (99 passed, 2 skipped: the
+  `#[ignore]` large analyses) pass. Workspace clippy left to the coordinator.
+- **Leftovers:** minimum-degree ordering of the leaves and separator refinement (e.g. greedy
+  vertex-cover) could add a few percent on thin parts; 1 M DOF ND factorisation (`AMG_BENCH_1M=1
+  AMG_BENCH_ORDERING=nd`, estimate 20.6 GiB) not run here (memory).
 
 ## Interface changes
 ### 2026-11-10: from CMP-03 (lane F; applied, additive)
