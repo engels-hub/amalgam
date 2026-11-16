@@ -474,6 +474,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "log",
+ "png",
  "thiserror 2.0.21",
  "tracing",
  "wgpu",

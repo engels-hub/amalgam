@@ -39,6 +39,8 @@ const CAP_DEPTH_WGSL: &str = include_str!("shaders/cap_depth.wgsl");
 const PICK_WGSL: &str = include_str!("shaders/pick.wgsl");
 const PICK_PRIM_WGSL: &str = include_str!("shaders/pick_prim.wgsl");
 const PICK_FIX_WGSL: &str = include_str!("shaders/pick_fix.wgsl");
+const OVERLAY_WGSL: &str = include_str!("shaders/overlay.wgsl");
+const OVERLAY_PICK_WGSL: &str = include_str!("shaders/overlay_pick.wgsl");
 pub(crate) const FULLSCREEN_WGSL: &str = include_str!("shaders/fullscreen.wgsl");
 
 /// Pick id target (RND-04): pick id, `kind << 30 | sub`.
@@ -117,6 +119,19 @@ pub(crate) enum PipelineKind {
     PickLine { clipped: bool, always: bool },
     /// Vertex ids.
     PickPoint { clipped: bool, always: bool },
+    /// Overlay wide lines into the final image (RND-07); `samples` is the sample count of the
+    /// scene depth target it reads (it always draws single-sampled).
+    OverlayLine,
+    /// Overlay point sprites.
+    OverlayPoint,
+    /// Overlay triangles (flat, image, grid); `write`: opaque, writes the overlay depth.
+    OverlayTri { write: bool },
+    /// Overlay handle lines into the pick targets.
+    PickOverlayLine,
+    /// Overlay handle points.
+    PickOverlayPoint,
+    /// Overlay handle triangles.
+    PickOverlayTri,
 }
 
 /// A pipeline variant: what it draws and at which sample count.
@@ -199,6 +214,12 @@ impl PipelineKey {
             PipelineKind::PickFix => "pick cap depth",
             PipelineKind::PickLine { .. } => "pick edges",
             PipelineKind::PickPoint { .. } => "pick points",
+            PipelineKind::OverlayLine
+            | PipelineKind::OverlayPoint
+            | PipelineKind::OverlayTri { .. } => "overlays",
+            PipelineKind::PickOverlayLine
+            | PipelineKind::PickOverlayPoint
+            | PipelineKind::PickOverlayTri => "pick overlays",
         }
     }
 
@@ -315,6 +336,29 @@ pub(crate) fn pick_wgsl(primitive_index: bool) -> String {
     }
 }
 
+/// Full WGSL of the overlay module (RND-07) reading a scene depth target of `samples` samples.
+pub(crate) fn overlay_wgsl(samples: u32) -> String {
+    let depth = if samples > 1 {
+        "texture_depth_multisampled_2d"
+    } else {
+        "texture_depth_2d"
+    };
+    format!(
+        "{CAMERA_WGSL}\n{SCENE_WGSL}\n{SECTION_WGSL}\n{LINES_WGSL}\n{}",
+        OVERLAY_WGSL.replace("SCENE_DEPTH_TEXTURE", depth)
+    )
+}
+
+/// Full WGSL of the overlay handle pick module: the pick module plus `overlay_pick.wgsl`.
+pub(crate) fn overlay_pick_wgsl() -> String {
+    format!("{}\n{OVERLAY_PICK_WGSL}", pick_wgsl(false))
+}
+
+/// The overlay triangle vertex buffer (`TriIn`, `shaders/overlay.wgsl`).
+const OVERLAY_TRI_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    0 => Float32x3, 1 => Float32x4, 2 => Float32x2, 3 => Float32x4, 4 => Uint32x2
+];
+
 /// WGSL of the cap depth pass reading marks of `samples` samples.
 pub(crate) fn cap_depth_wgsl(samples: u32) -> String {
     let marks = if samples > 1 {
@@ -362,6 +406,10 @@ pub(crate) struct Layouts<'a> {
     pub pull: &'a wgpu::BindGroupLayout,
     /// Group 0 of the pick cap depth pass: the pick id and depth targets.
     pub pick_targets: &'a wgpu::BindGroupLayout,
+    /// Group 2 of the overlay pipelines: the scene depth target at one sample and at several.
+    pub overlay_depth: [&'a wgpu::BindGroupLayout; 2],
+    /// Group 3 of the overlay pipelines: an image and its sampler.
+    pub overlay_image: &'a wgpu::BindGroupLayout,
 }
 
 /// Everything needed to build any variant; cheap to share with job threads.
@@ -393,6 +441,12 @@ pub(crate) struct PipelineFactory {
     pick_pull_layout: wgpu::PipelineLayout,
     pick_fix_shader: wgpu::ShaderModule,
     pick_fix_layout: wgpu::PipelineLayout,
+    /// Overlay modules reading a scene depth of one sample (`[0]`) and several (`[1]`),
+    /// compiled on first use (RND-07).
+    overlay_shader: [OnceLock<wgpu::ShaderModule>; 2],
+    overlay_layout: [wgpu::PipelineLayout; 2],
+    /// The overlay handle pick module, compiled on first use.
+    overlay_pick_shader: OnceLock<wgpu::ShaderModule>,
 }
 
 impl PipelineFactory {
@@ -472,7 +526,145 @@ impl PipelineFactory {
             }),
             pick_fix_shader: module("amg pick cap depth", PICK_FIX_WGSL.to_owned()),
             pick_fix_layout: layout("amg pick cap depth", layouts.pick_targets),
+            overlay_shader: [OnceLock::new(), OnceLock::new()],
+            overlay_layout: [0, 1].map(|i| {
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("amg overlays"),
+                    bind_group_layouts: &[
+                        Some(layouts.view),
+                        Some(layouts.geometry),
+                        Some(layouts.overlay_depth[i]),
+                        Some(layouts.overlay_image),
+                    ],
+                    immediate_size: 0,
+                })
+            }),
+            overlay_pick_shader: OnceLock::new(),
         }
+    }
+
+    fn overlay_shader(&self, samples: u32) -> &wgpu::ShaderModule {
+        let i = usize::from(samples > 1);
+        self.overlay_shader[i].get_or_init(|| {
+            self.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("amg overlays"),
+                    source: wgpu::ShaderSource::Wgsl(overlay_wgsl(samples).into()),
+                })
+        })
+    }
+
+    fn overlay_pick_shader(&self) -> &wgpu::ShaderModule {
+        self.overlay_pick_shader.get_or_init(|| {
+            self.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("amg pick overlays"),
+                    source: wgpu::ShaderSource::Wgsl(overlay_pick_wgsl().into()),
+                })
+        })
+    }
+
+    /// Builds an overlay pipeline (`key.kind` is one of the `Overlay*` / `PickOverlay*` kinds).
+    fn build_overlay(&self, key: PipelineKey, label: &str) -> wgpu::RenderPipeline {
+        let tri_buffers = [Some(wgpu::VertexBufferLayout {
+            array_stride: crate::overlay::TRI_VERTEX_BYTES,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &OVERLAY_TRI_ATTRIBUTES,
+        })];
+        let pick = matches!(
+            key.kind,
+            PipelineKind::PickOverlayLine
+                | PipelineKind::PickOverlayPoint
+                | PipelineKind::PickOverlayTri
+        );
+        let (vs, fs, tris) = match key.kind {
+            PipelineKind::OverlayLine => ("vs_overlay_line", "fs_overlay_line", false),
+            PipelineKind::OverlayPoint => ("vs_overlay_point", "fs_overlay_point", false),
+            PipelineKind::OverlayTri { .. } => ("vs_overlay_tri", "fs_overlay_tri", true),
+            PipelineKind::PickOverlayLine => {
+                ("vs_pick_overlay_line", "fs_pick_overlay_line", false)
+            }
+            PipelineKind::PickOverlayPoint => {
+                ("vs_pick_overlay_point", "fs_pick_overlay_point", false)
+            }
+            PipelineKind::PickOverlayTri => ("vs_pick_overlay_tri", "fs_pick_overlay_tri", true),
+            _ => unreachable!("not an overlay pipeline: {key:?}"),
+        };
+        let write = pick || matches!(key.kind, PipelineKind::OverlayTri { write: true });
+        let (module, layout) = if pick {
+            (
+                self.overlay_pick_shader(),
+                if tris {
+                    &self.pick_layout
+                } else {
+                    &self.pick_lines_layout
+                },
+            )
+        } else {
+            (
+                self.overlay_shader(key.samples),
+                &self.overlay_layout[usize::from(key.samples > 1)],
+            )
+        };
+        let alpha = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+        };
+        let target = |format, blend| {
+            Some(wgpu::ColorTargetState {
+                format,
+                blend,
+                write_mask: wgpu::ColorWrites::ALL,
+            })
+        };
+        let draw_targets = [target(FINAL_FORMAT, Some(alpha))];
+        let pick_targets = [target(PICK_ID_FORMAT, None), target(PICK_POS_FORMAT, None)];
+        // Overlay lines and points never clip (their records are not sectioned).
+        let constants = [("HIDDEN", 0.0), ("CLIP", 0.0)];
+        let options = || wgpu::PipelineCompilationOptions {
+            constants: if tris { &[] } else { &constants },
+            ..Default::default()
+        };
+        self.device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some(vs),
+                    compilation_options: options(),
+                    buffers: if tris { &tri_buffers } else { &[] },
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(write),
+                    depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module,
+                    entry_point: Some(fs),
+                    compilation_options: options(),
+                    targets: if pick { &pick_targets } else { &draw_targets },
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
     }
 
     /// Whether the device can build [`FaceMode::Primitive`] pick pipelines.
@@ -782,6 +974,12 @@ impl PipelineFactory {
             | PipelineKind::PickFix
             | PipelineKind::PickLine { .. }
             | PipelineKind::PickPoint { .. } => self.build_pick(key, &label),
+            PipelineKind::OverlayLine
+            | PipelineKind::OverlayPoint
+            | PipelineKind::OverlayTri { .. }
+            | PipelineKind::PickOverlayLine
+            | PipelineKind::PickOverlayPoint
+            | PipelineKind::PickOverlayTri => self.build_overlay(key, &label),
             PipelineKind::Mesh {
                 lighting,
                 flat,

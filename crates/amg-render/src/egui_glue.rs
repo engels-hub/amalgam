@@ -13,7 +13,7 @@ use egui_wgpu::{CallbackResources, CallbackTrait, RenderState, ScreenDescriptor}
 use crate::renderer::{
     FINAL_FORMAT_RAW, FULLSCREEN_WGSL, fullscreen_pipeline, texture_bind_group, texture_bind_layout,
 };
-use crate::{RenderError, Renderer, RendererConfig, ViewId};
+use crate::{ProjectedLabel, RenderError, Renderer, RendererConfig, ViewId};
 
 /// True if egui draws with the device of `gpu`.
 ///
@@ -113,6 +113,42 @@ pub struct ViewportResponse {
     pub size_px: [u32; 2],
     /// The GPU device is lost.
     pub lost: bool,
+}
+
+/// Linear RGBA (straight alpha) to an egui colour (sRGB, premultiplied).
+fn color32(c: [f32; 4]) -> egui::Color32 {
+    egui::Color32::from(egui::Rgba::from_rgba_unmultiplied(
+        c[0].clamp(0.0, 1.0),
+        c[1].clamp(0.0, 1.0),
+        c[2].clamp(0.0, 1.0),
+        c[3].clamp(0.0, 1.0),
+    ))
+}
+
+/// Padding of a label's background box, points.
+const LABEL_PADDING: f32 = 3.0;
+
+/// Paints `labels` (from [`Renderer::project_labels`]) over the viewport with egui text, so the
+/// glyphs are rasterised by egui at the screen pixel size: crisp at every zoom (design note §12).
+/// Each label is centred on its projected position (physical pixels of the view, converted with
+/// `resp.pixels_per_point`), with an optional rounded background, clipped to the viewport.
+pub fn paint_labels(ui: &egui::Ui, resp: &ViewportResponse, labels: &[ProjectedLabel]) {
+    let painter = ui.painter_at(resp.rect);
+    let ppp = resp.pixels_per_point.max(1e-6);
+    for label in labels {
+        let pos = resp.rect.min + egui::vec2(label.pos_px[0], label.pos_px[1]) / ppp;
+        let color = color32(label.style.color);
+        let galley = painter.layout_no_wrap(
+            label.text.clone(),
+            egui::FontId::proportional(label.style.size_pt.max(1.0)),
+            color,
+        );
+        let rect = egui::Align2::CENTER_CENTER.anchor_size(pos, galley.size());
+        if let Some(bg) = label.style.background {
+            painter.rect_filled(rect.expand(LABEL_PADDING), LABEL_PADDING, color32(bg));
+        }
+        painter.galley(rect.min, galley, color);
+    }
 }
 
 /// Everything the callbacks share, in egui-wgpu's type map.
@@ -293,6 +329,77 @@ mod tests {
             ))),
             surface_config: egui_wgpu::SurfaceConfig::HIGH_THROUGHPUT,
         }
+    }
+
+    /// Done-when 1 (RND-07): labels are egui text shapes centred on their projected anchors.
+    #[test]
+    fn paint_labels_emits_egui_text_at_the_projected_positions() {
+        let ctx = egui::Context::default();
+        let ppp = 2.0;
+        ctx.set_pixels_per_point(ppp);
+        let labels = vec![
+            ProjectedLabel {
+                pos_px: [100.0, 60.0],
+                depth: 0.5,
+                text: "12.50 mm".into(),
+                style: crate::LabelStyle {
+                    background: Some([0.0, 0.0, 0.0, 0.8]),
+                    ..crate::LabelStyle::default()
+                },
+            },
+            ProjectedLabel {
+                pos_px: [300.0, 200.0],
+                depth: 0.5,
+                text: "X".into(),
+                style: crate::LabelStyle::default(),
+            },
+        ];
+        let viewport = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(200.0, 150.0));
+        let frame = || {
+            ctx.run_ui(egui::RawInput::default(), |ui| {
+                let response = ui.allocate_rect(viewport, egui::Sense::hover());
+                let resp = ViewportResponse {
+                    response,
+                    rect: viewport,
+                    pixels_per_point: ppp,
+                    size_px: [400, 300],
+                    lost: false,
+                };
+                paint_labels(ui, &resp, &labels);
+            })
+        };
+        // Two frames: the first one sets up the fonts.
+        frame().drop_without_applying_deltas();
+        let mut out = frame();
+        let shapes = std::mem::take(&mut out.shapes);
+        out.drop_without_applying_deltas();
+        let mut texts = Vec::new();
+        let mut boxes = 0;
+        for clipped in &shapes {
+            match &clipped.shape {
+                egui::Shape::Text(t) => {
+                    texts.push((t.galley.text().to_owned(), t.visual_bounding_rect()))
+                }
+                egui::Shape::Rect(r) if r.fill.a() > 0 && r.rect.width() < 100.0 => boxes += 1,
+                _ => {}
+            }
+        }
+        for (label, want) in labels
+            .iter()
+            .zip([egui::pos2(60.0, 50.0), egui::pos2(160.0, 120.0)])
+        {
+            let (_, rect) = texts
+                .iter()
+                .find(|(t, _)| *t == label.text)
+                .unwrap_or_else(|| panic!("no text shape for {:?}: {texts:?}", label.text));
+            assert!(
+                (rect.center() - want).length() < 2.0,
+                "{:?} centred at {:?}, expected {want:?}",
+                label.text,
+                rect.center()
+            );
+        }
+        assert_eq!(boxes, 1, "one label has a background box");
     }
 
     #[test]

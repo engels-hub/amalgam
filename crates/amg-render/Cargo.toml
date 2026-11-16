@@ -28,6 +28,7 @@ static-dxc = ["wgpu/static-dxc"]
 amg-testkit.workspace = true
 eframe.workspace = true
 log = "0.4.34"
+png = "0.18.1"
 criterion.workspace = true
 
 [[bench]]
@@ -36,6 +37,10 @@ harness = false
 
 [[bench]]
 name = "viewport"
+harness = false
+
+[[bench]]
+name = "overlay"
 harness = false
 
 [[example]]

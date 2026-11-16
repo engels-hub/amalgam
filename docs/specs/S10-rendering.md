@@ -603,7 +603,7 @@ pub mod egui_glue {
 | RND-04 | GPU picking: id + depth pick passes (B-rep face-id attribute; mesh `primitive_index` or vertex-pulling fallback; edges and points widened by the radius), scissored point pick, priority resolution, f64 world reconstruction, rectangle window/crossing via compute flags, hover/selection highlight (instance tint, face-range redraw with `depth_compare: Equal`, edge/point state buffers). Also RND-06 Done-when 5 (section picking), moved here: the pick pipelines get clipped variants (`section_clipped` in `shaders/section.wgsl`) and a cap pick variant (back faces, `section_ray` + `section_cap`, kind face, `CAP_SUB`) whose world point comes from `section_cap_point` in f64. | RND-12, RND-03 | P0 | Done | 1. On a synthetic box-with-hole test part (edges known): 1000 random cursor positions within 3 px of a projected 1-px edge return that edge in ≥ 99.5 %, and positions > 6 px from every edge or vertex return no edge in ≥ 99.5 %. 2. 1000 random interior face pixels (≥ 2 px from edges) return the correct face (100 %), and mesh triangle sub-ids are correct (100 %). 3. `PrimitiveIndex` and `VertexPulling` give identical results on the same scenes (WARP). 4. Results arrive ≤ 2 `encode` calls after the request (counted). 5. World position is within 1e-6 × distance of the analytic hit. 6. The rectangle test on a 3×3 box grid gives the expected window vs crossing sets. 7. Highlighted faces show the highlight colour with no z-fighting pixels (pixel test). 8. The pick pass costs ≤ 2 ms GPU at 5 M tris (owner bench). 9. RND-06 Done-when 5 (section picking): picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). |
 | RND-05 | Transparency: WBOIT accum/revealage targets and composite, per-instance opacity (`base_color.a`), `Layer::Ghost`, x-ray style (all model instances at α 0.25 + dimmed always-on-top edges). | RND-02, RND-03 | P1 | Todo | 1. Three overlapping translucent quads rendered in all 6 submission orders differ by ≤ 2/255 per channel. 2. An opaque object behind and in front of translucent ones is correctly occluded. 3. X-ray shows hidden edges at the configured alpha. 4. Overhead ≤ 2 ms at 1440p with 1 M translucent tris (owner bench), and 0 when nothing is translucent (pass skipped). |
 | RND-06 | Section planes: up to 6 planes, `discard` in every `clipped` model/edge/pick pipeline, back-face ray–plane caps with `frag_depth`, per-instance `cap_color`, screen-constant hatching, `closed` gating, cap picking (`CAP_SUB`). | RND-02, RND-03 | P0 | Done | 1. Closed sphere r = 10 cut by z = 0, viewed from +Z: every pixel inside the projected circle shrunk by 1 px is cap or hatch colour, and none is background (watertight). 2. A cube cut by 2 orthogonal planes gives an L-shaped cap; pixel test against analytic polygons. 3. An open mesh draws no cap. 4. Hatch spacing is 8 ± 1 px at zooms 0.01×–100×. 5. Picking a clipped-away region returns the geometry behind it; picking a cap returns `CAP_SUB` with a world point on the plane (≤ 1e-6 mm). 6. Overhead ≤ 1 ms at 5 M tris (owner bench). |
-| RND-07 | Overlay layer: `OverlayList` (polylines, arrows, rings, triads, plane quads, adaptive grid, image planes, points, sprites, pickable handles), constant pixel size, `DepthMode` incl. x-ray dimming, own overlay depth, `project_labels` + `egui_glue::paint_labels` (egui text), view-cube rendering hook for RND-11. | RND-12, RND-03 | P0 | Todo | 1. Labels: projected anchors match `Camera::project` within 0.5 px for 20 random cameras, and text is egui-rasterised (crisp at every zoom by construction). 2. Arrow and ring sizes stay within ±1 px of the requested size across view distances 1e-2..1e5 mm. 3. Handle picking returns `SubKind::Handle` with the handle id. 4. Grid minor lines are never closer than 8 px. 5. An image plane shows a test PNG with correct orientation (corner-pixel test). 6. Overlays cost ≤ 0.5 ms GPU with 1000 primitives. |
+| RND-07 | Overlay layer: `OverlayList` (polylines, arrows, rings, triads, plane quads, adaptive grid, image planes, points, sprites, pickable handles), constant pixel size, `DepthMode` incl. x-ray dimming, own overlay depth, `project_labels` + `egui_glue::paint_labels` (egui text), view-cube rendering hook for RND-11. | RND-12, RND-03 | P0 | Review | 1. Labels: projected anchors match `Camera::project` within 0.5 px for 20 random cameras, and text is egui-rasterised (crisp at every zoom by construction). 2. Arrow and ring sizes stay within ±1 px of the requested size across view distances 1e-2..1e5 mm. 3. Handle picking returns `SubKind::Handle` with the handle id. 4. Grid minor lines are never closer than 8 px. 5. An image plane shows a test PNG with correct orientation (corner-pixel test). 6. Overlays cost ≤ 0.5 ms GPU with 1000 primitives. |
 | RND-08 | Analyses and fields: `Shading::{Field, Analysis}`, zebra, draft and overhang shaders (note §11), scalar-field colormaps (Viridis, Turbo, Rainbow, BlueWhiteRed, Grey; LUT texture array), bands, isolines, out-of-range handling, `legend`, `colormap_rgb`, vector-field deformation with `Animation`. | RND-02, RND-03 | P0 | Done | 1. A test-mode readback of a per-pixel class target: overhang classification on an icosphere matches the note §11 CPU formula for 100 % of pixels whose normal is > 0.5° from the threshold or plate band. 2. Zebra on a sphere shows N ± 1 stripes along the profile. 3. Draft sign is correct on a ±10° drafted prism. 4. LUT bytes equal the embedded reference tables, and `colormap_rgb` agrees with the shader within 1/255. 5. `legend` gives nice ticks (table test). 6. Deformed positions (test readback) match the CPU `p + s·A·d` within 1e-4 relative. 7. Switching shading never re-uploads geometry (counter). 8. A 5 M-tri mesh with field shading stays inside the RND-02 budget (bench). |
 | RND-09 | Headless and visual regression: `assert_render_golden!` over `tests/golden/render/` (amg-testkit golden dir, `AMG_BLESS=1`), WARP-generated goldens, thresholds per note §15, diff and actual PNGs on failure, `thumbnail(scene, size) -> png bytes` with a Home-view fit. | RND-02 | P1 | Todo | 1. ≥ 10 golden scenes (6 visual styles, a section, a field, an analysis, overlays) pass in CI on WARP. 2. A deliberate 1-px camera shift fails with diff images written. 3. Bless round-trip works. 4. A 256² thumbnail of a 1 M-tri scene takes < 100 ms on the owner GPU. |
 | RND-10 | Appearance materials: PBR textures (base, normal, roughness/metal), image-based environment lighting (prefiltered cube, BRDF LUT), mapping from S17 appearances | RND-02, MAT-02 | P2 | Todo | 1. A material-ball scene matches its golden image. 2. Assigning an S17 appearance changes the rendering with no geometry re-upload. 3. With IBL on, the 5 M-tri budget holds. |
@@ -1596,6 +1596,149 @@ the RTX 5060 Ti / DX12; clippy `-p amg-render --all-targets -D warnings` clean):
   and applies `apply_highlight` to its colour (class output unchanged).
 - RND-12: deform edges and points with the field when they are drawn over a deformed mesh.
 - Normals are not recomputed under deformation (note §11 accepts this).
+
+### 2026-11-17 - RND-07 overlay layer
+
+*Landed in `crates/amg-render` (status `Review`):*
+- **API** (`overlay.rs`, re-exported): `OverlayList` with `polyline`, `arrow`, `ring`, `triad`,
+  `plane_quad`, `grid`, `image_plane`, `points`, `sprite`, `polygon`, `label` (as in
+  §Interfaces) plus `new`, `clear`, `is_empty`, `primitive_count`, `label_count`;
+  `RenderScene::{begin_overlays, overlays}` (immediate mode, not part of `revision`);
+  `LabelStyle`, `ProjectedLabel`, `Renderer::project_labels`; `ImageKey`, `GpuImage`,
+  `upload_image`, `RenderScene::{insert_image, remove_image, image, image_count}` (images count
+  in `gpu_bytes`); `OverlayInset { rect_px, camera, overlays }` and `View::insets`;
+  `egui_glue::paint_labels`.
+- **Constant pixel size.** Arrows, rings, triads and sprites are tessellated on the CPU per view
+  and frame from `size_px × Camera::pixel_size_at(anchor)` in f64, into eye-relative f32 (the
+  overlay instance records are the identity at the eye, split hi/lo like any record), so sizes
+  and precision hold from 1e-2 to 1e5 mm. Arrow = shaft polyline + 16-facet cone (head a quarter
+  of the length, radius 0.35 of the head), shaded on the CPU from the view direction; ring =
+  64-segment closed polyline; triad = three always-on-top arrows (red, green, blue) with handles
+  `(handle_base, 0 | 1 | 2)`.
+- **Reuse of RND-12 and RND-04.** Overlay polylines (and the shafts, rings, quad borders) go
+  through `lines::build_segments` and the wide-line stages; points through the point-sprite
+  stages. `lines.wgsl` gained `line_vertex_slot` / `point_vertex_slot` (the existing
+  `line_vertex` / `point_vertex` call them with `slot_of(instance)`) and `line_color` /
+  `point_color` (the bodies of `fs_line` / `fs_point`), and `LineOut` / `PointOut` carry the
+  record slot (one more flat varying). Every styled primitive has one 128-byte instance record and
+  one 96-byte line record (the handle sub-id rides in the record's `material` lane, the depth mode
+  in `hidden.w`); the per-segment id buffer holds the record slot, so all overlay lines of a view
+  are one draw, all points another. `pick.wgsl`'s `fs_pick_line` / `fs_pick_point` bodies became
+  `pick_line` / `pick_point`, which the overlay handle pick stages (`overlay_pick.wgsl`) call.
+- **Overlay pass** (`shaders/overlay.wgsl`, after `final`, timed as `overlays`): draws into the
+  single-sampled final image (alpha blended, no MSAA; lines and points keep their analytic AA)
+  with its own `Depth32Float` target cleared each frame, so gizmos occlude each other: opaque
+  triangles (overlay depth write), translucent triangles, lines, points. `DepthMode` against the
+  scene is applied per fragment from the scene depth target (sample 0): `Test` discards behind
+  the scene, `XRay { hidden_alpha }` dims, `AlwaysOnTop` ignores it (relative tolerance 1e-5 so
+  geometry lying on a face stays visible). A view that has drawn overlays keeps a sampleable
+  depth target (`TEXTURE_BINDING`, stored after the opaque/edges pass), so tools starting and
+  stopping never rebuild targets. Pipelines `OverlayLine`, `OverlayPoint`, `OverlayTri { write }`
+  (module per scene sample count) and `PickOverlay{Line,Point,Tri}` are lazy variants; their
+  shader modules compile on first use, so the core pipeline set is unchanged.
+- **Grid**: a world-plane tensor mesh graded geometrically (cells 64 px at the plane point nearest
+  the camera target, ×8 per step) with plane coordinates relative to a power-of-ten offset
+  snapped there, so `fract(uv / s)` keeps f32 precision where lines are finest. Per pixel the
+  minor spacing `s` is the smallest power of ten with `s / max(|∇u|, |∇v|) ≥ 8 px`; levels `s` and
+  `10 s` fade in with `smoothstep(8, 40, spacing px)`, so switching levels is continuous.
+- **Images**: `upload_image` (RGBA8 sRGB texture, `InvalidData` / `TooLarge` checks), image planes
+  with corners top-left, top-right, bottom-right, bottom-left (row 0 of the image along
+  `corners[0] → corners[1]`), depth tested, opaque ones write overlay depth; sprites are
+  screen-aligned, always on top, `uv = [min, max]` of an atlas.
+- **Picking** (`SubKind::Handle`): primitives with a handle `(PickId, u32)` are drawn at the end of
+  RND-04's point-pick passes when the filter has `HANDLES` (lines and points through the RND-12
+  stages, triangles from the overlay vertex buffer; records without a handle collapse in the
+  vertex stage). Always-on-top and x-ray handles write `frag_depth = 1` so they win over the
+  scene; depth-tested ones are hidden by the scene like edges. World positions: the line centre
+  (depth offset undone), the point centre, the triangle surface point.
+- **Highlights of handles**: `HighlightItem { pick, sub: Some((SubKind::Handle, range)) }` (or the
+  whole owner) recolours the handle's lines and points (record `flags`, `apply_highlight`) and its
+  triangles (the same precedence on the CPU).
+- **Labels**: `project_labels` projects the scene list with the view camera and each inset's list
+  with its camera, offset by the inset rectangle; anchors behind the eye are dropped.
+  `egui_glue::paint_labels` paints each with `Painter::layout_no_wrap` (egui rasterises the glyphs
+  at screen resolution), centred on `pos_px / pixels_per_point`, with an optional rounded
+  background, clipped to the viewport.
+- **View-cube hook for RND-11**: `View::insets` lists `OverlayInset`s drawn after the view's own
+  overlays, one pass each with viewport and scissor of `rect_px`, the overlay depth cleared again,
+  their own camera uniform, and every depth mode forced to always-on-top (an inset never sees the
+  scene depth). RND-11 fills an inset with the cube (polygons, edges) and its face letters
+  (labels) and keeps `view_cube_hit` analytic.
+- **Bench** `benches/overlay.rs` (new, `harness = false`).
+
+*Evidence (`tests/overlay.rs`, 7 GPU tests on WARP, and unit tests; all 165 amg-render tests
+pass on WARP; `cargo clippy -p amg-render --all-targets -D warnings` clean):*
+1. **Labels** (`gpu_projected_labels_match_camera_project_for_20_random_cameras`): 200 anchors
+   over 20 random cameras (perspective and orthographic, distances 0.1-1e4 mm, targets up to 1e3
+   mm off the origin): worst deviation from `Camera::project` 2.9e-5 px (limit 0.5), depth equal
+   within 1e-6; inset labels are offset by their rectangle. Text is egui text: the unit test
+   `egui_glue::tests::paint_labels_emits_egui_text_at_the_projected_positions` runs a headless
+   `egui::Context` at 2 pixels per point and finds a `Shape::Text` per label centred within 2 pt of
+   `rect.min + pos_px / ppp`, plus the background box.
+2. **Constant size** (`gpu_arrow_and_ring_sizes_hold_across_view_distances`): an 80 px arrow and a
+   40 px ring (1.5 px wide, facing the camera) at a target 1.1e3 mm off the origin, perspective,
+   view distances 1e-2, 1e-1, …, 1e5 mm: arrow length 79.5 px at every distance (the tip lies in
+   the last lit pixel; ±0.5 px is the pixel quantisation), ring centre-line radius 40.000 /
+   39.998 px in the four axis directions (worst 0.002 px). Limit ±1 px.
+3. **Handles** (`gpu_overlay_handles_pick_as_handle_with_their_id`, 4× MSAA view): an always-on-top
+   arrow (shaft and cone), a depth-tested point and a plane quad in front of a wall return
+   `SubKind::Handle` with pick ids 50 / 51 / 52 and sub-ids 7 / 3 / 9; world y of the shaft, point
+   and quad within 1e-3 mm; a depth-tested handle behind the wall, a polyline without a handle and
+   a filter without `HANDLES` return the wall face. A hovered handle (`SubKind::Handle` range) is
+   drawn in the hover colour.
+4. **Grid** (`gpu_grid_minor_lines_are_never_closer_than_8_px`, 4× MSAA): orthographic top views at
+   heights 0.05-8000 mm and perspective views 35-70° down at 0.5-5000 mm, 12 958 adjacent-line
+   spacings measured along rows and columns: closest 8.59 px (per case 8.6-76 px). Limit 8 px.
+5. **Image plane** (`gpu_image_plane_shows_a_png_with_correct_orientation`): a 32×32 quadrant image
+   encoded to PNG and decoded (`png` 0.18.1, dev-dependency), uploaded and shown on a plane seen
+   from −Y: the pixels 10 px inside the four corners are exactly red (top-left), green
+   (top-right), blue (bottom-left) and white (bottom-right); half opacity blends; a removed image
+   draws nothing.
+6. **GPU cost** (`cargo bench -p amg-render --bench overlay`, owner RTX 5060 Ti / DX12, release,
+   2560×1440, 4× MSAA, `ShadedVisibleEdges`, a 1 M-tri sphere, 600-frame orbit, 1000 primitives
+   refilled every frame: 300 polylines of 12 points, 200 arrows, 200 rings, 100 point sets, 100
+   plane quads, 50 sprites, 49 polygons, one grid, in all three depth modes):
+   `overlays` pass GPU **p50 0.088 ms, p99 0.089 ms**, max 0.089 ms over 600 timed frames (budget
+   0.5 ms; asserted under `AMG_STRICT_TIMING=1`). Frame GPU without / with overlays p50 0.542 /
+   0.633 ms. CPU (refill the list + `encode`, tessellation included): p50 0.070 → 2.242 ms, p99
+   0.149 → 2.824 ms (reported only; see Leftovers).
+- More GPU tests: `gpu_depth_modes_hide_dim_or_show_overlays_behind_the_scene` (1× and 4×: a `Test`
+  line behind a face is hidden, `XRay { 0.25 }` shows sRGB 137 = 25 % green, `AlwaysOnTop` full;
+  an opaque overlay quad hides an overlay line behind it); `gpu_insets_draw_in_their_rectangle_with_their_camera`
+  (an inset polygon covers 50×50 px of a 100×100 inset with its own orthographic camera, over the
+  scene, and nothing outside the inset).
+- Unit tests: the 60-byte triangle vertex vs the WGSL inputs, arrow length = pixels × pixel size,
+  records (handle pick / sub, depth modes, highlight bits, insets forced on top), label projection,
+  triangle draw order (opaque first, one draw per image), grid offset snapping and graded stops.
+
+*Deviations:*
+- `View::show_view_cube` (§Interfaces) is not added: the hook is the general `View::insets`;
+  RND-11 decides whether to add the flag on top.
+- Overlay lines keep a round cap at every join (the smooth-join flag of `build_segments` is
+  cleared for overlays): with RND-12's skipped caps, the sub-pixel wedge on the outer side of each
+  join swallows pixel centres on the join's bisector (the 40 px ring first measured 39 px, with a
+  missing pixel at every axis vertex). Translucent overlay lines therefore blend twice at joins.
+- The overlay pass is single-sampled: triangles (cones, fills, images) are not antialiased; lines,
+  points and grid lines are (analytic). The grid uses powers of ten, not 1-2-5 steps.
+- Handles are only drawn into point picks of the view's own list: rectangle picks (window /
+  crossing) and inset lists have no handles (RND-11's cube uses the analytic `view_cube_hit`).
+- `RgbaImage::{to_png, from_png}` (§Interfaces) are not implemented: `png` is a dev-dependency only
+  (RND-09 owns the PNG goldens and can add them).
+- Additive API not in §Interfaces: `OverlayList::{new, clear, is_empty, primitive_count,
+  label_count}`, `OverlayInset`, `View::insets`, `GpuImage::{size, gpu_bytes}`,
+  `RenderScene::{overlays, image, image_count}`. `THIRD_PARTY.md`: the `png` row notes the
+  dev-dependency use; no new crate (already in `Cargo.lock` through eframe).
+
+*Leftovers:*
+- **RND-12 smooth-join gap** (lane D): scene edges have the same wedge gap at smooth joins
+  (turns < 20°), visible as single missing pixels where a join's bisector passes through pixel
+  centres. A fix is to extend the skipped cap by `|across| · tan(20°)` (a thin double-blend band)
+  or to pass the neighbour direction and split at the bisector.
+- Handle rectangle picks; insets in picks.
+- Overlays are tessellated and uploaded per view per frame (about 2.2 ms CPU per frame for 1000 primitives in the bench); a static overlay cache
+  (sketches with many curves) would avoid the CPU work when nothing changes.
+- Grid line density is capped per pixel but lines are 1 px wide everywhere; a major-line width or
+  colour and a distance fade toward the horizon (note §12) are not implemented.
 
 ## Interface changes
 
