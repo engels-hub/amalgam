@@ -10,6 +10,10 @@
 //! 499 125 rows): their off-diagonal entries are stored as explicit zeros, the diagonal keeps
 //! its assembled value and the load is 0. Constrained and free variants therefore share one
 //! pattern.
+//!
+//! [`tet10_bracket`] (CMP-10) adds an unstructured-pattern case: a voxelised L-bracket split
+//! into TET10 elements, with the row positions for nested dissection ([`grid_coords`] gives
+//! them for the grid problems).
 
 use rayon::prelude::*;
 
@@ -372,9 +376,232 @@ pub fn simp_field(cells: u32, contrast: f32, seed: u64) -> Vec<f32> {
     out
 }
 
+/// Position of every row of a [`q1_poisson`] (`dofs = 1`) or [`q1_elasticity`] (`dofs = 3`)
+/// problem on an `nodes³` grid: node `(i, j, k)` at `(i, j, k)·h`, repeated for its DOFs.
+/// The input of [`Ordering::NestedDissection`](crate::sparse::Ordering::NestedDissection).
+pub fn grid_coords(nodes: u32, dofs: usize) -> Vec<[f64; 3]> {
+    let m = nodes as usize;
+    let h = 1.0 / (m.max(2) - 1) as f64;
+    (0..m.pow(3))
+        .flat_map(|p| {
+            let (i, j, k) = (p % m, (p / m) % m, p / (m * m));
+            std::iter::repeat_n([i as f64 * h, j as f64 * h, k as f64 * h], dofs)
+        })
+        .collect()
+}
+
+/// A TET10 vector problem on an L-bracket (CMP-10; a stand-in for the S13 "500 k DOF TET10
+/// bracket" until FEM-04 provides the meshed one).
+#[derive(Clone, Debug)]
+pub struct Bracket {
+    /// SPD matrix with the TET10 elasticity pattern (3 DOFs per node, row `3·node + c`).
+    pub k: SymCsr,
+    /// Load: `−h³` on every `z` DOF.
+    pub f: Vec<f64>,
+    /// Position of every row (node position repeated for its 3 DOFs), in bracket units.
+    pub coords: Vec<[f64; 3]>,
+}
+
+/// The L-bracket of [`tet10_bracket`]: a 4 × 2 × 0.5 base plate and a 0.5 × 2 × 3 upright
+/// sharing the corner, each with a through hole of radius 0.45.
+fn bracket_contains(p: [f64; 3]) -> bool {
+    let [x, y, z] = p;
+    let r2 = 0.45 * 0.45;
+    let in_y = (0.0..2.0).contains(&y);
+    let base = (0.0..4.0).contains(&x)
+        && (0.0..0.5).contains(&z)
+        && (x - 2.75).powi(2) + (y - 1.0).powi(2) >= r2;
+    let upright = (0.0..0.5).contains(&x)
+        && (0.0..3.0).contains(&z)
+        && (z < 0.5 || (y - 1.0).powi(2) + (z - 2.0).powi(2) >= r2);
+    in_y && (base || upright)
+}
+
+/// Kuhn subdivision of a cube: the 6 axis orders of the path 000 → 111.
+const KUHN: [[usize; 3]; 6] = [
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
+];
+
+/// TET10 L-bracket with `cells_per_unit` voxel cells per unit length, each split into the 6
+/// Kuhn tetrahedra (conforming), with quadratic (mid-edge) nodes.
+///
+/// The pattern is that of TET10 elasticity (every pair of nodes of a tetrahedron couples all
+/// 3 × 3 DOFs); the values are a stand-in, not elasticity: `(L ⊗ B)·h + h³·I`, where `L` is the
+/// node graph Laplacian weighted by the number of shared tetrahedra and `B` the SPD 3 × 3
+/// block with 2 on the diagonal and 1 off it. SPD, so `Cholesky` applies; a factorisation's
+/// fill and cost depend only on the pattern. Nodes are numbered lexicographically (`x`
+/// fastest).
+///
+/// # Panics
+/// If `cells_per_unit` is 0.
+pub fn tet10_bracket(cells_per_unit: u32) -> Bracket {
+    assert!(
+        cells_per_unit > 0,
+        "tet10_bracket needs at least 1 cell per unit"
+    );
+    let s = cells_per_unit as usize;
+    let h = 1.0 / s as f64;
+    let cells = [4 * s, 2 * s, 3 * s];
+    // Doubled lattice: corners at even, mid-edge nodes at odd coordinates.
+    let dims = cells.map(|c| 2 * c + 1);
+    let lattice = |p: [usize; 3]| p[0] + dims[0] * (p[1] + dims[1] * p[2]);
+    let used: Vec<[usize; 3]> = (0..cells[2])
+        .flat_map(|k| (0..cells[1]).flat_map(move |j| (0..cells[0]).map(move |i| [i, j, k])))
+        .filter(|c| bracket_contains(c.map(|v| (v as f64 + 0.5) * h)))
+        .collect();
+    let mut node_of = vec![u32::MAX; dims.iter().product()];
+    for c in &used {
+        for d in 0..27 {
+            let p = [2 * c[0] + d % 3, 2 * c[1] + (d / 3) % 3, 2 * c[2] + d / 9];
+            node_of[lattice(p)] = 0;
+        }
+    }
+    let mut coords_n = Vec::new();
+    for (idx, slot) in node_of.iter_mut().enumerate() {
+        if *slot == 0 {
+            *slot = coords_n.len() as u32;
+            let p = [
+                idx % dims[0],
+                (idx / dims[0]) % dims[1],
+                idx / (dims[0] * dims[1]),
+            ];
+            coords_n.push(p.map(|v| v as f64 * h / 2.0));
+        }
+    }
+    let nn = coords_n.len();
+
+    // Node pairs (p ≤ q) of every tetrahedron, one entry per shared tetrahedron.
+    let node_of = &node_of;
+    let mut pairs: Vec<(u32, u32)> = used
+        .par_iter()
+        .flat_map_iter(|c| {
+            let base = c.map(|v| 2 * v);
+            KUHN.iter().flat_map(move |order| {
+                let mut v = [[0usize; 3]; 4];
+                for t in 1..4 {
+                    v[t] = v[t - 1];
+                    v[t][order[t - 1]] += 2;
+                }
+                let mut nodes = [0u32; 10];
+                let mut idx = 0;
+                for a in 0..4 {
+                    for b in a..4 {
+                        let p = [0, 1, 2].map(|ax| base[ax] + (v[a][ax] + v[b][ax]) / 2);
+                        nodes[idx] = node_of[lattice(p)];
+                        idx += 1;
+                    }
+                }
+                (0..10).flat_map(move |x| {
+                    (x..10).map(move |y| (nodes[x].min(nodes[y]), nodes[x].max(nodes[y])))
+                })
+            })
+        })
+        .collect();
+    pairs.par_sort_unstable();
+
+    // Weighted node graph: (q, shared tetrahedra) per node p, q ≥ p, sorted.
+    let mut adj: Vec<Vec<(u32, u32)>> = vec![Vec::new(); nn];
+    for run in pairs.chunk_by(|x, y| x == y) {
+        let (p, q) = run[0];
+        adj[p as usize].push((q, run.len() as u32));
+    }
+    drop(pairs);
+    let mut weight_sum = vec![0.0f64; nn];
+    for (p, list) in adj.iter().enumerate() {
+        for &(q, w) in list {
+            if q as usize != p {
+                weight_sum[p] += f64::from(w);
+                weight_sum[q as usize] += f64::from(w);
+            }
+        }
+    }
+
+    let n = 3 * nn;
+    let mut row_ptr = Vec::with_capacity(n + 1);
+    row_ptr.push(0usize);
+    let mut cols = Vec::new();
+    let mut vals = Vec::new();
+    for (p, list) in adj.iter().enumerate() {
+        for c in 0..3 {
+            for &(q, w) in list {
+                let q = q as usize;
+                let lap = if q == p { weight_sum[p] } else { -f64::from(w) };
+                for d in 0..3 {
+                    if q == p && d < c {
+                        continue;
+                    }
+                    let block = if c == d { 2.0 } else { 1.0 };
+                    let shift = if q == p && d == c { h.powi(3) } else { 0.0 };
+                    cols.push((3 * q + d) as u32);
+                    vals.push(lap * block * h + shift);
+                }
+            }
+            row_ptr.push(cols.len());
+        }
+    }
+    #[allow(
+        clippy::expect_used,
+        reason = "the generated pattern is valid by construction"
+    )]
+    let k = SymCsr::from_raw(n, row_ptr, cols, vals).expect("valid pattern");
+    let f = (0..n)
+        .map(|r| if r % 3 == 2 { -h.powi(3) } else { 0.0 })
+        .collect();
+    let coords = coords_n
+        .iter()
+        .flat_map(|&p| std::iter::repeat_n(p, 3))
+        .collect();
+    Bracket { k, f, coords }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bracket_has_the_tet10_pattern() {
+        let b = tet10_bracket(2);
+        let n = b.k.n();
+        assert_eq!(n, b.coords.len());
+        assert_eq!(n, b.f.len());
+        assert_eq!(n % 3, 0);
+        // A row couples at most to the 27-point doubled-lattice neighbourhood of its own and
+        // the adjacent cells: ≤ 125 nodes.
+        let mut full = vec![0usize; n];
+        let rp = b.k.row_ptr();
+        for r in 0..n {
+            for &c in &b.k.cols()[rp[r]..rp[r + 1]] {
+                full[r] += 1;
+                if c as usize != r {
+                    full[c as usize] += 1;
+                }
+            }
+        }
+        assert!(full.iter().all(|&d| (3..=3 * 125).contains(&d)));
+        // Rigid translation in x: K·e_x = h³·e_x (the Laplacian part vanishes).
+        let x: Vec<f64> = (0..n).map(|r| if r % 3 == 0 { 1.0 } else { 0.0 }).collect();
+        let mut y = vec![0.0; n];
+        b.k.spmv(&x, &mut y);
+        let h3 = 0.5f64.powi(3);
+        for (r, v) in y.iter().enumerate() {
+            let want = if r % 3 == 0 { h3 } else { 0.0 };
+            assert!((v - want).abs() < 1e-12, "row {r}: {v}");
+        }
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp, reason = "exact grid positions")]
+    fn grid_coords_follow_the_numbering() {
+        let c = grid_coords(3, 3);
+        assert_eq!(c.len(), 81);
+        // Node (1, 2, 0) = 1 + 3·2 = 7: rows 21..24.
+        assert_eq!(c[22], [0.5, 1.0, 0.0]);
+    }
 
     #[test]
     fn sizes_match_the_design_note() {

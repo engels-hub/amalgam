@@ -9,7 +9,8 @@
 //! - [`prim`]: reduce, dot, segmented reduce, scan, compaction, radix sort and `AtomicCounter`
 //!   (feature `gpu`), plus their CPU references in `prim::cpu`.
 //! - [`sparse`]: `SymCsr`, symbolic analysis, Cholesky and Bunch–Kaufman LDLᵀ on faer.
-//! - [`testprob`]: structured Q1 Poisson and elasticity problems for tests and benches.
+//! - [`testprob`]: structured Q1 Poisson and elasticity problems and a TET10 bracket for tests
+//!   and benches.
 //!
 //! Numeric kernels are written once over the WGSL alias `real`, which the prelude binds to f64
 //! on a device with `SHADER_F64` and to f32 elsewhere (ADR-004 note of 2026-11-09).

@@ -10,8 +10,13 @@
 //!
 //! Timing bars are asserted only under `AMG_STRICT_TIMING=1` (release build, idle machine).
 //! The criterion part repeats analyse + factor + solve at 500 k DOF (10 samples). Not run in CI.
-//! `AMG_BENCH_ORDERING=nd` replaces AMD with a geometric nested dissection of the node grid
-//! (input for CMP-10; about 2.2x less factor memory at 500 k).
+//! `AMG_BENCH_ORDERING=nd` replaces AMD with `Ordering::NestedDissection` (CMP-10) and
+//! `AMG_BENCH_ORDERING=nd-grid` with the hand-written grid dissection CMP-03 measured.
+//!
+//! CMP-10: `AMG_BENCH_BRACKET=1` adds the 0.5 M DOF `tet10_bracket(15)` (analyse + factor +
+//! solve, same ordering switch). `AMG_BENCH_ONCE=1` skips the criterion repeats (one timed run
+//! per case; the 500 k factorisations take tens of seconds to minutes each); `AMG_BENCH_GRID=0`
+//! skips the `q1_elasticity(55)` case.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "benchmark code")]
 
@@ -19,7 +24,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use amg_compute::sparse::{Cholesky, FactorOpts, Ordering, SymCsr, SymbolicFactor};
-use amg_compute::testprob::{Support, q1_elasticity};
+use amg_compute::testprob::{Support, grid_coords, q1_elasticity, tet10_bracket};
 use amg_jobs::JobCtx;
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -62,20 +67,34 @@ fn grid_nested_dissection(m: usize) -> Vec<u32> {
     out
 }
 
-/// Factor options for an `nodes³` grid: AMD, or ND with `AMG_BENCH_ORDERING=nd`.
+/// The `AMG_BENCH_ORDERING` switch: `amd` (default), `nd`, `nd-grid`.
+fn ordering_name() -> String {
+    std::env::var("AMG_BENCH_ORDERING").unwrap_or_else(|_| "amd".into())
+}
+
+fn once() -> bool {
+    std::env::var("AMG_BENCH_ONCE").is_ok_and(|v| v == "1")
+}
+
+/// Factor options for an `nodes³` grid: AMD, or ND with `AMG_BENCH_ORDERING=nd` / `nd-grid`.
 fn opts(nodes: usize) -> (FactorOpts, &'static str) {
-    if std::env::var("AMG_BENCH_ORDERING").is_ok_and(|v| v == "nd") {
-        let ordering = Ordering::Custom(grid_nested_dissection(nodes));
-        (
-            FactorOpts {
-                ordering,
-                ..Default::default()
+    let (ordering, name) = match ordering_name().as_str() {
+        "nd" => (
+            Ordering::NestedDissection {
+                coords: grid_coords(nodes as u32, 3),
             },
             "ND",
-        )
-    } else {
-        (FactorOpts::default(), "AMD")
-    }
+        ),
+        "nd-grid" => (Ordering::Custom(grid_nested_dissection(nodes)), "ND-grid"),
+        _ => (Ordering::Amd, "AMD"),
+    };
+    (
+        FactorOpts {
+            ordering,
+            ..Default::default()
+        },
+        name,
+    )
 }
 
 fn norm(v: &[f64]) -> f64 {
@@ -170,6 +189,10 @@ fn report(label: &str, k: &SymCsr, r: &Run, sym: &SymbolicFactor) {
 }
 
 fn elasticity_500k(c: &mut Criterion) {
+    if std::env::var("AMG_BENCH_GRID").is_ok_and(|v| v == "0") {
+        eprintln!("500k: skipped (AMG_BENCH_GRID=0)");
+        return;
+    }
     let (k, _, f) = q1_elasticity(55, Support::Clamped, 0.3);
     assert_eq!(k.n(), 499_125);
     let (o, name) = opts(55);
@@ -219,6 +242,9 @@ fn elasticity_500k(c: &mut Criterion) {
         );
     }
 
+    if once() {
+        return;
+    }
     let mut g = c.benchmark_group("sparse_direct");
     g.sample_size(10)
         .warm_up_time(Duration::from_millis(1))
@@ -266,5 +292,47 @@ fn elasticity_1m(_: &mut Criterion) {
     );
 }
 
-criterion_group!(benches, elasticity_500k, elasticity_1m);
+/// CMP-10: the 0.5 M DOF TET10 bracket (stand-in for the S13 bracket); opt-in
+/// (`AMG_BENCH_BRACKET=1`). Factor time is the Done-when 2 input (ND vs AMD).
+fn bracket_500k(c: &mut Criterion) {
+    if !std::env::var("AMG_BENCH_BRACKET").is_ok_and(|v| v == "1") {
+        eprintln!("bracket: skipped (set AMG_BENCH_BRACKET=1)");
+        return;
+    }
+    let b = tet10_bracket(15);
+    let (ordering, name) = match ordering_name().as_str() {
+        "nd" | "nd-grid" => (
+            Ordering::NestedDissection {
+                coords: b.coords.clone(),
+            },
+            "ND",
+        ),
+        _ => (Ordering::Amd, "AMD"),
+    };
+    eprintln!("bracket: ordering {name}");
+    let o = FactorOpts {
+        ordering,
+        ..Default::default()
+    };
+    let (r, chol, _) = run(&b.k, &b.f, &o);
+    report("bracket", &b.k, &r, chol.symbolic());
+    assert!(r.residual <= 1e-10, "residual {:e} above 1e-10", r.residual);
+    drop(chol);
+    if once() {
+        return;
+    }
+    let mut g = c.benchmark_group("sparse_direct");
+    g.sample_size(10)
+        .warm_up_time(Duration::from_millis(1))
+        .measurement_time(Duration::from_secs(1));
+    g.bench_function("tet10_bracket_15_analyse_factor_solve", |bch| {
+        bch.iter(|| {
+            let (r, chol, _) = run(&b.k, &b.f, &o);
+            black_box((r.residual, chol.pivots()));
+        });
+    });
+    g.finish();
+}
+
+criterion_group!(benches, elasticity_500k, elasticity_1m, bracket_500k);
 criterion_main!(benches);

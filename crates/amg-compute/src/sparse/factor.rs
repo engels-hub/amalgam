@@ -25,7 +25,7 @@ use super::SymCsr;
 use crate::{ComputeError, ComputeResult};
 
 /// Fill-reducing ordering of the symbolic analysis.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub enum Ordering {
     /// Approximate minimum degree (faer's AMD).
     #[default]
@@ -34,7 +34,49 @@ pub enum Ordering {
     Identity,
     /// `perm[new] = old`: row `perm[k]` of the input is eliminated `k`-th.
     Custom(Vec<u32>),
+    /// Geometric nested dissection (CMP-10) from the position of every row (`coords[row]`, any length unit;
+    /// the DOFs of one node repeat its position, see [`Ordering::nested_dissection`]). On 3-D
+    /// solid meshes it gives about half of AMD's factor non-zeros and a fraction of its flops
+    /// (S15 Refinement log, CMP-10); prefer it whenever node positions are known.
+    NestedDissection {
+        /// One position per row.
+        coords: Vec<[f64; 3]>,
+    },
 }
+
+impl Ordering {
+    /// [`Ordering::NestedDissection`] for `dofs_per_node` unknowns per node, numbered
+    /// node-major (row `dofs_per_node · node + c`), from the node positions.
+    pub fn nested_dissection(node_coords: &[[f64; 3]], dofs_per_node: usize) -> Self {
+        let coords = node_coords
+            .iter()
+            .flat_map(|&p| std::iter::repeat_n(p, dofs_per_node))
+            .collect();
+        Ordering::NestedDissection { coords }
+    }
+}
+
+// Coordinates compare bit-wise, so `Eq` holds (a NaN position equals itself).
+impl PartialEq for Ordering {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Ordering::Amd, Ordering::Amd) | (Ordering::Identity, Ordering::Identity) => true,
+            (Ordering::Custom(a), Ordering::Custom(b)) => a == b,
+            (
+                Ordering::NestedDissection { coords: a },
+                Ordering::NestedDissection { coords: b },
+            ) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b)
+                        .all(|(p, q)| p.iter().zip(q).all(|(x, y)| x.to_bits() == y.to_bits()))
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Ordering {}
 
 /// Options of [`SymbolicFactor::analyze`]; they apply to every factorisation of that analysis.
 #[derive(Clone, Debug)]
@@ -55,6 +97,18 @@ impl Default for FactorOpts {
             ordering: Ordering::Amd,
             pivot_warn: 1e-12,
             threads: None,
+        }
+    }
+}
+
+impl FactorOpts {
+    /// The default for mesh problems (CMP-10 Done-when 2): [`Ordering::NestedDissection`] from
+    /// the node positions (see [`Ordering::nested_dissection`]), other options at their
+    /// defaults. [`FactorOpts::default`] stays [`Ordering::Amd`] because it has no positions.
+    pub fn for_mesh(node_coords: &[[f64; 3]], dofs_per_node: usize) -> Self {
+        Self {
+            ordering: Ordering::nested_dissection(node_coords, dofs_per_node),
+            ..Self::default()
         }
     }
 }
@@ -147,7 +201,8 @@ impl SymbolicFactor {
     ///
     /// # Errors
     /// [`ComputeError::Shape`] for an empty matrix; [`ComputeError::InvalidMatrix`] for an
-    /// invalid custom ordering or when faer runs out of memory or index range.
+    /// invalid custom ordering, nested-dissection coordinates of the wrong length or non-finite,
+    /// or when faer runs out of memory or index range.
     pub fn analyze(a: &SymCsr, opts: &FactorOpts) -> ComputeResult<Arc<SymbolicFactor>> {
         ANALYSES.with(|c| c.set(c.get() + 1));
         let n = a.n();
@@ -161,12 +216,15 @@ impl SymbolicFactor {
         // the symbolic phase (0.23.2), so the identity is passed as an explicit permutation.
         let (fwd, inv) = match &opts.ordering {
             Ordering::Custom(p) => custom_perm(p, n)?,
+            Ordering::NestedDissection { coords } => {
+                custom_perm(&super::nd::nested_dissection(a, coords)?, n)?
+            }
             Ordering::Identity => ((0..n).collect(), (0..n).collect()),
             Ordering::Amd => (Vec::new(), Vec::new()),
         };
         let ord = match &opts.ordering {
             Ordering::Amd => SymmetricOrdering::Amd,
-            Ordering::Identity | Ordering::Custom(_) => {
+            Ordering::Identity | Ordering::Custom(_) | Ordering::NestedDissection { .. } => {
                 SymmetricOrdering::Custom(PermRef::new_checked(&fwd, &inv, n))
             }
         };
