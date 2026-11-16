@@ -1,0 +1,29 @@
+# Golden metrics for mesh/feature_shell_robust. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+hausdorff_abs = 0.001
+
+[metrics]
+volume = 2012.3853879144674
+area = 2046.228316976434
+vertices = 1845
+triangles = 3682
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 4
+
+[metrics.bbox]
+min = [
+    -10.024002118121793,
+    -9.996389447624992,
+    -10.0047478656757,
+]
+max = [
+    9.99496353145581,
+    9.9314128945,
+    9.979848711564934,
+]

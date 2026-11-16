@@ -1,0 +1,29 @@
+# Golden metrics for mesh/feature_separate_0. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+hausdorff_abs = 0.001
+
+[metrics]
+volume = 896.9920164921023
+area = 450.2337384229181
+vertices = 642
+triangles = 1280
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -6.0,
+    -6.0,
+    -6.0,
+]
+max = [
+    6.0,
+    6.0,
+    6.0,
+]
