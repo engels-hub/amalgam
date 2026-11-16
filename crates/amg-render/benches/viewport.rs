@@ -22,6 +22,11 @@
 //! <= 1 ms GPU (p99 difference), asserted for the one-plane case; the corner cut is reported.
 //! `AMG_BENCH_SECTIONS_ONLY=1` runs only these cases.
 //!
+//! RND-08 measures field and analysis shading on the 5 M sphere in `Shaded` against the material
+//! baseline: a Rainbow scalar field with isolines, the same banded, an animated deformation,
+//! zebra and the overhang mode. Budget: the RND-02 one (GPU p99 <= 9 ms, wall p99 <= 16.6 ms),
+//! asserted for the field case. `AMG_BENCH_FIELDS_ONLY=1` runs only these cases.
+//!
 //! RND-04 measures picking on the 5 M sphere with its 100 k edge segments in
 //! `ShadedVisibleEdges`: a point pick at the view centre on every orbit frame (budget: the pick
 //! passes cost GPU p99 <= 2 ms, from `Renderer::drain_pick_timings`), a full-view crossing
@@ -43,9 +48,11 @@ use amg_core::{Dir3, Plane, Point3, Transform, Vec3};
 use amg_jobs::JobCtx;
 use amg_jobs::gpu::{Gpu, GpuConfig};
 use amg_render::{
-    Camera, EdgeData, Instance, Lighting, MeshData, PickBackend, PickFilter, PickId, PickRequest,
-    PickTicket, Polyline, Projection, RectMode, Renderer, RendererConfig, SectionPlane, ViewId,
-    ViewStyle, VisualStyle, upload_edges, upload_mesh, wgpu,
+    Analysis, Animation, Camera, ColorMap, Deformation, EdgeData, FieldBinding, Instance,
+    InstanceKey, Lighting, MeshData, PickBackend, PickFilter, PickId, PickRequest, PickTicket,
+    Polyline, Projection, RectMode, Renderer, RendererConfig, SectionPlane, Shading, ViewId,
+    ViewStyle, VisualStyle, upload_edges, upload_mesh, upload_scalar_field, upload_vector_field,
+    wgpu,
 };
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -241,7 +248,10 @@ fn displaced_icosphere(min_tris: usize) -> MeshData {
 struct Fixture {
     renderer: Renderer,
     view: ViewId,
+    inst: InstanceKey,
     triangles: u64,
+    /// Advance the animation time every frame (RND-08 deformation).
+    animate: bool,
 }
 
 /// What a fixture draws besides the mesh.
@@ -298,7 +308,7 @@ fn fixture_with(
         let gpu_edges = upload_edges(gpu, e, &JobCtx::detached()).unwrap();
         inst.edges = Some(renderer.scene_mut().insert_edges(gpu_edges));
     }
-    renderer.scene_mut().add_instance(inst);
+    let inst = renderer.scene_mut().add_instance(inst);
     let view = renderer.create_view(size);
     renderer.view_mut(view).unwrap().style = ViewStyle {
         lighting: Lighting::Studio,
@@ -310,7 +320,9 @@ fn fixture_with(
     Fixture {
         renderer,
         view,
+        inst,
         triangles,
+        animate: false,
     }
 }
 
@@ -354,6 +366,9 @@ fn run(f: &mut Fixture, gpu: &Gpu, frames: usize) -> Run {
             break;
         }
         f.renderer.view_mut(f.view).unwrap().camera = orbit(i, frames);
+        if f.animate {
+            f.renderer.set_animation_time(i as f32 / 60.0);
+        }
         let mut encoder = device.create_command_encoder(&Default::default());
         let stats = black_box(f.renderer.encode(f.view, &mut encoder).unwrap());
         out.edge_segments = out.edge_segments.max(stats.edge_segments);
@@ -417,6 +432,16 @@ fn orbit_budgets(c: &mut Criterion) {
         section_budgets(&gpu, size, frames);
         return;
     }
+    // `AMG_BENCH_FIELDS_ONLY=1`: only the RND-08 field and analysis cases.
+    if std::env::var("AMG_BENCH_FIELDS_ONLY").is_ok_and(|v| v == "1") {
+        let (size, frames) = if test_mode() {
+            ([64, 64], 5)
+        } else {
+            (SIZE, FRAMES)
+        };
+        field_budgets(&gpu, size, frames);
+        return;
+    }
     let (size, frames, sizes) = if test_mode() {
         ([64, 64], 5, vec![("20k", 20_000usize)])
     } else {
@@ -476,6 +501,7 @@ fn orbit_budgets(c: &mut Criterion) {
 
     edge_budgets(&gpu, size, frames);
     section_budgets(&gpu, size, frames);
+    field_budgets(&gpu, size, frames);
     pick_budgets(&gpu, size, frames);
 
     // Criterion: wall time of one synchronous frame (encode, submit, wait).
@@ -641,6 +667,115 @@ fn section_budgets(gpu: &Arc<Gpu>, size: [u32; 2], frames: usize) {
                     );
                 }
             }
+        }
+    }
+}
+
+/// RND-08 Done-when 8: field shading on 5 M tris stays inside the RND-02 budget.
+fn field_budgets(gpu: &Arc<Gpu>, size: [u32; 2], frames: usize) {
+    let tris = if test_mode() { 20_000 } else { 5_000_000 };
+    let mesh = displaced_icosphere(tris);
+    let scalar: Vec<f32> = mesh.positions.iter().map(|p| p[2]).collect();
+    // A breathing displacement along the radius, up to 5 mm.
+    let vector: Vec<[f32; 3]> = mesh
+        .positions
+        .iter()
+        .map(|p| {
+            let len = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt().max(1e-6);
+            [5.0 * p[0] / len, 5.0 * p[1] / len, 5.0 * p[2] / len]
+        })
+        .collect();
+    let (lo, hi) = scalar
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &v| {
+            (a.min(v), b.max(v))
+        });
+    let rainbow = |fields: (amg_render::FieldKey, amg_render::FieldKey), bands, deform: bool| {
+        let mut b = FieldBinding::new(Some(fields.0), (lo, hi));
+        b.map = ColorMap::Rainbow;
+        b.isolines = Some(10);
+        b.bands = bands;
+        if deform {
+            b.deformation = Some(Deformation {
+                field: fields.1,
+                scale: 1.0,
+                animation: Animation::Sine { period_s: 2.0 },
+            });
+        }
+        Shading::Field(b)
+    };
+    let cases: [(&str, u8); 6] = [
+        ("material", 0),
+        ("field (Rainbow, 10 isolines)", 1),
+        ("field banded (8 bands, 10 isolines)", 2),
+        ("field + animated deformation", 3),
+        ("zebra", 4),
+        ("overhang", 5),
+    ];
+    let mut baseline = None;
+    for (name, case) in cases {
+        let mut f = fixture(gpu, &mesh, None, size, false, SHADED);
+        let key = f.renderer.scene().instance(f.inst).unwrap().mesh.unwrap();
+        let gpu_mesh = f.renderer.scene().mesh_ref(key).unwrap();
+        let ctx = JobCtx::detached();
+        let s = upload_scalar_field(gpu, gpu_mesh, &scalar, &ctx).unwrap();
+        let v = upload_vector_field(gpu, gpu_mesh, &vector, &ctx).unwrap();
+        let fields = (
+            f.renderer.scene_mut().insert_field(s),
+            f.renderer.scene_mut().insert_field(v),
+        );
+        let shading = match case {
+            0 => Shading::Material,
+            1 => rainbow(fields, None, false),
+            2 => rainbow(fields, Some(8), false),
+            3 => rainbow(fields, None, true),
+            4 => Shading::Analysis(Analysis::Zebra {
+                stripes: 12,
+                vertical: false,
+                world_locked: false,
+            }),
+            _ => Shading::Analysis(Analysis::Overhang {
+                build_up: Dir3::Z,
+                critical: 45f64.to_radians(),
+                plate_height: -100.0,
+                plate_tol: 1.0,
+            }),
+        };
+        f.animate = case == 3;
+        f.renderer.scene_mut().instance_mut(f.inst).unwrap().shading = shading;
+        assert!(f.renderer.prepare_view(f.view));
+        run(&mut f, gpu, frames.min(60)); // warm-up
+        let r = run(&mut f, gpu, frames);
+        let (w50, w99) = (percentile(&r.wall_ms, 0.5), percentile(&r.wall_ms, 0.99));
+        let (g50, g99) = (percentile(&r.gpu_ms, 0.5), percentile(&r.gpu_ms, 0.99));
+        let mut passes: Vec<_> = r
+            .passes
+            .iter()
+            .map(|(k, v)| format!("{k} p50 {:.3}", percentile(v, 0.5)))
+            .collect();
+        passes.sort();
+        let extra = baseline.map_or(String::new(), |(b50, b99): (f64, f64)| {
+            format!(
+                "; vs material GPU p50 {:+.3} ms p99 {:+.3} ms",
+                g50 - b50,
+                g99 - b99
+            )
+        });
+        eprintln!(
+            "viewport fields {name} ({} tris) {}x{} 4x MSAA Studio Shaded: {} frames, wall p50 {w50:.3} ms p99 {w99:.3} ms; GPU p50 {g50:.3} ms p99 {g99:.3} ms ({} timed; {}){extra}",
+            f.triangles,
+            size[0],
+            size[1],
+            r.wall_ms.len(),
+            r.gpu_ms.len(),
+            passes.join(", ")
+        );
+        if baseline.is_none() {
+            baseline = Some((g50, g99));
+        }
+        if strict() && !test_mode() && case == 1 {
+            assert!(g99 <= 9.0, "5M field GPU p99 {g99:.3} ms > 9 ms");
+            assert!(w99 <= 16.6, "5M field wall p99 {w99:.3} ms > 16.6 ms");
         }
     }
 }

@@ -9,6 +9,9 @@ use amg_core::{Dir3, Point3, SlotMap};
 use amg_jobs::JobSystem;
 use amg_jobs::gpu::{Gpu, Readback};
 
+use crate::analysis::{
+    ANALYSIS_RECORD_BYTES, AnalysisOutput, analysis_bind_layout, create_lut, lut_sampler,
+};
 use crate::camera::{Camera, Projection};
 use crate::cull::{DrawPlan, Frustum, MeshDraw};
 use crate::highlight::HighlightLayer;
@@ -601,6 +604,24 @@ pub struct Renderer {
     line_plan: LinePlan,
     /// Pipeline of each draw of `line_plan`; `None` while it is being built.
     line_pipelines: Vec<Option<PipelineKey>>,
+    /// RND-08: group 1 of the analysis pipelines and its parts.
+    analysis_bind_layout: wgpu::BindGroupLayout,
+    analysis_bind: wgpu::BindGroup,
+    /// The [`InstanceGpu::generation`] `analysis_bind` was built for.
+    analysis_bind_generation: u64,
+    lut: wgpu::Texture,
+    lut_view: wgpu::TextureView,
+    lut_sampler: wgpu::Sampler,
+    /// x = animation time (16-byte uniform).
+    analysis_globals: wgpu::Buffer,
+    /// Groups 2/3 when an analysis pipeline has no scalar or displacement field.
+    dummy_field_bind: wgpu::BindGroup,
+    analysis_output: AnalysisOutput,
+    animation_time: f32,
+    /// The animation time in `analysis_globals`; `None` before the first write.
+    written_time: Option<f32>,
+    /// Cumulative bytes written to the analysis record buffer.
+    analysis_bytes_uploaded: u64,
     /// Group 1 of the vertex-pulling face pick (indices, positions).
     pull_bind_layout: wgpu::BindGroupLayout,
     /// The pick id and depth targets, for the pick cap depth pass.
@@ -704,6 +725,7 @@ impl Renderer {
         let post_bind_layout = post_bind_layout(device);
         let final_bind_layout = texture_bind_layout(device, "amg final");
         let instance_gpu = InstanceGpu::new(device, INITIAL_INSTANCE_CAPACITY, 0);
+        let analysis_layout = analysis_bind_layout(device);
 
         let mut core_timings = Vec::new();
         let start = Instant::now();
@@ -716,6 +738,7 @@ impl Renderer {
                 geometry: &geometry_bind_layout,
                 silhouette: [&silhouette_bind_layouts[0], &silhouette_bind_layouts[1]],
                 cap_marks: [&cap_marks_bind_layouts[0], &cap_marks_bind_layouts[1]],
+                analysis: &analysis_layout,
                 pull: &pull_bind_layout,
                 pick_targets: &pick_targets_bind_layout,
             },
@@ -761,6 +784,31 @@ impl Renderer {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let lut = create_lut(&gpu);
+        let lut_view = lut.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("amg colormap LUT"),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let lut_sampler = lut_sampler(device);
+        let analysis_globals = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("amg analysis globals"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let analysis_bind = analysis_bind_group(
+            device,
+            &analysis_layout,
+            &instance_gpu,
+            &lut_view,
+            &lut_sampler,
+            &analysis_globals,
+        );
+        let dummy_field = storage_buffer(device, "amg no field", 16);
+        // Binding 1 (pick sub-ids, RND-04) is unused by the analysis shader; bind the same buffer.
+        let dummy_field_bind =
+            geometry_bind(device, &geometry_bind_layout, &dummy_field, &dummy_field);
         let total: f64 = core_timings.iter().map(|t| t.ms).sum();
         tracing::debug!(
             ms = total,
@@ -794,6 +842,18 @@ impl Renderer {
             group_pipelines: Vec::new(),
             line_plan: LinePlan::default(),
             line_pipelines: Vec::new(),
+            analysis_bind_layout: analysis_layout,
+            analysis_bind,
+            analysis_bind_generation: 0,
+            lut,
+            lut_view,
+            lut_sampler,
+            analysis_globals,
+            dummy_field_bind,
+            analysis_output: AnalysisOutput::Lit,
+            animation_time: 0.0,
+            written_time: None,
+            analysis_bytes_uploaded: 0,
             pull_bind_layout,
             pick_targets_bind_layout,
             pick_radius: cfg.pick_radius_px,
@@ -810,6 +870,42 @@ impl Renderer {
     /// is on). Otherwise they draw their edge set (feature edges).
     pub fn triangle_wireframe(&self) -> bool {
         self.triangle_wire
+    }
+
+    /// Sets the animation time τ (seconds) of animated deformations ([`crate::Animation`]).
+    /// One 16-byte uniform write on the next `encode`; the app advances it every frame while
+    /// [`RenderScene::is_animating`].
+    pub fn set_animation_time(&mut self, seconds: f32) {
+        self.animation_time = seconds;
+    }
+
+    /// The animation time τ, seconds.
+    pub fn animation_time(&self) -> f32 {
+        self.animation_time
+    }
+
+    /// Test mode of the analysis and field pipelines: unlit colours or per-fragment classes
+    /// ([`AnalysisOutput`]) instead of lit colours. Takes effect on the next `encode` (the
+    /// variants are built lazily like any other).
+    pub fn set_analysis_output(&mut self, out: AnalysisOutput) {
+        self.analysis_output = out;
+    }
+
+    /// The analysis output mode.
+    pub fn analysis_output(&self) -> AnalysisOutput {
+        self.analysis_output
+    }
+
+    /// Total bytes written to the analysis record buffer (128 per changed instance).
+    pub fn analysis_bytes_uploaded(&self) -> u64 {
+        self.analysis_bytes_uploaded
+    }
+
+    /// The colormap LUT: `Rgba8UnormSrgb`, 256 × 1, one layer per [`crate::ColorMap`] in
+    /// [`crate::ColorMap::ALL`] order, with `COPY_SRC` (tests compare it to
+    /// [`crate::colormap_lut`]).
+    pub fn colormap_lut_texture(&self) -> &wgpu::Texture {
+        &self.lut
     }
 
     /// Time spent creating the shader modules and each core pipeline in [`Renderer::new`].
@@ -898,8 +994,34 @@ impl Renderer {
             (self.active_samples, self.active_prepass),
             (self.requested_samples, self.requested_prepass),
         ];
+        // Analysis programmes the scene's instances use, per geometry kind.
+        let mut shades = Vec::new();
+        for inst in self.scene.table().instances() {
+            let shade = self.scene.group_shade(inst, self.analysis_output);
+            let Some(mesh) = inst.mesh.and_then(|k| self.scene.mesh(k)) else {
+                continue;
+            };
+            if shade.key.is_material() {
+                continue;
+            }
+            let kind = (
+                shade.key,
+                style.flat_shading || !mesh.has_normals(),
+                !mesh.is_closed(),
+            );
+            if !shades.contains(&kind) {
+                shades.push(kind);
+            }
+        }
         for (samples, prepass) in configs {
             for clip in clip_modes.iter().copied() {
+                for &(shade, flat, double_sided) in &shades {
+                    self.variants.request(
+                        PipelineKey::mesh(style.lighting, flat, double_sided, false, samples)
+                            .with_clip(clip)
+                            .with_shade(shade),
+                    );
+                }
                 for flat in [false, true] {
                     for double_sided in [false, true] {
                         // Clipped groups skip the pre-pass and test depth themselves.
@@ -1132,6 +1254,7 @@ impl Renderer {
         self.scene.flush_instances(&mut self.runs);
         let records = self.scene.table().records();
         let line_records = self.scene.table().line_records();
+        let analysis_records = self.scene.table().analysis_records();
         let len = records.len() as u32;
         let device = self.gpu.device();
         let queue = self.gpu.queue();
@@ -1145,7 +1268,13 @@ impl Renderer {
                 0,
                 bytemuck::cast_slice(line_records),
             );
+            queue.write_buffer(
+                &self.instance_gpu.analysis,
+                0,
+                bytemuck::cast_slice(analysis_records),
+            );
             self.instance_bytes_uploaded += u64::from(len) * RECORD_BYTES;
+            self.analysis_bytes_uploaded += u64::from(len) * ANALYSIS_RECORD_BYTES;
         } else {
             for run in &self.runs {
                 let range = run.start as usize..run.end as usize;
@@ -1160,9 +1289,15 @@ impl Renderer {
                 queue.write_buffer(
                     &self.instance_gpu.lines,
                     u64::from(run.start) * LINE_RECORD_BYTES,
-                    bytemuck::cast_slice(&line_records[range]),
+                    bytemuck::cast_slice(&line_records[range.clone()]),
+                );
+                queue.write_buffer(
+                    &self.instance_gpu.analysis,
+                    u64::from(run.start) * ANALYSIS_RECORD_BYTES,
+                    bytemuck::cast_slice(&analysis_records[range]),
                 );
                 self.instance_bytes_uploaded += part.len() as u64 * RECORD_BYTES;
+                self.analysis_bytes_uploaded += part.len() as u64 * ANALYSIS_RECORD_BYTES;
             }
         }
         let (states, revision) = self.scene.highlight_states();
@@ -1181,12 +1316,108 @@ impl Renderer {
             }
             self.instance_gpu.states_revision = revision;
         }
+        if self.analysis_bind_generation != self.instance_gpu.generation {
+            self.analysis_bind = analysis_bind_group(
+                device,
+                &self.analysis_bind_layout,
+                &self.instance_gpu,
+                &self.lut_view,
+                &self.lut_sampler,
+                &self.analysis_globals,
+            );
+            self.analysis_bind_generation = self.instance_gpu.generation;
+        }
+        if self.written_time != Some(self.animation_time) {
+            queue.write_buffer(
+                &self.analysis_globals,
+                0,
+                bytemuck::cast_slice(&[self.animation_time, 0.0, 0.0, 0.0]),
+            );
+            self.written_time = Some(self.animation_time);
+        }
     }
 
     /// Total bytes written to the instance storage buffer so far. Changing one instance adds
     /// exactly 128 on the next `encode`; an unchanged scene adds nothing.
     pub fn instance_bytes_uploaded(&self) -> u64 {
         self.instance_bytes_uploaded
+    }
+    /// Test readback (RND-08 Done-when 6): the mesh-local positions of instance `k` after its
+    /// deformation, computed on the GPU by the WGSL `deformed_position` the vertex shader uses,
+    /// from the renderer's own buffers (mesh positions, displacement field, the instance's
+    /// analysis record, the animation time). Flushes pending instance changes first. Blocking;
+    /// test and job threads only.
+    ///
+    /// # Errors
+    /// [`RenderError::UnknownKey`] for a removed instance or mesh; [`RenderError::InvalidData`]
+    /// when the instance has no live deformation; [`RenderError::Gpu`] on device loss.
+    pub fn deformed_positions(&mut self, k: InstanceKey) -> Result<Vec<[f32; 3]>, RenderError> {
+        use crate::analysis::testing::{Params, run, storage_init, uniform_init};
+
+        self.sync_instances();
+        let slot = self
+            .scene
+            .table()
+            .slot(k)
+            .ok_or(RenderError::UnknownKey("instance"))?;
+        let inst = self
+            .scene
+            .instance(k)
+            .ok_or(RenderError::UnknownKey("instance"))?;
+        let mesh = inst
+            .mesh
+            .and_then(|m| self.scene.mesh(m))
+            .ok_or(RenderError::UnknownKey("mesh"))?;
+        let shade = self.scene.group_shade(inst, AnalysisOutput::Lit);
+        let field = shade.fields[1]
+            .and_then(|f| self.scene.field(f))
+            .ok_or_else(|| RenderError::InvalidData("the instance has no deformation".into()))?;
+        let n = mesh.vertex_count();
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+        let gpu = &self.gpu;
+        let bytes = u64::from(n) * 12;
+        let positions = storage_init(gpu, "amg deform positions", &[]);
+        let positions = if positions.size() >= bytes {
+            positions
+        } else {
+            storage_init(gpu, "amg deform positions", &vec![0u8; bytes as usize])
+        };
+        let mut encoder = gpu
+            .device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("amg deform readback"),
+            });
+        encoder.copy_buffer_to_buffer(&mesh.positions, 0, &positions, 0, bytes);
+        gpu.queue().submit([encoder.finish()]);
+        let out = storage_init(gpu, "amg deformed", &vec![0u8; bytes as usize]);
+        let params = uniform_init(
+            gpu,
+            Params {
+                count: n,
+                slot,
+                layer: 0,
+                pad: 0,
+            },
+        );
+        let raw = run(
+            gpu,
+            "DEFORM",
+            "deform_kernel",
+            &[
+                positions.as_entire_binding(),
+                field.buffer.as_entire_binding(),
+                self.instance_gpu.analysis.as_entire_binding(),
+                self.analysis_globals.as_entire_binding(),
+                out.as_entire_binding(),
+                params.as_entire_binding(),
+            ],
+            n,
+            &out,
+            bytes,
+        )?;
+        Ok(bytemuck::pod_collect_to_vec::<u8, [f32; 3]>(&raw))
     }
 
     /// Records all passes for `id` into `encoder`. Never blocks. A view with a zero dimension
@@ -1248,6 +1479,9 @@ impl Renderer {
         let group_pipelines = &mut self.group_pipelines;
         let line_pipelines = &mut self.line_pipelines;
         let geometry_layout = &self.geometry_bind_layout;
+        let analysis_bind = &self.analysis_bind;
+        let dummy_field_bind = &self.dummy_field_bind;
+        let analysis_output = self.analysis_output;
         let slot = self
             .views
             .get_mut(id)
@@ -1317,6 +1551,7 @@ impl Renderer {
                         closed: m.is_closed(),
                     })
             },
+            |inst| scene.group_shade(inst, analysis_output),
             &frustum,
             camera.eye,
             slot.view.layers,
@@ -1336,10 +1571,12 @@ impl Renderer {
         let mut group_prepass = Vec::with_capacity(plan.groups.len());
         if shade {
             for g in &plan.groups {
-                let equal = prepass && !g.clipped;
+                // Analysis groups skip the pre-pass too (deformation moves their depth).
+                let equal = prepass && !g.clipped && g.shade.key.is_material();
                 let want =
                     PipelineKey::mesh(style.lighting, g.flat, g.double_sided, equal, samples)
-                        .with_clip(g.clipped);
+                        .with_clip(g.clipped)
+                        .with_shade(g.shade.key);
                 let core =
                     PipelineKey::mesh(Lighting::Studio, g.flat, g.double_sided, equal, samples);
                 let chosen = if variants.has(want) {
@@ -1621,6 +1858,20 @@ impl Renderer {
                     };
                     pass.set_pipeline(pipeline);
                     bound = Some(key);
+                }
+                if key.is_analysis() {
+                    pass.set_bind_group(1, analysis_bind, &[]);
+                    for (group, field) in [(2, group.shade.fields[0]), (3, group.shade.fields[1])] {
+                        let bind =
+                            field
+                                .and_then(|k| scene.field(k))
+                                .map_or(dummy_field_bind, |f| {
+                                    f.bind.get_or_init(|| {
+                                        geometry_bind(device, geometry_layout, &f.buffer, &f.buffer)
+                                    })
+                                });
+                        pass.set_bind_group(group, bind, &[]);
+                    }
                 }
                 pass.set_vertex_buffer(0, mesh.positions.slice(..));
                 if let Some(n) = mesh.normals.as_ref().filter(|_| !group.flat) {
@@ -2050,12 +2301,13 @@ fn default_camera() -> Camera {
     }
 }
 
-/// The scene-wide instance storage buffers: 128-byte instance records and the parallel 96-byte
-/// line records.
+/// The scene-wide instance storage buffers: 128-byte instance records, the parallel 96-byte
+/// line records and the parallel 128-byte analysis records (RND-08).
 #[derive(Debug)]
 struct InstanceGpu {
     buffer: wgpu::Buffer,
     lines: wgpu::Buffer,
+    analysis: wgpu::Buffer,
     /// Edge and point highlight states (`u32`, RND-04).
     states: wgpu::Buffer,
     /// Capacity of `states` in words.
@@ -2079,6 +2331,11 @@ impl InstanceGpu {
                 device,
                 "amg line records",
                 u64::from(capacity) * LINE_RECORD_BYTES,
+            ),
+            analysis: storage_buffer(
+                device,
+                "amg analysis records",
+                u64::from(capacity) * ANALYSIS_RECORD_BYTES,
             ),
             capacity,
             generation,
@@ -2124,6 +2381,39 @@ fn geometry_bind(
             wgpu::BindGroupEntry {
                 binding: 1,
                 resource: ids.as_entire_binding(),
+            },
+        ],
+    })
+}
+
+/// Group 1 of the analysis pipelines.
+fn analysis_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    instances: &InstanceGpu,
+    lut: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+    globals: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("amg analysis"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: instances.analysis.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(lut),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: globals.as_entire_binding(),
             },
         ],
     })
