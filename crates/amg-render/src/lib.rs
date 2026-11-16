@@ -42,8 +42,16 @@
 //! by id), scissored point picks resolved vertex > edge > face with f64 world positions, section
 //! clipping and cap picks ([`CAP_SUB`]), rectangle window / crossing selection through compute
 //! flags, and hover / selection highlight ([`RenderScene::set_highlight_layer`]): instance tint,
-//! face-range redraws with depth `Equal`, edge and point state buffers. The remaining S10 API
-//! arrives with the later work packages.
+//! face-range redraws with depth `Equal`, edge and point state buffers.
+//!
+//! RND-07 adds overlays ([`OverlayList`] via [`RenderScene::begin_overlays`], design note §12):
+//! polylines, arrows, rings, triads, plane quads, an adaptive grid, image planes
+//! ([`upload_image`]), points, sprites and filled polygons at constant pixel size, drawn after the
+//! scene into the final image with their own depth and a [`DepthMode`] against the scene
+//! (x-ray dimming from the scene depth); pickable handles reported as [`SubKind::Handle`];
+//! labels projected by [`Renderer::project_labels`] for egui painting
+//! (`egui_glue::paint_labels`); and [`OverlayInset`]s (`View::insets`), the view-cube rendering
+//! hook for RND-11. The remaining S10 API arrives with the later work packages.
 
 #![warn(missing_docs)]
 
@@ -54,6 +62,7 @@ mod cull;
 mod error;
 mod highlight;
 mod lines;
+mod overlay;
 mod pick;
 mod pipelines;
 mod renderer;
@@ -82,6 +91,7 @@ pub use lines::{
     DepthMode, EdgeData, GpuEdges, GpuPoints, HIDDEN_ALPHA, HIDDEN_DASH_PX, LineStyle, PointData,
     PointStyle, Polyline, VisualStyle, upload_edges, upload_points,
 };
+pub use overlay::{GpuImage, LabelStyle, OverlayInset, OverlayList, ProjectedLabel, upload_image};
 pub use pick::{
     BODY_SUB, PickBackend, PickFilter, PickHit, PickRegion, PickRequest, PickResult, PickTicket,
     RectMode, SubKind,
@@ -118,6 +128,8 @@ amg_core::define_id! {
     pub struct InstanceKey;
     /// A section plane in the [`RenderScene`].
     pub struct SectionKey;
+    /// An overlay image in the [`RenderScene`] (RND-07).
+    pub struct ImageKey;
 }
 
 /// Pick sub-id of a section cap (kind face): picking (RND-04) reports a cap hit with this

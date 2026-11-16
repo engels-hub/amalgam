@@ -108,6 +108,8 @@ struct LineOut {
     @location(4) @interpolate(flat) rte_a: vec3<f32>,
     @location(5) @interpolate(flat) rte_b: vec3<f32>,
     @location(6) @interpolate(flat) section: vec3<f32>,
+    // Line-record slot of the segment (the overlay pass reads its depth mode, RND-07).
+    @location(7) @interpolate(flat) slot: u32,
 }
 
 // Corners of the quad as (end, side): two triangles (0, 1, 2) and (2, 1, 3).
@@ -131,9 +133,16 @@ fn vs_line(
 
 // The wide-line vertex stage (also used by the pick pass, `pick.wgsl`).
 fn line_vertex(vertex: u32, instance: u32) -> LineOut {
+    return line_vertex_slot(vertex, slot_of(instance));
+}
+
+// The wide-line vertex stage for the instance record `slot` (the overlay pass, RND-07, takes
+// the slot of each segment from `geometry_ids`).
+fn line_vertex_slot(vertex: u32, slot: u32) -> LineOut {
     var out: LineOut;
-    let record = instances[slot_of(instance)];
-    let lines = line_record(instance);
+    let record = instances[slot];
+    let lines = line_records[slot];
+    out.slot = slot;
     let seg = vertex / 6u;
     let corner = quad_corner(vertex % 6u);
     let a = geometry[2u * seg];
@@ -230,6 +239,15 @@ struct LineFsOut {
 
 @fragment
 fn fs_line(in: LineOut) -> LineFsOut {
+    var out: LineFsOut;
+    out.color = line_color(in);
+    out.normal = vec2<f32>(0.0);
+    return out;
+}
+
+// Colour (straight alpha) of a wide-line fragment; discards outside the capsule, in dash gaps
+// and where the section planes remove it.
+fn line_color(in: LineOut) -> vec4<f32> {
     let len = in.shape.x;
     let half = in.shape.y;
     let along = in.coord.x;
@@ -261,10 +279,7 @@ fn fs_line(in: LineOut) -> LineFsOut {
     if coverage <= 0.0 {
         discard;
     }
-    var out: LineFsOut;
-    out.color = vec4<f32>(in.color.rgb, in.color.a * coverage);
-    out.normal = vec2<f32>(0.0);
-    return out;
+    return vec4<f32>(in.color.rgb, in.color.a * coverage);
 }
 
 // Point sprites: a screen-aligned square per point (six vertices) with a circle distance.
@@ -277,6 +292,8 @@ struct PointOut {
     @location(2) @interpolate(flat) color: vec4<f32>,
     // Eye-relative centre; w = 1 when the instance is clipped by the section planes.
     @location(3) @interpolate(flat) rte: vec4<f32>,
+    // Line-record slot of the point (RND-07 overlays).
+    @location(4) @interpolate(flat) slot: u32,
 }
 
 @vertex
@@ -289,9 +306,15 @@ fn vs_point(
 
 // The point-sprite vertex stage (also used by the pick pass).
 fn point_vertex(vertex: u32, instance: u32) -> PointOut {
+    return point_vertex_slot(vertex, slot_of(instance));
+}
+
+// The point-sprite vertex stage for the instance record `slot` (RND-07 overlays).
+fn point_vertex_slot(vertex: u32, slot: u32) -> PointOut {
     var out: PointOut;
-    let record = instances[slot_of(instance)];
-    let lines = line_record(instance);
+    let record = instances[slot];
+    let lines = line_records[slot];
+    out.slot = slot;
     let p = geometry[vertex / 6u];
     let corner = quad_corner(vertex % 6u) * vec2<f32>(2.0, 1.0) - vec2<f32>(1.0, 0.0);
     let radius = 0.5 * lines.point_delta.w;
@@ -320,6 +343,14 @@ fn point_vertex(vertex: u32, instance: u32) -> PointOut {
 
 @fragment
 fn fs_point(in: PointOut) -> LineFsOut {
+    var out: LineFsOut;
+    out.color = point_color(in);
+    out.normal = vec2<f32>(0.0);
+    return out;
+}
+
+// Colour (straight alpha) of a point-sprite fragment; discards outside the circle.
+fn point_color(in: PointOut) -> vec4<f32> {
     if in.rte.w > 0.5 && section_clipped(in.rte.xyz) {
         discard;
     }
@@ -327,10 +358,7 @@ fn fs_point(in: PointOut) -> LineFsOut {
     if coverage <= 0.0 {
         discard;
     }
-    var out: LineFsOut;
-    out.color = vec4<f32>(in.color.rgb, in.color.a * coverage);
-    out.normal = vec2<f32>(0.0);
-    return out;
+    return vec4<f32>(in.color.rgb, in.color.a * coverage);
 }
 
 // Triangle wireframe of a mesh (`POLYGON_MODE_LINE`, 1 px native lines): the mesh positions,

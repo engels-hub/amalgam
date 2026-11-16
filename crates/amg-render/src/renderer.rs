@@ -18,6 +18,9 @@ use crate::highlight::HighlightLayer;
 use crate::lines::{
     GpuEdges, LINE_RECORD_BYTES, LineDraw, LineGeometry, LinePass, LinePlan, LineView, VisualStyle,
 };
+use crate::overlay::{
+    HandleHighlights, LayerDraws, OverlayGpu, OverlayInset, ProjectedLabel, Tessellator, TriDraw,
+};
 use crate::pick::{
     InFlight, MAP_DONE, MAP_FAILED, MAP_PENDING, OwnerSizes, PickBackend, PickFilter, PickRegion,
     PickRequest, PickResult, PickTicket, PointReadback, QueuedPick, ReadbackKind, RectReadback,
@@ -49,9 +52,9 @@ const INITIAL_STATE_WORDS: u64 = 64;
 
 /// In-flight timestamp readbacks per view; a frame with none free is simply not timed.
 const TIMER_SLOTS: usize = 4;
-/// Begin and end of up to six passes (depth pre-pass, opaque, cap depth, edges, silhouettes,
-/// final).
-const TIMER_QUERIES: u32 = 12;
+/// Begin and end of up to seven passes (depth pre-pass, opaque, cap depth, edges, silhouettes,
+/// final, overlays).
+const TIMER_QUERIES: u32 = 14;
 /// Finished frames kept for [`Renderer::drain_gpu_timings`].
 const TIMER_HISTORY: usize = 256;
 
@@ -81,6 +84,24 @@ const PASS_SETS: [&[&str]; 8] = [
         "final",
     ],
 ];
+
+/// The timed passes of a frame, indexed by `prepass | caps << 1 | silhouettes << 2 |
+/// overlays << 3`: [`PASS_SETS`], plus the `overlays` pass (RND-07) after `final`.
+fn pass_set(index: usize) -> &'static [&'static str] {
+    static SETS: OnceLock<Vec<&'static [&'static str]>> = OnceLock::new();
+    SETS.get_or_init(|| {
+        (0..16)
+            .map(|i| {
+                let mut v = PASS_SETS[i & 7].to_vec();
+                if i & 8 != 0 {
+                    v.push("overlays");
+                }
+                let leaked: &'static [&'static str] = Box::leak(v.into_boxed_slice());
+                leaked
+            })
+            .collect()
+    })[index & 15]
+}
 
 /// Silhouette thresholds (design note §6): normal angle above 35°, or a linear-depth jump above
 /// 2 % of the nearer depth.
@@ -314,6 +335,9 @@ pub struct View {
     pub layers: LayerMask,
     /// Apply the scene's section planes (RND-06). Default true.
     pub sections_enabled: bool,
+    /// Overlay lists drawn in sub-rectangles with their own cameras, over everything (RND-07):
+    /// the rendering hook of the view cube (RND-11). Default empty.
+    pub insets: Vec<OverlayInset>,
     size_px: [u32; 2],
 }
 
@@ -359,6 +383,12 @@ struct ViewTargets {
     normal: wgpu::Texture,
     normal_view: wgpu::TextureView,
     depth: wgpu::TextureView,
+    /// `depth` has `TEXTURE_BINDING` (silhouettes or overlays read it).
+    depth_sampled: bool,
+    /// Own depth of the overlay pass (single-sampled, cleared per frame; RND-07).
+    overlay_depth: wgpu::TextureView,
+    /// `depth` for the overlay pass (group 2); `Some` when `depth_sampled`.
+    overlay_scene_bind: Option<wgpu::BindGroup>,
     /// The normal target for the cap depth pass (group 1).
     cap_marks_bind: wgpu::BindGroup,
     /// Normal + depth + silhouette uniform for the silhouettes pass; `Some` only when the
@@ -552,6 +582,8 @@ struct ViewSlot {
     pick_visible_capacity: u32,
     /// GPU time of pick passes (`["pick"]`).
     pick_timer: Option<GpuTimer>,
+    /// This frame's overlay geometry and its buffers (RND-07).
+    overlay: OverlayGpu,
 }
 
 /// The id, depth and depth-test targets of a view's pick passes (single-sampled).
@@ -633,6 +665,13 @@ pub struct Renderer {
     encodes: u64,
     /// The rectangle-select compute pipeline, built in the background (`None`: it failed).
     rect_pipeline: RectPipeline,
+    /// RND-07: group 2 of the overlay pipelines (the scene depth) at one sample and several.
+    overlay_depth_layouts: [wgpu::BindGroupLayout; 2],
+    /// Group 3 of the overlay pipelines (image + sampler).
+    overlay_image_layout: wgpu::BindGroupLayout,
+    overlay_sampler: wgpu::Sampler,
+    /// Group 3 for untextured overlay draws (a 1x1 white image).
+    white_image_bind: wgpu::BindGroup,
 }
 
 /// The rectangle-select compute pipeline once built.
@@ -726,6 +765,22 @@ impl Renderer {
         let final_bind_layout = texture_bind_layout(device, "amg final");
         let instance_gpu = InstanceGpu::new(device, INITIAL_INSTANCE_CAPACITY, 0);
         let analysis_layout = analysis_bind_layout(device);
+        let overlay_depth_layouts = [false, true].map(|multisampled| {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("amg overlay scene depth"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled,
+                    },
+                    count: None,
+                }],
+            })
+        });
+        let overlay_image_layout = overlay_image_bind_layout(device);
 
         let mut core_timings = Vec::new();
         let start = Instant::now();
@@ -741,6 +796,8 @@ impl Renderer {
                 analysis: &analysis_layout,
                 pull: &pull_bind_layout,
                 pick_targets: &pick_targets_bind_layout,
+                overlay_depth: [&overlay_depth_layouts[0], &overlay_depth_layouts[1]],
+                overlay_image: &overlay_image_layout,
             },
         );
         let fullscreen = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -809,6 +866,21 @@ impl Renderer {
         // Binding 1 (pick sub-ids, RND-04) is unused by the analysis shader; bind the same buffer.
         let dummy_field_bind =
             geometry_bind(device, &geometry_bind_layout, &dummy_field, &dummy_field);
+        let overlay_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("amg overlay images"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let white = crate::overlay::upload_image(
+            &gpu,
+            &RgbaImage {
+                size: [1, 1],
+                pixels: vec![255; 4],
+            },
+        )?;
+        let white_image_bind =
+            overlay_image_bind(device, &overlay_image_layout, &white.view, &overlay_sampler);
         let total: f64 = core_timings.iter().map(|t| t.ms).sum();
         tracing::debug!(
             ms = total,
@@ -861,6 +933,10 @@ impl Renderer {
             picks: PickQueue::default(),
             encodes: 0,
             rect_pipeline: spawn_rect_pipeline(&gpu),
+            overlay_depth_layouts,
+            overlay_image_layout,
+            overlay_sampler,
+            white_image_bind,
             gpu,
         })
     }
@@ -1117,7 +1193,39 @@ impl Renderer {
                 }
             }
         }
+        // RND-07 overlays (cheap; requested for every view so the first tool frame draws them).
+        for samples in [self.active_samples, self.requested_samples] {
+            for key in overlay_keys(samples) {
+                self.variants.request(key);
+            }
+        }
         self.request_pick_variants(sectioned);
+    }
+
+    /// World-anchored labels of the scene's overlay list and of the view's insets, projected
+    /// into view `id` for egui painting (`egui_glue::paint_labels`). Anchors behind the eye are
+    /// dropped. Empty for an unknown view.
+    pub fn project_labels(&self, id: ViewId) -> Vec<ProjectedLabel> {
+        let Some(slot) = self.views.get(id) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        self.scene.overlays().project_labels(
+            &slot.view.camera,
+            slot.view.size_px,
+            [0.0, 0.0],
+            &mut out,
+        );
+        for inset in &slot.view.insets {
+            let [x, y, w, h] = inset.rect_px;
+            inset.overlays.project_labels(
+                &inset.camera,
+                [w.max(1), h.max(1)],
+                [f64::from(x), f64::from(y)],
+                &mut out,
+            );
+        }
+        out
     }
 
     /// Blocks until no pipeline variant is pending (or `timeout` passes) and applies a pending
@@ -1201,6 +1309,7 @@ impl Renderer {
                 style: ViewStyle::default(),
                 layers: LayerMask::ALL,
                 sections_enabled: true,
+                insets: Vec::new(),
                 size_px,
             },
             targets: None,
@@ -1222,6 +1331,7 @@ impl Renderer {
             ),
             pick_visible_capacity: INITIAL_VISIBLE_CAPACITY,
             pick_timer: GpuTimer::new(&self.gpu),
+            overlay: OverlayGpu::default(),
         })
     }
 
@@ -1492,10 +1602,17 @@ impl Renderer {
         if size[0] == 0 || size[1] == 0 {
             return Ok(stats);
         }
+        // RND-07: once a view draws overlays its depth target stays sampleable (the overlay
+        // pass reads it for the depth modes), so a tool starting or stopping never rebuilds it.
+        let has_overlays =
+            !scene.overlays().is_empty() || slot.view.insets.iter().any(|i| !i.overlays.is_empty());
+        slot.overlay.sampled_depth |= has_overlays;
+        let depth_sampled = slot.view.style.silhouettes || slot.overlay.sampled_depth;
         if slot.targets.as_ref().is_none_or(|t| {
             t.size != size
                 || t.samples != samples
                 || t.silhouette_bind.is_some() != slot.view.style.silhouettes
+                || t.depth_sampled != depth_sampled
         }) {
             slot.targets = Some(create_targets(
                 device,
@@ -1506,9 +1623,11 @@ impl Renderer {
                     silhouette_bind: &self.silhouette_bind_layouts[usize::from(samples > 1)],
                     silhouette_buffer: &slot.silhouette_buffer,
                     cap_marks_bind: &self.cap_marks_bind_layouts[usize::from(samples > 1)],
+                    overlay_depth: &self.overlay_depth_layouts[usize::from(samples > 1)],
                 },
                 size,
                 samples,
+                depth_sampled,
                 slot.view.style.silhouettes,
             ));
             slot.generation += 1;
@@ -1538,6 +1657,25 @@ impl Renderer {
             0,
             bytemuck::bytes_of(&SectionUniform::new(&sections, &camera, size)),
         );
+
+        // RND-07: tessellate this view's overlays (constant pixel size needs its camera).
+        slot.overlay.geometry.clear();
+        if has_overlays {
+            let image_ok = |k| scene.image(k).is_some();
+            let mut tess = Tessellator {
+                geometry: &mut slot.overlay.geometry,
+                highlights: HandleHighlights {
+                    layers: HighlightLayer::ALL.map(|l| scene.highlight_layer(l)),
+                    colors: HighlightLayer::ALL.map(|l| scene.highlight_color(l)),
+                },
+                image_ok: &image_ok,
+            };
+            tess.layer(scene.overlays(), &camera, size, false);
+            for inset in &slot.view.insets {
+                let [_, _, w, h] = inset.rect_px;
+                tess.layer(&inset.overlays, &inset.camera, [w.max(1), h.max(1)], true);
+            }
+        }
 
         let frustum = Frustum::from_view_proj(&(camera.proj_matrix(size) * camera.view_matrix()));
         plan.build_sectioned(
@@ -1744,6 +1882,16 @@ impl Renderer {
                 hl_entries.push(fh.slot | (fh.bits << SLOT_BITS));
             }
         }
+        let draw_overlays = !slot.overlay.geometry.is_empty() && {
+            let mut ready = true;
+            for key in overlay_keys(samples) {
+                if !variants.has(key) {
+                    variants.request(key);
+                    ready = false;
+                }
+            }
+            ready
+        };
         let variants = &*variants;
 
         let mut rebind = slot.bound_generation != self.instance_gpu.generation;
@@ -1814,8 +1962,12 @@ impl Renderer {
             }))
         });
 
-        let passes = PASS_SETS
-            [usize::from(depth_pass) | usize::from(caps) << 1 | usize::from(silhouettes) << 2];
+        let passes = pass_set(
+            usize::from(depth_pass)
+                | usize::from(caps) << 1
+                | usize::from(silhouettes) << 2
+                | usize::from(draw_overlays) << 3,
+        );
         let timer_slot = slot.timer.as_mut().and_then(|t| {
             t.harvest();
             t.begin(passes)
@@ -2008,8 +2160,8 @@ impl Renderer {
                         } else {
                             wgpu::LoadOp::Clear(0.0)
                         },
-                        // The cap depth pass and the silhouettes pass read the depth.
-                        store: if silhouettes || caps {
+                        // The cap depth, silhouettes and overlay passes read the depth.
+                        store: if silhouettes || caps || draw_overlays {
                             wgpu::StoreOp::Store
                         } else {
                             wgpu::StoreOp::Discard
@@ -2073,7 +2225,7 @@ impl Renderer {
                         view: &targets.depth,
                         depth_ops: Some(wgpu::Operations {
                             load: wgpu::LoadOp::Load,
-                            store: if silhouettes {
+                            store: if silhouettes || draw_overlays {
                                 wgpu::StoreOp::Store
                             } else {
                                 wgpu::StoreOp::Discard
@@ -2155,6 +2307,38 @@ impl Renderer {
                 }
             }
             pass.draw(0..3, 0..1);
+        }
+        if draw_overlays && let Some(scene_bind) = targets.overlay_scene_bind.as_ref() {
+            let timestamp = timer.map(|t| (&t.queries, 2 * pass_index("overlays") as u32));
+            record_overlay_pass(
+                &OverlayPassCx {
+                    device,
+                    queue,
+                    variants,
+                    samples,
+                    scene,
+                    view_layout: &self.view_bind_layout,
+                    geometry_layout,
+                    image_layout: &self.overlay_image_layout,
+                    sampler: &self.overlay_sampler,
+                    white: &self.white_image_bind,
+                    buffers: OverlayBuffers {
+                        camera: &slot.camera_buffer,
+                        visible: &slot.visible_buffer,
+                        style: &slot.style_buffer,
+                        sections: &slot.section_buffer,
+                        states: &self.instance_gpu.states,
+                    },
+                    final_view: &targets.final_view,
+                    overlay_depth: &targets.overlay_depth,
+                    scene_bind,
+                    insets: &slot.view.insets,
+                    size,
+                    timestamp,
+                },
+                &mut slot.overlay,
+                encoder,
+            );
         }
         if let (Some(index), Some(timer)) = (timer_slot, slot.timer.as_ref()) {
             timer.finish(index, encoder);
@@ -2548,6 +2732,48 @@ fn view_bind_group(
     style: &wgpu::Buffer,
     sections: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
+    view_bind_group_parts(
+        device,
+        layout,
+        &ViewBuffers {
+            camera,
+            instances: &instances.buffer,
+            visible,
+            style,
+            lines: &instances.lines,
+            sections,
+            states: &instances.states,
+        },
+    )
+}
+
+/// The buffers of a group-0 view bind group.
+struct ViewBuffers<'a> {
+    camera: &'a wgpu::Buffer,
+    instances: &'a wgpu::Buffer,
+    visible: &'a wgpu::Buffer,
+    style: &'a wgpu::Buffer,
+    lines: &'a wgpu::Buffer,
+    sections: &'a wgpu::Buffer,
+    states: &'a wgpu::Buffer,
+}
+
+/// A group-0 view bind group over explicit buffers (the overlay pass binds its own instance and
+/// line records, RND-07).
+fn view_bind_group_parts(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    b: &ViewBuffers<'_>,
+) -> wgpu::BindGroup {
+    let ViewBuffers {
+        camera,
+        instances,
+        visible,
+        style,
+        lines,
+        sections,
+        states,
+    } = *b;
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("amg view"),
         layout,
@@ -2558,7 +2784,7 @@ fn view_bind_group(
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: instances.buffer.as_entire_binding(),
+                resource: instances.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 2,
@@ -2570,7 +2796,7 @@ fn view_bind_group(
             },
             wgpu::BindGroupEntry {
                 binding: 4,
-                resource: instances.lines.as_entire_binding(),
+                resource: lines.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 5,
@@ -2578,7 +2804,7 @@ fn view_bind_group(
             },
             wgpu::BindGroupEntry {
                 binding: 6,
-                resource: instances.states.as_entire_binding(),
+                resource: states.as_entire_binding(),
             },
         ],
     })
@@ -2708,6 +2934,8 @@ struct TargetLayouts<'a> {
     silhouette_buffer: &'a wgpu::Buffer,
     /// For the sample count of the targets.
     cap_marks_bind: &'a wgpu::BindGroupLayout,
+    /// For the sample count of the targets (RND-07).
+    overlay_depth: &'a wgpu::BindGroupLayout,
 }
 
 fn create_targets(
@@ -2716,6 +2944,7 @@ fn create_targets(
     size: [u32; 2],
     samples: u32,
     sampled_depth: bool,
+    silhouettes: bool,
 ) -> ViewTargets {
     let TargetLayouts {
         final_bind: final_bind_layout,
@@ -2724,6 +2953,7 @@ fn create_targets(
         silhouette_bind: silhouette_bind_layout,
         silhouette_buffer,
         cap_marks_bind: cap_marks_bind_layout,
+        overlay_depth: overlay_depth_layout,
     } = layouts;
     let target = |label, format, sample_count, usage, view_formats: &'static [_]| {
         device.create_texture(&wgpu::TextureDescriptor {
@@ -2764,7 +2994,8 @@ fn create_targets(
             resource: wgpu::BindingResource::TextureView(&normal_view),
         }],
     });
-    // Sampled by the silhouettes pass only when they are on.
+    // Sampled by the silhouettes pass only when they are on, and by the overlay pass.
+    let sampled_depth = sampled_depth || silhouettes;
     let depth_usage = if sampled_depth {
         attach | wgpu::TextureUsages::TEXTURE_BINDING
     } else {
@@ -2772,7 +3003,19 @@ fn create_targets(
     };
     let depth =
         target("amg depth", DEPTH_FORMAT, samples, depth_usage, &[]).create_view(&default_view);
-    let silhouette_bind = sampled_depth.then(|| {
+    let overlay_depth =
+        target("amg overlay depth", DEPTH_FORMAT, 1, attach, &[]).create_view(&default_view);
+    let overlay_scene_bind = sampled_depth.then(|| {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("amg overlay scene depth"),
+            layout: overlay_depth_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&depth),
+            }],
+        })
+    });
+    let silhouette_bind = silhouettes.then(|| {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("amg silhouettes"),
             layout: silhouette_bind_layout,
@@ -2830,6 +3073,9 @@ fn create_targets(
         normal,
         normal_view,
         depth,
+        depth_sampled: sampled_depth,
+        overlay_depth,
+        overlay_scene_bind,
         cap_marks_bind,
         silhouette_bind,
         resolved,
@@ -2838,6 +3084,285 @@ fn create_targets(
         final_bind,
         post_bind,
     }
+}
+
+/// The overlay pipelines of a view at `samples` scene samples (RND-07).
+fn overlay_keys(samples: u32) -> [PipelineKey; 4] {
+    [
+        PipelineKind::OverlayTri { write: true },
+        PipelineKind::OverlayTri { write: false },
+        PipelineKind::OverlayLine,
+        PipelineKind::OverlayPoint,
+    ]
+    .map(|kind| PipelineKey { kind, samples })
+}
+
+/// The overlay handle pick pipelines.
+fn overlay_pick_keys() -> [PipelineKey; 3] {
+    [
+        PipelineKind::PickOverlayTri,
+        PipelineKind::PickOverlayLine,
+        PipelineKind::PickOverlayPoint,
+    ]
+    .map(pick_key)
+}
+
+/// Group 3 of the overlay pipelines: a filterable image and its sampler.
+fn overlay_image_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("amg overlay image"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    })
+}
+
+fn overlay_image_bind(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("amg overlay image"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+/// The view's buffers the overlay group-0 bind groups share with the scene passes.
+struct OverlayBuffers<'a> {
+    camera: &'a wgpu::Buffer,
+    visible: &'a wgpu::Buffer,
+    style: &'a wgpu::Buffer,
+    sections: &'a wgpu::Buffer,
+    states: &'a wgpu::Buffer,
+}
+
+impl OverlayBuffers<'_> {
+    /// Group 0 over the overlay records with `camera`.
+    fn bind(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        camera: &wgpu::Buffer,
+        gpu: &OverlayGpu,
+    ) -> Option<wgpu::BindGroup> {
+        Some(view_bind_group_parts(
+            device,
+            layout,
+            &ViewBuffers {
+                camera,
+                instances: gpu.records.get()?,
+                visible: self.visible,
+                style: self.style,
+                lines: gpu.lines.get()?,
+                sections: self.sections,
+                states: self.states,
+            },
+        ))
+    }
+}
+
+struct OverlayPassCx<'a> {
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+    variants: &'a Variants,
+    samples: u32,
+    scene: &'a RenderScene,
+    view_layout: &'a wgpu::BindGroupLayout,
+    geometry_layout: &'a wgpu::BindGroupLayout,
+    image_layout: &'a wgpu::BindGroupLayout,
+    sampler: &'a wgpu::Sampler,
+    white: &'a wgpu::BindGroup,
+    buffers: OverlayBuffers<'a>,
+    final_view: &'a wgpu::TextureView,
+    overlay_depth: &'a wgpu::TextureView,
+    scene_bind: &'a wgpu::BindGroup,
+    insets: &'a [OverlayInset],
+    size: [u32; 2],
+    /// The view timer's query set and the begin index of the `overlays` pass.
+    timestamp: Option<(&'a wgpu::QuerySet, u32)>,
+}
+
+/// Uploads the frame's overlay geometry and records the overlay passes into the final image:
+/// one for the view's list, then one per inset (viewport and scissor of its rectangle, the
+/// overlay depth cleared again). Each pass draws opaque then translucent triangles, lines, then
+/// points.
+fn record_overlay_pass(
+    cx: &OverlayPassCx<'_>,
+    gpu: &mut OverlayGpu,
+    encoder: &mut wgpu::CommandEncoder,
+) {
+    let device = cx.device;
+    gpu.upload(device, cx.queue);
+    while gpu.inset_cameras.len() < cx.insets.len() {
+        gpu.inset_cameras
+            .push(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("amg inset camera"),
+                size: size_of::<crate::CameraUniform>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+    }
+    for (inset, buffer) in cx.insets.iter().zip(&gpu.inset_cameras) {
+        let [_, _, w, h] = inset.rect_px;
+        let uniform = inset
+            .camera
+            .uniform([w.max(1), h.max(1)], inset.camera.default_near());
+        cx.queue
+            .write_buffer(buffer, 0, bytemuck::bytes_of(&uniform));
+    }
+    let (Some(segments), Some(segment_ids), Some(points), Some(point_ids), Some(tris)) = (
+        gpu.segments.get(),
+        gpu.segment_ids.get(),
+        gpu.points.get(),
+        gpu.point_ids.get(),
+        gpu.tris.get(),
+    ) else {
+        return;
+    };
+    let segment_bind = geometry_bind(device, cx.geometry_layout, segments, segment_ids);
+    let point_bind = geometry_bind(device, cx.geometry_layout, points, point_ids);
+    let geometry = &gpu.geometry;
+    // Layer i > 0 is inset i - 1; empty layers and insets outside the view are skipped.
+    let layers: Vec<(usize, &LayerDraws, Option<[u32; 4]>)> = geometry
+        .layers
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| !l.segments.is_empty() || !l.points.is_empty() || !l.tri_draws.is_empty())
+        .filter_map(|(i, l)| {
+            if i == 0 {
+                return Some((i, l, None));
+            }
+            let [x, y, w, h] = cx.insets.get(i - 1)?.rect_px;
+            let (x1, y1) = ((x + w).min(cx.size[0]), (y + h).min(cx.size[1]));
+            (x < x1 && y < y1 && w > 0 && h > 0).then_some((i, l, Some([x, y, w, h])))
+        })
+        .collect();
+    let count = layers.len();
+    for (n, (i, layer, rect)) in layers.into_iter().enumerate() {
+        let camera = if i == 0 {
+            cx.buffers.camera
+        } else {
+            &gpu.inset_cameras[i - 1]
+        };
+        let Some(bind0) = cx.buffers.bind(device, cx.view_layout, camera, gpu) else {
+            return;
+        };
+        let timestamp_writes = cx.timestamp.and_then(|(query_set, begin)| {
+            let (first, last) = (n == 0, n + 1 == count);
+            (first || last).then_some(wgpu::RenderPassTimestampWrites {
+                query_set,
+                beginning_of_pass_write_index: first.then_some(begin),
+                end_of_pass_write_index: last.then_some(begin + 1),
+            })
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("amg overlays"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: cx.final_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: cx.overlay_depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0.0),
+                    store: wgpu::StoreOp::Discard,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        if let Some([x, y, w, h]) = rect {
+            pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
+            let (x1, y1) = ((x + w).min(cx.size[0]), (y + h).min(cx.size[1]));
+            pass.set_scissor_rect(x, y, x1 - x, y1 - y);
+        }
+        pass.set_bind_group(0, &bind0, &[]);
+        pass.set_bind_group(1, &segment_bind, &[]);
+        pass.set_bind_group(2, cx.scene_bind, &[]);
+        pass.set_bind_group(3, cx.white, &[]);
+        let key = |kind| PipelineKey {
+            kind,
+            samples: cx.samples,
+        };
+        if !layer.tri_draws.is_empty() {
+            pass.set_vertex_buffer(0, tris.slice(..));
+            for d in &geometry.tri_draws[layer.tri_draws.clone()] {
+                let Some(p) = cx
+                    .variants
+                    .get(key(PipelineKind::OverlayTri { write: d.write }))
+                else {
+                    continue;
+                };
+                pass.set_pipeline(p);
+                let image = d.image.and_then(|k| cx.scene.image(k));
+                let bind = image.map_or(cx.white, |img| {
+                    img.bind.get_or_init(|| {
+                        overlay_image_bind(device, cx.image_layout, &img.view, cx.sampler)
+                    })
+                });
+                pass.set_bind_group(3, bind, &[]);
+                pass.draw(d.first..d.first + d.count, 0..1);
+            }
+            pass.set_bind_group(3, cx.white, &[]);
+        }
+        if !layer.segments.is_empty()
+            && let Some(p) = cx.variants.get(key(PipelineKind::OverlayLine))
+        {
+            pass.set_pipeline(p);
+            pass.draw(6 * layer.segments.start..6 * layer.segments.end, 0..1);
+        }
+        if !layer.points.is_empty()
+            && let Some(p) = cx.variants.get(key(PipelineKind::OverlayPoint))
+        {
+            pass.set_pipeline(p);
+            pass.set_bind_group(1, &point_bind, &[]);
+            pass.draw(6 * layer.points.start..6 * layer.points.end, 0..1);
+        }
+    }
+}
+
+/// Overlay handles drawn into a point pick (the view's own list, not the insets).
+struct OverlayPick<'a> {
+    bind: &'a wgpu::BindGroup,
+    segments: &'a wgpu::BindGroup,
+    points: &'a wgpu::BindGroup,
+    tris: &'a wgpu::Buffer,
+    layer: &'a LayerDraws,
+    tri_draws: &'a [TriDraw],
 }
 
 /// Bits of a visible-list entry above the instance slot (`SLOT_BITS` in `shaders/scene.wgsl`).
@@ -3201,6 +3726,8 @@ struct PickContext<'a> {
     query_set: Option<&'a wgpu::QuerySet>,
     /// A compute pass follows the render passes (it writes the end timestamp).
     compute_follows: bool,
+    /// Overlay handles (RND-07), drawn last.
+    overlay: Option<OverlayPick<'a>>,
 }
 
 /// Records the render passes of one pick: faces (with occluders before a bounded cut), then
@@ -3306,6 +3833,35 @@ fn record_pick_passes(cx: &PickContext<'_>, encoder: &mut wgpu::CommandEncoder) 
             pass.draw(0..vertices, l.first..l.first + l.count);
         }
     };
+    let draw_overlay = |pass: &mut wgpu::RenderPass<'_>| {
+        let Some(o) = &cx.overlay else {
+            return;
+        };
+        pass.set_bind_group(0, o.bind, &[]);
+        if !o.layer.tri_draws.is_empty()
+            && let Some(p) = variants.get(pick_key(PipelineKind::PickOverlayTri))
+        {
+            pass.set_pipeline(p);
+            pass.set_vertex_buffer(0, o.tris.slice(..));
+            for d in o.tri_draws {
+                pass.draw(d.first..d.first + d.count, 0..1);
+            }
+        }
+        if !o.layer.segments.is_empty()
+            && let Some(p) = variants.get(pick_key(PipelineKind::PickOverlayLine))
+        {
+            pass.set_pipeline(p);
+            pass.set_bind_group(1, o.segments, &[]);
+            pass.draw(6 * o.layer.segments.start..6 * o.layer.segments.end, 0..1);
+        }
+        if !o.layer.points.is_empty()
+            && let Some(p) = variants.get(pick_key(PipelineKind::PickOverlayPoint))
+        {
+            pass.set_pipeline(p);
+            pass.set_bind_group(1, o.points, &[]);
+            pass.draw(6 * o.layer.points.start..6 * o.layer.points.end, 0..1);
+        }
+    };
     let last_end = !cx.compute_follows;
     {
         let attachments = color(wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT));
@@ -3375,6 +3931,7 @@ fn record_pick_passes(cx: &PickContext<'_>, encoder: &mut wgpu::CommandEncoder) 
         }
         if !fix {
             draw_lines(&mut pass);
+            draw_overlay(&mut pass);
         }
     }
     if fix {
@@ -3406,6 +3963,7 @@ fn record_pick_passes(cx: &PickContext<'_>, encoder: &mut wgpu::CommandEncoder) 
         set_viewport(&mut pass);
         pass.set_bind_group(0, cx.bind, &[]);
         draw_lines(&mut pass);
+        draw_overlay(&mut pass);
     }
 }
 
@@ -3681,6 +4239,9 @@ impl Renderer {
             self.variants.request(pick_key(PipelineKind::PickOccluder));
             self.variants.request(pick_key(PipelineKind::PickFix));
         }
+        for key in overlay_pick_keys() {
+            self.variants.request(key);
+        }
     }
 
     /// Records the queued picks of `id` after its frame (that frame's draw plans are still in
@@ -3725,6 +4286,15 @@ impl Renderer {
             if bounded {
                 keys.push(pick_key(PipelineKind::PickOccluder));
             }
+        }
+        // RND-07: the view's overlay handles from this frame's tessellation.
+        let handles = self
+            .views
+            .get(id)
+            .and_then(|s| s.overlay.geometry.layers.first())
+            .is_some_and(|l| l.pickable);
+        if handles {
+            keys.extend(overlay_pick_keys());
         }
         let mut ready = true;
         for &k in &keys {
@@ -3842,6 +4412,47 @@ impl Renderer {
                 &slot.style_buffer,
                 &slot.section_buffer,
             );
+            // Overlay handles in point picks that ask for them.
+            let overlay_parts = (handles
+                && point.is_some()
+                && filter.contains(PickFilter::HANDLES))
+            .then(|| {
+                let o = &slot.overlay;
+                let bind = OverlayBuffers {
+                    camera: &camera_buffer,
+                    visible: &slot.pick_visible,
+                    style: &slot.style_buffer,
+                    sections: &slot.section_buffer,
+                    states: &self.instance_gpu.states,
+                }
+                .bind(device, &self.view_bind_layout, &camera_buffer, o)?;
+                let segments = geometry_bind(
+                    device,
+                    &self.geometry_bind_layout,
+                    o.segments.get()?,
+                    o.segment_ids.get()?,
+                );
+                let points = geometry_bind(
+                    device,
+                    &self.geometry_bind_layout,
+                    o.points.get()?,
+                    o.point_ids.get()?,
+                );
+                Some((bind, segments, points))
+            })
+            .flatten();
+            let overlay = overlay_parts.as_ref().and_then(|(bind, segments, points)| {
+                let o = &slot.overlay;
+                let layer = o.geometry.layers.first()?;
+                Some(OverlayPick {
+                    bind,
+                    segments,
+                    points,
+                    tris: o.tris.get()?,
+                    layer,
+                    tri_draws: &o.geometry.tri_draws[layer.tri_draws.clone()],
+                })
+            });
             let timer_slot = if timed {
                 None
             } else {
@@ -3874,6 +4485,7 @@ impl Renderer {
                     filter,
                     query_set,
                     compute_follows,
+                    overlay,
                 },
                 encoder,
             );

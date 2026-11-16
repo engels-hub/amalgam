@@ -213,6 +213,11 @@ fn vs_pick_line(
 // step along it. Dashes are ignored (the whole edge is pickable).
 @fragment
 fn fs_pick_line(in: PickLineOut) -> PickOut {
+    return pick_line(in);
+}
+
+// The pick output of an edge (or overlay handle line) fragment; discards outside the edge.
+fn pick_line(in: PickLineOut) -> PickOut {
     let len = in.shape.x;
     let half = in.shape.y;
     let along = in.coord.x;
@@ -277,6 +282,11 @@ fn vs_pick_point(
 
 @fragment
 fn fs_pick_point(in: PickPointOut) -> PickOut {
+    return pick_point(in);
+}
+
+// The pick output of a point (or overlay handle point) fragment; discards outside it.
+fn pick_point(in: PickPointOut) -> PickOut {
     if in.rte.w > 0.5 && section_clipped(in.rte.xyz) {
         discard;
     }

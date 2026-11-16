@@ -13,9 +13,10 @@ use crate::highlight::{
     FaceHighlight, HighlightItem, HighlightLayer, Resolved, SlotGeometry, resolve,
 };
 use crate::lines::{GpuEdges, GpuPoints, LineRecord, LineStyle, PointStyle, build_line_record};
+use crate::overlay::{GpuImage, OverlayList};
 use crate::section::{MAX_SECTIONS, SectionPlane};
 use crate::upload::GpuMesh;
-use crate::{EdgesKey, FieldKey, InstanceKey, MeshKey, PickId, PointsKey, SectionKey};
+use crate::{EdgesKey, FieldKey, ImageKey, InstanceKey, MeshKey, PickId, PointsKey, SectionKey};
 
 /// What an instance belongs to. Views choose which layers they draw ([`LayerMask`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -570,6 +571,10 @@ pub struct RenderScene {
     section_order: Vec<SectionKey>,
     highlight: HighlightState,
     revision: u64,
+    /// Images for overlay image planes and sprites (RND-07).
+    images: SlotMap<ImageKey, GpuImage>,
+    /// The immediate-mode overlay list (RND-07), refilled every frame.
+    overlays: OverlayList,
 }
 
 /// The highlight layers of a scene and their resolution against the instance slots.
@@ -924,6 +929,39 @@ impl RenderScene {
             + self.edges.values().map(GpuEdges::gpu_bytes).sum::<u64>()
             + self.points.values().map(GpuPoints::gpu_bytes).sum::<u64>()
             + self.fields.values().map(GpuField::gpu_bytes).sum::<u64>()
+            + self.images.values().map(GpuImage::gpu_bytes).sum::<u64>()
+    }
+
+    /// Adds an uploaded image ([`crate::upload_image`]) for overlay image planes and sprites.
+    pub fn insert_image(&mut self, i: GpuImage) -> ImageKey {
+        self.images.insert(i)
+    }
+
+    /// Removes an image; overlays that use it stop drawing it. Returns whether it existed.
+    pub fn remove_image(&mut self, k: ImageKey) -> bool {
+        self.images.remove(k).is_some()
+    }
+
+    /// An image, if it exists.
+    pub fn image(&self, k: ImageKey) -> Option<&GpuImage> {
+        self.images.get(k)
+    }
+
+    /// Number of live images.
+    pub fn image_count(&self) -> usize {
+        self.images.len()
+    }
+
+    /// Clears the immediate-mode overlay list and returns it for the active tool to refill
+    /// (once per frame, before `encode`). Overlays are not part of [`RenderScene::revision`].
+    pub fn begin_overlays(&mut self) -> &mut OverlayList {
+        self.overlays.clear();
+        &mut self.overlays
+    }
+
+    /// The current overlay list.
+    pub fn overlays(&self) -> &OverlayList {
+        &self.overlays
     }
 
     /// Number of live edge sets.
