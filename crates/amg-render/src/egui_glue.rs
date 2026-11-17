@@ -13,7 +13,12 @@ use egui_wgpu::{CallbackResources, CallbackTrait, RenderState, ScreenDescriptor}
 use crate::renderer::{
     FINAL_FORMAT_RAW, FULLSCREEN_WGSL, fullscreen_pipeline, texture_bind_group, texture_bind_layout,
 };
-use crate::{ProjectedLabel, RenderError, Renderer, RendererConfig, ViewId};
+use amg_core::Aabb3;
+
+use crate::{
+    Camera, ProjectedLabel, Projection, RenderError, Renderer, RendererConfig, ViewId, ViewStyle,
+    VisualStyle, nav,
+};
 
 /// True if egui draws with the device of `gpu`.
 ///
@@ -149,6 +154,230 @@ pub fn paint_labels(ui: &egui::Ui, resp: &ViewportResponse, labels: &[ProjectedL
         }
         painter.galley(rect.min, galley, color);
     }
+}
+
+/// What a navigation widget asks the shell to do (S11 §Navigation). Camera actions can be
+/// applied with [`apply_camera_action`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CameraAction {
+    /// Animate to a standard view (the view-cube home button sends `Home`).
+    SetView(nav::StandardView),
+    /// A click on a view-cube region: animate to [`nav::view_for_region`].
+    Region(nav::CubeRegion),
+    /// A drag on the view cube: orbit about the target by this many physical pixels.
+    Orbit {
+        /// Cursor movement this frame, physical px (x right, y down).
+        delta_px: [f32; 2],
+    },
+    /// Fit the visible scene.
+    Fit,
+    /// Switch the lens, keeping the apparent size at the target.
+    SetProjection(Projection),
+    /// Change the view's visual style.
+    SetVisualStyle(VisualStyle),
+    /// Make the next primary-button drag orbit, pan or zoom (nav-bar tool buttons).
+    StartMode(nav::NavMode),
+}
+
+/// Side of the view-cube home button, points.
+const HOME_BUTTON_PT: f32 = 16.0;
+
+/// The view-cube inset rectangle of `resp` in points (the layout of
+/// [`nav::ViewCube::for_scale`] at the viewport's scale, as the renderer draws it when
+/// `View::show_view_cube` is set with that cube).
+pub fn view_cube_rect(resp: &ViewportResponse) -> egui::Rect {
+    let ppp = resp.pixels_per_point.max(1e-6);
+    let [x, y, w, h] = nav::ViewCube::for_scale(ppp).rect_px(resp.size_px);
+    egui::Rect::from_min_size(
+        resp.rect.min + egui::vec2(x as f32, y as f32) / ppp,
+        egui::vec2(w as f32, h as f32) / ppp,
+    )
+}
+
+/// View-cube inset interaction (the cube is drawn by the renderer, `View::show_view_cube`; it
+/// is hit-tested here with [`nav::view_cube_hit`]). A click on a region returns
+/// [`CameraAction::Region`], a drag [`CameraAction::Orbit`], the home button in the inset's
+/// top-left corner [`CameraAction::SetView`]`(Home)`. Returns the action for the shell to
+/// forward (S11 §Navigation).
+pub fn view_cube(ui: &mut egui::Ui, resp: &ViewportResponse, cam: &Camera) -> Option<CameraAction> {
+    let ppp = resp.pixels_per_point.max(1e-6);
+    let rect = view_cube_rect(resp);
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return None;
+    }
+    let id = resp.response.id.with("amg_view_cube");
+    let cube = ui.interact(rect, id, egui::Sense::click_and_drag());
+    // Registered after the cube, so it wins where they overlap.
+    let home_rect = egui::Rect::from_min_size(rect.min, egui::vec2(HOME_BUTTON_PT, HOME_BUTTON_PT));
+    let home = ui
+        .interact(home_rect, id.with("home"), egui::Sense::click())
+        .on_hover_text("Home view");
+    paint_home_button(ui, home_rect, home.hovered());
+
+    if home.clicked() {
+        return Some(CameraAction::SetView(nav::StandardView::Home));
+    }
+    if cube.dragged() {
+        let d = cube.drag_delta() * ppp;
+        if d != egui::Vec2::ZERO {
+            return Some(CameraAction::Orbit {
+                delta_px: [d.x, d.y],
+            });
+        }
+    }
+    if cube.clicked() {
+        let pos = cube.interact_pointer_pos()?;
+        let px = (pos - rect.min) * ppp;
+        let side = (rect.width() * ppp).round() as u32;
+        let region = nav::view_cube_hit(cam, [f64::from(px.x), f64::from(px.y)], side)?;
+        return Some(CameraAction::Region(region));
+    }
+    None
+}
+
+/// A small house outline.
+fn paint_home_button(ui: &egui::Ui, rect: egui::Rect, hovered: bool) {
+    let painter = ui.painter_at(rect.expand(1.0));
+    let color = if hovered {
+        egui::Color32::from_rgb(40, 110, 230)
+    } else {
+        egui::Color32::from_gray(120)
+    };
+    let r = rect.shrink(3.0);
+    let (l, t, rt, b) = (r.left(), r.top(), r.right(), r.bottom());
+    let mid = r.center().x;
+    let eave = t + r.height() * 0.45;
+    let stroke = egui::Stroke::new(1.5, color);
+    painter.add(egui::Shape::closed_line(
+        vec![
+            egui::pos2(mid, t),
+            egui::pos2(rt, eave),
+            egui::pos2(rt - 2.0, eave),
+            egui::pos2(rt - 2.0, b),
+            egui::pos2(l + 2.0, b),
+            egui::pos2(l + 2.0, eave),
+            egui::pos2(l, eave),
+        ],
+        stroke,
+    ));
+}
+
+/// Fusion's visual styles in menu order, with their labels.
+const VISUAL_STYLES: [(VisualStyle, &str); 6] = [
+    (VisualStyle::Shaded, "Shaded"),
+    (VisualStyle::ShadedVisibleEdges, "Shaded with visible edges"),
+    (VisualStyle::ShadedHiddenEdges, "Shaded with hidden edges"),
+    (VisualStyle::Wireframe, "Wireframe"),
+    (
+        VisualStyle::WireframeHiddenEdges,
+        "Wireframe with hidden edges",
+    ),
+    (
+        VisualStyle::WireframeVisibleEdges,
+        "Wireframe with visible edges only",
+    ),
+];
+
+/// Fusion-style bottom nav bar: orbit, pan, zoom, fit, a projection toggle and the visual style
+/// menu. Returns the action of the button clicked this frame.
+pub fn nav_bar(ui: &mut egui::Ui, style: &ViewStyle, cam: &Camera) -> Option<CameraAction> {
+    let mut action = None;
+    ui.horizontal(|ui| {
+        for (label, mode, tip) in [
+            ("Orbit", nav::NavMode::Orbit, "Drag to orbit"),
+            ("Pan", nav::NavMode::Pan, "Drag to pan"),
+            ("Zoom", nav::NavMode::Zoom, "Drag to zoom"),
+        ] {
+            if ui.button(label).on_hover_text(tip).clicked() {
+                action = Some(CameraAction::StartMode(mode));
+            }
+        }
+        if ui.button("Fit").on_hover_text("Fit the view").clicked() {
+            action = Some(CameraAction::Fit);
+        }
+        let (label, other) = match cam.projection {
+            Projection::Perspective { .. } => (
+                "Perspective",
+                Projection::Orthographic {
+                    height: nav_apparent_height(cam),
+                },
+            ),
+            Projection::Orthographic { .. } => (
+                "Orthographic",
+                Projection::Perspective {
+                    fov_y: nav::DEFAULT_FOV_Y,
+                },
+            ),
+        };
+        if ui
+            .button(label)
+            .on_hover_text("Switch perspective / orthographic")
+            .clicked()
+        {
+            action = Some(CameraAction::SetProjection(other));
+        }
+        let current = VISUAL_STYLES
+            .iter()
+            .find(|(v, _)| *v == style.visual)
+            .map_or("Visual style", |(_, l)| *l);
+        egui::ComboBox::from_id_salt("amg_visual_style")
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                for (v, l) in VISUAL_STYLES {
+                    if ui.selectable_label(style.visual == v, l).clicked() && style.visual != v {
+                        action = Some(CameraAction::SetVisualStyle(v));
+                    }
+                }
+            });
+    });
+    action
+}
+
+/// Height of the view at the target (what an orthographic switch keeps), mm.
+fn nav_apparent_height(cam: &Camera) -> f64 {
+    match cam.projection {
+        Projection::Perspective { fov_y } => {
+            2.0 * cam.eye.distance(cam.target) * (fov_y * 0.5).tan()
+        }
+        Projection::Orthographic { height } => height,
+    }
+}
+
+/// Applies a camera action with `nav` (animated where the action is a view change), with
+/// `bounds` the visible scene and `size_px` the view size. Returns the actions that are not
+/// camera changes ([`CameraAction::SetVisualStyle`], [`CameraAction::StartMode`]) for the shell.
+pub fn apply_camera_action(
+    nav: &mut nav::NavController,
+    cam: &mut Camera,
+    action: CameraAction,
+    bounds: Aabb3,
+    size_px: [u32; 2],
+) -> Option<CameraAction> {
+    match action {
+        CameraAction::SetView(v) => nav.set_view(cam, v, bounds, size_px, true),
+        CameraAction::Region(r) => {
+            nav.set_view(cam, nav::view_for_region(r), bounds, size_px, true);
+        }
+        CameraAction::Orbit { delta_px } => {
+            nav.begin(
+                nav::NavMode::Orbit,
+                cam,
+                [0.0, 0.0],
+                Some(cam.target),
+                bounds,
+            );
+            nav.drag(
+                cam,
+                [f64::from(delta_px[0]), f64::from(delta_px[1])],
+                size_px,
+            );
+            nav.end();
+        }
+        CameraAction::Fit => nav.fit(cam, bounds, size_px, true),
+        CameraAction::SetProjection(p) => nav.set_projection(cam, p),
+        CameraAction::SetVisualStyle(_) | CameraAction::StartMode(_) => return Some(action),
+    }
+    None
 }
 
 /// Everything the callbacks share, in egui-wgpu's type map.
@@ -400,6 +629,280 @@ mod tests {
             );
         }
         assert_eq!(boxes, 1, "one label has a background box");
+    }
+
+    /// A headless egui driver for the navigation widgets: a 400×300 pt viewport at 2 px/pt.
+    struct Harness {
+        ctx: egui::Context,
+        time: f64,
+    }
+
+    const PPP: f32 = 2.0;
+    const VIEWPORT_MIN: egui::Pos2 = egui::pos2(10.0, 20.0);
+    const VIEWPORT_PX: [u32; 2] = [800, 600];
+
+    impl Harness {
+        fn new() -> Harness {
+            let ctx = egui::Context::default();
+            ctx.set_pixels_per_point(PPP);
+            let mut h = Harness { ctx, time: 0.0 };
+            // The first frame sets up the fonts.
+            h.frame(Vec::new(), &mut |_, _| {});
+            h
+        }
+
+        fn viewport() -> egui::Rect {
+            egui::Rect::from_min_size(
+                VIEWPORT_MIN,
+                egui::vec2(VIEWPORT_PX[0] as f32, VIEWPORT_PX[1] as f32) / PPP,
+            )
+        }
+
+        /// Runs one frame with `events`; `f` gets the ui and the viewport response.
+        fn frame(
+            &mut self,
+            events: Vec<egui::Event>,
+            f: &mut dyn FnMut(&mut egui::Ui, &ViewportResponse),
+        ) -> Vec<egui::epaint::ClippedShape> {
+            self.time += 1.0 / 60.0;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(640.0, 480.0),
+                )),
+                time: Some(self.time),
+                events,
+                ..Default::default()
+            };
+            let mut out = self.ctx.run_ui(input, |ui| {
+                let rect = Harness::viewport();
+                let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+                let resp = ViewportResponse {
+                    response,
+                    rect,
+                    pixels_per_point: PPP,
+                    size_px: VIEWPORT_PX,
+                    lost: false,
+                };
+                f(ui, &resp);
+            });
+            let shapes = std::mem::take(&mut out.shapes);
+            out.drop_without_applying_deltas();
+            shapes
+        }
+
+        fn button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::default(),
+            }
+        }
+
+        /// Move, press, release at `pos`; every action `f` returned.
+        fn click(
+            &mut self,
+            pos: egui::Pos2,
+            f: &mut dyn FnMut(&mut egui::Ui, &ViewportResponse) -> Option<CameraAction>,
+        ) -> Vec<CameraAction> {
+            let mut actions = Vec::new();
+            for events in [
+                vec![egui::Event::PointerMoved(pos)],
+                vec![Harness::button(pos, true)],
+                vec![Harness::button(pos, false)],
+                vec![],
+            ] {
+                self.frame(events, &mut |ui, resp| actions.extend(f(ui, resp)));
+            }
+            actions
+        }
+    }
+
+    fn standard_camera(v: nav::StandardView) -> Camera {
+        Camera {
+            eye: v.eye_direction() * 80.0,
+            target: amg_core::Point3::ZERO,
+            up: amg_core::Dir3::new_unchecked(v.up()),
+            projection: Projection::Perspective { fov_y: 0.8 },
+        }
+    }
+
+    /// Where (points) the cube-surface point `p` (cube units) of the inset of `cam` is.
+    fn cube_point(cam: &Camera, p: Vec3) -> egui::Pos2 {
+        let cube = nav::ViewCube::for_scale(PPP);
+        let [x, y, w, _] = cube.rect_px(VIEWPORT_PX);
+        let q = nav::view_cube_camera(cam).project(p, [w, w]).unwrap();
+        VIEWPORT_MIN + egui::vec2(x as f32 + q[0] as f32, y as f32 + q[1] as f32) / PPP
+    }
+
+    /// Done-when 8 (RND-11): a click on each cube face region emits the matching action, face-on
+    /// and from the Home view (faces, edges and the corner it shows).
+    #[test]
+    fn view_cube_clicks_emit_the_region_actions() {
+        use nav::{CubeRegion, StandardView as V};
+        let mut h = Harness::new();
+        for face in [V::Front, V::Back, V::Left, V::Right, V::Top, V::Bottom] {
+            let cam = standard_camera(face);
+            let pos = cube_point(&cam, face.eye_direction());
+            let actions = h.click(pos, &mut |ui, resp| view_cube(ui, resp, &cam));
+            assert_eq!(
+                actions,
+                vec![CameraAction::Region(CubeRegion::Face(face))],
+                "{face:?} at {pos:?}"
+            );
+        }
+        // From Home: the three faces, three edges and the corner it shows. Points on the
+        // visible faces: face centres, 0.8 toward an edge, 0.8 toward a corner.
+        let home = standard_camera(V::Home);
+        let (fx, fy, fz) = (Vec3::X, Vec3::NEG_Y, Vec3::Z);
+        let cases = [
+            (fx, CubeRegion::Face(V::Right)),
+            (fy, CubeRegion::Face(V::Front)),
+            (fz, CubeRegion::Face(V::Top)),
+            (
+                fy + fx * 0.8,
+                CubeRegion::Edge {
+                    a: V::Right,
+                    b: V::Front,
+                },
+            ),
+            (
+                fz + fx * 0.8,
+                CubeRegion::Edge {
+                    a: V::Right,
+                    b: V::Top,
+                },
+            ),
+            (
+                fz + fy * 0.8,
+                CubeRegion::Edge {
+                    a: V::Front,
+                    b: V::Top,
+                },
+            ),
+            (
+                fz + (fx + fy) * 0.8,
+                CubeRegion::Corner { x: 1, y: -1, z: 1 },
+            ),
+        ];
+        for (p, region) in cases {
+            let pos = cube_point(&home, p);
+            let actions = h.click(pos, &mut |ui, resp| view_cube(ui, resp, &home));
+            assert_eq!(actions, vec![CameraAction::Region(region)], "{region:?}");
+        }
+        // Outside the cube silhouette (but inside the inset): nothing.
+        let rect = {
+            let mut r = egui::Rect::NOTHING;
+            h.frame(Vec::new(), &mut |_, resp| r = view_cube_rect(resp));
+            r
+        };
+        let off = egui::pos2(rect.right() - 3.0, rect.bottom() - 3.0);
+        assert!(
+            h.click(off, &mut |ui, resp| view_cube(ui, resp, &home))
+                .is_empty()
+        );
+        // The home button.
+        let actions = h.click(rect.min + egui::vec2(8.0, 8.0), &mut |ui, resp| {
+            view_cube(ui, resp, &home)
+        });
+        assert_eq!(actions, vec![CameraAction::SetView(V::Home)]);
+    }
+
+    /// A drag on the cube orbits by the cursor movement in physical pixels.
+    #[test]
+    fn view_cube_drag_emits_orbit() {
+        let mut h = Harness::new();
+        let cam = standard_camera(nav::StandardView::Home);
+        let start = cube_point(&cam, Vec3::new(0.0, -1.0, 0.0));
+        let mut actions = Vec::new();
+        let mut f = |ui: &mut egui::Ui, resp: &ViewportResponse| {
+            actions.extend(view_cube(ui, resp, &cam));
+        };
+        h.frame(vec![egui::Event::PointerMoved(start)], &mut f);
+        h.frame(vec![Harness::button(start, true)], &mut f);
+        for i in 1..=5 {
+            let p = start + egui::vec2(-4.0 * i as f32, 2.0 * i as f32);
+            h.frame(vec![egui::Event::PointerMoved(p)], &mut f);
+        }
+        let end = start + egui::vec2(-20.0, 10.0);
+        h.frame(vec![Harness::button(end, false)], &mut f);
+        let mut total = [0.0f32; 2];
+        for a in &actions {
+            let CameraAction::Orbit { delta_px } = a else {
+                panic!("unexpected {a:?} in {actions:?}");
+            };
+            total[0] += delta_px[0];
+            total[1] += delta_px[1];
+        }
+        assert!(!actions.is_empty());
+        // egui starts a drag after a small threshold, so the first move may be swallowed.
+        assert!(total[0] <= -20.0 && total[0] >= -40.0 * PPP, "{total:?}");
+        assert!(total[1] >= 10.0 && total[1] <= 20.0 * PPP, "{total:?}");
+    }
+
+    /// The nav bar's buttons emit their actions.
+    #[test]
+    fn nav_bar_buttons_emit_actions() {
+        let mut h = Harness::new();
+        let style = ViewStyle::default();
+        let cam = standard_camera(nav::StandardView::Home);
+        let mut bar = |ui: &mut egui::Ui, _: &ViewportResponse| nav_bar(ui, &style, &cam);
+        // Find the buttons' text.
+        let shapes = h.frame(Vec::new(), &mut |ui, resp| {
+            bar(ui, resp);
+        });
+        let find = |text: &str| {
+            shapes
+                .iter()
+                .find_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.text() == text => {
+                        Some(t.visual_bounding_rect().center())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no {text:?} button"))
+        };
+        let (fit, pan, persp) = (find("Fit"), find("Pan"), find("Perspective"));
+        assert_eq!(h.click(fit, &mut bar), vec![CameraAction::Fit]);
+        assert_eq!(
+            h.click(pan, &mut bar),
+            vec![CameraAction::StartMode(nav::NavMode::Pan)]
+        );
+        let actions = h.click(persp, &mut bar);
+        let [CameraAction::SetProjection(Projection::Orthographic { height })] = actions[..] else {
+            panic!("{actions:?}");
+        };
+        // The apparent height at the target.
+        let want = 2.0 * 80.0 * (0.4f64).tan();
+        assert!((height - want).abs() < 1e-9);
+    }
+
+    /// `apply_camera_action` animates region clicks and orbits cube drags about the target.
+    #[test]
+    fn apply_camera_action_drives_the_controller() {
+        let mut nav = nav::NavController::new();
+        let mut cam = standard_camera(nav::StandardView::Home);
+        let bounds = Aabb3::new(amg_core::Point3::splat(-5.0), amg_core::Point3::splat(5.0));
+        let region = CameraAction::Region(nav::CubeRegion::Face(nav::StandardView::Top));
+        assert_eq!(
+            apply_camera_action(&mut nav, &mut cam, region, bounds, VIEWPORT_PX),
+            None
+        );
+        assert!(nav.is_animating());
+        while nav.tick(&mut cam, std::time::Duration::from_millis(16)) {}
+        assert!((cam.forward().get() - Vec3::NEG_Z).length() < 1e-12);
+        let before = cam.target;
+        let orbit = CameraAction::Orbit {
+            delta_px: [100.0, 0.0],
+        };
+        apply_camera_action(&mut nav, &mut cam, orbit, bounds, VIEWPORT_PX);
+        assert_eq!(cam.target, before, "orbits about the target");
+        let style = CameraAction::SetVisualStyle(VisualStyle::Wireframe);
+        assert_eq!(
+            apply_camera_action(&mut nav, &mut cam, style, bounds, VIEWPORT_PX),
+            Some(style)
+        );
     }
 
     #[test]

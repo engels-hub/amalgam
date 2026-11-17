@@ -991,6 +991,32 @@ impl RenderScene {
         &self.table
     }
 
+    /// Extent `[lo, hi]` along `forward` (mm from `eye`) of the visible instances in `layers`
+    /// (their world bounding spheres) and of the overlay list: what an orthographic view fits
+    /// its depth range to (RND-11 near-plane policy). `None` when there is nothing.
+    pub(crate) fn view_depth_extent(
+        &self,
+        eye: Point3,
+        forward: Vec3,
+        layers: LayerMask,
+    ) -> Option<(f64, f64)> {
+        let (mut lo, mut hi) = self
+            .overlays
+            .depth_extent(eye, forward)
+            .unwrap_or((f64::INFINITY, f64::NEG_INFINITY));
+        let table = &self.table;
+        for (inst, info) in table.instances().iter().zip(table.info()) {
+            let Some(s) = info.sphere else { continue };
+            if !inst.visible || !layers.contains(inst.layer) {
+                continue;
+            }
+            let d = (s.center - eye).dot(forward);
+            lo = lo.min(d - s.radius);
+            hi = hi.max(d + s.radius);
+        }
+        (lo <= hi).then_some((lo, hi))
+    }
+
     pub(crate) fn edge_set(&self, k: EdgesKey) -> Option<&GpuEdges> {
         self.edges.get(k)
     }

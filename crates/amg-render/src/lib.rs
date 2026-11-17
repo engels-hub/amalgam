@@ -51,7 +51,15 @@
 //! (x-ray dimming from the scene depth); pickable handles reported as [`SubKind::Handle`];
 //! labels projected by [`Renderer::project_labels`] for egui painting
 //! (`egui_glue::paint_labels`); and [`OverlayInset`]s (`View::insets`), the view-cube rendering
-//! hook for RND-11. The remaining S10 API arrives with the later work packages.
+//! hook for RND-11.
+//!
+//! RND-11 adds navigation ([`nav`]): [`nav::NavController`] (orbit about a pivot, free or
+//! constrained, zoom to the cursor, pan with the grabbed point, fit, standard views,
+//! `look_at_plane`, projection switch, 300 ms transitions), the near-plane policy
+//! ([`Camera::depth_range_for`]: orthographic depth fitted to the visible scene), the view cube
+//! ([`nav::ViewCube`] drawn as an inset when `View::show_view_cube`, [`nav::view_cube_hit`]) and
+//! the `egui_glue::{view_cube, nav_bar}` widgets emitting `CameraAction`s. The remaining S10 API
+//! arrives with the later work packages.
 
 #![warn(missing_docs)]
 
@@ -62,6 +70,7 @@ mod cull;
 mod error;
 mod highlight;
 mod lines;
+pub mod nav;
 mod overlay;
 mod pick;
 mod pipelines;
@@ -84,7 +93,7 @@ pub use analysis::{
     ZEBRA_LIGHT, class, colormap_lut, colormap_rgb, decode_class, draft_angle, legend,
     overhang_class, overhang_severity, upload_scalar_field, upload_vector_field, zebra_t,
 };
-pub use camera::{Camera, CameraUniform, Projection};
+pub use camera::{Camera, CameraUniform, DepthRange, Projection};
 pub use error::RenderError;
 pub use highlight::{HighlightItem, HighlightLayer, Range32};
 pub use lines::{
