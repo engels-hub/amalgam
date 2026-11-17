@@ -12,12 +12,13 @@ use amg_jobs::gpu::{Gpu, Readback};
 use crate::analysis::{
     ANALYSIS_RECORD_BYTES, AnalysisOutput, analysis_bind_layout, create_lut, lut_sampler,
 };
-use crate::camera::{Camera, Projection};
+use crate::camera::{Camera, DepthRange, Projection};
 use crate::cull::{DrawPlan, Frustum, MeshDraw};
 use crate::highlight::HighlightLayer;
 use crate::lines::{
     GpuEdges, LINE_RECORD_BYTES, LineDraw, LineGeometry, LinePass, LinePlan, LineView, VisualStyle,
 };
+use crate::nav::ViewCube;
 use crate::overlay::{
     HandleHighlights, LayerDraws, OverlayGpu, OverlayInset, ProjectedLabel, Tessellator, TriDraw,
 };
@@ -338,6 +339,12 @@ pub struct View {
     /// Overlay lists drawn in sub-rectangles with their own cameras, over everything (RND-07):
     /// the rendering hook of the view cube (RND-11). Default empty.
     pub insets: Vec<OverlayInset>,
+    /// Draw the view cube (RND-11) as one more inset after `insets`, rebuilt every frame from
+    /// the camera with [`View::view_cube`]. Default false.
+    pub show_view_cube: bool,
+    /// Layout, letter size and hover region of the view cube. Set it from the display scale
+    /// with [`ViewCube::for_scale`] so it matches `egui_glue::view_cube`. Default: scale 1.
+    pub view_cube: ViewCube,
     size_px: [u32; 2],
 }
 
@@ -345,6 +352,38 @@ impl View {
     /// Current size of the view, pixels.
     pub fn size_px(&self) -> [u32; 2] {
         self.size_px
+    }
+
+    /// The view-cube inset of this frame, if `show_view_cube`.
+    pub fn view_cube_inset(&self) -> Option<OverlayInset> {
+        self.show_view_cube
+            .then(|| self.view_cube.inset(&self.camera, self.size_px))
+    }
+
+    /// `insets` plus the view cube (borrowed when there is no cube).
+    fn all_insets(&self) -> std::borrow::Cow<'_, [OverlayInset]> {
+        match self.view_cube_inset() {
+            None => std::borrow::Cow::Borrowed(&self.insets),
+            Some(cube) => {
+                let mut all = self.insets.clone();
+                all.push(cube);
+                std::borrow::Cow::Owned(all)
+            }
+        }
+    }
+}
+
+/// The depth range of a view of `camera` over `scene` (RND-11 near-plane policy): orthographic
+/// views fit it to the visible instances of `layers` and the overlays.
+fn view_depth_range(scene: &RenderScene, camera: &Camera, layers: LayerMask) -> DepthRange {
+    match camera.projection {
+        Projection::Perspective { .. } => camera.default_depth_range(),
+        Projection::Orthographic { .. } => scene
+            .view_depth_extent(camera.eye, camera.forward().get(), layers)
+            .map_or_else(
+                || camera.default_depth_range(),
+                |(lo, hi)| camera.depth_range_for_extent(lo, hi),
+            ),
     }
 }
 
@@ -1216,7 +1255,7 @@ impl Renderer {
             [0.0, 0.0],
             &mut out,
         );
-        for inset in &slot.view.insets {
+        for inset in slot.view.all_insets().iter() {
             let [x, y, w, h] = inset.rect_px;
             inset.overlays.project_labels(
                 &inset.camera,
@@ -1310,6 +1349,8 @@ impl Renderer {
                 layers: LayerMask::ALL,
                 sections_enabled: true,
                 insets: Vec::new(),
+                show_view_cube: false,
+                view_cube: ViewCube::default(),
                 size_px,
             },
             targets: None,
@@ -1602,10 +1643,12 @@ impl Renderer {
         if size[0] == 0 || size[1] == 0 {
             return Ok(stats);
         }
+        // RND-11: the view cube is one more inset, rebuilt from the camera every frame.
+        let insets = slot.view.all_insets();
         // RND-07: once a view draws overlays its depth target stays sampleable (the overlay
         // pass reads it for the depth modes), so a tool starting or stopping never rebuilds it.
         let has_overlays =
-            !scene.overlays().is_empty() || slot.view.insets.iter().any(|i| !i.overlays.is_empty());
+            !scene.overlays().is_empty() || insets.iter().any(|i| !i.overlays.is_empty());
         slot.overlay.sampled_depth |= has_overlays;
         let depth_sampled = slot.view.style.silhouettes || slot.overlay.sampled_depth;
         if slot.targets.as_ref().is_none_or(|t| {
@@ -1635,7 +1678,8 @@ impl Renderer {
 
         let camera = slot.view.camera;
         let style = slot.view.style;
-        let camera_uniform = camera.uniform(size, camera.default_near());
+        let depth_range = view_depth_range(scene, &camera, slot.view.layers);
+        let camera_uniform = camera.uniform_in(size, depth_range);
         queue.write_buffer(&slot.camera_buffer, 0, bytemuck::bytes_of(&camera_uniform));
         queue.write_buffer(
             &slot.style_buffer,
@@ -1671,13 +1715,15 @@ impl Renderer {
                 image_ok: &image_ok,
             };
             tess.layer(scene.overlays(), &camera, size, false);
-            for inset in &slot.view.insets {
+            for inset in insets.iter() {
                 let [_, _, w, h] = inset.rect_px;
                 tess.layer(&inset.overlays, &inset.camera, [w.max(1), h.max(1)], true);
             }
         }
 
-        let frustum = Frustum::from_view_proj(&(camera.proj_matrix(size) * camera.view_matrix()));
+        let frustum = Frustum::from_view_proj(
+            &(camera.proj_matrix_in(size, depth_range) * camera.view_matrix()),
+        );
         plan.build_sectioned(
             scene.table(),
             |k| {
@@ -2332,7 +2378,7 @@ impl Renderer {
                     final_view: &targets.final_view,
                     overlay_depth: &targets.overlay_depth,
                     scene_bind,
-                    insets: &slot.view.insets,
+                    insets: &insets,
                     size,
                     timestamp,
                 },
@@ -4264,6 +4310,8 @@ impl Renderer {
             self.picks.queued.drain(..).partition(|q| q.view == id);
         self.picks.queued = rest;
         let size = view.size_px;
+        // The same depth range as the view's frames (RND-11), so pick depth matches the image.
+        let depth_range = view_depth_range(&self.scene, &view.camera, view.layers);
         if size[0] == 0 || size[1] == 0 {
             for q in mine {
                 self.picks.done.push((
@@ -4373,7 +4421,6 @@ impl Renderer {
             }
             let filter = q.request.filter;
             let camera = view.camera;
-            let near = camera.default_near();
             let rect_targets;
             let (uniform, viewport, point, targets) = match q.request.region {
                 PickRegion::Point { px } => {
@@ -4384,7 +4431,7 @@ impl Renderer {
                         f64::from(cursor[0]) + 0.5 - px[0],
                         f64::from(cursor[1]) + 0.5 - px[1],
                     ];
-                    let mut uniform = camera.uniform_shifted(size, near, shift);
+                    let mut uniform = camera.uniform_shifted(size, depth_range, shift);
                     // The view pixel of the target's top-left texel (`surface_point`, pick.wgsl).
                     uniform.eye_hi[3] = origin[0] as f32;
                     uniform.eye_lo[3] = origin[1] as f32;
@@ -4393,7 +4440,12 @@ impl Renderer {
                 PickRegion::Rect { .. } => {
                     rect_targets =
                         create_pick_targets(device, &self.pick_targets_bind_layout, size);
-                    (camera.uniform(size, near), None, None, &rect_targets)
+                    (
+                        camera.uniform_in(size, depth_range),
+                        None,
+                        None,
+                        &rect_targets,
+                    )
                 }
             };
             let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {

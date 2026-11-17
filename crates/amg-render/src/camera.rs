@@ -1,15 +1,32 @@
 //! The f64 camera and its relative-to-eye (RTE) GPU uniform (design note §3).
 
 use amg_core::glam::DVec4;
-use amg_core::{Dir3, Mat4, Point3, Ray3, Vec3};
+use amg_core::{Aabb3, Dir3, Mat4, Point3, Ray3, Vec3};
 
 /// Nearest near-plane distance a perspective camera uses, mm (design note §3).
 const MIN_NEAR_MM: f64 = 1e-4;
 /// Near plane as a fraction of the eye-to-target distance (design note §3).
 const NEAR_FRACTION: f64 = 1e-3;
-/// Orthographic far distance as a multiple of the eye-to-target distance. RND-11 replaces this
-/// with the near-plane policy based on the visible scene bounds.
+/// Orthographic far distance as a multiple of the eye-to-target distance when the scene extent
+/// is unknown ([`Camera::default_depth_range`]); [`Camera::depth_range_for`] fits it instead.
 const ORTHO_DEPTH_FACTOR: f64 = 1e3;
+/// Relative margin around a fitted orthographic depth range (design note §3).
+const ORTHO_FIT_MARGIN: f64 = 0.01;
+/// Extra fitted orthographic margin as a fraction of the view height: room for overlays sized in
+/// pixels (arrows, rings), whose extent is not in the fitted bounds.
+const ORTHO_FIT_HEIGHT_MARGIN: f64 = 0.25;
+
+/// Clip planes along the view axis, mm from the eye (RND-11 near-plane policy, design note §3).
+///
+/// Perspective: `near` is the near plane and `far` is infinite. Orthographic: the depth range
+/// `[near, far]`; `near` may be negative (geometry behind the eye plane is still visible).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DepthRange {
+    /// Near plane distance, mm.
+    pub near: f64,
+    /// Far plane distance, mm (`f64::INFINITY` for perspective).
+    pub far: f64,
+}
 
 /// A viewpoint in world space, mm. World up is +Z by convention (spec §Design 10).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -143,10 +160,82 @@ impl Camera {
         (self.eye.distance(self.target) * NEAR_FRACTION).max(MIN_NEAR_MM)
     }
 
-    /// The RTE uniform for a view of `size_px` with near-plane distance `near`.
+    /// The depth range without scene knowledge: perspective near = [`Camera::default_near`];
+    /// orthographic from `max(distance, height)` behind the eye to about 1000 × the
+    /// eye-to-target distance in front of it.
+    pub fn default_depth_range(&self) -> DepthRange {
+        match self.projection {
+            Projection::Perspective { .. } => DepthRange {
+                near: self.default_near(),
+                far: f64::INFINITY,
+            },
+            Projection::Orthographic { height } => {
+                let dist = self.eye.distance(self.target);
+                DepthRange {
+                    near: -dist.max(height),
+                    far: dist * ORTHO_DEPTH_FACTOR + height,
+                }
+            }
+        }
+    }
+
+    /// The near-plane policy (RND-11, design note §3) for visible content inside `bounds`
+    /// (world, mm).
+    ///
+    /// Perspective: near = 1e-3 of the eye-to-target distance (at least 1e-4 mm), far infinite;
+    /// the navigation keeps the target at the depth of what is looked at. Orthographic: the
+    /// bounds projected on the view direction plus a 1 % margin (and a quarter of the view
+    /// height for overlays sized in pixels), so the f32 depth step follows the scene, not the
+    /// eye distance. Empty bounds give [`Camera::default_depth_range`].
+    pub fn depth_range_for(&self, bounds: &Aabb3) -> DepthRange {
+        if bounds.is_empty() {
+            return self.default_depth_range();
+        }
+        let forward = self.forward().get();
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for x in [bounds.min.x, bounds.max.x] {
+            for y in [bounds.min.y, bounds.max.y] {
+                for z in [bounds.min.z, bounds.max.z] {
+                    let d = (Point3::new(x, y, z) - self.eye).dot(forward);
+                    lo = lo.min(d);
+                    hi = hi.max(d);
+                }
+            }
+        }
+        self.depth_range_for_extent(lo, hi)
+    }
+
+    /// [`Camera::depth_range_for`] from the view-axis extent `[lo, hi]` (mm in front of the eye)
+    /// of the visible content.
+    pub(crate) fn depth_range_for_extent(&self, lo: f64, hi: f64) -> DepthRange {
+        match self.projection {
+            Projection::Perspective { .. } => self.default_depth_range(),
+            Projection::Orthographic { height } => {
+                if !(lo.is_finite() && hi.is_finite() && lo <= hi) {
+                    return self.default_depth_range();
+                }
+                // Never zero width: a flat part seen edge-on still needs a depth slab.
+                let margin = ORTHO_FIT_MARGIN * (hi - lo)
+                    + ORTHO_FIT_HEIGHT_MARGIN * height
+                    + 1e-9 * lo.abs().max(hi.abs()).max(1.0);
+                DepthRange {
+                    near: lo - margin,
+                    far: hi + margin,
+                }
+            }
+        }
+    }
+
+    /// The RTE uniform for a view of `size_px` with near-plane distance `near` (orthographic
+    /// cameras use [`Camera::default_depth_range`]).
     pub fn uniform(&self, size_px: [u32; 2], near: f64) -> CameraUniform {
+        self.uniform_in(size_px, self.range_with_near(near))
+    }
+
+    /// The RTE uniform for a view of `size_px` with the depth range `range`.
+    pub fn uniform_in(&self, size_px: [u32; 2], range: DepthRange) -> CameraUniform {
         let rotation = self.view_rotation();
-        let proj = self.proj_with_near(size_px, near);
+        let proj = self.proj_in(size_px, range);
         let hi = self.eye.as_vec3();
         let lo = (self.eye - hi.as_dvec3()).as_vec3();
         let h = f64::from(size_px[1].max(1));
@@ -171,16 +260,16 @@ impl Camera {
     pub(crate) fn uniform_shifted(
         &self,
         size_px: [u32; 2],
-        near: f64,
+        range: DepthRange,
         shift_px: [f64; 2],
     ) -> CameraUniform {
-        let mut u = self.uniform(size_px, near);
+        let mut u = self.uniform_in(size_px, range);
         let shift = Mat4::from_translation(Vec3::new(
             2.0 * shift_px[0] / f64::from(size_px[0].max(1)),
             -2.0 * shift_px[1] / f64::from(size_px[1].max(1)),
             0.0,
         ));
-        let proj = shift * self.proj_with_near(size_px, near);
+        let proj = shift * self.proj_in(size_px, range);
         u.proj = proj.as_mat4().to_cols_array_2d();
         u.inv_view_proj_rte = (proj * self.view_rotation())
             .inverse()
@@ -194,13 +283,31 @@ impl Camera {
         self.view_rotation() * Mat4::from_translation(-self.eye)
     }
 
-    /// f64 view-to-clip matrix (reversed-Z, depth in `[0, 1]`) with [`Camera::default_near`].
+    /// f64 view-to-clip matrix (reversed-Z, depth in `[0, 1]`) with
+    /// [`Camera::default_depth_range`].
     pub fn proj_matrix(&self, size_px: [u32; 2]) -> Mat4 {
-        self.proj_with_near(size_px, self.default_near())
+        self.proj_in(size_px, self.default_depth_range())
     }
 
-    fn proj_with_near(&self, size_px: [u32; 2], near: f64) -> Mat4 {
+    /// f64 view-to-clip matrix (reversed-Z) with the depth range `range`.
+    pub fn proj_matrix_in(&self, size_px: [u32; 2], range: DepthRange) -> Mat4 {
+        self.proj_in(size_px, range)
+    }
+
+    /// [`Camera::default_depth_range`] with the perspective near plane at `near`.
+    fn range_with_near(&self, near: f64) -> DepthRange {
+        match self.projection {
+            Projection::Perspective { .. } => DepthRange {
+                near,
+                far: f64::INFINITY,
+            },
+            Projection::Orthographic { .. } => self.default_depth_range(),
+        }
+    }
+
+    fn proj_in(&self, size_px: [u32; 2], range: DepthRange) -> Mat4 {
         let aspect = aspect(size_px);
+        let near = range.near;
         match self.projection {
             Projection::Perspective { fov_y } => {
                 // Infinite far plane, reversed-Z: depth = near / -z_view.
@@ -215,10 +322,9 @@ impl Camera {
             Projection::Orthographic { height } => {
                 let half_h = height * 0.5;
                 let half_w = half_h * aspect;
-                let dist = self.eye.distance(self.target);
-                let far_plane = dist * ORTHO_DEPTH_FACTOR + height;
-                // Negative: geometry between the eye and this plane is still visible.
-                let near_plane = -dist.max(height);
+                let far_plane = range.far;
+                // May be negative: geometry between the eye and this plane is still visible.
+                let near_plane = range.near;
                 // Reversed-Z: depth = (z_view + far) / (far - near), so near -> 1 and far -> 0.
                 let z = 1.0 / (far_plane - near_plane);
                 Mat4::from_cols(
@@ -243,7 +349,7 @@ impl Camera {
     }
 
     /// World-space right, up and forward unit vectors.
-    fn basis(&self) -> (Vec3, Vec3, Vec3) {
+    pub(crate) fn basis(&self) -> (Vec3, Vec3, Vec3) {
         let forward = self.forward().get();
         let right = forward.cross(self.up.get()).normalize();
         (right, right.cross(forward), forward)
@@ -400,6 +506,62 @@ mod tests {
             let sum = f64::from(u.eye_hi[i]) + f64::from(u.eye_lo[i]);
             assert!((sum - cam.eye.to_array()[i]).abs() < 1e-6);
         }
+    }
+
+    /// RND-11 near-plane policy: orthographic depth fits the bounds (+ margins) whatever the
+    /// eye distance; perspective near is 1e-3 of the distance, at least 1e-4 mm.
+    #[test]
+    fn depth_range_policy() {
+        let cams = cameras();
+        let persp = cams[0];
+        let r = persp.depth_range_for(&Aabb3::new(Point3::splat(-5.0), Point3::splat(5.0)));
+        assert_eq!(r.near, persp.default_near());
+        assert!(r.far.is_infinite());
+        let tiny = Camera {
+            eye: Point3::new(0.0, -0.02, 0.0),
+            ..persp
+        };
+        assert_eq!(tiny.default_near(), MIN_NEAR_MM);
+
+        let ortho = cams[3]; // 1e5 mm from the origin
+        let b = Aabb3::new(
+            ortho.target - Vec3::splat(5.0),
+            ortho.target + Vec3::splat(5.0),
+        );
+        let fitted = ortho.depth_range_for(&b);
+        let d = ortho.eye.distance(ortho.target);
+        // The box spans ±5√3 along any direction at most.
+        assert!(
+            fitted.near <= d - 5.0 && fitted.far >= d + 5.0,
+            "{fitted:?}"
+        );
+        assert!(fitted.far - fitted.near <= 20.0 * 1.01 + 0.5 * 120.0 + 1e-3);
+        // Every box corner projects inside [0, 1] depth, the nearer one higher.
+        let near_pt = ortho.target - ortho.forward().get() * 5.0;
+        let far_pt = ortho.target + ortho.forward().get() * 5.0;
+        let proj = ortho.proj_matrix_in(SIZE, fitted) * ortho.view_matrix();
+        let (a, z) = (
+            proj.project_point3(near_pt).z,
+            proj.project_point3(far_pt).z,
+        );
+        assert!(a > z && (0.0..=1.0).contains(&a) && (0.0..=1.0).contains(&z));
+        // The f32 depth step is set by the fitted range, not by 1000 × the eye distance.
+        let placeholder = ortho.default_depth_range();
+        assert!(placeholder.far - placeholder.near > 50.0 * (fitted.far - fitted.near));
+        assert_eq!(ortho.depth_range_for(&Aabb3::EMPTY), placeholder);
+        // The uniform uses the range; `uniform` keeps the placeholder for orthographic views.
+        let u = ortho.uniform_in(SIZE, fitted);
+        assert_eq!(
+            u.proj,
+            ortho
+                .proj_matrix_in(SIZE, fitted)
+                .as_mat4()
+                .to_cols_array_2d()
+        );
+        assert_eq!(
+            ortho.uniform(SIZE, 0.1).proj,
+            ortho.uniform_in(SIZE, placeholder).proj
+        );
     }
 
     #[test]

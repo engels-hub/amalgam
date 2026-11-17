@@ -453,7 +453,8 @@ pub struct CameraUniform {
     pub eye_hi: [f32; 4], pub eye_lo: [f32; 4], pub size_px: [f32; 2], pub pixel_size_at_1mm: f32, pub ortho: u32,
 }
 #[derive(Clone, Debug)]
-pub struct View { pub camera: Camera, pub style: ViewStyle, pub sections_enabled: bool, pub show_view_cube: bool }
+pub struct View { pub camera: Camera, pub style: ViewStyle, pub sections_enabled: bool, pub show_view_cube: bool,
+                  pub view_cube: nav::ViewCube /* RND-11 */ }
 impl View { pub fn size_px(&self) -> [u32; 2]; }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ViewStyle { pub visual: VisualStyle, pub xray: bool, pub silhouettes: bool, pub fxaa: bool,
@@ -524,6 +525,31 @@ pub mod nav {
     /// Hit test in the view cube inset (`px` relative to the inset's top-left).
     pub fn view_cube_hit(cam: &Camera, px: [f64; 2], inset_px: u32) -> Option<CubeRegion>;
     pub fn view_for_region(r: CubeRegion) -> StandardView;
+    // Added by RND-11 (additive):
+    impl StandardView { pub fn eye_direction(self) -> Vec3; pub fn up(self) -> Vec3; }
+    impl CubeRegion { pub fn all() -> Vec<CubeRegion>; pub fn signs(self) -> Option<[i8; 3]>; }
+    impl NavController { pub fn new() -> Self; pub fn is_dragging(&self) -> bool; pub fn pivot(&self) -> Option<Point3>;
+                         pub fn orbit_mode(&self) -> OrbitMode; pub fn is_animating(&self) -> bool; }
+    /// Orthographic camera of the cube inset (cube `[−1, 1]³`, the view's orientation).
+    pub fn view_cube_camera(cam: &Camera) -> Camera;
+    /// Inset layout and style; `View::view_cube`. 110 × 10 logical px at `for_scale(ppp)`.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct ViewCube { pub size_px: u32, pub margin_px: u32, pub label_pt: f32, pub hover: Option<CubeRegion> }
+    impl ViewCube { pub fn for_scale(pixels_per_point: f32) -> ViewCube;
+                    pub fn rect_px(&self, view_size_px: [u32; 2]) -> [u32; 4];
+                    pub fn inset(&self, cam: &Camera, view_size_px: [u32; 2]) -> OverlayInset; }
+    pub const TRANSITION: Duration; // 300 ms
+    pub const DEFAULT_FOV_Y: f64;   // 45°, used when switching ortho → perspective
+}
+// Near-plane policy (RND-11, additive on `Camera`):
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DepthRange { pub near: f64, pub far: f64 }
+impl Camera {
+    pub fn default_depth_range(&self) -> DepthRange;
+    /// Perspective: near = 1e-3·|eye − target| (≥ 1e-4 mm). Ortho: bounds on the view axis + margins.
+    pub fn depth_range_for(&self, bounds: &Aabb3) -> DepthRange;
+    pub fn uniform_in(&self, size_px: [u32; 2], range: DepthRange) -> CameraUniform;
+    pub fn proj_matrix_in(&self, size_px: [u32; 2], range: DepthRange) -> amg_core::Mat4;
 }
 
 // ===== egui glue (cargo feature "egui", default) =====
@@ -555,6 +581,12 @@ pub mod egui_glue {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum CameraAction { SetView(nav::StandardView), Region(nav::CubeRegion), Orbit { delta_px: [f32; 2] },
                             Fit, SetProjection(Projection), SetVisualStyle(VisualStyle), StartMode(nav::NavMode) }
+    // Added by RND-11 (additive):
+    /// The cube inset rectangle in points (`ViewCube::for_scale(resp.pixels_per_point)`).
+    pub fn view_cube_rect(resp: &ViewportResponse) -> egui::Rect;
+    /// Applies camera actions with the controller (animated); returns SetVisualStyle / StartMode.
+    pub fn apply_camera_action(nav: &mut nav::NavController, cam: &mut Camera, action: CameraAction,
+                               bounds: Aabb3, size_px: [u32; 2]) -> Option<CameraAction>;
 }
 ```
 
@@ -607,7 +639,7 @@ pub mod egui_glue {
 | RND-08 | Analyses and fields: `Shading::{Field, Analysis}`, zebra, draft and overhang shaders (note §11), scalar-field colormaps (Viridis, Turbo, Rainbow, BlueWhiteRed, Grey; LUT texture array), bands, isolines, out-of-range handling, `legend`, `colormap_rgb`, vector-field deformation with `Animation`. | RND-02, RND-03 | P0 | Done | 1. A test-mode readback of a per-pixel class target: overhang classification on an icosphere matches the note §11 CPU formula for 100 % of pixels whose normal is > 0.5° from the threshold or plate band. 2. Zebra on a sphere shows N ± 1 stripes along the profile. 3. Draft sign is correct on a ±10° drafted prism. 4. LUT bytes equal the embedded reference tables, and `colormap_rgb` agrees with the shader within 1/255. 5. `legend` gives nice ticks (table test). 6. Deformed positions (test readback) match the CPU `p + s·A·d` within 1e-4 relative. 7. Switching shading never re-uploads geometry (counter). 8. A 5 M-tri mesh with field shading stays inside the RND-02 budget (bench). |
 | RND-09 | Headless and visual regression: `assert_render_golden!` over `tests/golden/render/` (amg-testkit golden dir, `AMG_BLESS=1`), WARP-generated goldens, thresholds per note §15, diff and actual PNGs on failure, `thumbnail(scene, size) -> png bytes` with a Home-view fit. | RND-02 | P1 | Todo | 1. ≥ 10 golden scenes (6 visual styles, a section, a field, an analysis, overlays) pass in CI on WARP. 2. A deliberate 1-px camera shift fails with diff images written. 3. Bless round-trip works. 4. A 256² thumbnail of a 1 M-tri scene takes < 100 ms on the owner GPU. |
 | RND-10 | Appearance materials: PBR textures (base, normal, roughness/metal), image-based environment lighting (prefiltered cube, BRDF LUT), mapping from S17 appearances | RND-02, MAT-02 | P2 | Todo | 1. A material-ball scene matches its golden image. 2. Assigning an S17 appearance changes the rendering with no geometry re-upload. 3. With IBL on, the 5 M-tri budget holds. |
-| RND-11 | Navigation and view cube: `nav` module (orbit free/constrained about pivot, zoom-to-cursor, pan with grabbed point, fit, standard views, `look_at_plane`, projection switch, 300 ms transitions, near-plane policy), view-cube inset rendering (via RND-07) + `view_cube_hit` + face labels, `egui_glue::{view_cube, nav_bar}` emitting `CameraAction`. | RND-03, RND-07 | P0 | Todo | Unit tests (no GPU): 1. Orbit keeps the pivot pixel fixed (≤ 1e-6 px). 2. Zoom-to-cursor keeps the anchor pixel fixed (≤ 1e-6 px), perspective and ortho, over 1e-3..1e5 mm distances. 3. Pan keeps the grabbed point under the cursor (≤ 1e-6 px). 4. Fit: all 8 bound corners are inside the view, and the bounding sphere spans ≥ 90 % of the smaller viewport dimension. 5. Projection switch keeps apparent size at the target within 0.1 %. 6. Table test of all 26 cube regions + Home. 7. `look_at_plane` puts plane x to screen right and the normal toward the viewer (±1e-9). 8. Widget test (headless `egui::Context`): a click on each cube face region emits the matching `CameraAction`. 9. Headless (WARP): a 0.01 mm feature 1e4 mm from the origin, zoomed to fill the view, is stable within 0.5 px over a 360° orbit. |
+| RND-11 | Navigation and view cube: `nav` module (orbit free/constrained about pivot, zoom-to-cursor, pan with grabbed point, fit, standard views, `look_at_plane`, projection switch, 300 ms transitions, near-plane policy), view-cube inset rendering (via RND-07) + `view_cube_hit` + face labels, `egui_glue::{view_cube, nav_bar}` emitting `CameraAction`. | RND-03, RND-07 | P0 | Review | Unit tests (no GPU): 1. Orbit keeps the pivot pixel fixed (≤ 1e-6 px). 2. Zoom-to-cursor keeps the anchor pixel fixed (≤ 1e-6 px), perspective and ortho, over 1e-3..1e5 mm distances. 3. Pan keeps the grabbed point under the cursor (≤ 1e-6 px). 4. Fit: all 8 bound corners are inside the view, and the bounding sphere spans ≥ 90 % of the smaller viewport dimension. 5. Projection switch keeps apparent size at the target within 0.1 %. 6. Table test of all 26 cube regions + Home. 7. `look_at_plane` puts plane x to screen right and the normal toward the viewer (±1e-9). 8. Widget test (headless `egui::Context`): a click on each cube face region emits the matching `CameraAction`. 9. Headless (WARP): a 0.01 mm feature 1e4 mm from the origin, zoomed to fill the view, is stable within 0.5 px over a 360° orbit. |
 | RND-12 | Line and point renderer: segment-quad lines with capsule SDF (width, AA, round joins), dashes, view-space depth offset, hidden-edge pass, point sprites, silhouettes post pass, edge-based visual styles (all six) using `POLYGON_MODE_LINE` for mesh wireframe with feature-edge fallback. | RND-02, RND-03 | P0 | Done | 1. 1-px and 3-px polylines with 170° turns have no gaps (pixel connectivity test). 2. Edges on their own faces are visible for ≥ 99 % of edge pixels at view distances 1e-2..1e5 mm, and an edge 0.5 mm behind a face is hidden. 3. Hidden-edge styles show dashes at a known occluded edge. 4. Cylinder silhouettes are present (pixel test). 5. The RND-02 bench with 5 M tris + 100 k edge segments in ShadedVisibleEdges has GPU p99 ≤ 12 ms and wall p99 ≤ 16.6 ms on the owner GPU (**vision budget**). |
 | RND-13 | Robustness and diagnostics: device-lost detection (`encode` → `Err(DeviceLost)`, `ViewportResponse::lost`, placeholder paint), an optional diagnostics overlay (pass timings, triangles, VRAM by category), and a validation-error capture to logs (`on_uncaptured_error` → tracing). | RND-03 | P1 | Todo | 1. `device.destroy()` in a test makes the next `encode` return `DeviceLost` with no panic, and `Viewport` paints the placeholder. 2. VRAM counters equal the sum of `gpu_bytes`. 3. A forced validation error appears in the log once, with its label. |
 | RND-14 | Large-mesh scaling: meshopt clusters (≤ 128 tris) built in the upload job, GPU cluster frustum/back-face-cone culling + multi-draw-indirect (fallback: per-cluster CPU culling), buffer chunking beyond `max_buffer_size`, optional LOD (meshopt simplify) for distant instances | RND-02, RND-03 | P2 | Todo | 1. A 20 M-tri mesh orbits at GPU p99 ≤ 12 ms (2560×1440, 4× MSAA, owner GPU). 2. No regression > 5 % on the 5 M bench. 3. Picking is still exact (RND-04 tests pass on clustered meshes). |
@@ -1739,6 +1771,105 @@ pass on WARP; `cargo clippy -p amg-render --all-targets -D warnings` clean):*
   (sketches with many curves) would avoid the CPU work when nothing changes.
 - Grid line density is capped per pixel but lines are 1 px wide everywhere; a major-line width or
   colour and a distance fade toward the horizon (note §12) are not implemented.
+
+### 2026-11-17 - RND-11 navigation and view cube
+
+*Landed in `crates/amg-render` (status `Review`):*
+- **`nav` module** (`src/nav.rs`, pure f64, no GPU). `NavController` as in §Interfaces:
+  - orbit about the pivot (anchor, else scene centre, else target), 180° per view height, computed
+    from the drag-start camera each step (no drift); free = yaw about world Z then pitch about the
+    camera right (may go over the pole); constrained = pitch about the horizontal right, clamped to
+    ±89.9°, up stays +Z; both are rigid rotations about the pivot;
+  - zoom to cursor (`0.9^steps`): perspective scales eye and target toward the anchor; orthographic
+    scales the height and shifts the target in the view plane; background anchor = cursor ray on the
+    target plane; `NavMode::Zoom` drags at 20 px per step;
+  - pan keeps the grabbed point (anchor, or the target-plane point under the drag start) at its
+    view depth under the cursor;
+  - fit (note §13 formulas), `set_view`, `look_at_plane` (forward = −normal, up = plane.y, so
+    right = plane.x), `set_projection` (keeps the apparent height at the target; the height given
+    in `Orthographic { height }` is ignored), 300 ms transitions (smoothstep, quaternion slerp,
+    target lerp, log-distance / log-height lerp; the last tick lands exactly on the destination; a
+    drag or zoom stops a running transition where it is).
+  - `StandardView::{eye_direction, up}` (Front at −Y, Top with +Y up, Bottom with −Y up, Home from
+    (1, −1, 1)), `CubeRegion::{all, signs}`, `view_for_region`, analytic `view_cube_hit` (slab test
+    against `[−1, 1]³`, `|c| > 0.6` per axis). `Edge { a, b }` puts the face of the lower axis in
+    `a` (X faces, then Y, then Z).
+- **Near-plane policy** (`camera.rs`): `DepthRange`, `Camera::{default_depth_range,
+  depth_range_for, uniform_in, proj_matrix_in}`. Perspective is unchanged (near = 1e-3 ×
+  |eye − target|, ≥ 1e-4 mm; the controller keeps the target at the depth looked at). Orthographic
+  views now fit near/far to the visible scene: the renderer takes the extent along the view axis of
+  the visible instances' bounding spheres (view layer mask) and of the overlay list's anchors and
+  corners, adds 1 % of the span plus a quarter of the view height (room for pixel-sized overlays),
+  and uses that range for the frame uniform, the frustum and the pick passes. Without content the
+  old placeholder (`default_depth_range`) remains. `Camera::proj_matrix` / `project` keep the
+  placeholder, so `ProjectedLabel::depth` in orthographic views is no longer the GPU depth (nothing
+  compares them).
+- **View cube**: `nav::ViewCube { size_px, margin_px, label_pt, hover }` (`for_scale(ppp)`: 110 ×
+  10 points), `rect_px` (top-right), `inset` = an RND-07 `OverlayInset` with `view_cube_camera`
+  (orthographic, height 3.6 cube units, the view orientation): 9 quads per visible face (centre,
+  edge and corner strips, shaded by `0.55 + 0.45 n·v`, hover in blue), the visible cube edges and
+  egui face letters (`n·v > 0.25`). `View::show_view_cube` (default false) plus `View::view_cube`;
+  the renderer appends the cube to `View::insets` each frame (encode and `project_labels`), so the
+  shell only paints the labels.
+- **egui glue**: `CameraAction` (as specified), `view_cube` (click → `Region`, drag → `Orbit {
+  delta_px }` in physical px, a 16 pt home button in the inset's top-left → `SetView(Home)`),
+  `nav_bar` (Orbit / Pan / Zoom → `StartMode`, Fit, a projection toggle → `SetProjection`, a visual
+  style combo box → `SetVisualStyle`), plus `view_cube_rect` and `apply_camera_action` (animated
+  view changes; returns `SetVisualStyle` / `StartMode` for the shell).
+
+*Evidence (`src/nav/tests.rs`, `src/egui_glue.rs` tests, `tests/nav.rs`; all 187 amg-render tests
+pass; GPU tests on the RTX 5060 Ti and with `AMG_WGPU_BACKEND=warp`; `cargo clippy -p amg-render
+--all-targets -D warnings` clean):*
+1. Orbit (`orbit_keeps_the_pivot_pixel_fixed`): 400 cameras (perspective / orthographic, free /
+   constrained, distances 1e-2..1e4 mm, targets up to 1e3 mm off the origin), 4 drags each: worst
+   1.0e-7 px (limit 1e-6).
+2. Zoom (`zoom_keeps_the_anchor_pixel_fixed`): perspective and orthographic, distances 1e-3..3e5
+   mm, picked anchors at 0.3-2 × the distance and background anchors: worst 5.2e-7 px.
+3. Pan (`pan_keeps_the_grabbed_point_under_the_cursor`): 200 cases, picked and background, both
+   lenses, 1e-3..1e5 mm: worst 7.6e-8 px.
+4. Fit (`fit_shows_all_corners_and_fills_the_smaller_dimension`): 48 boxes (half sizes 0.01-500
+   mm, up to 1e4 mm off the origin), 4 aspects, both lenses, fov 0.4-1.4: all 8 corners inside,
+   the sphere silhouette (sampled) spans 92.8-100 % of the smaller dimension.
+5. Projection switch: `pixel_size_at(target)` equal within 1e-3 (in fact to rounding) for 100
+   cameras, perspective → orthographic → perspective with a new fov.
+6. `cube_regions_table`: an explicit 27-row table (26 regions + Home) → `view_for_region`; each
+   region seen along its own direction is hit at the inset centre (110 and 220 px). From Home every
+   hit pixel lands on a region of a visible face (19 regions reachable).
+7. `look_at_plane`: 100 random planes, both lenses, animated and not: right = plane.x, up =
+   plane.y, eye − target parallel to the normal within 1e-9.
+8. `view_cube_clicks_emit_the_region_actions` (headless `egui::Context` at 2 px/pt, press and
+   release events): each face clicked face-on gives `Region(Face(f))`; from Home the 3 faces, 3
+   edges and the corner give their regions; off the cube nothing; the home button gives
+   `SetView(Home)`. Also `view_cube_drag_emits_orbit` and `nav_bar_buttons_emit_actions` (Fit,
+   Pan, projection toggle with the apparent height).
+9. `gpu_tiny_feature_far_from_the_origin_is_stable_over_a_full_orbit`: a 0.01 mm sphere 1e4 mm
+   from the origin, fitted and then zoomed by `0.9^s = 1/√3` so the feature fills the view (eye
+   0.0135 mm away, near 1e-4 mm), 25 captures over a 360° orbit about it with some pitch, 256², 4×
+   MSAA: centroid within 0.033 px (WARP; 0.031 px on the RTX) of the f64 projection and of the
+   first frame, disc radius within 0.017 px (limit 0.5 px).
+- Also `gpu_view_cube_inset_draws_in_the_top_right_corner` (inset rectangle, grey face at the
+  centre, background off the cube, FRONT label at the face centre, hover colour, three letters
+  from Home), `gpu_orthographic_view_fits_its_depth_range_to_the_scene` (a sphere 5000 mm in
+  front of an eye 1 mm from its target, beyond the old 1000 × distance far plane, renders centred
+  and within 2 LSB of the same view from 100 mm) and `camera::depth_range_policy`.
+
+*Deviations:*
+- `View` gains `view_cube: nav::ViewCube` next to `show_view_cube`: the layout depends on the
+  display scale, which the renderer does not know. The shell sets
+  `view.view_cube = ViewCube::for_scale(ppp)` so it matches `egui_glue::view_cube`.
+- Face letters are horizontal egui text at the face centre (note §12); they do not rotate with
+  the face.
+- The fit radius is half the box diagonal (note §13), so a round part fills about 1/√3 of the
+  fitted span, as specified.
+- Additive API beyond §Interfaces is listed there under "Added by RND-11". No new dependency.
+
+*Leftovers:*
+- Cube hover: `ViewCube::hover` exists, but `egui_glue::view_cube` does not set it (its signature
+  returns only the action). The shell can set it from `view_cube_hit` at the pointer.
+- No pivot marker overlay during orbit (`NavController::pivot` is there for UI-03).
+- The cube adds about 40 overlay primitives per frame, tessellated per frame like all overlays
+  (see the RND-07 leftover); cheap, not benched.
+- The nav bar uses text buttons; icons come with S11's icon atlas.
 
 ## Interface changes
 

@@ -239,6 +239,44 @@ impl OverlayList {
         self.labels.len()
     }
 
+    /// Extent `[lo, hi]` along `forward` (mm from `eye`) of the world anchors and corners of the
+    /// primitives: what an orthographic view's fitted depth range must hold (RND-11). Sizes in
+    /// pixels are not included; the fitted range adds a margin for them.
+    pub(crate) fn depth_extent(&self, eye: Point3, forward: Vec3) -> Option<(f64, f64)> {
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        let mut add = |p: Point3| {
+            let d = (p - eye).dot(forward);
+            lo = lo.min(d);
+            hi = hi.max(d);
+        };
+        let plane_corners = |plane: &Plane, h: [f64; 2]| {
+            [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(u, v)| {
+                plane.origin + plane.x.get() * (u * h[0]) + plane.y.get() * (v * h[1])
+            })
+        };
+        for item in &self.items {
+            match item {
+                Item::Polyline { .. } | Item::Points { .. } | Item::Polygon { .. } => {}
+                Item::Arrow { origin, .. } => add(*origin),
+                Item::Ring { center, .. } => add(*center),
+                Item::Triad { frame, .. } => add(frame.translation),
+                Item::Sprite { at, .. } => add(*at),
+                Item::Image { corners, .. } => corners.iter().copied().for_each(&mut add),
+                Item::PlaneQuad {
+                    plane, half_size, ..
+                } => plane_corners(plane, *half_size)
+                    .into_iter()
+                    .for_each(&mut add),
+                Item::Grid { plane, extent, .. } => {
+                    plane_corners(plane, *extent).into_iter().for_each(&mut add);
+                }
+            }
+        }
+        // Polylines, point sets and polygons keep their points in the shared list.
+        self.points.iter().copied().for_each(&mut add);
+        (lo <= hi).then_some((lo, hi))
+    }
+
     fn push_points(&mut self, pts: &[Point3]) -> (u32, u32) {
         let first = self.points.len() as u32;
         self.points.extend_from_slice(pts);
