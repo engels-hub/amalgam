@@ -5,7 +5,6 @@
 //! Widgets are found through AccessKit labels (`kittest().get_by_label(..)`). Snapshot tests
 //! pass a wgpu setup ([`AppHarnessBuilder::wgpu`]); logic tests need no GPU.
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -26,62 +25,7 @@ use crate::viewport::{NullViewport, ViewportBackend};
 /// How long [`AppHarness::drive_until_idle`] waits before it panics.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// CPU picking for tests: ray casts over the scene adapter's display meshes
-/// ([`SceneAdapter::raycast`]), mapped to document targets through its [`PickMap`].
-///
-/// Requests are asynchronous like S10's: [`request_ray`](Self::request_ray) returns a ticket
-/// and [`poll`](Self::poll) answers it once. UI-03 puts the `PickService` trait (screen
-/// positions, radius, filter) over this.
-///
-/// [`PickMap`]: crate::scene::PickMap
-#[derive(Debug, Default)]
-pub struct CpuPickService {
-    next: u64,
-    requests: BTreeMap<PickTicket, (Ray3, PickMode)>,
-}
-
-impl CpuPickService {
-    /// A service with no pending requests.
-    pub fn new() -> CpuPickService {
-        CpuPickService::default()
-    }
-
-    /// Number of requests not yet polled.
-    pub fn pending(&self) -> usize {
-        self.requests.len()
-    }
-
-    /// Queues a pick along a world ray.
-    pub fn request_ray(&mut self, ray: Ray3, mode: PickMode) -> PickTicket {
-        self.next += 1;
-        let t = PickTicket(self.next);
-        self.requests.insert(t, (ray, mode));
-        t
-    }
-
-    /// The result of a request, exactly once (`None` for an unknown or already polled
-    /// ticket).
-    pub fn poll(&mut self, scene: &SceneAdapter, t: PickTicket) -> Option<Vec<PickHitUi>> {
-        let (ray, mode) = self.requests.remove(&t)?;
-        Some(Self::pick(scene, &ray, mode))
-    }
-
-    /// Picks now: the hits along `ray` in document terms, front to back.
-    pub fn pick(scene: &SceneAdapter, ray: &Ray3, mode: PickMode) -> Vec<PickHitUi> {
-        scene
-            .raycast(ray, mode)
-            .into_iter()
-            .filter_map(|h| {
-                Some(PickHitUi {
-                    target: scene.pick_map().target(h.key, Some(h.sub))?,
-                    world: h.world,
-                    #[allow(clippy::cast_possible_truncation, reason = "S10 depth is f32")]
-                    depth: h.t as f32,
-                })
-            })
-            .collect()
-    }
-}
+pub use crate::pick::CpuPickService;
 
 /// A [`FileDialogBackend`](crate::file::FileDialogBackend) for tests: answers dialogs from a
 /// queue (an empty queue cancels) and records every request. Install it with
@@ -307,6 +251,106 @@ impl AppHarness {
         &self.app().active_document().document
     }
 
+    // ---- viewport input (UI-03) ------------------------------------------------------------
+
+    /// The camera snapshot of the last frame's viewport.
+    ///
+    /// # Panics
+    /// Before the first frame drew the viewport.
+    pub fn camera_view(&self) -> crate::input::CameraView {
+        #[allow(clippy::expect_used, reason = "test support")]
+        self.app()
+            .camera_view()
+            .cloned()
+            .expect("the viewport was drawn")
+    }
+
+    /// Where a world point is on screen (last frame's camera).
+    ///
+    /// # Panics
+    /// If the point is behind the camera.
+    pub fn world_to_screen(&self, p: amg_core::Point3) -> egui::Pos2 {
+        #[allow(clippy::expect_used, reason = "test support")]
+        self.camera_view()
+            .project(p)
+            .expect("in front of the camera")
+    }
+
+    /// Moves the pointer to `pos` and runs one frame.
+    pub fn hover_at(&mut self, pos: egui::Pos2) {
+        self.harness.event(egui::Event::PointerMoved(pos));
+        self.harness.step();
+    }
+
+    /// Presses or releases `button` at `pos` (one frame per event).
+    pub fn button(
+        &mut self,
+        pos: egui::Pos2,
+        button: egui::PointerButton,
+        pressed: bool,
+        mods: egui::Modifiers,
+    ) {
+        self.harness.event(egui::Event::ModifiersChanged(mods));
+        self.harness.event(egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: mods,
+        });
+        self.harness.step();
+        if !pressed {
+            self.harness
+                .event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+            self.harness.step();
+        }
+    }
+
+    /// Clicks `button` at `pos` (move, press, release).
+    pub fn click_at(
+        &mut self,
+        pos: egui::Pos2,
+        button: egui::PointerButton,
+        mods: egui::Modifiers,
+    ) {
+        self.hover_at(pos);
+        self.button(pos, button, true, mods);
+        self.button(pos, button, false, mods);
+    }
+
+    /// Clicks the primary button on a world point.
+    pub fn click_world(&mut self, p: amg_core::Point3) {
+        let pos = self.world_to_screen(p);
+        self.click_at(pos, egui::PointerButton::Primary, egui::Modifiers::NONE);
+    }
+
+    /// Drags `button` with `mods` from `from` to `to` in `steps` pointer moves (one frame each).
+    pub fn drag(
+        &mut self,
+        button: egui::PointerButton,
+        mods: egui::Modifiers,
+        from: egui::Pos2,
+        to: egui::Pos2,
+        steps: u32,
+    ) {
+        self.hover_at(from);
+        self.button(from, button, true, mods);
+        let steps = steps.max(1);
+        for i in 1..=steps {
+            #[allow(clippy::cast_precision_loss, reason = "small step counts")]
+            let t = i as f32 / steps as f32;
+            self.harness
+                .event(egui::Event::PointerMoved(from + (to - from) * t));
+            self.harness.step();
+        }
+        self.button(to, button, false, mods);
+    }
+
+    /// One frame with a key press and release.
+    pub fn key(&mut self, key: egui::Key) {
+        self.harness.key_press(key);
+        self.harness.step();
+    }
+
     /// Steps frames until nothing is pending: no repaint requested, no unfinished job, every
     /// document's recompute idle, no tessellation in flight, no pick queued and no file
     /// dialog, save, open or recovery load pending.
@@ -326,8 +370,12 @@ impl AppHarness {
                 )
             });
             let busy_scene = app.scene().pending() > 0;
-            let busy =
-                busy_jobs || busy_docs || busy_scene || app.file_busy() || self.pick.pending() > 0;
+            let busy = busy_jobs
+                || busy_docs
+                || busy_scene
+                || app.file_busy()
+                || app.input_busy()
+                || self.pick.pending() > 0;
             if !busy && !self.harness.ctx.has_requested_repaint() {
                 return;
             }

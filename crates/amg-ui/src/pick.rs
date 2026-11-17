@@ -1,10 +1,22 @@
 //! Display-side identities of pickable things (spec §7, Interfaces §A `amg_ui::pick`).
 //!
 //! UI-20 defines the types the scene adapter's [`PickMap`](crate::scene::PickMap) translates
-//! to. UI-03 adds the `PickService` trait (screen-space requests with radius and filter) on
-//! top; until then [`testing::CpuPickService`](crate::testing) takes world rays.
+//! to. UI-03 adds the [`PickService`] trait (screen-space requests with a filter, answered
+//! asynchronously and never blocking), its CPU implementation [`CpuPickService`] (ray casts over
+//! the adapter's display meshes; tests and the select-through path) and [`GpuPickService`] over
+//! S10's `Renderer::request_pick` / `poll_picks` (RND-04).
 
+use std::collections::{BTreeMap, HashMap};
+
+use amg_core::{Point3, Ray3};
 use amg_doc::{BodyId, ConstructionId, OccurrenceId, SketchId, TopoKind};
+use amg_render::{
+    PickFilter, PickRegion, PickRequest, PickResult, RectMode, Renderer, SubKind, ViewId,
+};
+
+use crate::input::CameraView;
+use crate::scene::{RenderEntityKey, RenderSub, RenderSubKind, SceneAdapter};
+use crate::select::EntityFilter;
 
 /// Display-side identity of a pickable thing in the current `Evaluated`.
 ///
@@ -73,7 +85,547 @@ pub struct PickHitUi {
     /// What was hit.
     pub target: PickTarget,
     /// World position of the hit, mm.
-    pub world: amg_core::Point3,
+    pub world: Point3,
     /// Distance along the pick ray, mm (f32 like S10's depth).
     pub depth: f32,
+}
+
+/// Rectangle selection semantics.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RegionMode {
+    /// Fully inside (drag left to right).
+    Window,
+    /// Touching (drag right to left).
+    Crossing,
+}
+
+/// What a pick service may look at once per frame: the scene (for the pick map) and the
+/// camera of the newest frame.
+#[derive(Clone, Copy, Debug)]
+pub struct PickFrame<'a> {
+    /// The scene adapter (pick map, CPU meshes).
+    pub scene: &'a SceneAdapter,
+    /// The newest camera snapshot (`None` before the viewport was first drawn).
+    pub view: Option<&'a CameraView>,
+}
+
+/// Screen-space picking (spec §6 "Picking"). Implemented over S10 in the app
+/// ([`GpuPickService`]) and on the CPU ([`CpuPickService`], tests). Never blocks: a request
+/// returns a ticket and [`PickService::poll`] answers it later, exactly once.
+pub trait PickService {
+    /// A point pick at `pos` (points). `radius_pt` is a hint: S10 uses its configured pick
+    /// radius, the CPU service the ray through `pos`.
+    fn request_point(
+        &mut self,
+        pos: egui::Pos2,
+        radius_pt: f32,
+        filter: EntityFilter,
+        mode: PickMode,
+    ) -> PickTicket;
+    /// A rectangle pick (`rect` in points). Hits carry no world point (`world` = origin,
+    /// `depth` = 0).
+    fn request_region(
+        &mut self,
+        rect: egui::Rect,
+        filter: EntityFilter,
+        mode: RegionMode,
+    ) -> PickTicket;
+    /// The result of a request, exactly once (`None` while pending and for unknown tickets).
+    fn poll(&mut self, t: PickTicket) -> Option<Vec<PickHitUi>>;
+    /// Once per frame before anything polls (additive): collect finished picks and map them
+    /// through the scene's pick map.
+    fn begin_frame(&mut self, _frame: &PickFrame<'_>) {}
+    /// The camera that requests made from now on refer to (additive; the router calls it each
+    /// frame before routing input).
+    fn set_view(&mut self, _view: &CameraView) {}
+    /// Requests not yet polled (additive; idle detection).
+    fn pending(&self) -> usize {
+        0
+    }
+}
+
+#[derive(Clone, Debug)]
+enum CpuRequest {
+    Ray(Ray3, PickMode),
+    Point {
+        ray: Ray3,
+        filter: EntityFilter,
+        mode: PickMode,
+    },
+    Region {
+        view: Box<CameraView>,
+        rect: egui::Rect,
+        filter: EntityFilter,
+        mode: RegionMode,
+    },
+}
+
+/// CPU picking: ray casts over the scene adapter's display meshes
+/// ([`SceneAdapter::raycast`]), mapped to document targets through its
+/// [`PickMap`](crate::scene::PickMap). Faces only (edges and vertices need S10).
+///
+/// Asynchronous like S10's: a [`PickService`] request is answered in the next
+/// [`PickService::begin_frame`] (one frame later). The UI-20 world-ray API
+/// ([`Self::request_ray`] + the inherent [`Self::poll`] with the scene) stays for tests and
+/// select-through. Call the trait's `poll` as `PickService::poll(&mut svc, t)`.
+#[derive(Debug, Default)]
+pub struct CpuPickService {
+    next: u64,
+    requests: BTreeMap<PickTicket, CpuRequest>,
+    done: BTreeMap<PickTicket, Vec<PickHitUi>>,
+    view: Option<CameraView>,
+}
+
+impl CpuPickService {
+    /// A service with no pending requests.
+    pub fn new() -> CpuPickService {
+        CpuPickService::default()
+    }
+
+    /// Number of requests not yet polled.
+    pub fn pending(&self) -> usize {
+        self.requests.len() + self.done.len()
+    }
+
+    fn ticket(&mut self) -> PickTicket {
+        self.next += 1;
+        PickTicket(self.next)
+    }
+
+    /// Queues a pick along a world ray.
+    pub fn request_ray(&mut self, ray: Ray3, mode: PickMode) -> PickTicket {
+        let t = self.ticket();
+        self.requests.insert(t, CpuRequest::Ray(ray, mode));
+        t
+    }
+
+    /// The result of a request, exactly once (`None` for an unknown or already polled
+    /// ticket). Answers every kind of request against `scene` now.
+    pub fn poll(&mut self, scene: &SceneAdapter, t: PickTicket) -> Option<Vec<PickHitUi>> {
+        if let Some(done) = self.done.remove(&t) {
+            return Some(done);
+        }
+        let req = self.requests.remove(&t)?;
+        Some(Self::answer(scene, &req))
+    }
+
+    /// Picks now: the hits along `ray` in document terms, front to back.
+    pub fn pick(scene: &SceneAdapter, ray: &Ray3, mode: PickMode) -> Vec<PickHitUi> {
+        scene
+            .raycast(ray, mode)
+            .into_iter()
+            .filter_map(|h| {
+                Some(PickHitUi {
+                    target: scene.pick_map().target(h.key, Some(h.sub))?,
+                    world: h.world,
+                    #[allow(clippy::cast_possible_truncation, reason = "S10 depth is f32")]
+                    depth: h.t as f32,
+                })
+            })
+            .collect()
+    }
+
+    fn answer(scene: &SceneAdapter, req: &CpuRequest) -> Vec<PickHitUi> {
+        match req {
+            CpuRequest::Ray(ray, mode) => Self::pick(scene, ray, *mode),
+            CpuRequest::Point { ray, filter, mode } => {
+                let mut hits: Vec<PickHitUi> = Self::pick(scene, ray, PickMode::AllAlongRay)
+                    .into_iter()
+                    .filter(|h| filter.admits(&h.target))
+                    .collect();
+                if *mode == PickMode::Nearest {
+                    hits.truncate(1);
+                }
+                hits
+            }
+            CpuRequest::Region {
+                view,
+                rect,
+                filter,
+                mode,
+            } => scene
+                .region(|p| view.project(p), *rect, *mode)
+                .into_iter()
+                .filter_map(|k| scene.pick_map().target(k, None))
+                .filter(|t| filter.admits(t))
+                .map(|target| PickHitUi {
+                    target,
+                    world: Point3::ZERO,
+                    depth: 0.0,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl PickService for CpuPickService {
+    fn request_point(
+        &mut self,
+        pos: egui::Pos2,
+        _radius_pt: f32,
+        filter: EntityFilter,
+        mode: PickMode,
+    ) -> PickTicket {
+        let t = self.ticket();
+        match &self.view {
+            Some(v) => {
+                let ray = v.ray(pos);
+                self.requests
+                    .insert(t, CpuRequest::Point { ray, filter, mode });
+            }
+            None => {
+                self.done.insert(t, Vec::new());
+            }
+        }
+        t
+    }
+
+    fn request_region(
+        &mut self,
+        rect: egui::Rect,
+        filter: EntityFilter,
+        mode: RegionMode,
+    ) -> PickTicket {
+        let t = self.ticket();
+        match &self.view {
+            Some(v) => {
+                let view = Box::new(v.clone());
+                self.requests.insert(
+                    t,
+                    CpuRequest::Region {
+                        view,
+                        rect,
+                        filter,
+                        mode,
+                    },
+                );
+            }
+            None => {
+                self.done.insert(t, Vec::new());
+            }
+        }
+        t
+    }
+
+    fn poll(&mut self, t: PickTicket) -> Option<Vec<PickHitUi>> {
+        self.done.remove(&t)
+    }
+
+    fn begin_frame(&mut self, frame: &PickFrame<'_>) {
+        if let Some(v) = frame.view {
+            self.view = Some(v.clone());
+        }
+        let keys: Vec<PickTicket> = self
+            .requests
+            .iter()
+            .filter(|(_, r)| !matches!(r, CpuRequest::Ray(..)))
+            .map(|(t, _)| *t)
+            .collect();
+        for t in keys {
+            if let Some(req) = self.requests.remove(&t) {
+                let hits = Self::answer(frame.scene, &req);
+                self.done.insert(t, hits);
+            }
+        }
+    }
+
+    fn set_view(&mut self, view: &CameraView) {
+        self.view = Some(view.clone());
+    }
+
+    fn pending(&self) -> usize {
+        CpuPickService::pending(self)
+    }
+}
+
+/// Reaches the S10 [`Renderer`] for one call (egui's renderer lock, or a test cell).
+pub type RendererAccess = Box<dyn FnMut(&mut dyn FnMut(&mut Renderer))>;
+
+#[derive(Clone, Debug)]
+struct GpuRequest {
+    ticket: PickTicket,
+    ray: Option<Ray3>,
+    filter: EntityFilter,
+    mode: PickMode,
+}
+
+/// [`PickService`] over S10's GPU picking (`Renderer::request_pick` / `poll_picks`, RND-04).
+/// Point picks with [`PickMode::AllAlongRay`] (select-through) go to a [`CpuPickService`]
+/// (S10 returns visible hits only).
+pub struct GpuPickService {
+    access: RendererAccess,
+    view_id: ViewId,
+    view: Option<CameraView>,
+    next: u64,
+    in_flight: HashMap<amg_render::PickTicket, GpuRequest>,
+    raw: Vec<(GpuRequest, Result<PickResult, amg_render::RenderError>)>,
+    done: BTreeMap<PickTicket, Vec<PickHitUi>>,
+    cpu: CpuPickService,
+    cpu_tickets: BTreeMap<PickTicket, PickTicket>,
+}
+
+impl std::fmt::Debug for GpuPickService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GpuPickService")
+            .field("view", &self.view_id)
+            .field("in_flight", &self.in_flight.len())
+            .field("done", &self.done.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl GpuPickService {
+    /// Picks in `view` of the renderer reached through `access`.
+    pub fn new(access: RendererAccess, view: ViewId) -> GpuPickService {
+        GpuPickService {
+            access,
+            view_id: view,
+            view: None,
+            next: 0,
+            in_flight: HashMap::new(),
+            raw: Vec::new(),
+            done: BTreeMap::new(),
+            cpu: CpuPickService::new(),
+            cpu_tickets: BTreeMap::new(),
+        }
+    }
+
+    /// Picks in `view` of the renderer installed in egui (`egui_glue::install`).
+    pub fn egui(rs: egui_wgpu::RenderState, view: ViewId) -> GpuPickService {
+        GpuPickService::new(
+            Box::new(move |f| {
+                amg_render::egui_glue::with_renderer(&rs, |r| f(r));
+            }),
+            view,
+        )
+    }
+
+    fn ticket(&mut self) -> PickTicket {
+        self.next += 1;
+        PickTicket(self.next)
+    }
+
+    fn submit(&mut self, req: PickRequest, mut pending: GpuRequest) -> PickTicket {
+        let ticket = self.ticket();
+        pending.ticket = ticket;
+        let view = self.view_id;
+        let mut gpu_ticket = None;
+        (self.access)(&mut |r| gpu_ticket = Some(r.request_pick(view, req)));
+        match gpu_ticket {
+            Some(t) => {
+                self.in_flight.insert(t, pending);
+            }
+            None => {
+                self.done.insert(ticket, Vec::new());
+            }
+        }
+        ticket
+    }
+
+    /// An answer for a request made before the first camera snapshot: nothing.
+    fn empty(&mut self) -> PickTicket {
+        let t = self.ticket();
+        self.done.insert(t, Vec::new());
+        t
+    }
+}
+
+/// The S10 kinds drawn for an entity filter.
+fn render_filter(f: EntityFilter) -> PickFilter {
+    let mut out = PickFilter::NONE;
+    if f.intersects(EntityFilter::BODY) {
+        out = out | PickFilter::BODIES | PickFilter::FACES;
+    }
+    if f.intersects(EntityFilter::FACE | EntityFilter::MESH_FACE_GROUP) {
+        out = out | PickFilter::FACES;
+    }
+    if f.intersects(EntityFilter::EDGE) {
+        out = out | PickFilter::EDGES;
+    }
+    if f.intersects(EntityFilter::VERTEX) {
+        out = out | PickFilter::VERTICES;
+    }
+    if f.intersects(
+        EntityFilter::HANDLE
+            | EntityFilter::SKETCH
+            | EntityFilter::SKETCH_CURVE
+            | EntityFilter::SKETCH_POINT
+            | EntityFilter::PROFILE
+            | EntityFilter::CONSTRUCTION,
+    ) {
+        out = out | PickFilter::HANDLES;
+    }
+    out
+}
+
+/// An S10 sub-id in adapter terms (`BODY_SUB`: the whole owner).
+fn render_sub(kind: SubKind, sub: u32) -> Option<RenderSub> {
+    if sub == amg_render::BODY_SUB {
+        return None;
+    }
+    let kind = match kind {
+        SubKind::Face => RenderSubKind::Face,
+        SubKind::Edge => RenderSubKind::Edge,
+        SubKind::Vertex => RenderSubKind::Vertex,
+        SubKind::Handle => RenderSubKind::Handle,
+    };
+    Some(RenderSub { kind, index: sub })
+}
+
+impl PickService for GpuPickService {
+    fn request_point(
+        &mut self,
+        pos: egui::Pos2,
+        radius_pt: f32,
+        filter: EntityFilter,
+        mode: PickMode,
+    ) -> PickTicket {
+        let Some(view) = self.view.clone() else {
+            return self.empty();
+        };
+        if mode == PickMode::AllAlongRay {
+            let ours = self.ticket();
+            let cpu = PickService::request_point(&mut self.cpu, pos, radius_pt, filter, mode);
+            self.cpu_tickets.insert(cpu, ours);
+            return ours;
+        }
+        let px = view.to_px(pos);
+        #[allow(clippy::cast_possible_truncation, reason = "S10 takes f32 pixels")]
+        let req = PickRequest {
+            region: PickRegion::Point {
+                px: [px[0] as f32, px[1] as f32],
+            },
+            filter: render_filter(filter),
+        };
+        self.submit(
+            req,
+            GpuRequest {
+                ticket: PickTicket(0),
+                ray: Some(view.ray(pos)),
+                filter,
+                mode,
+            },
+        )
+    }
+
+    fn request_region(
+        &mut self,
+        rect: egui::Rect,
+        filter: EntityFilter,
+        mode: RegionMode,
+    ) -> PickTicket {
+        let Some(view) = self.view.clone() else {
+            return self.empty();
+        };
+        let a = view.to_px(rect.min);
+        let b = view.to_px(rect.max);
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to the view size"
+        )]
+        let clamp = |v: f64, max: u32| v.clamp(0.0, f64::from(max)) as u32;
+        let [w, h] = view.size_px;
+        let min = [clamp(a[0].min(b[0]), w), clamp(a[1].min(b[1]), h)];
+        let max = [
+            clamp(a[0].max(b[0]).ceil(), w),
+            clamp(a[1].max(b[1]).ceil(), h),
+        ];
+        let rect_mode = match mode {
+            RegionMode::Window => RectMode::Window,
+            RegionMode::Crossing => RectMode::Crossing,
+        };
+        let req = PickRequest::rect(min, max, rect_mode, render_filter(filter));
+        self.submit(
+            req,
+            GpuRequest {
+                ticket: PickTicket(0),
+                ray: None,
+                filter,
+                mode: PickMode::AllAlongRay,
+            },
+        )
+    }
+
+    fn poll(&mut self, t: PickTicket) -> Option<Vec<PickHitUi>> {
+        self.done.remove(&t)
+    }
+
+    fn begin_frame(&mut self, frame: &PickFrame<'_>) {
+        if let Some(v) = frame.view {
+            self.view = Some(v.clone());
+        }
+        if !self.in_flight.is_empty() {
+            let mut results = Vec::new();
+            (self.access)(&mut |r| results = r.poll_picks());
+            for (t, res) in results {
+                if let Some(req) = self.in_flight.remove(&t) {
+                    self.raw.push((req, res));
+                }
+            }
+        }
+        let map = frame.scene.pick_map();
+        for (req, res) in std::mem::take(&mut self.raw) {
+            let hits = match res {
+                Ok(PickResult::Point(hits)) => {
+                    let mut out: Vec<PickHitUi> = hits
+                        .iter()
+                        .filter_map(|h| {
+                            let key = RenderEntityKey(h.pick.0);
+                            let target = map.target(key, render_sub(h.kind, h.sub))?;
+                            let depth = req
+                                .ray
+                                .map_or(0.0, |r| (h.world - r.origin).dot(r.dir.get()));
+                            #[allow(clippy::cast_possible_truncation, reason = "f32 depth")]
+                            let hit = PickHitUi {
+                                target,
+                                world: h.world,
+                                depth: depth as f32,
+                            };
+                            req.filter.admits(&target).then_some(hit)
+                        })
+                        .collect();
+                    if req.mode == PickMode::Nearest {
+                        out.truncate(1);
+                    }
+                    out
+                }
+                Ok(PickResult::Rect(items)) => items
+                    .iter()
+                    .filter_map(|(pick, kind, sub)| {
+                        map.target(RenderEntityKey(pick.0), render_sub(*kind, *sub))
+                    })
+                    .filter(|t| req.filter.admits(t))
+                    .map(|target| PickHitUi {
+                        target,
+                        world: Point3::ZERO,
+                        depth: 0.0,
+                    })
+                    .collect(),
+                Err(e) => {
+                    tracing::warn!("GPU pick failed: {e}");
+                    Vec::new()
+                }
+            };
+            self.done.insert(req.ticket, hits);
+        }
+        self.cpu.begin_frame(frame);
+        let cpu_done: Vec<(PickTicket, PickTicket)> =
+            self.cpu_tickets.iter().map(|(c, o)| (*c, *o)).collect();
+        for (c, ours) in cpu_done {
+            if let Some(hits) = PickService::poll(&mut self.cpu, c) {
+                self.cpu_tickets.remove(&c);
+                self.done.insert(ours, hits);
+            }
+        }
+    }
+
+    fn set_view(&mut self, view: &CameraView) {
+        self.view = Some(view.clone());
+        self.cpu.set_view(view);
+    }
+
+    fn pending(&self) -> usize {
+        self.in_flight.len() + self.raw.len() + self.done.len() + self.cpu_tickets.len()
+    }
 }

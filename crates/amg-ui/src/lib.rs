@@ -19,6 +19,12 @@
 //! dialogs on a dedicated thread behind [`file::FileDialogBackend`], the dirty-close prompt and
 //! crash recovery (per-document `RecoverySession`, the recovery dialog).
 //!
+//! UI-03 adds the [`tool`] router ([`tool::Tool`], Esc/Enter, replace semantics, the click-only
+//! [`tool::SelectTool`]), [`input`] (`ViewportEvent` synthesis, `CameraView`), [`nav`] (the
+//! Fusion navigation preset over S10's `NavController`), the [`pick::PickService`] trait with
+//! CPU and GPU implementations and latest-wins hover, [`preview::PreviewDriver`] and the
+//! [`select`] types.
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
@@ -30,17 +36,22 @@ pub mod command;
 pub mod design;
 pub mod dock;
 pub mod file;
+pub mod input;
 mod jobs;
 pub mod module;
+pub mod nav;
 pub mod notify;
 pub mod panel;
 pub mod pick;
+pub mod preview;
 pub mod registry;
 pub mod scene;
 pub mod search;
+pub mod select;
 mod shell;
 pub mod shortcut;
 pub mod theme;
+pub mod tool;
 pub mod viewport;
 
 // Domain-lane modules (stubs from UI-01; each lane owns its file).
@@ -59,10 +70,12 @@ pub mod testing;
 pub use app::{AmalgamApp, AppConfig, AppCx, CmdEnv, CommitBatch, DocTab, DocTabId};
 pub use command::{CmdAction, CmdId, CommandDef, Enablement, Enabler, Placement, RegistryError};
 pub use notify::{Notification, Notifications};
-pub use pick::PickTarget;
+pub use pick::{PickService, PickTarget};
 pub use registry::UiRegistry;
 pub use scene::SceneAdapter;
+pub use select::{EntityFilter, SelItem, Selection};
 pub use shortcut::{Shortcut, ShortcutMap, ShortcutScope};
+pub use tool::{FinishReason, InputResult, Tool, ToolCx, ToolInit};
 
 /// Keeps every module's `inventory::submit!` in the final binary (the S01 linker caveat: an
 /// object file nothing references may be dropped). [`UiRegistry::build`] calls it.

@@ -899,7 +899,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 |---|---|---|---|---|---|
 | UI-01 | App shell: `amg-app` start-up (diag, UI-thread mark, `Gpu` → `WgpuSetup::Existing`, `JobSystem` notifier → repaint), eframe 0.37 frame loop (`logic`/`ui`, end-of-frame `CommandQueue`), fixed panels + `DockHost` facade (egui_dock), theme tokens (light/dark/system), workspace/tab registry + `UiModule` inventory + stub modules for every domain lane, document tabs, undo/redo buttons, status bar, `amg_ui::testing::AppHarness` (kittest, `NullViewport`, `CpuPickService` stub) | RND-01, FND-07 | P0 | Done | 1. `amg-app` opens on the owner's machine showing the Fusion layout (app bar, toolbar, browser, timeline, status bar, viewport tab with the RND-01 mesh). Cold start to first interactive frame < 2 s (tracing span `startup`). 2. Kittest: switching workspace via the switcher changes the visible tabs (`get_by_label`). A test module registering a workspace + tab through `inventory` appears without editing framework files. 3. Light/dark snapshot tests pass on WARP. 4. With no input and no jobs, the app does not repaint (frame counter stays constant over 1 s). 5. A test job's notifier wakes the UI within one frame. 6. Two document tabs keep independent undo stacks (kittest). |
 | UI-02 | Command registry (`CommandDef`, `Placement`, `Enabler`, dynamic registration), toolbar tabs/groups/dropdowns, menus, `ShortcutMap` with scopes and `shortcuts.toml` overrides, S-key search (own fuzzy scorer, recency) | UI-01 | P0 | Done | 1. Kittest: pressing `S`, typing "remsh" lists a registered `test.remesh` first, and Enter runs it. 2. Disabled commands show their reason in the tooltip and are skipped by Enter. 3. A duplicate `CmdId` panics in debug (unit test). 4. Shortcut scope test: `L` in sketch scope and `L` in global scope resolve correctly. Single letters are ignored while a text field has focus. 5. Search over 1 000 synthetic commands < 1 ms per keystroke (criterion). 6. `register_dynamic` rejects ids without the `script.` prefix. |
-| UI-03 | `Tool` trait + router (priority chain, Esc/Enter, replace semantics), `ViewportEvent` synthesis from egui input, `PickService` trait + S10 implementation + latest-wins hover, Fusion navigation preset over S10 camera, `PreviewDriver`, `spawn_tracked`, `SelectTool` (click only) | UI-02, RND-04, RND-11 | P0 | Todo | 1. Kittest with a scripted test tool: events arrive in order, Esc cancels (`FinishReason::Cancel`), Enter commits one undo entry, and starting another command gives `Replaced`. 2. Middle-drag orbits even while a tool is active that ignores the event. 3. Hover pick → highlight within ≤ 2 frames on the owner's GPU and with `CpuPickService`. 4. `PreviewDriver`: 20 rapid `set` calls → exactly one preview computed (test counter feature), and none enters the undo stack. 5. No UI-thread frame > 16 ms while a 2 s test job runs (tracing assertion). |
+| UI-03 | `Tool` trait + router (priority chain, Esc/Enter, replace semantics), `ViewportEvent` synthesis from egui input, `PickService` trait + S10 implementation + latest-wins hover, Fusion navigation preset over S10 camera, `PreviewDriver`, `spawn_tracked`, `SelectTool` (click only) | UI-02, RND-04, RND-11 | P0 | Review | 1. Kittest with a scripted test tool: events arrive in order, Esc cancels (`FinishReason::Cancel`), Enter commits one undo entry, and starting another command gives `Replaced`. 2. Middle-drag orbits even while a tool is active that ignores the event. 3. Hover pick → highlight within ≤ 2 frames on the owner's GPU and with `CpuPickService`. 4. `PreviewDriver`: 20 rapid `set` calls → exactly one preview computed (test counter feature), and none enters the undo stack. 5. No UI-thread frame > 16 ms while a 2 s test job runs (tracing assertion). |
 | UI-20 | Scene adapter: `DocEvent` → `RenderScene` (RND-03), `RenderEntityKey` allocation, `PickMap`, `BodyTessellator` registry with Mesh tessellator, highlight layers, preview layer feed, `CpuPickService` real implementation | UI-01, RND-03, DOC-09 | P0 | Done | 1. Scripted test: add/edit/delete 3 mesh bodies → the RenderScene contains exactly the live bodies, and an unchanged body is never re-uploaded (upload counter). 2. `DocumentReplaced` rebuilds the scene, and keys are not reused within a session. 3. `PickMap` round-trips every face index of a 10 k-triangle body. 4. A registered test tessellator for a stub `BodyGeom` variant is used. 5. Updating 1 changed body in a 100-body scene < 1 ms of UI-thread time. |
 | UI-04 | Selection system: `Selection`, `SelItem`, `EntityFilter` bar, select priority, click/Ctrl/Shift rules, window/crossing box (S10 region pick), select-through list, selection sets (`ExtRecord ui.selection_sets`), revalidation on events | UI-03, UI-20 | P0 | Todo | 1. Kittest on a fixture with 3 mesh bodies: window select left→right picks only fully enclosed bodies, and right→left also picks touching ones. 2. With the filter set to faces only, a click on an edge selects the adjacent face. 3. Select-through lists all 3 stacked bodies in depth order. 4. Save a selection set → reload the file → restore gives the same `EntityRef`s, and undo removes the set. 5. Deleting a selected body drops it from the selection without error. |
 | UI-15 | Dialog widgets: `ExprInput` (live parse via `ParamTable::try_eval`, error spans, autocomplete of params/functions/units, nudge, bound-param display), `SelectionField`, `ChoiceField`, toggle/int/flip, `DialogFrame` (banner, OK enablement), quantity formatting per `UnitPrefs` | UI-04, DOC-04 | P0 | Todo | 1. Kittest: typing `d1 + 5` in a length field with `d1 = 10 mm` shows `15.00 mm`. `12 kg` shows a unit-mismatch error underlined at the right span, and OK is disabled. 2. Typing `d` offers every parameter starting with `d`, and Tab completes. 3. `12,5` shows the `DecimalComma` hint (QUESTIONS #11). 4. Only one `SelectionField` is active at a time, and the active one sets the pick filter. 5. All widgets are queryable by label (AccessKit). |
@@ -1632,6 +1632,121 @@ Unit tests: `file::tests::recent_files_dedupe_cap_and_round_trip`,
   Save As… and closing a dirty window once.
 - The recovery dialog shows a document's age, not its file path (DOC-14 candidates carry no path).
 
+### 2026-11-17 - UI-03 tools, input routing, picking, navigation, previews
+
+*Landed in `amg-ui` (status `Review`):*
+- **`tool`**: `Tool` (as §A, without `overlays`), `ToolInit`, `InputResult`, `FinishReason`,
+  `HoverHit`, `ToolCx` (`app`, `env`, `request_finish`, `hover`, `camera`, `preview`,
+  `selection(_mut)`, `set_cursor`, plus `pick_filter`, `pick_point`, `poll_pick`), the
+  per-document router and the click-only `SelectTool` (`app.select`).
+  - Priority: key and text events go to the active tool before the `ShortcutMap`
+    (`AmalgamApp::route_keys`, skipped while a text field has focus or search is open). An
+    ignored `Esc` cancels the tool (no tool: clears the selection), an ignored `Enter` commits.
+    Consumed presses are removed from the frame input, so shortcuts do not see them.
+  - Pointer events: active tool → `Navigator` → `SelectTool` (only without an active tool). A
+    drag goes to whoever takes its `DragStart` and stays there until release. A press counts
+    only inside the viewport rect, outside the backend's own widgets (view cube, nav bar) and
+    where no other egui layer covers it.
+  - Replace: `CmdAction::StartTool(fn(&ToolInit) -> Box<dyn Tool>)` (new variant) finishes the
+    active tool with `Replaced`, or `Commit` if `commit_on_replace`. A commit's `CommitBatch` is
+    submitted and becomes one undo entry at the end of the frame. `AppCx::start_tool(id)` queues
+    the command.
+  - The tool's dialog is an `egui::Window` at the viewport's top right (skipped once
+    `dialog_ui` returns false). The status bar shows `status_hint` (or the label).
+  - Highlights: the hovered body goes to `HighlightLayer::Hover`, the selection to `Selected`
+    (whole bodies; face-level priority is UI-04).
+- **`input`**: `ViewportEvent` (as §A), `InputSynth` (egui raw events → Hover / Press /
+  Release / Click with double-click count / DragStart past 3 pt / Drag / DragEnd / Scroll in
+  points, a line = 50 pt), `key_events`, `CameraView` (`project`, `ray`, `world_per_point`,
+  plus `camera`, `size_px`, `pixels_per_point`, `to_px`, `from_px`).
+- **`nav`**: `NavPreset::{Fusion, SolidWorks, Blender, Custom}`, `NavAction`, `NavBindings`
+  (`action_for`), `Navigator` (drives RND-11's `NavController`: `begin`/`drag`/`end`, `zoom`,
+  `tick`; view-cube / nav-bar actions through `egui_glue::apply_camera_action`; `StartMode`
+  arms the next primary drag), `CameraControl` implemented over the document camera
+  (`AppCx::camera`), `home_camera`. No camera maths of its own. Fusion: Shift+MMB orbit about
+  the hover pick point (else the scene centre), MMB pan with the grabbed point, wheel zoom to the
+  cursor. SolidWorks and Blender tables exist; UI-11 adds the page and the editor.
+- **`pick`**: `PickService` (`request_point`, `request_region`, `poll`, plus `begin_frame`,
+  `set_view`, `pending`), `RegionMode`, `PickFrame`; `CpuPickService` moved here from `testing`
+  (re-exported there, UI-20 API unchanged) and implements the trait: rays from the frame camera,
+  answered in the next frame's `begin_frame`; rectangles by projected display-mesh vertices.
+  `GpuPickService` over `Renderer::request_pick` / `poll_picks` (`new(RendererAccess, ViewId)`,
+  `egui(rs, view)`), mapping hits through the `PickMap`; `AllAlongRay` goes to its inner CPU
+  service. Hover: one point pick per frame with pointer motion, the newest answer wins.
+- **`preview`**: `PreviewDriver` (`set`, `clear`, `state`, `update`, `spawned`, `is_busy`,
+  `shown`, `set_debounce`, `set_clock`), `PreviewState`, `DEFAULT_PREVIEW_DEBOUNCE` = 150 ms. One
+  per document (`ToolCx::preview`, `AmalgamApp::preview_driver`); results go to
+  `SceneAdapter::set_preview`. Never touches the undo stack (it wraps `Document::preview`).
+- **`select`**: `EntityFilter` (local bit set, see deviations), `SelItem`
+  (`from_target`), `Selection` (as §A, plus `len`, `is_empty`).
+- **App**: `DocTab` gains `camera`, `selection` and crate-private router / navigator state;
+  `CmdEnv` gains `selection`, `hovered`, `active_tool`; `AppCx::{selection, selection_mut,
+  camera, start_tool}`; `AmalgamApp::{active_tool, finish_tool, hover, preview_driver,
+  input_busy, pick_service, set_pick_service, navigator, set_nav_preset, camera_view}`.
+  `spawn_tracked` was already there (UI-10). `logic` runs the router's pick / hover / update /
+  preview / transition / highlight step after the scene poll.
+- **Viewport**: `ViewportFrame::camera`; `ViewportBackend` gains defaulted
+  `take_camera_actions`, `input_exclusions`, `pick_service` and `after_frame`.
+  `RenderViewport` writes the document camera into its S10 view every frame, turns on the view
+  cube (`ViewCube::for_scale(ppp)`), paints its labels, forwards `egui_glue::view_cube` and
+  `nav_bar` actions (visual style applied to the view directly) and supplies a
+  `GpuPickService`. `NullViewport` is unchanged (UI-01 snapshots unchanged).
+- **`scene`**: `SceneAdapter::bounds` (cached per mesh) and `region` (CPU rectangle query).
+- **`testing`**: `AppHarness::{camera_view, world_to_screen, hover_at, button, click_at,
+  click_world, drag, key}`; `drive_until_idle` also waits for `input_busy`.
+
+*Evidence (Done-when; `tests/tools.rs`, 7 tests; RTX 5060 Ti / DX12):*
+1. `scripted_tool_sees_events_in_order_and_esc_enter_and_replace_finish_it`: hover, press,
+   drag start, drag, release, drag end, press, release, click, key down, key up arrive in that
+   order. Esc gives `Cancel` and no undo entry. Enter gives `Commit` and exactly one undo entry
+   labelled "Script commit". Starting another command gives `Replaced` (nothing committed), and
+   a `commit_on_replace` tool commits instead.
+2. `middle_drag_navigates_while_a_tool_that_ignores_it_is_active`: the tool is offered the
+   `DragStart` and ignores it. Navigation then owns the drag (the tool sees no further drag
+   events). Shift+MMB orbits: target fixed, distance kept, view turned. MMB pans: eye and
+   target move together. Two wheel lines zoom by exactly 0.9². A primary drag leaves the camera
+   unchanged. Fusion maps plain MMB to pan; the orbit is Shift+MMB (spec §6).
+3. `hover_highlights_within_two_frames_and_click_selects_with_cpu_picking` (CpuPickService) and
+   `gpu::gpu_hover_highlights_within_two_frames_with_s10_picking` (S10 picking through
+   `GpuPickService`, a test viewport that encodes and submits after each frame as egui's paint
+   callback does). Both put the highlight on in the frame after the event frame, so 2 frames in
+   total (5 and 10 rounds, on and off the body). The GPU run took 20 encodes. Clicks select the
+   body and set the Selected layer, and a click on empty space or Esc clears it.
+4. `twenty_rapid_preview_sets_compute_one_preview_outside_the_undo_stack`: 20 `set` calls with a
+   frame each inside the debounce compute exactly one preview (the test feature's counter is 1).
+   It is shown on the preview layer; there is no undo entry and no timeline node; `clear`
+   removes it. `a_newer_preview_cancels_the_one_in_flight`: the newest command's result wins.
+5. `timing_no_ui_frame_over_16ms_while_a_two_second_job_runs`: a 2 s tracked job, a tool
+   active, hover sweeps, Shift+MMB orbits and wheel zooms. 791 frames in 2.006 s; the
+   `amg_ui.frame` span was p50 0.20 ms, p99 0.34 ms, max 0.41 ms. The 16 ms limit is asserted
+   only under `AMG_STRICT_TIMING=1`.
+
+*Deviations:*
+- `EntityFilter` lives in `amg_ui::select`: `amg_features::dialog` (S04 SOL-01) does not exist
+  yet. It becomes a re-export when it lands.
+- `Tool::overlays` / `OverlayCx` / `OverlayList` are not in the trait yet. There is no
+  framework overlay module; UI-06 / UI-09 add the method with a default (additive).
+- `ToolCx::camera` returns `Option<&CameraView>` (`None` before the first viewport frame).
+  `AppCx::camera` returns `impl CameraControl + '_`, not `&mut dyn CameraControl`.
+- `NavBindings::drags` uses `NavButton` / `NavMods`, because egui's types are not serde-enabled
+  in the workspace. Modifiers match exactly (Shift, Ctrl/Cmd, Alt).
+- The pick radius is a hint. S10 uses `RendererConfig::pick_radius_px`; the CPU service casts
+  the ray through the cursor (faces only). Region hits carry no world point. The CPU region
+  test is by projected vertices and ignores occlusion.
+- `SelectTool` selects whole bodies only (`SelItem::from_target` maps whole bodies and
+  construction geometry). Sub-entity refs need `BodyNaming` (UI-04).
+- `CmdEnv::hovered` / `active_tool` read as `None` inside tool callbacks: the router holds the
+  state then. Tools use `ToolCx::hover`.
+- Manipulators (priority slot between popup and tool) come with UI-06.
+
+*Leftovers:*
+- The owner should try navigation in `amg-app` once: the view cube, nav bar and Fusion
+  bindings on the RND-01 demo mesh. These were tested headless and through a test viewport,
+  not through eframe.
+- No pivot marker during orbit (RND-11 leftover). View-cube hover (`ViewCube::hover`) is still
+  not set.
+- The preview debounce is not a preference yet (UI-11).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1743,3 +1858,16 @@ additive pieces UI-05 should render:
   are ready for it (point picks with radius and filter, window/crossing rectangles); `PickService`
   does not exist yet (UI-03 defines it), and `CpuPickService` stays the CPU reference and the
   select-through path.
+
+### 2026-11-17: UI-03 (lane D)
+- No change to `amg-render`, `amg-doc`, `amg-jobs` or `amg-core`, and no new dependency. UI-03
+  uses S10's public API only: `nav::NavController`, `egui_glue::{apply_camera_action,
+  view_cube, view_cube_rect, nav_bar, paint_labels}`, `Renderer::{request_pick, poll_picks,
+  project_labels, view_mut}`, `View::{camera, show_view_cube, view_cube}`.
+- `amg-ui` additive API: `CmdAction::StartTool` is a new variant (exhaustive matches outside
+  `amg-ui` need an arm; there were none). `DocTab` and `CmdEnv` gain fields, and `ViewportFrame`
+  gains `camera`. Struct literals of these outside the crate need the new fields (there were
+  none). `ViewportBackend`'s new methods have defaults.
+- `amg-app`: the demo mesh's home view is set on the active document's camera instead of the
+  renderer view, because `RenderViewport` now writes the document camera into the view every
+  frame. The now-unused `Shell::view` field was removed.
