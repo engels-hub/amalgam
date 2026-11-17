@@ -319,6 +319,7 @@ dependencies = [
  "amg-subd",
  "amg-testkit",
  "amg-topopt",
+ "blake3",
  "criterion 0.8.2",
  "proptest",
  "rayon",

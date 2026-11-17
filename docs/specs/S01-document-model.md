@@ -1894,3 +1894,20 @@ materials are unchanged (`FORMAT_VERSION` unchanged, like ASM-13's `pending`).
   `MaterialKey::id() -> Option<MaterialId>` (same for `AppearanceKey`) and `From<&Id>`; a key
   that is not a valid id resolves to "unassigned". The wire form is the same string either way,
   so a later switch only changes the Rust type.
+
+### 2026-11-17 - IO-14 (S12 request items 1-2; implemented by lane G, additive)
+Of the "From S12 (import/export)" requests, item 3 (the baked map persisted in `bodies/` by
+DOC-07) already existed; items 1 and 2 landed with IO-14.
+- **`RecomputeCtx::baked(&self, slot: u32) -> Result<&'a BodyGeom, FeatureError>`**: the baked
+  payload of `BodyId { origin: this feature, slot }`. `MissingInput(Dependency::Body(id))` if
+  nothing is baked there, `InvalidValue { field: "baked" }` if its geometry is not loaded.
+- **`Document::add_feature_baked(&mut self, label: &str, add: Command, baked: Vec<(u32,
+  BodyGeom)>, props: Vec<(u32, BodyProps)>) -> Result<CommandOutcome, CommandError>`** (in
+  `direct.rs`, next to the DOC-08 bake): applies `add` (must be `AddFeature`; refused in direct
+  mode like any timeline command), bakes each payload under the new feature in its context
+  component with a fresh `bodies/` blob path, sets the body properties, and publishes it all as
+  one undo entry. The commit is opaque to crash recovery (a snapshot instead of a journal
+  entry), because `Command` cannot carry the geometry. Deleting the feature already drops its
+  baked bodies (`remove_feature`).
+- Tests: `crates/amg-doc/tests/baked_feature.rs`. No change to `design.json`, `FORMAT_VERSION` or
+  existing tests.

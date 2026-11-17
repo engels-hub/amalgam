@@ -25,6 +25,8 @@ amg-am.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
+# IO-14: blake3 of imported source bytes (`ImportSource::from_bytes`; already a workspace dependency).
+blake3.workspace = true
 # MESH-10: parallel chunked decimation of the SDF shell (already a workspace dependency).
 rayon.workspace = true
 # INS-02 section caps: 2D CDT with split constraints (same pin as amg-mesh; ADR-012, THIRD_PARTY.md).

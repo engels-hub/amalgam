@@ -652,6 +652,27 @@ impl<'a> RecomputeCtx<'a> {
             )))
     }
 
+    /// The baked payload stored for `BodyId { origin: this feature, slot }` (imported meshes,
+    /// S12; see [`Document::add_feature_baked`](crate::Document::add_feature_baked)).
+    ///
+    /// # Errors
+    /// [`FeatureError::MissingInput`] if nothing is baked for that body, or
+    /// [`FeatureError::InvalidValue`] if its geometry is not loaded.
+    pub fn baked(&self, slot: u32) -> Result<&'a BodyGeom, FeatureError> {
+        let id = self.new_body_id(slot);
+        let baked = self
+            .design
+            .baked(id)
+            .ok_or_else(|| FeatureError::MissingInput(Box::new(Dependency::Body(id))))?;
+        baked
+            .geom
+            .as_ref()
+            .ok_or_else(|| FeatureError::InvalidValue {
+                field: "baked",
+                msg: format!("geometry of {id:?} is not loaded"),
+            })
+    }
+
     /// The id of this feature's output body `slot`.
     pub fn new_body_id(&self, slot: u32) -> BodyId {
         BodyId {
