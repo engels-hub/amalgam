@@ -104,6 +104,7 @@ pub(crate) enum ShellRequest {
     RunCommand(CmdId),
     OpenSearch,
     File(DocTabId, crate::file::FileOp),
+    RestoreSelectionSet(DocTabId, String),
 }
 
 /// Read-only view for enablement, providers and panels.
@@ -242,6 +243,15 @@ impl AppCx<'_> {
         self.requests.push(ShellRequest::OpenSearch);
     }
 
+    /// Queues restoring the selection set `name` of this document (end of frame, when it is
+    /// the active document; additive, UI-04).
+    pub fn restore_selection_set(&mut self, name: &str) {
+        self.requests.push(ShellRequest::RestoreSelectionSet(
+            self.doc.id,
+            name.to_owned(),
+        ));
+    }
+
     /// Queues a file operation (New, Open, Save, …) on this document; it runs at the end of
     /// the frame (UI-19).
     pub fn file(&mut self, op: crate::file::FileOp) {
@@ -325,6 +335,14 @@ impl AppCx<'_> {
     pub fn request_repaint(&self) {
         if let Some(ctx) = self.ctx {
             ctx.request_repaint();
+        }
+    }
+
+    /// Asks for a frame after `after` (timers such as the select-through long press;
+    /// additive, UI-04).
+    pub fn request_repaint_after(&self, after: std::time::Duration) {
+        if let Some(ctx) = self.ctx {
+            ctx.request_repaint_after(after);
         }
     }
 }
@@ -534,6 +552,10 @@ impl AmalgamApp {
         for (i, doc) in self.docs.iter_mut().enumerate() {
             doc.document.poll(&jobs);
             let events = doc.document.drain_events();
+            if !events.is_empty() {
+                doc.selection
+                    .revalidate(&events, doc.document.design(), doc.document.evaluated());
+            }
             if i == self.active {
                 if scene_stale {
                     self.scene
@@ -632,6 +654,11 @@ impl AmalgamApp {
                 ShellRequest::OpenPanel(id) => self.open_panel(id),
                 ShellRequest::RunCommand(_) => {}
                 ShellRequest::File(doc, op) => self.file_op(Some(doc), op),
+                ShellRequest::RestoreSelectionSet(doc, name) => {
+                    if self.docs.get(self.active).is_some_and(|d| d.id == doc) {
+                        self.restore_selection_set(&name);
+                    }
+                }
                 ShellRequest::OpenSearch => {
                     let at = self
                         .ctx
@@ -874,12 +901,13 @@ impl AmalgamApp {
 
     /// Runs `f` with an [`AppCx`] on the active document.
     pub fn with_cx<R>(&mut self, f: impl FnOnce(&mut AppCx<'_>) -> R) -> R {
-        let (mut cx, _) = self.tool_parts();
+        let (mut cx, _, _) = self.tool_parts();
         f(&mut cx)
     }
 
-    /// An [`AppCx`] on the active document and the pick service (disjoint borrows).
-    pub(crate) fn tool_parts(&mut self) -> (AppCx<'_>, &mut dyn PickService) {
+    /// An [`AppCx`] on the active document, the pick service and the scene (disjoint
+    /// borrows).
+    pub(crate) fn tool_parts(&mut self) -> (AppCx<'_>, &mut dyn PickService, &SceneAdapter) {
         let cx = AppCx::new(
             &mut self.docs[self.active],
             &mut self.queue,
@@ -891,7 +919,7 @@ impl AmalgamApp {
             self.workspace,
             self.ctx.as_ref(),
         );
-        (cx, self.picks.as_mut())
+        (cx, self.picks.as_mut(), &self.scene)
     }
 
     /// The read-only view of `doc` with an explicit hover item and active tool (the router

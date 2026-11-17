@@ -901,7 +901,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-02 | Command registry (`CommandDef`, `Placement`, `Enabler`, dynamic registration), toolbar tabs/groups/dropdowns, menus, `ShortcutMap` with scopes and `shortcuts.toml` overrides, S-key search (own fuzzy scorer, recency) | UI-01 | P0 | Done | 1. Kittest: pressing `S`, typing "remsh" lists a registered `test.remesh` first, and Enter runs it. 2. Disabled commands show their reason in the tooltip and are skipped by Enter. 3. A duplicate `CmdId` panics in debug (unit test). 4. Shortcut scope test: `L` in sketch scope and `L` in global scope resolve correctly. Single letters are ignored while a text field has focus. 5. Search over 1 000 synthetic commands < 1 ms per keystroke (criterion). 6. `register_dynamic` rejects ids without the `script.` prefix. |
 | UI-03 | `Tool` trait + router (priority chain, Esc/Enter, replace semantics), `ViewportEvent` synthesis from egui input, `PickService` trait + S10 implementation + latest-wins hover, Fusion navigation preset over S10 camera, `PreviewDriver`, `spawn_tracked`, `SelectTool` (click only) | UI-02, RND-04, RND-11 | P0 | Done | 1. Kittest with a scripted test tool: events arrive in order, Esc cancels (`FinishReason::Cancel`), Enter commits one undo entry, and starting another command gives `Replaced`. 2. Middle-drag orbits even while a tool is active that ignores the event. 3. Hover pick → highlight within ≤ 2 frames on the owner's GPU and with `CpuPickService`. 4. `PreviewDriver`: 20 rapid `set` calls → exactly one preview computed (test counter feature), and none enters the undo stack. 5. No UI-thread frame > 16 ms while a 2 s test job runs (tracing assertion). |
 | UI-20 | Scene adapter: `DocEvent` → `RenderScene` (RND-03), `RenderEntityKey` allocation, `PickMap`, `BodyTessellator` registry with Mesh tessellator, highlight layers, preview layer feed, `CpuPickService` real implementation | UI-01, RND-03, DOC-09 | P0 | Done | 1. Scripted test: add/edit/delete 3 mesh bodies → the RenderScene contains exactly the live bodies, and an unchanged body is never re-uploaded (upload counter). 2. `DocumentReplaced` rebuilds the scene, and keys are not reused within a session. 3. `PickMap` round-trips every face index of a 10 k-triangle body. 4. A registered test tessellator for a stub `BodyGeom` variant is used. 5. Updating 1 changed body in a 100-body scene < 1 ms of UI-thread time. |
-| UI-04 | Selection system: `Selection`, `SelItem`, `EntityFilter` bar, select priority, click/Ctrl/Shift rules, window/crossing box (S10 region pick), select-through list, selection sets (`ExtRecord ui.selection_sets`), revalidation on events | UI-03, UI-20 | P0 | Todo | 1. Kittest on a fixture with 3 mesh bodies: window select left→right picks only fully enclosed bodies, and right→left also picks touching ones. 2. With the filter set to faces only, a click on an edge selects the adjacent face. 3. Select-through lists all 3 stacked bodies in depth order. 4. Save a selection set → reload the file → restore gives the same `EntityRef`s, and undo removes the set. 5. Deleting a selected body drops it from the selection without error. |
+| UI-04 | Selection system: `Selection`, `SelItem`, `EntityFilter` bar, select priority, click/Ctrl/Shift rules, window/crossing box (S10 region pick), select-through list, selection sets (`ExtRecord ui.selection_sets`), revalidation on events | UI-03, UI-20 | P0 | Review | 1. Kittest on a fixture with 3 mesh bodies: window select left→right picks only fully enclosed bodies, and right→left also picks touching ones. 2. With the filter set to faces only, a click on an edge selects the adjacent face. 3. Select-through lists all 3 stacked bodies in depth order. 4. Save a selection set → reload the file → restore gives the same `EntityRef`s, and undo removes the set. 5. Deleting a selected body drops it from the selection without error. |
 | UI-15 | Dialog widgets: `ExprInput` (live parse via `ParamTable::try_eval`, error spans, autocomplete of params/functions/units, nudge, bound-param display), `SelectionField`, `ChoiceField`, toggle/int/flip, `DialogFrame` (banner, OK enablement), quantity formatting per `UnitPrefs` | UI-04, DOC-04 | P0 | Todo | 1. Kittest: typing `d1 + 5` in a length field with `d1 = 10 mm` shows `15.00 mm`. `12 kg` shows a unit-mismatch error underlined at the right span, and OK is disabled. 2. Typing `d` offers every parameter starting with `d`, and Tab completes. 3. `12,5` shows the `DecimalComma` hint (QUESTIONS #11). 4. Only one `SelectionField` is active at a time, and the active one sets the pick filter. 5. All widgets are queryable by label (AccessKit). |
 | UI-05 | Generic feature dialog renderer: `GenericFeatureTool` from `DialogRegistration` (conditions, auto-focus, live preview with debounce, preview-health banner), edit mode (preview rollback, `EditFeature` + `SetParamExpr` in one transaction), automatic `feature.<kind>` commands + toolbar placement + `FeatureUiInfo` | UI-15, SOL-01, DOC-12 | P0 | Todo | 1. The Extrude dialog is generated entirely from SOL-01's schema (no extrude-specific UI code; grep test). Changing extent type shows/hides the right fields. 2. Kittest: select a profile, type a distance → the preview appears ≤ debounce + 100 ms on a typical part. OK yields one undo entry with `AddFeature`. 3. Edit mode: changing the distance of an existing extrude keeps its model parameter `dN` and changes its expression. 4. An invalid input disables OK with the field error. Cancel leaves the document unchanged (revision equal). |
 | UI-06 | Manipulators: Distance, Angle, Triad, Plane gizmos via overlays (constant 90 px), CPU hit test, drag ↔ field binding both ways, Ctrl snapping, heads-up value | UI-05, RND-07 | P0 | Todo | 1. Dragging the extrude arrow by a scripted world delta of 12.5 mm writes `12.5 mm` into the field (prefs precision), and editing the field moves the arrow (kittest via `world_to_screen`). 2. Ctrl-drag snaps to 1 mm / 5°. 3. Triad: each of 10 parts hit-tests correctly in a 6-view matrix (unit test on `CameraView`). 4. Gizmo screen size stays 90 ± 2 px across a 1000× zoom range. |
@@ -1747,6 +1747,118 @@ Unit tests: `file::tests::recent_files_dedupe_cap_and_round_trip`,
   not set.
 - The preview debounce is not a preference yet (UI-11).
 
+### 2026-11-17 - UI-04 selection system
+
+*Landed in `amg-ui` (status `Review`):*
+- **`select`** (now `select.rs` + `select/`):
+  - `EntityFilter` gains `without`, `of_topo`; `FILTER_GROUPS` (the bar's seven groups:
+    Bodies, Faces (+ mesh face groups), Edges, Vertices, Sketches (all four sketch kinds),
+    Construction, Components). `HANDLE` is never switched off by the bar.
+  - `SelectPriority::{Default, Body, Face, Edge, Component}` (serde) with `label` and
+    `pick_filter` (Face leaves edges/vertices out of the pick, Edge leaves bodies/faces/vertices
+    out). `Selection` gains `priority` / `set_priority`, `extend` and `revalidate`.
+  - `item_for_hit(hit, filter, priority, eval, scene) -> Option<SelItem>`: Default = whole body
+    when the filter has bodies, else the sub-entity the filter admits, else (mesh edge) its
+    triangle; Body = whole body; Face = the face (a mesh edge `e` lifts to triangle `e / 3`);
+    Edge = edges only; Component = `PickTarget::Occurrence(first occurrence of the instance's
+    path)` (root bodies fall back to Body).
+  - `SelItem::resolve(target, eval)` builds `EntityRef::Topo` for sub-entities.
+    `target_for_entity(design, eval, scene, &EntityRef)` maps a stored ref back (first displayed
+    instance).
+  - `select::naming` (provisional S01 R1/R2, see deviations): `topo_ref_at`, `resolve_topo`,
+    `mesh_fingerprint`, `mesh_edge`, role tags `ui.mesh.{triangle,edge,vertex}`.
+  - `select::sets`: `SELECTION_SETS_KIND = "ui.selection_sets"` (version 1, `data = {"sets":
+    [{name, items: [EntityRef]}]}`, one record per design), `SelectionSet`, `selection_sets`,
+    `selection_set`, `sets_key`, `next_set_name` ("Selection Set N"), `save_set_command`
+    (`AddExt` for the first set, `SetExt` after), `remove_set_command`, `save_selection(cx,
+    name)`. `AmalgamApp::restore_selection_set(name) -> Option<usize /*skipped*/>` and
+    `AppCx::restore_selection_set(name)` (end of frame) for UI-07.
+  - `select::bar`: the filter bar (group toggles, "Reset filter", priority Auto / Body / Face /
+    Edge / Component), drawn from `shell::draw`.
+  - `SelectTool` moved here (`tool::SelectTool` / `tool::SELECT_TOOL` re-export it): click /
+    Ctrl / Shift / Cmd rules as before but through `item_for_hit`; primary drag = box (left to
+    right `RegionMode::Window`, right to left `Crossing`, through `PickService::request_region`,
+    i.e. S10's RND-04 rectangles in the app; plain replaces, Ctrl/Shift/Cmd adds); long press
+    (`LONG_PRESS` = 500 ms, `LONG_PRESS_SLOP_PT` = 4) = select-through (`AllAlongRay`, deduped,
+    depth order) shown as a popup list; its release does not click. `SelectThrough`,
+    `SelectThroughEntry`, `AmalgamApp::{select_through, choose_select_through}`. Esc closes the
+    list before it clears the selection.
+- **`tool`** (additive): `ToolCx::{pick_region, item_for, scene}`; the effective filter for the
+  select tool also intersects the priority's filter; hover items go through `item_for_hit`
+  (face hover under a faces-only filter); an `Occurrence` target highlights every body seen
+  through it; the box is painted on a foreground layer (window solid, crossing dashed).
+- **`app`**: every drained event batch revalidates that document's selection (`DocumentReplaced`
+  clears it; body / construction / sketch / component-tree events drop refs that no longer
+  resolve, and re-index a moved named sub-entity). `AppCx::request_repaint_after` (additive).
+  `tool_parts` also returns the scene.
+- **`pick`**: `CpuPickService` point picks report a mesh triangle edge (`3 × tri + corner`) or
+  mesh vertex within the pick radius of the hit point, ahead of its face, when the filter has
+  `EDGE` / `VERTEX`. **`scene`**: `PickMap::instances_of`, `SceneAdapter::occurrence_bodies`,
+  crate-private `mesh_triangle`.
+- **Commands** (`app` module): `select.save_set` "Save selection set" (disabled with an empty
+  selection) and `select.clear` "Clear selection"; no placement (search only).
+
+*Evidence (Done-when; `tests/selection.rs`, 5 kittest tests on CpuPickService, plus 4 unit tests
+in `select` / `select::naming`):*
+1. `window_box_picks_enclosed_bodies_and_crossing_box_also_touching_ones`: 3 mesh bodies
+   (4 × 4 mm at x = 0, 6, 12). A box over x ∈ [−1, 8] dragged left → right selects only body 0;
+   the same box right → left selects bodies 0 and 1; the Selected layer has 1 then 2 items.
+   Shift+box adds body 2, a plain box replaces; Ctrl+click toggles on/off, click replaces, click
+   on empty space clears.
+2. `faces_only_filter_turns_a_click_on_an_edge_into_the_adjacent_face`: the filter is set by
+   clicking the bar's toggles. With Edges only, a click on the midpoint of a grid diagonal
+   selects that edge (`TopoRef` kind Edge, endpoints checked). With Faces only, the same click
+   selects a face whose triangle contains both edge endpoints (`TopoRef` kind Face, highlighted).
+   Face priority with every kind does the same, Body priority selects the body, "Reset filter"
+   restores ALL / Auto.
+3. `long_press_lists_all_three_stacked_bodies_in_depth_order`: 3 stacked bodies (z = 0, 4, 8).
+   A press held 500 ms opens the list with the bodies z = 8, 4, 0, depths strictly increasing;
+   the release does not change the selection; every entry is found by label and clicking the
+   middle one selects it and closes the list; Esc closes a reopened list and keeps the
+   selection.
+4. `selection_set_round_trips_through_save_and_reload_and_undo_removes_it`: a whole body plus a
+   face (face priority) saved by `select.save_set` is one undo entry; undo removes the set and
+   its `ui.selection_sets` record, redo restores it. Save As → close → open the `.amg`: restoring
+   "Selection Set 1" skips nothing, the `EntityRef`s equal the saved ones and both are
+   highlighted.
+5. `deleting_a_selected_body_drops_it_from_the_selection_without_error`: of 3 boxed bodies plus a
+   face of body 1, deleting body 1's feature leaves exactly bodies 0 and 2 (and 2 highlights), no
+   error toast; undo brings the body back without reselecting it; replacing the document clears
+   the selection.
+
+All 41 `amg-ui` lib + selection tests pass; the full `amg-ui` suite (existing tests unchanged)
+runs 105 tests, 105 passed, in 12.6 s.
+
+*Deviations:*
+- **S01 R1/R2 are provisional, in `amg-ui`** (`select::naming`), since DOC-06 is not done: a
+  sub-entity uses the body's `BodyNaming` name when it has one (exact name match on resolve);
+  otherwise, for mesh bodies only, a `NameSeg::Generated { feature: body.origin, role:
+  ui.mesh.triangle|edge|vertex + index }` name plus a `GeomFingerprint` of the element. Such a
+  ref resolves only while the element at that index has the same fingerprint (never a silent
+  wrong match). B-rep sub-entities without naming are not selectable yet. To be replaced by
+  `naming::topo_ref_at` / `Evaluated::resolve_for_display` when DOC-06 lands.
+- **Component selection:** `EntityRef` has no occurrence variant, so a component pick is stored
+  as `EntityRef::InContext { path: [occurrence], target: Body(picked body) }`. S06's
+  `InContext` wrapping of sub-entities outside the active component is not done.
+- **Filter bar position:** top centre of the viewport, not top right (the view cube and the tool
+  dialog occupy the top-right corner). It shows while the pointer is over the viewport, or
+  always while the filter / priority is not the default; so the UI-01 snapshots are unchanged.
+- **CPU edges / vertices** exist only for mesh bodies (triangle edges; a shared edge has one id
+  per adjacent triangle). On the GPU path S10 draws edge ids only for edge polylines, so mesh
+  triangle edges are not GPU-pickable; B-rep edges come with UI-22.
+- **Box selection with a faces-only filter** selects nothing on the CPU path (its region pick is
+  per body); S10's rectangle pick returns sub-ids, which `item_for_hit` lifts per priority.
+- The select-through list is egui-drawn at the press point; "within 3 px" is the pick radius
+  hint (the CPU service casts the ray through the point).
+
+*Leftovers:*
+- UI-07 lists the sets under "Selection Sets" (rename / delete through `remove_set_command`,
+  restore through `AppCx::restore_selection_set`).
+- S05 request "a hook so a tool can expand a pick (smart region, edge chain)" and the surface-point
+  kind are not done; mesh face groups have no render sub-id (filter bit only).
+- Owner check in `amg-app`: box selection and the filter bar with GPU picking (tested headless on
+  CpuPickService only).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1871,3 +1983,21 @@ additive pieces UI-05 should render:
 - `amg-app`: the demo mesh's home view is set on the active document's camera instead of the
   renderer view, because `RenderViewport` now writes the document camera into the view every
   frame. The now-unused `Shell::view` field was removed.
+
+### 2026-11-17: UI-04 (lane D)
+- No change to `amg-render`, `amg-doc`, `amg-jobs` or `amg-core`, and no new dependency. UI-04
+  uses RND-04's rectangle picks through the existing `GpuPickService::request_region` and the
+  existing highlight layers; selection sets use the public `Command::{AddExt, SetExt}` and
+  `Design::{exts, ext}`.
+- **For S01 (DOC-06):** `amg_ui::select::naming::{topo_ref_at, resolve_topo}` are UI-side
+  stand-ins for R1 / R2 (mesh triangle / edge / vertex names with role tags
+  `ui.mesh.triangle|edge|vertex` plus a fingerprint). When DOC-06 lands they should delegate to
+  S01 and the mesh lane should name mesh elements; stored selection sets with the provisional
+  names then need a migration (ExtRecord version 1 → 2) or are dropped on resolve.
+- **For S01:** an occurrence reference (`EntityRef::Occurrence` or similar) would replace the
+  `InContext { path: [occ], target: Body }` encoding of component selections.
+- `amg-ui` additive API: `ToolCx::{pick_region, item_for, scene}`, `AppCx::{request_repaint_after,
+  restore_selection_set}`, `AmalgamApp::{select_through, choose_select_through,
+  restore_selection_set}`, `PickMap::instances_of`, `SceneAdapter::occurrence_bodies`, the
+  `select::{bar, naming, sets}` modules, and two commands (`select.save_set`, `select.clear`).
+  `tool::SelectTool` / `tool::SELECT_TOOL` remain as re-exports.

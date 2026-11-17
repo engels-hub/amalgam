@@ -35,15 +35,15 @@ use amg_core::Point3;
 use crate::app::{AmalgamApp, AppCx, CmdEnv, CommitBatch};
 use crate::command::CmdId;
 use crate::input::{CameraView, InputSynth, ViewportEvent, key_events};
-use crate::pick::{PickFrame, PickHitUi, PickMode, PickService, PickTarget, PickTicket};
+use crate::pick::{
+    PickFrame, PickHitUi, PickMode, PickService, PickTarget, PickTicket, RegionMode,
+};
 use crate::preview::PreviewDriver;
-use crate::scene::HighlightLayer;
-use crate::select::{EntityFilter, SelItem, Selection};
+use crate::scene::{HighlightLayer, SceneAdapter};
+use crate::select::{EntityFilter, SelItem, SelectPriority, Selection, item_for_hit};
 
 /// Radius of hover and click picks, points (a hint: S10 uses its configured radius).
 pub const PICK_RADIUS_PT: f32 = 3.0;
-/// A hover answer this close to a click is used for the click without a new pick, points.
-const CLICK_REUSES_HOVER_PT: f32 = 1.0;
 
 /// What a tool is started with.
 #[derive(Debug)]
@@ -129,8 +129,11 @@ pub(crate) struct ToolFrame {
     pub(crate) preview: PreviewDriver,
     pub(crate) finish: Option<FinishReason>,
     pub(crate) cursor: Option<egui::CursorIcon>,
-    /// `tool.pick_filter() ∩ selection filter`.
+    /// `tool.pick_filter() ∩ selection filter` (∩ the select priority's filter for the select
+    /// tool).
     pub(crate) filter: EntityFilter,
+    /// The select priority hits are lifted with (`Default` for other tools).
+    pub(crate) priority: SelectPriority,
 }
 
 impl Default for ToolFrame {
@@ -142,6 +145,7 @@ impl Default for ToolFrame {
             finish: None,
             cursor: None,
             filter: EntityFilter::ALL,
+            priority: SelectPriority::Default,
         }
     }
 }
@@ -152,6 +156,7 @@ pub struct ToolCx<'a> {
     app: AppCx<'a>,
     frame: &'a mut ToolFrame,
     picks: &'a mut dyn PickService,
+    scene: &'a SceneAdapter,
 }
 
 impl std::fmt::Debug for ToolCx<'_> {
@@ -168,8 +173,14 @@ impl<'a> ToolCx<'a> {
         app: AppCx<'a>,
         frame: &'a mut ToolFrame,
         picks: &'a mut dyn PickService,
+        scene: &'a SceneAdapter,
     ) -> ToolCx<'a> {
-        ToolCx { app, frame, picks }
+        ToolCx {
+            app,
+            frame,
+            picks,
+            scene,
+        }
     }
 
     /// The app context (submit, notify, jobs, commands).
@@ -232,9 +243,35 @@ impl<'a> ToolCx<'a> {
         t
     }
 
-    /// The answer to [`Self::pick_point`], exactly once (additive).
+    /// The answer to [`Self::pick_point`] or [`Self::pick_region`], exactly once (additive).
     pub fn poll_pick(&mut self, t: PickTicket) -> Option<Vec<PickHitUi>> {
         self.picks.poll(t)
+    }
+
+    /// Requests a rectangle pick (`rect` in points) with the effective filter (additive,
+    /// UI-04). Answered by [`Self::poll_pick`] in a later frame.
+    pub fn pick_region(&mut self, rect: egui::Rect, mode: RegionMode) -> PickTicket {
+        let filter = self.frame.filter;
+        let t = self.picks.request_region(rect, filter, mode);
+        self.app.request_repaint();
+        t
+    }
+
+    /// What a hit selects under the effective filter and select priority (additive, UI-04;
+    /// see [`item_for_hit`]).
+    pub fn item_for(&self, hit: PickTarget) -> Option<SelItem> {
+        item_for_hit(
+            hit,
+            self.frame.filter,
+            self.frame.priority,
+            self.app.env().evaluated,
+            self.scene,
+        )
+    }
+
+    /// The scene adapter (pick map, occurrence paths; additive, UI-04).
+    pub fn scene(&self) -> &SceneAdapter {
+        self.scene
     }
 }
 
@@ -284,7 +321,7 @@ impl std::fmt::Debug for ToolState {
 impl ToolState {
     /// Hover picks and select clicks waiting for an answer.
     pub(crate) fn picks_pending(&self) -> bool {
-        !self.hover_tickets.is_empty() || self.select.pending.is_some()
+        !self.hover_tickets.is_empty() || self.select.picks_pending()
     }
 
     fn owner(&self, b: egui::PointerButton) -> Option<Owner> {
@@ -313,13 +350,15 @@ fn with_tool<R>(
         frame,
         ..
     } = ts;
-    let tool: &mut dyn Tool = match active {
-        Some(a) => a.tool.as_mut(),
-        None => select,
+    let sel = &app.docs[app.active].selection;
+    let (tool, priority): (&mut dyn Tool, SelectPriority) = match active {
+        Some(a) => (a.tool.as_mut(), SelectPriority::Default),
+        None => (select, sel.priority()),
     };
-    frame.filter = tool.pick_filter() & app.docs[app.active].selection.filter();
-    let (cx, picks) = app.tool_parts();
-    let mut tcx = ToolCx::new(cx, frame, picks);
+    frame.filter = tool.pick_filter() & sel.filter() & priority.pick_filter();
+    frame.priority = priority;
+    let (cx, picks, scene) = app.tool_parts();
+    let mut tcx = ToolCx::new(cx, frame, picks, scene);
     f(tool, &mut tcx)
 }
 
@@ -340,8 +379,8 @@ fn finish_active(app: &mut AmalgamApp, ts: &mut ToolState, reason: FinishReason)
         return;
     };
     tracing::debug!(tool = %a.id, ?reason, "tool finished");
-    let (cx, picks) = app.tool_parts();
-    let mut tcx = ToolCx::new(cx, &mut ts.frame, picks);
+    let (cx, picks, scene) = app.tool_parts();
+    let mut tcx = ToolCx::new(cx, &mut ts.frame, picks, scene);
     let batch = a.tool.finish(reason, &mut tcx);
     if reason == FinishReason::Commit
         && let Some(b) = batch
@@ -383,7 +422,7 @@ impl AmalgamApp {
                 })
             };
             tracing::debug!(tool = %id, "tool started");
-            ts.select.pending = None;
+            ts.select.reset();
             ts.owners.clear();
             ts.active = Some(ActiveTool { id, tool });
             with_tool(app, ts, |t, cx| t.start(cx));
@@ -446,10 +485,12 @@ impl AmalgamApp {
                 None => true,
             });
             if let Some((hits, at)) = newest {
+                let eval = app.docs[active].document.evaluated();
+                let (filter, priority) = (ts.frame.filter, ts.frame.priority);
                 ts.frame.hover = hits.into_iter().find_map(|h| {
                     Some(HoverHit {
                         at,
-                        item: SelItem::from_target(h.target.whole())?,
+                        item: item_for_hit(h.target, filter, priority, eval, &app.scene)?,
                         world: h.world,
                         depth: h.depth,
                     })
@@ -499,13 +540,13 @@ impl AmalgamApp {
             let hover = ts.frame.hover.as_ref().map(|h| h.item.target);
             if hover != ts.hover_shown {
                 ts.hover_shown = hover;
-                let list: Vec<PickTarget> = hover.into_iter().collect();
+                let list = highlight_targets(&app.scene, hover.iter());
                 app.scene.set_highlight(HighlightLayer::Hover, &list);
             }
             let sel = &app.docs[active].selection;
             if ts.selection_shown != Some(sel.revision()) {
                 ts.selection_shown = Some(sel.revision());
-                let list: Vec<PickTarget> = sel.items().iter().map(|i| i.target).collect();
+                let list = highlight_targets(&app.scene, sel.items().iter().map(|i| &i.target));
                 app.scene.set_highlight(HighlightLayer::Selected, &list);
             }
             if ts.picks_pending()
@@ -543,6 +584,7 @@ impl AmalgamApp {
                             finish_active(app, ts, FinishReason::Cancel);
                             true
                         }
+                        egui::Key::Escape if ts.select.close_through() => true,
                         egui::Key::Escape => {
                             let sel = &mut app.docs[app.active].selection;
                             let had = !sel.is_empty();
@@ -619,6 +661,15 @@ impl AmalgamApp {
             {
                 ctx.set_cursor_icon(c);
             }
+            if ts.active.is_none() {
+                match ts.select.box_rect() {
+                    Some((r, mode)) => {
+                        paint_box(ctx, rect, r, mode, &app.tokens);
+                        ts.frame.cursor = Some(egui::CursorIcon::Crosshair);
+                    }
+                    None => ts.frame.cursor = None,
+                }
+            }
         });
         // The camera may have moved: later readers of this frame see the new one.
         let cam = self.docs[active].camera;
@@ -665,6 +716,119 @@ impl AmalgamApp {
                 finish_active(app, ts, reason);
             }
         });
+    }
+}
+
+/// Highlight targets for selected or hovered targets: an occurrence lights up every body seen
+/// through it.
+fn highlight_targets<'t>(
+    scene: &SceneAdapter,
+    targets: impl Iterator<Item = &'t PickTarget>,
+) -> Vec<PickTarget> {
+    let mut out = Vec::new();
+    for t in targets {
+        match t {
+            PickTarget::Occurrence(o) => out.extend(scene.occurrence_bodies(*o)),
+            other => out.push(*other),
+        }
+    }
+    out
+}
+
+/// The selection box: a window has a solid outline, a crossing a dashed one, both over a light
+/// fill.
+fn paint_box(
+    ctx: &egui::Context,
+    clip: egui::Rect,
+    r: egui::Rect,
+    mode: RegionMode,
+    tokens: &crate::theme::ThemeTokens,
+) {
+    let painter = ctx
+        .layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("amg_select_box"),
+        ))
+        .with_clip_rect(clip);
+    let color = match mode {
+        RegionMode::Window => tokens.accent,
+        RegionMode::Crossing => tokens.hover,
+    };
+    painter.rect_filled(r, 0.0, color.gamma_multiply(0.12));
+    let stroke = egui::Stroke::new(1.0, color);
+    match mode {
+        RegionMode::Window => {
+            painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Inside);
+        }
+        RegionMode::Crossing => {
+            let pts = [
+                r.left_top(),
+                r.right_top(),
+                r.right_bottom(),
+                r.left_bottom(),
+                r.left_top(),
+            ];
+            painter.extend(egui::Shape::dashed_line(&pts, stroke, 4.0, 3.0));
+        }
+    }
+}
+
+impl AmalgamApp {
+    /// The select-through list of the active document, when open (UI-04).
+    pub fn select_through(&self) -> Option<&crate::select::SelectThrough> {
+        let ts = &self.docs[self.active].tools;
+        if ts.active.is_some() {
+            return None;
+        }
+        ts.select.select_through()
+    }
+
+    /// Chooses entry `index` of the open select-through list: it replaces the selection and
+    /// the list closes. False without a list or for an index out of range (UI-04).
+    pub fn choose_select_through(&mut self, index: usize) -> bool {
+        let active = self.active;
+        let doc = &mut self.docs[active];
+        let Some(entry) = doc
+            .tools
+            .select
+            .select_through()
+            .and_then(|l| l.entries.get(index))
+            .map(|e| e.item.clone())
+        else {
+            return false;
+        };
+        doc.tools.select.close_through();
+        doc.selection.set(vec![entry]);
+        if let Some(ctx) = &self.ctx {
+            ctx.request_repaint();
+        }
+        true
+    }
+
+    /// The select-through list next to the long-pressed point.
+    pub(crate) fn draw_select_through(&mut self, ctx: &egui::Context) {
+        let Some(list) = self.select_through().cloned() else {
+            return;
+        };
+        let mut chosen = None;
+        let selection = &self.docs[self.active].selection;
+        egui::Area::new(egui::Id::new("amg_select_through"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(list.at + egui::vec2(12.0, 12.0))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new("Select through").strong());
+                    for (i, e) in list.entries.iter().enumerate() {
+                        let on = selection.contains(&e.item.target);
+                        if ui.selectable_label(on, &e.label).clicked() {
+                            chosen = Some(i);
+                        }
+                    }
+                });
+            });
+        if let Some(i) = chosen {
+            self.choose_select_through(i);
+        }
     }
 }
 
@@ -754,79 +918,5 @@ fn route_pointer(
     }
 }
 
-/// The default tool: a click selects the body under the cursor (UI-03: click only; UI-04 adds
-/// box selection, select-through, filters and priority). Ctrl/Shift+click toggles, a click on
-/// empty space clears the selection.
-#[derive(Debug, Default)]
-pub struct SelectTool {
-    pending: Option<(PickTicket, egui::Modifiers)>,
-}
-
-impl SelectTool {
-    fn apply(item: Option<SelItem>, mods: egui::Modifiers, sel: &mut Selection) {
-        let toggle = mods.ctrl || mods.shift || mods.command;
-        match (item, toggle) {
-            (Some(i), true) => sel.toggle(i),
-            (Some(i), false) => sel.set(vec![i]),
-            (None, true) => {}
-            (None, false) => sel.clear(),
-        }
-    }
-}
-
-/// Id of the select tool.
-pub const SELECT_TOOL: CmdId = CmdId("app.select");
-
-impl Tool for SelectTool {
-    fn id(&self) -> CmdId {
-        SELECT_TOOL
-    }
-
-    fn label(&self) -> Cow<'static, str> {
-        Cow::Borrowed("Select")
-    }
-
-    fn input(&mut self, ev: &ViewportEvent, cx: &mut ToolCx<'_>) -> InputResult {
-        let ViewportEvent::Click {
-            button: egui::PointerButton::Primary,
-            pos,
-            mods,
-            ..
-        } = ev
-        else {
-            return InputResult::Ignored;
-        };
-        if let Some(h) = cx.hover()
-            && h.at.distance(*pos) <= CLICK_REUSES_HOVER_PT
-        {
-            let item = h.item.clone();
-            Self::apply(Some(item), *mods, cx.selection_mut());
-        } else {
-            let t = cx.pick_point(*pos, PickMode::Nearest);
-            self.pending = Some((t, *mods));
-        }
-        InputResult::Consumed
-    }
-
-    fn update(&mut self, cx: &mut ToolCx<'_>) {
-        let Some((t, mods)) = self.pending else {
-            return;
-        };
-        if let Some(hits) = cx.poll_pick(t) {
-            self.pending = None;
-            let item = hits
-                .into_iter()
-                .find_map(|h| SelItem::from_target(h.target.whole()));
-            Self::apply(item, mods, cx.selection_mut());
-        }
-    }
-
-    fn pick_filter(&self) -> EntityFilter {
-        EntityFilter::ALL
-    }
-
-    fn finish(&mut self, _reason: FinishReason, _cx: &mut ToolCx<'_>) -> Option<CommitBatch> {
-        self.pending = None;
-        None
-    }
-}
+/// The default tool lives in [`crate::select`] (UI-04); re-exported here for UI-03 paths.
+pub use crate::select::{SELECT_TOOL, SelectTool};

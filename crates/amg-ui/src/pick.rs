@@ -149,6 +149,8 @@ enum CpuRequest {
     Ray(Ray3, PickMode),
     Point {
         ray: Ray3,
+        view: Box<CameraView>,
+        radius_pt: f32,
         filter: EntityFilter,
         mode: PickMode,
     },
@@ -162,7 +164,11 @@ enum CpuRequest {
 
 /// CPU picking: ray casts over the scene adapter's display meshes
 /// ([`SceneAdapter::raycast`]), mapped to document targets through its
-/// [`PickMap`](crate::scene::PickMap). Faces only (edges and vertices need S10).
+/// [`PickMap`](crate::scene::PickMap).
+///
+/// Point picks report faces and, on mesh bodies when the filter has edges or vertices, the
+/// triangle edge (`3 × triangle + corner`) or mesh vertex within the pick radius of the hit
+/// point, in front of the face it lies on (UI-04). B-rep edges and vertices need S10.
 ///
 /// Asynchronous like S10's: a [`PickService`] request is answered in the next
 /// [`PickService::begin_frame`] (one frame later). The UI-20 world-ray API
@@ -225,14 +231,83 @@ impl CpuPickService {
             .collect()
     }
 
+    /// The mesh vertex or triangle edge of a face hit within `radius_pt` of the hit point
+    /// (vertices first), if the filter wants it.
+    fn near_sub(
+        scene: &SceneAdapter,
+        h: &crate::scene::SceneHit,
+        view: &CameraView,
+        radius_pt: f32,
+        filter: EntityFilter,
+    ) -> Option<PickTarget> {
+        let face = h.sub.index;
+        let (corners, verts) = scene.mesh_triangle(h.key, face)?;
+        let r = f64::from(radius_pt) * view.world_per_point(h.world);
+        let sub = |kind, index| {
+            scene
+                .pick_map()
+                .target(h.key, Some(RenderSub { kind, index }))
+        };
+        if filter.contains(EntityFilter::VERTEX)
+            && let Some(k) = (0..3)
+                .map(|k| (k, (corners[k] - h.world).length()))
+                .filter(|(_, d)| *d <= r)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(k, _)| k)
+        {
+            return sub(RenderSubKind::Vertex, verts[k]);
+        }
+        if filter.contains(EntityFilter::EDGE)
+            && let Some(k) = (0..3)
+                .map(|k| {
+                    (
+                        k,
+                        segment_distance(h.world, corners[k], corners[(k + 1) % 3]),
+                    )
+                })
+                .filter(|(_, d)| *d <= r)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(k, _)| k)
+        {
+            #[allow(clippy::cast_possible_truncation, reason = "k < 3")]
+            return sub(RenderSubKind::Edge, face * 3 + k as u32);
+        }
+        None
+    }
+
     fn answer(scene: &SceneAdapter, req: &CpuRequest) -> Vec<PickHitUi> {
         match req {
             CpuRequest::Ray(ray, mode) => Self::pick(scene, ray, *mode),
-            CpuRequest::Point { ray, filter, mode } => {
-                let mut hits: Vec<PickHitUi> = Self::pick(scene, ray, PickMode::AllAlongRay)
-                    .into_iter()
-                    .filter(|h| filter.admits(&h.target))
-                    .collect();
+            CpuRequest::Point {
+                ray,
+                view,
+                radius_pt,
+                filter,
+                mode,
+            } => {
+                let subs = filter.intersects(EntityFilter::EDGE | EntityFilter::VERTEX);
+                let mut hits = Vec::new();
+                for h in scene.raycast(ray, PickMode::AllAlongRay) {
+                    let Some(target) = scene.pick_map().target(h.key, Some(h.sub)) else {
+                        continue;
+                    };
+                    #[allow(clippy::cast_possible_truncation, reason = "S10 depth is f32")]
+                    let depth = h.t as f32;
+                    if subs && let Some(t) = Self::near_sub(scene, &h, view, *radius_pt, *filter) {
+                        hits.push(PickHitUi {
+                            target: t,
+                            world: h.world,
+                            depth,
+                        });
+                    }
+                    if filter.admits(&target) {
+                        hits.push(PickHitUi {
+                            target,
+                            world: h.world,
+                            depth,
+                        });
+                    }
+                }
                 if *mode == PickMode::Nearest {
                     hits.truncate(1);
                 }
@@ -262,7 +337,7 @@ impl PickService for CpuPickService {
     fn request_point(
         &mut self,
         pos: egui::Pos2,
-        _radius_pt: f32,
+        radius_pt: f32,
         filter: EntityFilter,
         mode: PickMode,
     ) -> PickTicket {
@@ -270,8 +345,16 @@ impl PickService for CpuPickService {
         match &self.view {
             Some(v) => {
                 let ray = v.ray(pos);
-                self.requests
-                    .insert(t, CpuRequest::Point { ray, filter, mode });
+                self.requests.insert(
+                    t,
+                    CpuRequest::Point {
+                        ray,
+                        view: Box::new(v.clone()),
+                        radius_pt,
+                        filter,
+                        mode,
+                    },
+                );
             }
             None => {
                 self.done.insert(t, Vec::new());
@@ -336,6 +419,18 @@ impl PickService for CpuPickService {
     fn pending(&self) -> usize {
         CpuPickService::pending(self)
     }
+}
+
+/// Distance from `p` to the segment `a`–`b`, mm.
+fn segment_distance(p: Point3, a: Point3, b: Point3) -> f64 {
+    let ab = b - a;
+    let len2 = ab.length_squared();
+    let t = if len2 > 0.0 {
+        ((p - a).dot(ab) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (p - (a + ab * t)).length()
 }
 
 /// Reaches the S10 [`Renderer`] for one call (egui's renderer lock, or a test cell).
