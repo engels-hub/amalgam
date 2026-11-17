@@ -12,8 +12,10 @@ amg-core.workspace = true
 amg-jobs.workspace = true
 amg-occt-sys.workspace = true
 amg-nurbs.workspace = true
+blake3.workspace = true
 rayon.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 static_assertions = "1.1.0"
@@ -42,6 +44,16 @@ fixture-gen = ["occt", "amg-occt-sys/fixture-gen"]
 name = "gen_brep_fixtures"
 path = "tests/gen/generate.rs"
 required-features = ["fixture-gen"]
+
+# S20 KH-01: replay, list, recover and promote kernel failure dumps (until `amg-cli kernel`).
+[[example]]
+name = "kernel-replay"
+path = "examples/kernel-replay.rs"
+
+# S20 KH-01: OnFailure capture overhead. Runs without OCCT too (the make_box pair needs it).
+[[bench]]
+name = "capture"
+harness = false
 
 [[bench]]
 name = "brep_io"

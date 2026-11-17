@@ -832,7 +832,7 @@ open request.
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| KH-01 | Kernel failure capture: `capture` module (`CaptureConfig`, `FailureRecorder`, `RecordingKernel`, `KernelOp` for the ops existing at the time, `EdgeRecord` fingerprints), `OnFailure` + `WriteAhead` modes, dedup + retention, `replay`, `promote`; `kernel-replay` example (and `amg-cli kernel replay` if lane E accepts) | BREP-02, BREP-12, BREP-04, FND-04 | P0 | Todo | 1. Forced failures (too-large fillet radius, boolean on an invalid argument, an injected `NotDone`) write a dump whose `manifest.json` validates against schema 1. 2. Replaying each dump **in a fresh process** gives `Reproduced` for 100 % of dumps in a ≥ 10-dump test set covering every op variant present. 3. Index stability: on 20 STEP parts + 200 generated parts, all edge/face indices survive `.brep` write → read; a forced re-index falls back to fingerprints and reports `reindexed_by_fingerprint`. 4. `WriteAhead`: a child process aborted inside the op leaves `pending/`, and `recover_pending` turns it into a `Crash` dump that replays. 5. The same failure twice gives one dump with `count = 2`; retention prunes to `max_dumps`/`max_bytes`. 6. `OnFailure` adds no file I/O and < 1 µs per successful call (criterion). |
+| KH-01 | Kernel failure capture: `capture` module (`CaptureConfig`, `FailureRecorder`, `RecordingKernel`, `KernelOp` for the ops existing at the time, `EdgeRecord` fingerprints), `OnFailure` + `WriteAhead` modes, dedup + retention, `replay`, `promote`; `kernel-replay` example (and `amg-cli kernel replay` if lane E accepts) | BREP-02, BREP-12, BREP-04, FND-04 | P0 | Review | 1. Forced failures (too-large fillet radius, boolean on an invalid argument, an injected `NotDone`) write a dump whose `manifest.json` validates against schema 1. 2. Replaying each dump **in a fresh process** gives `Reproduced` for 100 % of dumps in a ≥ 10-dump test set covering every op variant present. 3. Index stability: on 20 STEP parts + 200 generated parts, all edge/face indices survive `.brep` write → read; a forced re-index falls back to fingerprints and reports `reindexed_by_fingerprint`. 4. `WriteAhead`: a child process aborted inside the op leaves `pending/`, and `recover_pending` turns it into a `Crash` dump that replays. 5. The same failure twice gives one dump with `count = 2`; retention prunes to `max_dumps`/`max_bytes`. 6. `OnFailure` adds no file I/O and < 1 µs per successful call (criterion). |
 | KH-07 | `amg-nurbs` core: `CtrlPt`, `KnotVector`, `basis`, `NurbsCurve`/`NurbsSurface` + `Grid` with validation, eval + derivatives (A2.1–A2.3, A3.2, A3.6, A4.1–A4.4), reverse/reparametrize/transform/bbox, `analytic` module (A7.1, ellipse, A8.1, extrusion, ruled-with-equal-knots, cylinder, cone, sphere, torus), `NurbsError`; curvo dev-dep oracle | FND-03 | P1 | Todo | 1. P&T Ex. 2.3 basis values to 1e-15, partition of unity to 1e-14. 2. Rational circle radius error ≤ 1e-14·r; sphere and torus points on the analytic surface ≤ 1e-13·R (1000 samples). 3. Derivatives match central finite differences within 1e-6 relative and analytic circle/helix tangent and curvature within 1e-12. 4. Differential test vs curvo 0.3.3 on 1000 random curves/surfaces (degree 1–7, rational and non-rational): ≤ 1e-12·max(1, D). 5. Constructors reject every invalid input with the right `NurbsError` (table test); no panic in a proptest over random inputs. 6. Benchmarks: cubic point < 60 ns, bicubic point + first derivatives < 250 ns. |
 | KH-12 | `amg-nurbs` knot operations: insertion (A5.1/A5.3), refinement (A5.4/A5.5), Bézier decomposition (A5.6/A5.7), removal (A5.8), degree elevation (A5.9/A5.10), split/segment/join, `continuity_at`, `KnotVector::union`/`missing_from` | KH-07 | P1 | Todo | 1. Proptests (512 cases): insertion, refinement, elevation, decomposition and split + join keep the shape within 1e-12·max(1, D) at 1000 samples. 2. Removal keeps deviation ≤ `tol` and removes the knot when the curve was produced by insertion (round trip). 3. Elevating by k then removing knots gives the original pole count back for Bézier inputs. 4. Matches curvo `try_refine_knot`/`try_elevate_degree` ≤ 1e-12·D. 5. Benchmarks: refine 20 knots into 50 poles < 10 µs; elevate 3→5 of 50 poles < 20 µs. |
 | KH-13 | `amg-nurbs` fitting: `parametrize`, averaging/approximation knots, `interpolate` (A9.1 with D1/D2 end rows, closed), `approximate_lsq` (A9.6 constrained), `approximate_to_tolerance` (adaptive + Hoschek), `approximate_onto_knots`, arc length + inverse, curve/surface `closest_point` | KH-12 | P1 | Todo | 1. Interpolation reproduces data ≤ 1e-12·D and end derivatives within 1e-10 relative; P&T Ex. 9.1 data gives the book's parameters and knots. 2. `approximate_to_tolerance` on 1000 noisy samples of circles, helices and sine curves meets `tol` ∈ {1e-3, 1e-5} mm with ≤ 1.5× the pole count of a reference fit (the reference is the same algorithm without parameter correction, which proves that correction helps). 3. Reported `max_error` is within 1 % of the measured error at 2000 samples. 4. Closest point never exceeds the dense-sampling minimum + 1e-9 mm (10 k proptest queries, curves and surfaces). 5. Arc length of a circle arc is within 1e-12 relative. 6. Benchmarks: interpolate 200 points < 100 µs; fit 1000 points to 1e-5 mm < 5 ms. |
@@ -998,6 +998,55 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
 ### 2026-11-09 - owner answers moved in
 - QUESTIONS #55: G2 fillets are needed; added to Design §7 and KH-10 (scope and Done-when 2). S04 SOL-05 ships G1 and points here.
 
+### 2026-11-17 - KH-01 failure capture landed (lane A)
+- **Landed in `amg-brep`:** `pub mod capture` (`info`, `op`, `recorder`, `recording`,
+  `replay`, `time`); `tests/capture.rs` with the fault-injecting decorator
+  `tests/common/fault.rs`; criterion bench `benches/capture.rs`; example `kernel-replay`
+  (`replay [--validate] [--isolated]`, `list`, `recover`, `promote`). New `amg-brep` deps
+  `blake3` and `serde_json` are already workspace deps listed in `THIRD_PARTY.md`.
+- **Dump format:** `<dir>/<UTC>_<op>_<hash8>/manifest.json` (schema 1, `deny_unknown_fields`,
+  20 keys) + `inputs/<n>.brep` (text BRep). Dedup key = blake3 over the op JSON and the input
+  bytes; a repeat bumps `count`/`last_utc`. Retention prunes least recently seen dumps until
+  `max_dumps` and `max_bytes` both hold (never the dump just written). `WriteAhead` writes to
+  `pending/<hash8>-<pid>-<seq>/` holding an OS file lock (`File::lock`), so
+  `recover_pending` skips dumps of calls still running in another process.
+- **Done-when evidence** (OCCT 8.0.1, `--features occt`):
+  1. 19 forced failures, one per `KernelOp` variant (boolean solid+face fuse ->
+     `BOPAlgo_AlertBOPNotAllowed`/`NotDone`; injected `OpFailed` in `mirrored`/`section`;
+     argument errors; self-intersecting revol -> `OcctException`), all schema-1 valid.
+     **Deviation:** no fillet op exists yet (BREP-06), so the "too-large fillet radius" case
+     is not possible; BREP-06 adds the `Fillet` variant and that case.
+  2. 19/19 dumps `Reproduced` when replayed in a child process (`replay_in_child`).
+  3. 20 parts (11 `testdata/brep` fixtures + 9 boolean/sweep results) + 200 generated
+     boolean parts: all 6 513 face/edge fingerprints survive text `.brep` write -> read.
+     **Deviation:** no STEP reader exists yet (BREP-13) and `testdata/` has no STEP files,
+     so the fixtures stand in for "20 STEP parts". A forced re-index (ids rotated in the
+     manifest) restores the ids by fingerprint and reports `reindexed_by_fingerprint`; a
+     fingerprint without a unique match is `CaptureError::Unmatched`.
+  4. A child process aborting inside `make_sphere` (`WriteAhead`) leaves `pending/`;
+     `recover_pending` turns it into a `Crash` dump that reproduces as `Crash` in a child and
+     replays as `NowSucceeds { valid: true }` on the real kernel. A pending dump with a held
+     lock is left alone.
+  5. The same failing boolean twice = 1 dump, `count = 2` (also across a recorder restart);
+     `max_dumps = 3` and `max_bytes` pruning tested.
+  6. Successful calls create no directory or file (100 000 guarded calls + 1 000 real ops).
+     Criterion: `budget/capture-on-failure-overhead` 36.6 ns vs `capture/direct-ok` 5.3 ns
+     (about 31 ns overhead, budget 1 us); `make_box` 29.1 us direct vs 29.7 us recording.
+- **Interface deviations from the sketch above:** `KernelOp` covers the ops that exist
+  (primitives, planar faces/polygon, face, wire, prism, revol, mirrored, boolean, split,
+  section, interference, plane_section, project_edges, tessellate); read-only queries are
+  forwarded without capture. `SubShapeGeom` is KH-01's own (class, measure, centroid, bbox)
+  until BREP-05 provides S02's; `EdgeRecord.geom` and the `faulty` fingerprints are
+  `Option`. `FailureClass::InvalidInput` added (argument errors). `ReplayOpts` has only
+  `validate` (`robust` comes with KH-17); `Attempt` is a placeholder KH-17 replaces with
+  `robust::Attempt` keeping the field names. Added `replay_in_child`, `child_report_line`,
+  `read_manifest`, `Manifest`, `DumpContext`, `FailureRecorder::dumps`,
+  `RecordingKernel::with_tolerance`. `CaptureError` adds `Unmatched`, `Child`, `InvalidId`.
+- **Leftovers:** `amg-cli kernel replay|promote` subcommands (lane E, thin wrappers over
+  `capture::{replay, replay_in_child, promote}`; see Interface changes); the fillet case of
+  Done-when 1 with BREP-06; the STEP part set of Done-when 3 once BREP-13 reads STEP; wiring
+  `RecordingKernel` + `recover_pending` at app startup (app/lane D).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1010,3 +1059,8 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   amg_brep::geom::BSplineSurfaceData` inside `amg-brep`. On OCCT 8.0.0, text `.brep` reads take
   the global lock (fine for replay; QUESTIONS #27). Open S20 requests R14–R17 are recorded under
   S02 Interface changes.
+
+### 2026-11-17: KH-01 -> lane E (`amg-cli`)
+- Request: `amg-cli kernel replay|promote` as thin wrappers over `amg_brep::capture::{replay,
+  replay_in_child, promote, FailureRecorder::recover_pending}`. Until then the `amg-brep`
+  example `kernel-replay` provides the same commands. No code in lane E was changed.

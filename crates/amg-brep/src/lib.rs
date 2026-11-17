@@ -5,6 +5,7 @@
 mod backend;
 mod boolean;
 mod builders;
+pub mod capture;
 mod check;
 mod config;
 mod error;
