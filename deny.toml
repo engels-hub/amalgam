@@ -13,6 +13,9 @@ ignore = [
     # paste is unmaintained (no fix exists). It reaches us only through kcl-ezpz -> faer -> gemm,
     # behind amg-sketch's non-default `ezpz-bench` feature (SK-13 comparison only).
     { id = "RUSTSEC-2024-0436", reason = "proc-macro via the dev-only ezpz-bench feature" },
+    # chrono is unmaintained (advisory published 2026-11-17, no fixed version). It reaches us only
+    # through dxf -> amg-sketch (DXF import). Revisit when dxf moves to jiff/time or we replace it.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained, not a vulnerability; only via dxf (DXF import)" },
 ]
 
 [licenses]
