@@ -4,7 +4,7 @@
 //! (later) the marking menu. `amg_doc::Command` (a document mutation) is a different thing and
 //! is imported as `DocCommand` elsewhere.
 //!
-//! `CmdAction::StartTool` joins with the `Tool` trait in UI-03 (additive).
+//! `CmdAction::StartTool` (UI-03) starts a [`Tool`](crate::tool::Tool) through the router.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -125,6 +125,9 @@ impl fmt::Debug for Enabler {
 /// half-drawn UI and never block it.
 #[derive(Clone)]
 pub enum CmdAction {
+    /// Start a tool: the router finishes the active one (`Replaced`, or `Commit` if it commits
+    /// on replace) and makes this one active (UI-03).
+    StartTool(fn(&crate::tool::ToolInit<'_>) -> Box<dyn crate::tool::Tool>),
     /// Run a function.
     Run(fn(&mut AppCx<'_>)),
     /// A checkable command: `get` reads the state, `set` receives the new one.
@@ -141,6 +144,7 @@ pub enum CmdAction {
 impl fmt::Debug for CmdAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            CmdAction::StartTool(_) => "StartTool(..)",
             CmdAction::Run(_) => "Run(..)",
             CmdAction::Toggle { .. } => "Toggle{..}",
             CmdAction::Dyn(_) => "Dyn(..)",

@@ -24,7 +24,7 @@ use amg_jobs::diag::{self, DiagConfig};
 use amg_jobs::gpu::{Gpu, GpuConfig};
 use amg_jobs::{JobHandle, JobSystem, JobSystemConfig, SpawnOptions};
 use amg_render::egui_glue;
-use amg_render::{Camera, GpuMesh, Instance, Projection, RenderError, RendererConfig, ViewId};
+use amg_render::{Camera, GpuMesh, Instance, Projection, RenderError, RendererConfig};
 use amg_ui::app::{default_layout_path, repaint_notifier};
 use amg_ui::file::{RfdDialogs, default_recent_path};
 use amg_ui::scene::GpuSceneBackend;
@@ -203,7 +203,6 @@ fn main() -> anyhow::Result<()> {
             Ok(Box::new(Shell {
                 app,
                 rs,
-                view,
                 demo,
                 startup: Some((startup, start)),
                 exit_after_first_frame: args.exit_after_first_frame,
@@ -243,7 +242,6 @@ fn spawn_demo(
 struct Shell {
     app: AmalgamApp,
     rs: RenderState,
-    view: ViewId,
     demo: Option<JobHandle<(GpuMesh, Aabb3), RenderError>>,
     startup: Option<(tracing::Span, Instant)>,
     exit_after_first_frame: bool,
@@ -261,15 +259,13 @@ impl Shell {
         match result {
             Ok((mesh, bounds)) => {
                 let triangles = mesh.triangle_count();
-                let view = self.view;
                 egui_glue::with_renderer(&self.rs, |r| {
                     let key = r.scene_mut().insert_mesh(mesh);
                     r.scene_mut()
                         .add_instance(Instance::new(key, Transform::IDENTITY));
-                    if let Some(v) = r.view_mut(view) {
-                        v.camera = home_camera(&bounds);
-                    }
                 });
+                // The viewport draws the document's camera (UI-03 navigation moves it).
+                self.app.active_document_mut().camera = home_camera(&bounds);
                 tracing::info!(triangles, "demo mesh in the scene");
                 ctx.request_repaint();
             }

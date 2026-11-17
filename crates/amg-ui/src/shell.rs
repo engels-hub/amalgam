@@ -29,6 +29,8 @@ const TIMELINE_HEIGHT: f32 = 34.0;
 const BROWSER_WIDTH: f32 = 230.0;
 
 pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
+    // Tools see key events before the shortcut map (routing priority, UI-03).
+    app.route_keys(ui.ctx());
     shortcuts(app, ui.ctx());
     egui::Panel::top("amg_app_bar").show(ui, |ui| app_bar(app, ui));
     egui::Panel::top("amg_toolbar").show(ui, |ui| toolbar(app, ui));
@@ -50,7 +52,13 @@ pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     egui::Panel::left("amg_browser")
         .default_size(BROWSER_WIDTH)
         .show(ui, |ui| browser(app, ui));
-    egui::CentralPanel::no_frame().show(ui, |ui| dock_area(app, ui));
+    let viewport = egui::CentralPanel::no_frame()
+        .show(ui, |ui| dock_area(app, ui))
+        .inner;
+    if let Some(response) = viewport {
+        app.route_viewport(ui.ctx(), &response);
+    }
+    app.draw_tool_dialog(ui.ctx());
     search_popup(app, ui.ctx());
     job_panel(app, ui.ctx());
     toasts(app, ui.ctx());
@@ -98,14 +106,7 @@ fn search_popup(app: &mut AmalgamApp, ctx: &egui::Context) {
     if !app.search.is_open() {
         return;
     }
-    let doc = &app.docs[app.active];
-    let env = CmdEnv {
-        workspace: app.workspace,
-        contexts: &doc.contexts,
-        design: doc.document.design(),
-        evaluated: doc.document.evaluated(),
-        jobs: &app.jobs,
-    };
+    let env = crate::app::env_of_doc(app.workspace, &app.docs[app.active], &app.jobs);
     let picked = crate::search::show(
         ctx,
         &mut app.search,
@@ -193,14 +194,7 @@ fn menu_level(
 }
 
 fn env_of<'a>(app: &'a AmalgamApp) -> CmdEnv<'a> {
-    let doc = &app.docs[app.active];
-    CmdEnv {
-        workspace: app.workspace,
-        contexts: &doc.contexts,
-        design: doc.document.design(),
-        evaluated: doc.document.evaluated(),
-        jobs: &app.jobs,
-    }
+    crate::app::env_of_doc(app.workspace, &app.docs[app.active], &app.jobs)
 }
 
 /// Menu slots that always exist in the File menu; lane G fills them (IO-01) with
@@ -498,6 +492,10 @@ fn status_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
             amg_doc::RecomputeStatus::Failed(_) => "Recompute failed".to_owned(),
         };
         ui.label(recompute);
+        if let Some(hint) = app.tool_hint() {
+            ui.separator();
+            ui.label(hint.as_ref());
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label("mm");
             ui.separator();
@@ -523,7 +521,8 @@ fn status_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     }
 }
 
-fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) {
+/// The dock area; returns the viewport tab's response when it was drawn this frame.
+fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) -> Option<egui::Response> {
     let ws = app.workspace;
     let AmalgamApp {
         registry,
@@ -542,9 +541,8 @@ fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         tracker,
         ..
     } = app;
-    let Some(dock) = layouts.get_mut(&ws) else {
-        return;
-    };
+    let dock = layouts.get_mut(&ws)?;
+    let mut viewport_response = None;
     let mut content = ShellDock {
         registry,
         jobs,
@@ -559,8 +557,10 @@ fn dock_area(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         viewport_hovered,
         notifications,
         tracker,
+        viewport_response: &mut viewport_response,
     };
     dock.show(ui, &mut content);
+    viewport_response
 }
 
 struct ShellDock<'a> {
@@ -577,6 +577,7 @@ struct ShellDock<'a> {
     viewport_hovered: &'a mut bool,
     notifications: &'a mut Notifications,
     tracker: &'a mut JobTracker,
+    viewport_response: &'a mut Option<egui::Response>,
 }
 
 impl DockContent for ShellDock<'_> {
@@ -593,8 +594,9 @@ impl DockContent for ShellDock<'_> {
                 let frame = ViewportFrame {
                     tokens: self.tokens,
                     doc: self.doc.id,
+                    camera: &self.doc.camera,
                 };
-                self.viewport.show(ui, &frame);
+                *self.viewport_response = Some(self.viewport.show(ui, &frame));
                 *self.viewport_hovered = ui.rect_contains_pointer(ui.max_rect());
             }
             DockTab::Panel(p) => {

@@ -18,25 +18,28 @@ use amg_jobs::JobSystem;
 
 use crate::command::{CmdAction, CmdId, Enablement};
 use crate::dock::DockHost;
+use crate::input::CameraView;
 use crate::jobs::JobTracker;
 use crate::module::{ContextId, PanelId, TabId, WorkspaceId};
+use crate::nav::{CameraControl, DocCamera, Navigator};
 use crate::notify::{Notification, Notifications};
 use crate::panel::Panel;
+use crate::pick::{CpuPickService, PickService};
 use crate::registry::UiRegistry;
 use crate::scene::{CpuSceneBackend, SceneAdapter, SceneBackend};
 use crate::search::{Recency, SearchState};
+use crate::select::{SelItem, Selection};
 use crate::shortcut::{ShortcutMap, ShortcutOverrides};
 use crate::theme::{Theme, ThemeState, ThemeTokens};
+use crate::tool::ToolState;
 use crate::viewport::ViewportBackend;
 
 /// Identifies an open document tab for the lifetime of the app (never reused).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DocTabId(pub u64);
 
-/// One open document and its per-document UI state.
-///
-/// Later work packages add selection (UI-04), camera and active tool (UI-03) and the job
-/// tracker scope here.
+/// One open document and its per-document UI state: camera, navigation, selection and the
+/// tool router (UI-03).
 #[derive(Debug)]
 pub struct DocTab {
     /// Stable id.
@@ -51,6 +54,18 @@ pub struct DocTab {
     pub path: Option<PathBuf>,
     /// Crash-recovery journal and snapshots, when recovery is enabled (UI-19).
     pub recovery: Option<Arc<amg_doc::RecoverySession>>,
+    /// The view's camera (S10), moved by the navigator (UI-03).
+    pub camera: amg_render::Camera,
+    /// The selection (UI-03 click selection; UI-04 the rest).
+    pub selection: Selection,
+    /// Navigation preset state over S10's `NavController`.
+    pub(crate) nav: Navigator,
+    /// Active tool, hover, preview, input state.
+    pub(crate) tools: ToolState,
+    /// The newest camera snapshot of the viewport (None before it was drawn).
+    pub(crate) view: Option<CameraView>,
+    /// Bounds of the displayed scene (navigation pivot and fit).
+    pub(crate) bounds: amg_core::Aabb3,
 }
 
 /// A group of document commands applied as one undo entry at the end of the frame.
@@ -93,7 +108,7 @@ pub(crate) enum ShellRequest {
 
 /// Read-only view for enablement, providers and panels.
 ///
-/// UI-02..UI-04 add `selection`, `hovered`, `active_tool` and `prefs` (additive).
+/// UI-03 adds `selection`, `hovered` and `active_tool`; UI-11 adds `prefs` (additive).
 #[derive(Debug)]
 pub struct CmdEnv<'a> {
     /// Active workspace.
@@ -106,6 +121,12 @@ pub struct CmdEnv<'a> {
     pub evaluated: &'a Arc<Evaluated>,
     /// The job system.
     pub jobs: &'a JobSystem,
+    /// The document's selection.
+    pub selection: &'a Selection,
+    /// The newest hover pick.
+    pub hovered: Option<&'a SelItem>,
+    /// The command of the active tool (`None`: the select tool).
+    pub active_tool: Option<CmdId>,
 }
 
 /// Mutable access for modules; all document mutation is deferred to the end of the frame.
@@ -166,13 +187,44 @@ impl<'a> AppCx<'a> {
 impl AppCx<'_> {
     /// The read-only view.
     pub fn env(&self) -> CmdEnv<'_> {
-        CmdEnv {
-            workspace: self.workspace,
-            contexts: &self.doc.contexts,
-            design: self.doc.document.design(),
-            evaluated: self.doc.document.evaluated(),
-            jobs: self.jobs,
+        env_of_doc(self.workspace, self.doc, self.jobs)
+    }
+
+    /// The document's selection.
+    pub fn selection(&self) -> &Selection {
+        &self.doc.selection
+    }
+
+    /// The document's selection, mutable.
+    pub fn selection_mut(&mut self) -> &mut Selection {
+        &mut self.doc.selection
+    }
+
+    /// Camera control over the document's camera (S10 `NavController`; animated where the
+    /// controller animates).
+    pub fn camera(&mut self) -> impl CameraControl + '_ {
+        if let Some(ctx) = self.ctx {
+            ctx.request_repaint();
         }
+        let doc = &mut *self.doc;
+        let view = doc.view.clone().unwrap_or_else(|| {
+            CameraView::new(
+                doc.camera,
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
+                1.0,
+            )
+        });
+        DocCamera {
+            camera: &mut doc.camera,
+            nav: &mut doc.nav,
+            view,
+            bounds: doc.bounds,
+        }
+    }
+
+    /// Starts the tool of command `id` at the end of the frame (same as running the command).
+    pub fn start_tool(&mut self, id: CmdId) {
+        self.run_command(id);
     }
 
     /// Queues a batch for this document; applied at the end of the frame as one undo entry.
@@ -277,6 +329,24 @@ impl AppCx<'_> {
     }
 }
 
+/// The read-only view of one document (`hovered` and `active_tool` from its router state).
+pub(crate) fn env_of_doc<'a>(
+    workspace: WorkspaceId,
+    doc: &'a DocTab,
+    jobs: &'a JobSystem,
+) -> CmdEnv<'a> {
+    CmdEnv {
+        workspace,
+        contexts: &doc.contexts,
+        design: doc.document.design(),
+        evaluated: doc.document.evaluated(),
+        jobs,
+        selection: &doc.selection,
+        hovered: doc.tools.frame.hover.as_ref().map(|h| &h.item),
+        active_tool: doc.tools.active.as_ref().map(|a| a.id),
+    }
+}
+
 /// A `JobSystemConfig::notifier` that repaints the egui context once it is known.
 ///
 /// The context is filled in by eframe's creation callback (or the test harness) and by the
@@ -357,6 +427,8 @@ pub struct AmalgamApp {
     scene_doc: Option<DocTabId>,
     /// File dialogs, save/open jobs, close prompt and crash recovery (UI-19).
     pub(crate) files: crate::file::FileState,
+    /// Screen-space picking (UI-03): the viewport's GPU service, else the CPU one.
+    pub(crate) picks: Box<dyn PickService>,
 }
 
 impl std::fmt::Debug for AmalgamApp {
@@ -381,6 +453,10 @@ impl AmalgamApp {
     /// An app with one empty document in the first workspace.
     pub fn new(cfg: AppConfig) -> AmalgamApp {
         let workspace = cfg.registry.default_workspace().unwrap_or(NO_WORKSPACE);
+        let mut viewport = cfg.viewport;
+        let picks = viewport
+            .pick_service()
+            .unwrap_or_else(|| Box::new(CpuPickService::new()));
         let mut app = AmalgamApp {
             registry: cfg.registry,
             jobs: cfg.jobs,
@@ -397,7 +473,7 @@ impl AmalgamApp {
             tokens: ThemeTokens::for_theme(cfg.theme.resolve(None)),
             layouts: BTreeMap::new(),
             panels: BTreeMap::new(),
-            viewport: cfg.viewport,
+            viewport,
             queue: CommandQueue::default(),
             requests: Vec::new(),
             status: None,
@@ -416,6 +492,7 @@ impl AmalgamApp {
             scene: SceneAdapter::new(Box::new(CpuSceneBackend::new()), Vec::new()),
             scene_doc: None,
             files: crate::file::FileState::default(),
+            picks,
         };
         app.scene = SceneAdapter::new(
             Box::new(CpuSceneBackend::new()),
@@ -472,19 +549,14 @@ impl AmalgamApp {
                 }
             }
             if i == self.active && !events.is_empty() {
-                let env = CmdEnv {
-                    workspace: self.workspace,
-                    contexts: &doc.contexts,
-                    design: doc.document.design(),
-                    evaluated: doc.document.evaluated(),
-                    jobs: &jobs,
-                };
+                let env = env_of_doc(self.workspace, doc, &jobs);
                 for panel in self.panels.values_mut() {
                     panel.on_doc_events(&events, &env);
                 }
             }
         }
         self.poll_scene();
+        self.route_logic();
         self.poll_files(ctx);
     }
 
@@ -518,6 +590,7 @@ impl AmalgamApp {
         let _span = tracing::debug_span!("amg_ui.ui").entered();
         crate::shell::draw(self, ui);
         self.end_frame();
+        self.viewport.after_frame();
     }
 
     /// Applies the frame's queued document mutations and shell requests.
@@ -614,13 +687,7 @@ impl AmalgamApp {
         };
         let action = def.action.clone();
         let doc = &self.docs[self.active];
-        let env = CmdEnv {
-            workspace: self.workspace,
-            contexts: &doc.contexts,
-            design: doc.document.design(),
-            evaluated: doc.document.evaluated(),
-            jobs: &self.jobs,
-        };
+        let env = env_of_doc(self.workspace, doc, &self.jobs);
         if let Enablement::Disabled(reason) = def.enablement(&env) {
             tracing::debug!("command `{id}` is disabled: {reason}");
             return false;
@@ -631,6 +698,7 @@ impl AmalgamApp {
         };
         self.recency.record(id);
         match action {
+            CmdAction::StartTool(f) => self.start_tool_with(id, f),
             CmdAction::Run(f) => self.with_cx(f),
             CmdAction::Toggle { set, .. } => self.with_cx(|cx| set(cx, !checked)),
             CmdAction::Dyn(f) => self.with_cx(|cx| f(cx)),
@@ -748,6 +816,12 @@ impl AmalgamApp {
             contexts: Vec::new(),
             path: None,
             recovery: None,
+            camera: crate::nav::home_camera(),
+            selection: Selection::default(),
+            nav: Navigator::default(),
+            tools: ToolState::default(),
+            view: None,
+            bounds: amg_core::Aabb3::EMPTY,
         });
         self.active = self.docs.len() - 1;
         self.start_recovery_session(id);
@@ -800,7 +874,13 @@ impl AmalgamApp {
 
     /// Runs `f` with an [`AppCx`] on the active document.
     pub fn with_cx<R>(&mut self, f: impl FnOnce(&mut AppCx<'_>) -> R) -> R {
-        let mut cx = AppCx::new(
+        let (mut cx, _) = self.tool_parts();
+        f(&mut cx)
+    }
+
+    /// An [`AppCx`] on the active document and the pick service (disjoint borrows).
+    pub(crate) fn tool_parts(&mut self) -> (AppCx<'_>, &mut dyn PickService) {
+        let cx = AppCx::new(
             &mut self.docs[self.active],
             &mut self.queue,
             &mut self.requests,
@@ -811,7 +891,49 @@ impl AmalgamApp {
             self.workspace,
             self.ctx.as_ref(),
         );
-        f(&mut cx)
+        (cx, self.picks.as_mut())
+    }
+
+    /// The read-only view of `doc` with an explicit hover item and active tool (the router
+    /// holds the document's tool state while it calls a tool factory).
+    pub(crate) fn env_for<'a>(
+        &'a self,
+        doc: &'a DocTab,
+        hovered: Option<&'a SelItem>,
+        active_tool: Option<CmdId>,
+    ) -> CmdEnv<'a> {
+        CmdEnv {
+            hovered,
+            active_tool,
+            ..env_of_doc(self.workspace, doc, &self.jobs)
+        }
+    }
+
+    /// The pick service (the viewport's GPU one in the app, `CpuPickService` without one).
+    pub fn pick_service(&mut self) -> &mut dyn PickService {
+        self.picks.as_mut()
+    }
+
+    /// Replaces the pick service.
+    pub fn set_pick_service(&mut self, picks: Box<dyn PickService>) {
+        self.picks = picks;
+    }
+
+    /// The active document's navigator (preset bindings, S10 controller).
+    pub fn navigator(&self) -> &Navigator {
+        &self.docs[self.active].nav
+    }
+
+    /// Sets the navigation preset of every open document (UI-11 persists it).
+    pub fn set_nav_preset(&mut self, preset: crate::nav::NavPreset) {
+        for d in &mut self.docs {
+            d.nav.set_bindings(preset.bindings());
+        }
+    }
+
+    /// The newest camera snapshot of the active document's viewport.
+    pub fn camera_view(&self) -> Option<&CameraView> {
+        self.docs[self.active].view.as_ref()
     }
 
     /// The last commit-batch error shown in the status bar (it is also a toast).

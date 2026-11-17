@@ -284,6 +284,23 @@ struct LiveMesh {
     slot: MeshSlot,
     cpu: Arc<DisplayMesh>,
     bvh: OnceLock<Bvh>,
+    /// Mesh-local bounds, computed on first use (scene bounds for navigation, UI-03).
+    bounds: OnceLock<amg_core::Aabb3>,
+}
+
+impl LiveMesh {
+    fn local_bounds(&self) -> amg_core::Aabb3 {
+        *self.bounds.get_or_init(|| {
+            let o = self.cpu.data.origin;
+            amg_core::Aabb3::from_points(
+                self.cpu
+                    .data
+                    .positions
+                    .iter()
+                    .map(|p| o + Point3::new(f64::from(p[0]), f64::from(p[1]), f64::from(p[2]))),
+            )
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -524,6 +541,7 @@ impl Core {
             slot,
             cpu,
             bvh: OnceLock::new(),
+            bounds: OnceLock::new(),
         });
         e.uploads += 1;
         self.stats.inserted += 1;
@@ -1055,6 +1073,59 @@ impl SceneAdapter {
     /// The last key allocated (keys are dense and increase).
     pub fn last_key(&self) -> RenderEntityKey {
         RenderEntityKey(self.core.next_key)
+    }
+
+    /// World bounds of the visible model instances (navigation pivot and fit, UI-03).
+    /// [`amg_core::Aabb3::EMPTY`] for an empty scene. The first call per mesh scans its
+    /// vertices; later calls only transform the cached box.
+    pub fn bounds(&self) -> amg_core::Aabb3 {
+        let mut out = amg_core::Aabb3::EMPTY;
+        for e in self.bodies.values() {
+            let Some(mesh) = &e.mesh else { continue };
+            let local = mesh.local_bounds();
+            for inst in e.instances.iter().filter(|i| i.visible && i.sent.is_some()) {
+                out = out.union(&local.transformed(&inst.world));
+            }
+        }
+        out
+    }
+
+    /// CPU rectangle selection over the display meshes: the keys of visible model instances
+    /// with every vertex inside `rect` (`Window`) or at least one (`Crossing`), as seen through
+    /// `project` (world → screen, `None` behind the camera). Occlusion is ignored; S10's GPU
+    /// rectangle pick counts visible texels only.
+    pub fn region(
+        &self,
+        project: impl Fn(Point3) -> Option<egui::Pos2>,
+        rect: egui::Rect,
+        mode: crate::pick::RegionMode,
+    ) -> Vec<RenderEntityKey> {
+        let mut out = Vec::new();
+        for e in self.bodies.values() {
+            let Some(mesh) = &e.mesh else { continue };
+            let o = mesh.cpu.data.origin;
+            for inst in e.instances.iter().filter(|i| i.visible && i.sent.is_some()) {
+                let mut inside = 0usize;
+                let mut total = 0usize;
+                for p in &mesh.cpu.data.positions {
+                    let local = o + Point3::new(f64::from(p[0]), f64::from(p[1]), f64::from(p[2]));
+                    total += 1;
+                    if project(inst.world.transform_point3(local)).is_some_and(|s| rect.contains(s))
+                    {
+                        inside += 1;
+                    }
+                }
+                let hit = match mode {
+                    crate::pick::RegionMode::Window => total > 0 && inside == total,
+                    crate::pick::RegionMode::Crossing => inside > 0,
+                };
+                if hit {
+                    out.push(inst.key);
+                }
+            }
+        }
+        out.sort();
+        out
     }
 
     /// CPU ray cast against the displayed model instances (`world` ray). One hit per
