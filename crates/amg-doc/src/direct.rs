@@ -34,7 +34,9 @@ use std::sync::Arc;
 use amg_core::Cancelled;
 use amg_jobs::{JobError, JobHandle, JobSystem, SpawnOptions, is_ui_thread};
 
-use crate::command::{Command, CommandError, CommandOutcome, CreatedId, apply_ungated};
+use crate::command::{
+    Command, CommandError, CommandOutcome, CreatedId, apply_command, apply_ungated,
+};
 use crate::document::Document;
 use crate::eval::{BodyGeom, Evaluated, Health};
 use crate::feature::{
@@ -42,7 +44,7 @@ use crate::feature::{
     FeatureOutput, RecomputeCtx,
 };
 use crate::id::{BodyId, ComponentId, FeatureId, Revision};
-use crate::model::{BakedBody, BlobRef, Design, DesignMode, ModelError};
+use crate::model::{BakedBody, BlobRef, BodyProps, Design, DesignMode, ModelError};
 use crate::recompute::recompute;
 
 /// Kind string of [`BaseFeature`].
@@ -429,5 +431,71 @@ impl Document {
         );
         let bake = self.bake_feature(jobs, cmd)?.wait_blocking()?;
         Ok(self.commit_bake(bake)?)
+    }
+}
+
+/// Features that carry authored geometry (imported meshes, S12 IO-14).
+impl Document {
+    /// Adds a feature together with its baked payloads and body properties as **one** undo
+    /// entry labelled `label` (S01 Interface changes, from S12).
+    ///
+    /// `add` must be [`Command::AddFeature`]. Each `(slot, geom)` of `baked` becomes the baked
+    /// body `BodyId { origin: <new feature>, slot }` in the feature's context component, with a
+    /// fresh blob path (see the module docs), so the feature reads it back with
+    /// [`RecomputeCtx::baked`]. Each `(slot, props)` of `props` is then set on the same body.
+    /// Atomic: on `Err` nothing changes.
+    ///
+    /// The geometry cannot be rebuilt from the command alone, so the commit is *opaque* to
+    /// crash recovery (it takes a snapshot instead of journaling, like a DOC-08 bake).
+    /// Undo removes the feature with its payloads; redo restores the same allocations.
+    ///
+    /// # Errors
+    /// [`CommandError::Invalid`] if `add` is not `AddFeature` or a slot repeats; whatever
+    /// `AddFeature` or the body edits return otherwise (for example
+    /// [`CommandError::WrongMode`] in direct mode).
+    pub fn add_feature_baked(
+        &mut self,
+        label: &str,
+        add: Command,
+        baked: Vec<(u32, BodyGeom)>,
+        props: Vec<(u32, BodyProps)>,
+    ) -> Result<CommandOutcome, CommandError> {
+        let Command::AddFeature { context, .. } = &add else {
+            return Err(CommandError::Invalid(
+                "add_feature_baked needs an AddFeature command".to_owned(),
+            ));
+        };
+        let context = *context;
+        let mut slots = BTreeSet::new();
+        if let Some((slot, _)) = baked.iter().find(|(s, _)| !slots.insert(*s)) {
+            return Err(CommandError::Invalid(format!(
+                "baked slot {slot} is given twice"
+            )));
+        }
+        let mut work = (*self.snapshot()).clone();
+        work.ensure_ids(baked.len() as u64 + 1)?;
+        let created = apply_command(&mut work, add.clone())?;
+        let Some(CreatedId::Feature(fid)) = created.first().cloned() else {
+            return Err(CommandError::Invalid("no feature was created".to_owned()));
+        };
+        for (slot, geom) in baked {
+            let id = BodyId { origin: fid, slot };
+            let blob = work.new_blob(id, &geom)?;
+            work.set_baked(
+                id,
+                Some(BakedBody {
+                    component: context,
+                    blob,
+                    geom: Some(geom),
+                }),
+            )?;
+        }
+        for (slot, p) in props {
+            work.set_body_props(BodyId { origin: fid, slot }, p)?;
+        }
+        let revision = self
+            .history_mut()
+            .push_design(label.to_owned(), work, vec![add]);
+        Ok(CommandOutcome { created, revision })
     }
 }

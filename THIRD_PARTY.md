@@ -69,7 +69,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | usvg | SVG import, `amg-sketch::import` (S03 SK-11); `default-features = false` (no text/font/raster stack); pulls `roxmltree`, `svgtypes`, `kurbo`, `simplecss`, `tiny-skia-path` (BSD-3-Clause), all permissive | MIT / Apache-2.0 (>= 0.38; older releases MPL-2.0) | no | no | In use (0.48.1) |
 | criterion, proptest | benches and property tests (dev-only) | MIT / Apache-2.0 | no | no | proptest in use (1.12.0, dev-only); criterion in use (0.8.2, dev-only) |
 | memory-stats | process working-set / private-memory readings in the `amg-compute` 1 M DOF factor-storage bench (S15 CMP-03; dev-only) | MIT / Apache-2.0 | no | no | In use (1.2.0, dev-only) |
-| blake3 | cache keys and manifest hashes, `amg-doc` (S01); material and appearance content hashes for drift detection, `amg-materials` (S17, MAT-01) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | In use (1.8.7) |
+| blake3 | cache keys and manifest hashes, `amg-doc` (S01); material and appearance content hashes for drift detection, `amg-materials` (S17, MAT-01); source-file hash of imports, `amg-features::io` (S12, IO-14) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | no | no | In use (1.8.7) |
 | serde_path_to_error | `.amg` load diagnostics, `amg-doc` (S01) | MIT / Apache-2.0 | no | no | In use (0.1.20) |
 | crossbeam-channel | job results, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.5.17) |
 | parking_lot | locks, `amg-jobs` (S00) | MIT / Apache-2.0 | no | no | In use (0.12.5) |
