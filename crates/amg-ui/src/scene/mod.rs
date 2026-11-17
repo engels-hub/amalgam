@@ -179,6 +179,19 @@ impl PickMap {
         self.owners.is_empty()
     }
 
+    /// The occurrence-path indices a body is displayed through, ascending (UI-04: restoring
+    /// a stored body reference).
+    pub fn instances_of(&self, body: BodyId) -> Vec<u32> {
+        let mut v: Vec<u32> = self
+            .bodies
+            .keys()
+            .filter(|(b, _)| *b == body)
+            .map(|(_, i)| *i)
+            .collect();
+        v.sort_unstable();
+        v
+    }
+
     /// Every live key, sorted.
     pub fn keys(&self) -> Vec<RenderEntityKey> {
         let mut v: Vec<_> = self.owners.keys().copied().collect();
@@ -1088,6 +1101,62 @@ impl SceneAdapter {
             }
         }
         out
+    }
+
+    /// The whole-body targets of every displayed instance seen through occurrence `occ`
+    /// (UI-04: the highlight of a selected component).
+    pub fn occurrence_bodies(&self, occ: amg_doc::OccurrenceId) -> Vec<PickTarget> {
+        let mut v: Vec<(BodyId, u32)> = self
+            .core
+            .pick
+            .bodies
+            .keys()
+            .filter(|(_, instance)| {
+                self.core
+                    .paths
+                    .get(*instance as usize)
+                    .is_some_and(|p| p.contains(&occ))
+            })
+            .copied()
+            .collect();
+        v.sort_unstable();
+        v.into_iter()
+            .map(|(body, instance)| PickTarget::Body {
+                body,
+                instance,
+                sub: None,
+            })
+            .collect()
+    }
+
+    /// World corners and mesh vertex indices of face `face` of the instance `key`, for display
+    /// meshes whose faces are their triangles (mesh bodies). `None` for B-rep display meshes
+    /// (faces span triangle ranges) and unknown keys. CPU edge and vertex picks (UI-04).
+    pub(crate) fn mesh_triangle(
+        &self,
+        key: RenderEntityKey,
+        face: u32,
+    ) -> Option<([Point3; 3], [u32; 3])> {
+        let PickTarget::Body { body, .. } = self.core.pick.target(key, None)? else {
+            return None;
+        };
+        let e = self.bodies.get(&body)?;
+        let mesh = e.mesh.as_ref()?;
+        if !mesh.cpu.face_ranges.is_empty() {
+            return None;
+        }
+        let inst = e.instances.iter().find(|i| i.key == key)?;
+        let data = &mesh.cpu.data;
+        let i = face as usize * 3;
+        let idx = data.indices.get(i..i + 3)?;
+        let mut corners = [Point3::ZERO; 3];
+        for (c, &v) in corners.iter_mut().zip(idx) {
+            let p = data.positions.get(v as usize)?;
+            let local =
+                data.origin + Point3::new(f64::from(p[0]), f64::from(p[1]), f64::from(p[2]));
+            *c = inst.world.transform_point3(local);
+        }
+        Some((corners, [idx[0], idx[1], idx[2]]))
     }
 
     /// CPU rectangle selection over the display meshes: the keys of visible model instances

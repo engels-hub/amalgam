@@ -1,13 +1,31 @@
-//! Selection state (spec §8, Interfaces §A `amg_ui::select`).
+//! Selection (spec §8, Interfaces §A `amg_ui::select`).
 //!
-//! UI-03 ships what the click-only [`SelectTool`](crate::tool::SelectTool) needs: the
-//! [`EntityFilter`] bit set, [`SelItem`] and an ordered, de-duplicated [`Selection`] with a
-//! revision counter. UI-04 adds the filter bar, select priority, box selection, select-through,
-//! selection sets and revalidation on document events.
+//! - [`EntityFilter`]: the kinds a pick or a selection accepts. The user's filter bar
+//!   ([`bar`]) sets [`Selection::filter`]; tools intersect it with their own filter.
+//! - [`SelItem`]: a picked target and the document entity it stands for. Body sub-entities get
+//!   a persistent [`TopoRef`](amg_doc::TopoRef) through [`naming`] (provisional S01 R1/R2).
+//! - [`SelectPriority`] and [`item_for_hit`]: what a hit selects (the body, the face under an
+//!   edge, the component, ...).
+//! - [`Selection`]: ordered, de-duplicated by target, with a revision counter; items whose
+//!   reference is gone are dropped on document events ([`Selection::revalidate`]).
+//! - [`sets`]: named selection sets in the `ui.selection_sets` extension record.
+//! - [`SelectTool`] (the default tool): click / Ctrl / Shift rules, window and crossing box
+//!   selection over the pick service's rectangle picks, and the select-through list.
 
-use amg_doc::EntityRef;
+pub mod bar;
+pub mod naming;
+pub mod sets;
+mod tool;
+
+pub use tool::{
+    LONG_PRESS, LONG_PRESS_SLOP_PT, SELECT_TOOL, SelectThrough, SelectThroughEntry, SelectTool,
+};
+
+use amg_doc::{BodyGeom, Design, DocEvent, EntityRef, Evaluated, TopoKind};
+use serde::{Deserialize, Serialize};
 
 use crate::pick::PickTarget;
+use crate::scene::SceneAdapter;
 
 /// Which kinds of entity a pick or a selection accepts (a bit set).
 ///
@@ -73,6 +91,22 @@ impl EntityFilter {
         EntityFilter(self.0 | other.0)
     }
 
+    /// Kinds in `self` but not in `other`.
+    #[must_use]
+    pub const fn without(self, other: EntityFilter) -> EntityFilter {
+        EntityFilter(self.0 & !other.0)
+    }
+
+    /// The filter bit of a body sub-entity kind.
+    pub fn of_topo(kind: TopoKind) -> EntityFilter {
+        match kind {
+            TopoKind::Face => EntityFilter::FACE,
+            TopoKind::Edge => EntityFilter::EDGE,
+            TopoKind::Vertex => EntityFilter::VERTEX,
+            TopoKind::FaceGroup => EntityFilter::MESH_FACE_GROUP,
+        }
+    }
+
     /// Whether a pick target passes the filter. A body sub-entity passes if its own kind is in
     /// the set or if whole bodies are (the click then selects the body).
     pub fn admits(self, t: &PickTarget) -> bool {
@@ -81,15 +115,7 @@ impl EntityFilter {
             PickTarget::Body {
                 sub: Some((kind, _)),
                 ..
-            } => {
-                let own = match kind {
-                    amg_doc::TopoKind::Face => EntityFilter::FACE,
-                    amg_doc::TopoKind::Edge => EntityFilter::EDGE,
-                    amg_doc::TopoKind::Vertex => EntityFilter::VERTEX,
-                    amg_doc::TopoKind::FaceGroup => EntityFilter::MESH_FACE_GROUP,
-                };
-                self.intersects(own.union(EntityFilter::BODY))
-            }
+            } => self.intersects(EntityFilter::of_topo(*kind).union(EntityFilter::BODY)),
             PickTarget::Sketch(_) => self.intersects(
                 EntityFilter::SKETCH
                     .union(EntityFilter::SKETCH_CURVE)
@@ -122,6 +148,257 @@ impl std::ops::BitOr for EntityFilter {
     }
 }
 
+/// The groups of the selection-filter bar: label and the kinds it switches.
+pub const FILTER_GROUPS: &[(&str, EntityFilter)] = &[
+    ("Bodies", EntityFilter::BODY),
+    (
+        "Faces",
+        EntityFilter::FACE.union(EntityFilter::MESH_FACE_GROUP),
+    ),
+    ("Edges", EntityFilter::EDGE),
+    ("Vertices", EntityFilter::VERTEX),
+    (
+        "Sketches",
+        EntityFilter::SKETCH
+            .union(EntityFilter::SKETCH_CURVE)
+            .union(EntityFilter::SKETCH_POINT)
+            .union(EntityFilter::PROFILE),
+    ),
+    ("Construction", EntityFilter::CONSTRUCTION),
+    ("Components", EntityFilter::OCCURRENCE),
+];
+
+/// What a click on a body selects (spec §8 "Select priority").
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SelectPriority {
+    /// The whole body when the filter has bodies, otherwise the picked sub-entity the filter
+    /// admits (with edges filtered out, the face under the cursor).
+    #[default]
+    Default,
+    /// Always the whole body.
+    Body,
+    /// Faces: edges and vertices are not picked, so a click on an edge selects the face under
+    /// the cursor.
+    Face,
+    /// Edges only.
+    Edge,
+    /// The top-level occurrence the body is seen through (the body itself in the root).
+    Component,
+}
+
+impl SelectPriority {
+    /// Every priority, in filter-bar order.
+    pub const ALL: [SelectPriority; 5] = [
+        SelectPriority::Default,
+        SelectPriority::Body,
+        SelectPriority::Face,
+        SelectPriority::Edge,
+        SelectPriority::Component,
+    ];
+
+    /// Label in the filter bar.
+    pub fn label(self) -> &'static str {
+        match self {
+            SelectPriority::Default => "Auto",
+            SelectPriority::Body => "Body",
+            SelectPriority::Face => "Face",
+            SelectPriority::Edge => "Edge",
+            SelectPriority::Component => "Component",
+        }
+    }
+
+    /// The kinds a pick requests under this priority (intersected with the other filters):
+    /// `Face` leaves out edges and vertices, `Edge` leaves out bodies, faces and vertices.
+    pub fn pick_filter(self) -> EntityFilter {
+        match self {
+            SelectPriority::Face => {
+                EntityFilter::ALL.without(EntityFilter::EDGE | EntityFilter::VERTEX)
+            }
+            SelectPriority::Edge => EntityFilter::ALL.without(
+                EntityFilter::BODY
+                    | EntityFilter::FACE
+                    | EntityFilter::MESH_FACE_GROUP
+                    | EntityFilter::VERTEX,
+            ),
+            SelectPriority::Default | SelectPriority::Body | SelectPriority::Component => {
+                EntityFilter::ALL
+            }
+        }
+    }
+}
+
+/// The face a body sub-entity hit stands for: the face itself, or for a mesh triangle edge its
+/// triangle (`edge / 3`). A B-rep edge → face needs adjacency (UI-22).
+fn face_of(eval: &Evaluated, hit: &PickTarget) -> Option<u32> {
+    let PickTarget::Body {
+        body,
+        sub: Some((kind, index)),
+        ..
+    } = hit
+    else {
+        return None;
+    };
+    match kind {
+        TopoKind::Face => Some(*index),
+        TopoKind::Edge => match &eval.body(*body)?.geom {
+            BodyGeom::Mesh(_) => Some(*index / 3),
+            _ => None,
+        },
+        TopoKind::Vertex | TopoKind::FaceGroup => None,
+    }
+}
+
+/// What a hit selects under `filter` (tool ∩ filter bar) and `priority`, as a [`SelItem`] with
+/// its document reference. `None`: the hit selects nothing (filtered out, or a sub-entity
+/// without a persistent reference).
+pub fn item_for_hit(
+    hit: PickTarget,
+    filter: EntityFilter,
+    priority: SelectPriority,
+    eval: &Evaluated,
+    scene: &SceneAdapter,
+) -> Option<SelItem> {
+    let PickTarget::Body {
+        body,
+        instance,
+        sub,
+    } = hit
+    else {
+        return if filter.admits(&hit) {
+            SelItem::from_target(hit)
+        } else {
+            None
+        };
+    };
+    let whole = PickTarget::Body {
+        body,
+        instance,
+        sub: None,
+    };
+    if priority == SelectPriority::Component
+        && filter.contains(EntityFilter::OCCURRENCE)
+        && let Some(path) = scene.occurrence_path(instance)
+        && let Some(&top) = path.first()
+    {
+        return Some(SelItem {
+            target: PickTarget::Occurrence(top),
+            entity: EntityRef::InContext {
+                path: vec![top],
+                target: Box::new(EntityRef::Body(body)),
+            },
+        });
+    }
+    let face = |f: Option<u32>| {
+        f.filter(|_| filter.contains(EntityFilter::FACE))
+            .map(|i| PickTarget::Body {
+                body,
+                instance,
+                sub: Some((TopoKind::Face, i)),
+            })
+    };
+    let own = sub.is_some_and(|(k, _)| filter.contains(EntityFilter::of_topo(k)));
+    let chosen = match priority {
+        SelectPriority::Body | SelectPriority::Component => {
+            filter.contains(EntityFilter::BODY).then_some(whole)
+        }
+        SelectPriority::Face => face(face_of(eval, &hit)),
+        SelectPriority::Edge => {
+            (own && sub.is_some_and(|(k, _)| k == TopoKind::Edge)).then_some(hit)
+        }
+        SelectPriority::Default => {
+            if filter.contains(EntityFilter::BODY) {
+                Some(whole)
+            } else if own {
+                Some(hit)
+            } else {
+                face(face_of(eval, &hit))
+            }
+        }
+    }?;
+    SelItem::resolve(chosen, eval)
+}
+
+/// The displayed target a stored reference stands for now (selection sets), or `None` when it
+/// no longer resolves or is not displayed. Bodies use their first displayed instance.
+pub fn target_for_entity(
+    design: &Design,
+    eval: &Evaluated,
+    scene: &SceneAdapter,
+    entity: &EntityRef,
+) -> Option<PickTarget> {
+    let instance = |b| scene.pick_map().instances_of(b).first().copied();
+    match entity {
+        EntityRef::Body(b) => {
+            eval.body(*b)?;
+            Some(PickTarget::Body {
+                body: *b,
+                instance: instance(*b)?,
+                sub: None,
+            })
+        }
+        EntityRef::Topo(r) => {
+            let index = naming::resolve_topo(eval, r)?;
+            Some(PickTarget::Body {
+                body: r.body,
+                instance: instance(r.body)?,
+                sub: Some((r.kind, index)),
+            })
+        }
+        EntityRef::Construction(c) => {
+            eval.construction(*c)?;
+            Some(PickTarget::Construction(*c))
+        }
+        EntityRef::InContext { path, target } => match (path.as_slice(), target.as_ref()) {
+            ([occ], EntityRef::Body(b)) => {
+                design.occurrence(*occ)?;
+                eval.body(*b)?;
+                Some(PickTarget::Occurrence(*occ))
+            }
+            _ => None,
+        },
+        EntityRef::SketchCurve { .. }
+        | EntityRef::SketchPoint { .. }
+        | EntityRef::Profile { .. } => None,
+    }
+}
+
+/// Whether a stored reference still resolves.
+fn alive(e: &EntityRef, design: &Design, eval: &Evaluated) -> bool {
+    match e {
+        EntityRef::Body(b) => eval.body(*b).is_some(),
+        EntityRef::Topo(r) => naming::resolve_topo(eval, r).is_some(),
+        EntityRef::Construction(c) => eval.construction(*c).is_some(),
+        EntityRef::SketchCurve { sketch, .. }
+        | EntityRef::SketchPoint { sketch, .. }
+        | EntityRef::Profile { sketch, .. } => eval.sketch(*sketch).is_some(),
+        EntityRef::InContext { path, target } => {
+            path.iter().all(|o| design.occurrence(*o).is_some()) && alive(target, design, eval)
+        }
+    }
+}
+
+/// The target `item` has after a document change, or `None` if its reference is gone.
+fn revalidated(item: &SelItem, design: &Design, eval: &Evaluated) -> Option<PickTarget> {
+    match (&item.entity, item.target) {
+        (
+            EntityRef::Topo(r),
+            PickTarget::Body {
+                body,
+                instance,
+                sub: Some((kind, _)),
+            },
+        ) => {
+            let index = naming::resolve_topo(eval, r)?;
+            Some(PickTarget::Body {
+                body,
+                instance,
+                sub: Some((kind, index)),
+            })
+        }
+        (e, t) => alive(e, design, eval).then_some(t),
+    }
+}
+
 /// One selected thing: its display identity and its document reference.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SelItem {
@@ -134,7 +411,7 @@ pub struct SelItem {
 impl SelItem {
     /// The item for a picked target, when the target maps to a document entity without
     /// persistent naming: whole bodies, sketches and construction geometry. Body sub-entities
-    /// need `BodyNaming` (S01 R1, UI-04) and return `None` here.
+    /// need naming ([`SelItem::resolve`]) and return `None` here.
     pub fn from_target(target: PickTarget) -> Option<SelItem> {
         let entity = match target {
             PickTarget::Body {
@@ -147,6 +424,22 @@ impl SelItem {
         };
         Some(SelItem { target, entity })
     }
+
+    /// The item for a picked target, with a persistent reference for body sub-entities
+    /// ([`naming::topo_ref_at`]). `None` if the target has no document reference.
+    pub fn resolve(target: PickTarget, eval: &Evaluated) -> Option<SelItem> {
+        match target {
+            PickTarget::Body {
+                body,
+                sub: Some((kind, index)),
+                ..
+            } => Some(SelItem {
+                target,
+                entity: EntityRef::Topo(naming::topo_ref_at(eval, body, kind, index)?),
+            }),
+            _ => SelItem::from_target(target),
+        }
+    }
 }
 
 /// The selection of one document: ordered, de-duplicated by target.
@@ -154,6 +447,7 @@ impl SelItem {
 pub struct Selection {
     items: Vec<SelItem>,
     filter: EntityFilter,
+    priority: SelectPriority,
     revision: u64,
 }
 
@@ -162,6 +456,7 @@ impl Default for Selection {
         Selection {
             items: Vec::new(),
             filter: EntityFilter::ALL,
+            priority: SelectPriority::Default,
             revision: 0,
         }
     }
@@ -212,6 +507,21 @@ impl Selection {
         true
     }
 
+    /// Adds every item not yet selected (box selection with Ctrl / Shift). True if any was new.
+    pub fn extend(&mut self, items: impl IntoIterator<Item = SelItem>) -> bool {
+        let before = self.items.len();
+        for i in items {
+            if !self.contains(&i.target) {
+                self.items.push(i);
+            }
+        }
+        let added = self.items.len() != before;
+        if added {
+            self.bump();
+        }
+        added
+    }
+
     /// Adds the item, or removes it if it is selected.
     pub fn toggle(&mut self, item: SelItem) {
         if !self.remove(&item.target) {
@@ -238,7 +548,7 @@ impl Selection {
         }
     }
 
-    /// The user's filter (the filter bar, UI-04).
+    /// The user's filter (the filter bar).
     pub fn filter(&self) -> EntityFilter {
         self.filter
     }
@@ -249,6 +559,69 @@ impl Selection {
             self.filter = f;
             self.bump();
         }
+    }
+
+    /// The select priority (the filter bar).
+    pub fn priority(&self) -> SelectPriority {
+        self.priority
+    }
+
+    /// Sets the select priority.
+    pub fn set_priority(&mut self, p: SelectPriority) {
+        if p != self.priority {
+            self.priority = p;
+            self.bump();
+        }
+    }
+
+    /// Brings the selection in line with a document change (spec §8 "Revalidation"):
+    /// `DocumentReplaced` clears it; after body, construction, sketch or component-tree events
+    /// every item whose reference no longer resolves is dropped, and a sub-entity whose index
+    /// moved gets its new index. Returns the number of dropped items. Never fails.
+    pub fn revalidate(&mut self, events: &[DocEvent], design: &Design, eval: &Evaluated) -> usize {
+        if self.items.is_empty() {
+            return 0;
+        }
+        if events
+            .iter()
+            .any(|e| matches!(e, DocEvent::DocumentReplaced))
+        {
+            let n = self.items.len();
+            self.clear();
+            return n;
+        }
+        let relevant = events.iter().any(|e| {
+            matches!(
+                e,
+                DocEvent::BodyRemoved(_)
+                    | DocEvent::BodyGeometryChanged(_)
+                    | DocEvent::ConstructionChanged(_)
+                    | DocEvent::SketchChanged(_)
+                    | DocEvent::ComponentTreeChanged
+            )
+        });
+        if !relevant {
+            return 0;
+        }
+        let before = std::mem::take(&mut self.items);
+        let n = before.len();
+        let mut changed = false;
+        for mut item in before {
+            match revalidated(&item, design, eval) {
+                Some(t) => {
+                    changed |= t != item.target;
+                    item.target = t;
+                    if !self.items.iter().any(|o| o.target == item.target) {
+                        self.items.push(item);
+                    }
+                }
+                None => changed = true,
+            }
+        }
+        if changed {
+            self.bump();
+        }
+        n - self.items.len()
     }
 
     /// Bumps on every change (cheap cache checks).
@@ -292,6 +665,9 @@ mod tests {
         let r = s.revision();
         s.set(vec![body(2)]);
         assert_eq!(s.revision(), r, "no change, no bump");
+        assert!(s.extend([body(2), body(3)]));
+        assert_eq!(s.items(), &[body(2), body(3)]);
+        assert!(!s.extend([body(3)]));
         s.clear();
         assert!(s.is_empty());
     }
@@ -304,7 +680,7 @@ mod tests {
                 slot: 0,
             },
             instance: 0,
-            sub: Some((amg_doc::TopoKind::Face, 3)),
+            sub: Some((TopoKind::Face, 3)),
         };
         assert!(EntityFilter::FACE.admits(&face));
         assert!(EntityFilter::BODY.admits(&face));
@@ -314,5 +690,46 @@ mod tests {
             (EntityFilter::BODY | EntityFilter::FACE) & EntityFilter::FACE,
             EntityFilter::FACE
         );
+        assert!(
+            !SelectPriority::Face
+                .pick_filter()
+                .intersects(EntityFilter::EDGE)
+        );
+        assert!(
+            !SelectPriority::Edge
+                .pick_filter()
+                .intersects(EntityFilter::FACE)
+        );
+    }
+
+    #[test]
+    fn revalidation_drops_missing_bodies_and_document_replaced_clears() {
+        let design = Design::new("t");
+        let eval = Evaluated::new(amg_doc::Revision(1));
+        let mut s = Selection::default();
+        s.set(vec![body(1), body(2)]);
+        assert_eq!(
+            s.revalidate(&[DocEvent::BodyAdded(body_id(3))], &design, &eval),
+            0
+        );
+        assert_eq!(s.len(), 2, "unrelated events keep the items");
+        assert_eq!(
+            s.revalidate(&[DocEvent::BodyRemoved(body_id(1))], &design, &eval),
+            2
+        );
+        assert!(s.is_empty());
+        s.set(vec![body(1)]);
+        assert_eq!(
+            s.revalidate(&[DocEvent::DocumentReplaced], &design, &eval),
+            1
+        );
+        assert!(s.is_empty());
+    }
+
+    fn body_id(n: u64) -> BodyId {
+        BodyId {
+            origin: amg_doc::FeatureId(n),
+            slot: 0,
+        }
     }
 }

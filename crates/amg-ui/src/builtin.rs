@@ -1,10 +1,10 @@
-//! The framework's own commands: search, undo/redo (UI-02), the File menu commands (UI-19);
-//! and the Mesh body tessellator (UI-20).
+//! The framework's own commands: search, undo/redo (UI-02), the File menu commands (UI-19),
+//! the selection commands (UI-04); and the Mesh body tessellator (UI-20).
 //!
 //! Search and undo/redo are search-and-shortcut only (the app bar draws Undo/Redo buttons).
 //! The File commands are in the File menu; the toolbar groups are filled by the domain lanes.
 
-use crate::command::{CmdAction, CommandDef};
+use crate::command::{CmdAction, CommandDef, Enablement, Enabler};
 use crate::file::FileOp;
 use crate::module::{Registrar, UiModule};
 
@@ -34,6 +34,37 @@ pub fn register(r: &mut Registrar<'_>) {
             .with_alt_shortcut("Ctrl+Shift+Z"),
     );
     register_file(r);
+    register_select(r);
+}
+
+/// Selection commands (UI-04, spec §8).
+fn register_select(r: &mut Registrar<'_>) {
+    r.command(
+        CommandDef::new(
+            "select.save_set",
+            "Save selection set",
+            CmdAction::Run(|cx| {
+                crate::select::sets::save_selection(cx, None);
+            }),
+        )
+        .with_tooltip("Keep the current selection as a named set in the design")
+        .with_keywords(&["selection set", "group", "remember"])
+        .with_enabler(Enabler::When(|env| {
+            if env.selection.is_empty() {
+                Enablement::disabled("Select something first")
+            } else {
+                Enablement::Enabled
+            }
+        })),
+    );
+    r.command(
+        CommandDef::new(
+            "select.clear",
+            "Clear selection",
+            CmdAction::Run(|cx| cx.selection_mut().clear()),
+        )
+        .with_keywords(&["deselect", "none"]),
+    );
 }
 
 /// File menu commands (spec §15). Labels avoid a bare "Save": that one belongs to the
