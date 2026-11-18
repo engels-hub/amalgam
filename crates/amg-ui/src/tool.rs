@@ -413,6 +413,16 @@ impl AmalgamApp {
         id: CmdId,
         factory: fn(&ToolInit<'_>) -> Box<dyn Tool>,
     ) {
+        self.start_tool_editing(id, factory, None);
+    }
+
+    /// Like `start_tool_with`, with `ToolInit::edit` set (edit an existing feature).
+    pub(crate) fn start_tool_editing(
+        &mut self,
+        id: CmdId,
+        factory: fn(&ToolInit<'_>) -> Box<dyn Tool>,
+        edit: Option<amg_doc::FeatureId>,
+    ) {
         with_state(self, |app, ts| {
             if let Some(a) = &ts.active {
                 let reason = if a.tool.commit_on_replace() {
@@ -428,7 +438,7 @@ impl AmalgamApp {
                 factory(&ToolInit {
                     env,
                     preselection: doc.selection.items(),
-                    edit: None,
+                    edit,
                 })
             };
             tracing::debug!(tool = %id, "tool started");
@@ -547,7 +557,13 @@ impl AmalgamApp {
                 ts.last_tick = None;
             }
             // Highlights.
-            let hover = ts.frame.hover.as_ref().map(|h| h.item.target);
+            // The viewport's hover, else the browser row under the pointer (UI-07).
+            let hover = ts
+                .frame
+                .hover
+                .as_ref()
+                .map(|h| h.item.target)
+                .or_else(|| app.browser_hover_target());
             if hover != ts.hover_shown {
                 ts.hover_shown = hover;
                 let list = highlight_targets(&app.scene, hover.iter());

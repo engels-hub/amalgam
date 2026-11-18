@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
+use crate::browser::BrowserProvider;
 use crate::command::{CmdId, CommandDef, DYNAMIC_PREFIX, Placement, RegistryError};
 use crate::module::{
     ContextId, GroupDef, GroupId, PanelId, Registrar, TabDef, TabId, UiModule, WorkspaceDef,
@@ -34,6 +35,8 @@ pub struct UiRegistry {
     generation: u64,
     /// Body tessellators in registration order (UI-20).
     tessellators: Vec<(&'static str, Arc<dyn BodyTessellator>)>,
+    /// Browser providers in registration order (UI-07).
+    browser_providers: Vec<(&'static str, Box<dyn BrowserProvider>)>,
 }
 
 impl fmt::Debug for UiRegistry {
@@ -51,6 +54,14 @@ impl fmt::Debug for UiRegistry {
                     .tessellators
                     .iter()
                     .map(|(m, _)| *m)
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "browser_providers",
+                &self
+                    .browser_providers
+                    .iter()
+                    .map(|(_, p)| p.id())
                     .collect::<Vec<_>>(),
             )
             .finish()
@@ -132,6 +143,28 @@ impl UiRegistry {
             .iter()
             .map(|(_, t)| Arc::clone(t))
             .collect()
+    }
+
+    pub(crate) fn add_browser_provider(
+        &mut self,
+        module: &'static str,
+        p: Box<dyn BrowserProvider>,
+    ) {
+        if let Some((first, _)) = self
+            .browser_providers
+            .iter()
+            .find(|(_, q)| q.id() == p.id())
+        {
+            conflict("browser provider", p.id(), first, module);
+            return;
+        }
+        self.browser_providers.push((module, p));
+    }
+
+    /// The registered browser providers, in registration order (the framework's own nodes
+    /// are not among them).
+    pub fn browser_providers(&self) -> impl Iterator<Item = &dyn BrowserProvider> + '_ {
+        self.browser_providers.iter().map(|(_, p)| p.as_ref())
     }
 
     /// The modules that registered tessellators, in registration order.

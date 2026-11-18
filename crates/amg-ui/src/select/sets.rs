@@ -121,6 +121,24 @@ pub fn remove_set_command(
     Some(write(design, sets))
 }
 
+/// The command that renames the set `from` to `to` (`None` if there is no set `from`, or a
+/// set `to` already exists).
+///
+/// # Errors
+/// As [`save_set_command`].
+pub fn rename_set_command(
+    design: &Design,
+    from: &str,
+    to: &str,
+) -> Option<Result<Command, serde_json::Error>> {
+    let mut sets = selection_sets(design);
+    if sets.iter().any(|s| s.name == to) {
+        return None;
+    }
+    sets.iter_mut().find(|s| s.name == from)?.name = to.to_owned();
+    Some(write(design, sets))
+}
+
 /// Saves the current selection as a set called `name` (default: [`next_set_name`]). One undo
 /// entry, applied at the end of the frame. False if nothing is selected.
 pub fn save_selection(cx: &mut AppCx<'_>, name: Option<String>) -> bool {

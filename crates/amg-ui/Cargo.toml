@@ -47,5 +47,9 @@ harness = false
 name = "scene"
 harness = false
 
+[[bench]]
+name = "browser"
+harness = false
+
 [lints]
 workspace = true

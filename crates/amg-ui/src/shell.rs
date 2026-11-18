@@ -426,25 +426,7 @@ fn toolbar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
 fn browser(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     ui.strong("BROWSER");
     ui.separator();
-    let doc = &app.docs[app.active];
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            egui::CollapsingHeader::new(doc.name.as_str())
-                .id_salt(("amg_browser_root", doc.id))
-                .default_open(true)
-                .show(ui, |ui| {
-                    for node in [
-                        "Document Settings",
-                        "Named Views",
-                        "Origin",
-                        "Bodies",
-                        "Sketches",
-                    ] {
-                        ui.label(node);
-                    }
-                });
-        });
+    app.browser_ui(ui);
 }
 
 fn timeline(app: &mut AmalgamApp, ui: &mut egui::Ui) {
