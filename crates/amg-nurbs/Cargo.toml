@@ -9,6 +9,22 @@ publish.workspace = true
 
 [dependencies]
 amg-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+# Inline derivative vectors (`NurbsCurve::derivs`); same pin as amg-sketch / amg-brep.
+smallvec = { version = "1.16.3", features = ["serde"] }
+
+[dev-dependencies]
+approx.workspace = true
+criterion.workspace = true
+proptest.workspace = true
+serde_json.workspace = true
+# Differential test oracle only (S20 KH-07); never a normal dependency (MIT).
+curvo = "=0.3.3"
+
+[[bench]]
+name = "eval"
+harness = false
 
 [lints]
 workspace = true

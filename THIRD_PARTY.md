@@ -82,7 +82,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | approx | float assertions, glam `approx` feature (S00) | Apache-2.0 | no | no | In use (0.5.1, dev-only) |
 | toml | golden files (`amg-testkit`), mesh corpus manifest (S00, S07); machine library files, `amg-am` runtime (S16); material libraries, `amg-materials` (S17); `amg-ui` `shortcuts.toml` (S11) | MIT / Apache-2.0 | no | no | In use (1.1.8; `amg-testkit` golden files; `amg-brep` B-rep goldens (dev-dependency, BREP-14); `amg-materials` library reader/writer, MAT-01; `amg-am` machine library, AM-01; `amg-ui` `shortcuts.toml` overrides, UI-02) |
 | crash-handler, minidumper | native crash minidumps (S00, FND-12) | MIT / Apache-2.0 | no | no | Planned |
-| smallvec | small inline vectors, `amg-sketch`, `amg-mesh`, `amg-brep` history, `amg-nurbs` (S03, S07, S02, S20) | MIT / Apache-2.0 | no | no | In use (1.16.3, `amg-sketch`, `amg-brep`) |
+| smallvec | small inline vectors, `amg-sketch`, `amg-mesh`, `amg-brep` history, `amg-nurbs` (S03, S07, S02, S20) | MIT / Apache-2.0 | no | no | In use (1.16.3, `amg-sketch`, `amg-brep`, `amg-nurbs`) |
 | fontdb | system font discovery for sketch text (S03, SK-10); not added in SK-10, which takes parsed font bytes; the UI/document layer resolves families | MIT | no | no | Planned |
 | kcl-ezpz (+ faer 0.23, winnow, indexmap, libm, mutants: MIT / Apache-2.0) | sketch solver comparison, dev-only (S03, SK-13) | MIT | no | yes (`ezpz-bench`) | In use (0.2.18, dev-only, feature `ezpz-bench`) |
 | robust =1.2.0 | exact orientation predicates (`orient2d`, `orient3d`), `amg-mesh::selfint` (S07, MESH-19) | MIT / Apache-2.0 | no | no | In use (1.2.0) |
@@ -97,7 +97,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | parry3d-f64 =0.31.1 | ray cast / closest point test oracle, `amg-mesh` dev-dependency only (S07 MESH-03); never linked into shipped binaries | Apache-2.0 | no | n/a (dev-only) | In use (dev/test-only; cargo deny clean) |
 | obvhs =0.4.0 (`parallel`) | PLOC BVH build benchmark reference, `amg-mesh` dev-dependency only (S07 MESH-03); never linked into shipped binaries | MIT / Apache-2.0 | no | n/a (bench-only) | In use (dev/bench-only; cargo deny clean) |
 | cargo-nextest, cargo-deny | dev tools, not linked (S00) | MIT / Apache-2.0 | no | — | In use (dev tools; nextest 0.9.148, deny 0.20.2; CI) |
-| curvo =0.3.3 | `amg-nurbs` differential test oracle, dev-only (S20 KH-07/12/13) | MIT | no | n/a (dev-only) | Planned (dev-only) |
+| curvo =0.3.3 (default features off; pulls nalgebra 0.35, geo, argmin, gauss-quad, i_overlay, rstar: all MIT / Apache-2.0, checked 2026-11-18) | `amg-nurbs` differential test oracle, dev-only (S20 KH-07/12/13) | MIT | no | n/a (dev-only) | In use (=0.3.3, dev-only, `amg-nurbs` tests; KH-07) |
 | TiGL `tests/TestData/CurveNetworks` (data only, no code) | Gordon corpus under `testdata/kernel/loft/tigl/` with attribution (S20 KH-15/16) | Apache-2.0 | no | n/a (data) | Planned (test data) |
 | Microsoft.Direct3D.WARP 1.0.20 (NuGet) | CI only: software D3D12 adapter for GPU tests (FND-05), never shipped | Microsoft EULA (redistributable binary) | no | n/a (CI-only download) | In use (CI) |
 | Noto Sans (Regular, Bold, Italic; ASCII subsets) | **test data only**: `crates/amg-sketch/tests/fixtures/fonts/` (S03, SK-10); plain files, not LFS; licence text kept beside them; never shipped | SIL OFL 1.1 | no | n/a (data) | In use (test data) |

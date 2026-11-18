@@ -833,7 +833,7 @@ open request.
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | KH-01 | Kernel failure capture: `capture` module (`CaptureConfig`, `FailureRecorder`, `RecordingKernel`, `KernelOp` for the ops existing at the time, `EdgeRecord` fingerprints), `OnFailure` + `WriteAhead` modes, dedup + retention, `replay`, `promote`; `kernel-replay` example (and `amg-cli kernel replay` if lane E accepts) | BREP-02, BREP-12, BREP-04, FND-04 | P0 | Done | 1. Forced failures (too-large fillet radius, boolean on an invalid argument, an injected `NotDone`) write a dump whose `manifest.json` validates against schema 1. 2. Replaying each dump **in a fresh process** gives `Reproduced` for 100 % of dumps in a ≥ 10-dump test set covering every op variant present. 3. Index stability: on 20 STEP parts + 200 generated parts, all edge/face indices survive `.brep` write → read; a forced re-index falls back to fingerprints and reports `reindexed_by_fingerprint`. 4. `WriteAhead`: a child process aborted inside the op leaves `pending/`, and `recover_pending` turns it into a `Crash` dump that replays. 5. The same failure twice gives one dump with `count = 2`; retention prunes to `max_dumps`/`max_bytes`. 6. `OnFailure` adds no file I/O and < 1 µs per successful call (criterion). |
-| KH-07 | `amg-nurbs` core: `CtrlPt`, `KnotVector`, `basis`, `NurbsCurve`/`NurbsSurface` + `Grid` with validation, eval + derivatives (A2.1–A2.3, A3.2, A3.6, A4.1–A4.4), reverse/reparametrize/transform/bbox, `analytic` module (A7.1, ellipse, A8.1, extrusion, ruled-with-equal-knots, cylinder, cone, sphere, torus), `NurbsError`; curvo dev-dep oracle | FND-03 | P1 | Todo | 1. P&T Ex. 2.3 basis values to 1e-15, partition of unity to 1e-14. 2. Rational circle radius error ≤ 1e-14·r; sphere and torus points on the analytic surface ≤ 1e-13·R (1000 samples). 3. Derivatives match central finite differences within 1e-6 relative and analytic circle/helix tangent and curvature within 1e-12. 4. Differential test vs curvo 0.3.3 on 1000 random curves/surfaces (degree 1–7, rational and non-rational): ≤ 1e-12·max(1, D). 5. Constructors reject every invalid input with the right `NurbsError` (table test); no panic in a proptest over random inputs. 6. Benchmarks: cubic point < 60 ns, bicubic point + first derivatives < 250 ns. |
+| KH-07 | `amg-nurbs` core: `CtrlPt`, `KnotVector`, `basis`, `NurbsCurve`/`NurbsSurface` + `Grid` with validation, eval + derivatives (A2.1–A2.3, A3.2, A3.6, A4.1–A4.4), reverse/reparametrize/transform/bbox, `analytic` module (A7.1, ellipse, A8.1, extrusion, ruled-with-equal-knots, cylinder, cone, sphere, torus), `NurbsError`; curvo dev-dep oracle | FND-03 | P1 | Review | 1. P&T Ex. 2.3 basis values to 1e-15, partition of unity to 1e-14. 2. Rational circle radius error ≤ 1e-14·r; sphere and torus points on the analytic surface ≤ 1e-13·R (1000 samples). 3. Derivatives match central finite differences within 1e-6 relative and analytic circle/helix tangent and curvature within 1e-12. 4. Differential test vs curvo 0.3.3 on 1000 random curves/surfaces (degree 1–7, rational and non-rational): ≤ 1e-12·max(1, D). 5. Constructors reject every invalid input with the right `NurbsError` (table test); no panic in a proptest over random inputs. 6. Benchmarks: cubic point < 60 ns, bicubic point + first derivatives < 250 ns. |
 | KH-12 | `amg-nurbs` knot operations: insertion (A5.1/A5.3), refinement (A5.4/A5.5), Bézier decomposition (A5.6/A5.7), removal (A5.8), degree elevation (A5.9/A5.10), split/segment/join, `continuity_at`, `KnotVector::union`/`missing_from` | KH-07 | P1 | Todo | 1. Proptests (512 cases): insertion, refinement, elevation, decomposition and split + join keep the shape within 1e-12·max(1, D) at 1000 samples. 2. Removal keeps deviation ≤ `tol` and removes the knot when the curve was produced by insertion (round trip). 3. Elevating by k then removing knots gives the original pole count back for Bézier inputs. 4. Matches curvo `try_refine_knot`/`try_elevate_degree` ≤ 1e-12·D. 5. Benchmarks: refine 20 knots into 50 poles < 10 µs; elevate 3→5 of 50 poles < 20 µs. |
 | KH-13 | `amg-nurbs` fitting: `parametrize`, averaging/approximation knots, `interpolate` (A9.1 with D1/D2 end rows, closed), `approximate_lsq` (A9.6 constrained), `approximate_to_tolerance` (adaptive + Hoschek), `approximate_onto_knots`, arc length + inverse, curve/surface `closest_point` | KH-12 | P1 | Todo | 1. Interpolation reproduces data ≤ 1e-12·D and end derivatives within 1e-10 relative; P&T Ex. 9.1 data gives the book's parameters and knots. 2. `approximate_to_tolerance` on 1000 noisy samples of circles, helices and sine curves meets `tol` ∈ {1e-3, 1e-5} mm with ≤ 1.5× the pole count of a reference fit (the reference is the same algorithm without parameter correction, which proves that correction helps). 3. Reported `max_error` is within 1 % of the measured error at 2000 samples. 4. Closest point never exceeds the dense-sampling minimum + 1e-9 mm (10 k proptest queries, curves and surfaces). 5. Arc length of a circle arc is within 1e-12 relative. 6. Benchmarks: interpolate 200 points < 100 µs; fit 1000 points to 1e-5 mm < 5 ms. |
 | KH-14 | `amg-nurbs` compatibility + skinning: `make_compatible` (exact/approximated, rules in nurbs note §5.2), `loft_surfaces` (one patch per segment, shared v-params, shared corner derivatives), all `EndCondition`s with `CrossBoundaryField`, ruled/closed, `check` module | KH-13 | P1 | Todo | 1. Exact path: outputs equal the inputs ≤ 1e-12·D; approximated path: ≤ `fit_tol` (1e-5 mm) with ≤ `max_poles`; it falls back to approximation exactly when the union exceeds `exact_pole_limit` (unit test at the boundary). 2. Skins reproduce every section at its v-parameter (≤ 1e-12·D exact path, ≤ `fit_tol` approximated). 3. Neighbouring patches have bit-identical shared boundaries (`to_bits`), and G1 across tangent-merged segments is ≤ 1e-8 rad. 4. G1 end condition against analytic planes/cylinders: angle ≤ 1e-8 rad at 100 boundary samples; G2: normal-curvature mismatch ≤ 1e-6 relative; `PointTangent` apex tangent plane ⊥ `normal` within 1e-9 rad. 5. Two sections without end conditions give a ruled surface. 6. Benchmarks: 6 sections × 8 segments exact < 2 ms; approximated < 10 ms. |
@@ -1046,6 +1046,49 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   `capture::{replay, replay_in_child, promote}`; see Interface changes); the fillet case of
   Done-when 1 with BREP-06; the STEP part set of Done-when 3 once BREP-13 reads STEP; wiring
   `RecordingKernel` + `recover_pending` at app startup (app/lane D).
+
+### 2026-11-18 - KH-07 amg-nurbs core landed (lane A)
+- **Landed** in `crates/amg-nurbs` (deps: `amg-core`, `serde`, `thiserror`, `smallvec` 1.16.3;
+  dev: `curvo =0.3.3`, `criterion`, `proptest`, `approx`, `serde_json`): sealed `CtrlPt`
+  (`Point2`/`Point3`), `KnotVector` (validation, `bezier`, `clamped_uniform`, knots/mults both
+  ways, `domain`, A2.1 `find_span`, `multiplicity`, `is_clamped`, `reparametrized`, `greville`),
+  `basis::{basis_funs, ders_basis_funs}` (A2.2/A2.3), `Grid`, `NurbsCurve` (eval A4.1/A4.2,
+  `derivs` A3.2/A4.2 up to order 4, start/end, `is_closed`, `reversed`, `reparametrized`;
+  3D: `transformed`, `bbox`, `curvature`, `torsion`, `planarity`), `NurbsSurface` (eval A4.3,
+  `derivs` A3.6/A4.4 up to order 2, `normal`, `iso_curve`, `boundary`, `reversed`, `transposed`,
+  `transformed`, `bbox`), `analytic` (line, A7.1 circle arc, ellipse arc, plane patch, extrusion,
+  ruled with equal knots, A8.1 revolution, cylinder, cone, sphere, torus), `NurbsError` +
+  `Diagnostic` hints, `CurvePoint`/`Continuity`/`SurfacePoint` types.
+- **Measured** (tests print them): Ex. 2.3 basis exact to 1e-15; partition of unity 1.1e-15;
+  circle radius error 5.9e-16·r; sphere / torus ≤ 1.7e-15·R; FD derivative check ≤ 9.5e-8
+  relative; circle tangent/curvature/torsion 5.2e-15; curvo on 1000 curves + 1000 surfaces
+  (degree 1–7, half rational): points ≤ 6.2e-16·max(1, D), first derivatives ≤ 1e-14 relative.
+  Benchmarks (criterion `benches/eval.rs`, asserted under `AMG_STRICT_TIMING=1`; shared machine
+  at 46–60 % CPU load from other workers): cubic point 27–30 ns (< 60), bicubic point + first
+  derivatives 185–238 ns (< 250), rational sphere point + normal 234–274 ns (< 400). Re-measure
+  on an idle machine; bicubic + d1 has the least margin.
+- **Decisions / deviations:**
+  - Evaluation clamps parameters into the domain (no `OutOfDomain` on the hot path);
+    `derivs` clamps the order (curve 4, surface 2: `MAX_CURVE_DERIV`, `MAX_SURFACE_DERIV`).
+  - Clamped means end multiplicity exactly `degree + 1`; interior multiplicity ≤ `degree`
+    (`InvalidKnots` otherwise). Weight/pole length mismatches and grid size mismatches are
+    `Degenerate(..)` (no dedicated variant). `KnotVector::new` also rejects an empty range.
+  - Arcs (and so cylinders, cones, revolutions, spheres, tori) have the knot domain
+    `[0, |sweep|]`; lines and plane patches `[0, 1]`; cylinder/cone height v ∈ `[0, 1]`.
+    Revolution: u = rotation, v = profile; quadric normals point outward. Torus requires
+    `0 < minor < major`.
+  - `Deserialize` for curves, surfaces and grids is hand-written so it re-validates (same
+    serde shape as the derive).
+  - `NurbsSurface::normal` steps toward the domain centre at collapsed edges (sphere poles).
+  - Space-curve check of Done-when 3 uses the twisted cubic: a circular helix has no exact
+    NURBS form (an interpolated helix arrives with KH-13).
+  - Evaluators use stack buffers sized 4 / 8 / 26 by degree (`basis::with_cap!`).
+- **Left for later WPs (signatures in Interfaces, not yet implemented):** KH-12 curve/surface
+  knot ops (`insert_knot`, `refine_knots`, `remove_knot`, `elevate_degree`, `split`,
+  `segment`, `join`, `bezier_segments`, `continuity_at`, `KnotVector::union`/`missing_from`);
+  KH-13 `arc_length`, `param_at_length`, `closest_point` (curve and surface). `ruled` on
+  non-matching knots returns `Incompatible` until KH-12/KH-14 add compatibility.
+  `nalgebra` not needed yet (no dense solves in KH-07).
 
 ## Interface changes
 
