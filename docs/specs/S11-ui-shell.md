@@ -902,7 +902,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-03 | `Tool` trait + router (priority chain, Esc/Enter, replace semantics), `ViewportEvent` synthesis from egui input, `PickService` trait + S10 implementation + latest-wins hover, Fusion navigation preset over S10 camera, `PreviewDriver`, `spawn_tracked`, `SelectTool` (click only) | UI-02, RND-04, RND-11 | P0 | Done | 1. Kittest with a scripted test tool: events arrive in order, Esc cancels (`FinishReason::Cancel`), Enter commits one undo entry, and starting another command gives `Replaced`. 2. Middle-drag orbits even while a tool is active that ignores the event. 3. Hover pick → highlight within ≤ 2 frames on the owner's GPU and with `CpuPickService`. 4. `PreviewDriver`: 20 rapid `set` calls → exactly one preview computed (test counter feature), and none enters the undo stack. 5. No UI-thread frame > 16 ms while a 2 s test job runs (tracing assertion). |
 | UI-20 | Scene adapter: `DocEvent` → `RenderScene` (RND-03), `RenderEntityKey` allocation, `PickMap`, `BodyTessellator` registry with Mesh tessellator, highlight layers, preview layer feed, `CpuPickService` real implementation | UI-01, RND-03, DOC-09 | P0 | Done | 1. Scripted test: add/edit/delete 3 mesh bodies → the RenderScene contains exactly the live bodies, and an unchanged body is never re-uploaded (upload counter). 2. `DocumentReplaced` rebuilds the scene, and keys are not reused within a session. 3. `PickMap` round-trips every face index of a 10 k-triangle body. 4. A registered test tessellator for a stub `BodyGeom` variant is used. 5. Updating 1 changed body in a 100-body scene < 1 ms of UI-thread time. |
 | UI-04 | Selection system: `Selection`, `SelItem`, `EntityFilter` bar, select priority, click/Ctrl/Shift rules, window/crossing box (S10 region pick), select-through list, selection sets (`ExtRecord ui.selection_sets`), revalidation on events | UI-03, UI-20 | P0 | Done | 1. Kittest on a fixture with 3 mesh bodies: window select left→right picks only fully enclosed bodies, and right→left also picks touching ones. 2. With the filter set to faces only, a click on an edge selects the adjacent face. 3. Select-through lists all 3 stacked bodies in depth order. 4. Save a selection set → reload the file → restore gives the same `EntityRef`s, and undo removes the set. 5. Deleting a selected body drops it from the selection without error. |
-| UI-15 | Dialog widgets: `ExprInput` (live parse via `ParamTable::try_eval`, error spans, autocomplete of params/functions/units, nudge, bound-param display), `SelectionField`, `ChoiceField`, toggle/int/flip, `DialogFrame` (banner, OK enablement), quantity formatting per `UnitPrefs` | UI-04, DOC-04 | P0 | Todo | 1. Kittest: typing `d1 + 5` in a length field with `d1 = 10 mm` shows `15.00 mm`. `12 kg` shows a unit-mismatch error underlined at the right span, and OK is disabled. 2. Typing `d` offers every parameter starting with `d`, and Tab completes. 3. `12,5` shows the `DecimalComma` hint (QUESTIONS #11). 4. Only one `SelectionField` is active at a time, and the active one sets the pick filter. 5. All widgets are queryable by label (AccessKit). |
+| UI-15 | Dialog widgets: `ExprInput` (live parse via `ParamTable::try_eval`, error spans, autocomplete of params/functions/units, nudge, bound-param display), `SelectionField`, `ChoiceField`, toggle/int/flip, `DialogFrame` (banner, OK enablement), quantity formatting per `UnitPrefs` | UI-04, DOC-04 | P0 | Review | 1. Kittest: typing `d1 + 5` in a length field with `d1 = 10 mm` shows `15.00 mm`. `12 kg` shows a unit-mismatch error underlined at the right span, and OK is disabled. 2. Typing `d` offers every parameter starting with `d`, and Tab completes. 3. `12,5` shows the `DecimalComma` hint (QUESTIONS #11). 4. Only one `SelectionField` is active at a time, and the active one sets the pick filter. 5. All widgets are queryable by label (AccessKit). |
 | UI-05 | Generic feature dialog renderer: `GenericFeatureTool` from `DialogRegistration` (conditions, auto-focus, live preview with debounce, preview-health banner), edit mode (preview rollback, `EditFeature` + `SetParamExpr` in one transaction), automatic `feature.<kind>` commands + toolbar placement + `FeatureUiInfo` | UI-15, SOL-01, DOC-12 | P0 | Todo | 1. The Extrude dialog is generated entirely from SOL-01's schema (no extrude-specific UI code; grep test). Changing extent type shows/hides the right fields. 2. Kittest: select a profile, type a distance → the preview appears ≤ debounce + 100 ms on a typical part. OK yields one undo entry with `AddFeature`. 3. Edit mode: changing the distance of an existing extrude keeps its model parameter `dN` and changes its expression. 4. An invalid input disables OK with the field error. Cancel leaves the document unchanged (revision equal). |
 | UI-06 | Manipulators: Distance, Angle, Triad, Plane gizmos via overlays (constant 90 px), CPU hit test, drag ↔ field binding both ways, Ctrl snapping, heads-up value | UI-05, RND-07 | P0 | Todo | 1. Dragging the extrude arrow by a scripted world delta of 12.5 mm writes `12.5 mm` into the field (prefs precision), and editing the field moves the arrow (kittest via `world_to_screen`). 2. Ctrl-drag snaps to 1 mm / 5°. 3. Triad: each of 10 parts hit-tests correctly in a 6-view matrix (unit test on `CameraView`). 4. Gizmo screen size stays 90 ± 2 px across a 1000× zoom range. |
 | UI-07 | Browser tree: framework nodes (settings, named views, origin, components/bodies/sketches/construction, selection sets), `BrowserProvider` API, virtualised rows, eye toggles (`SetBodyProps`, `SetOccurrenceVisible`, `ui.visibility` ExtRecord), rename, context menu, hover highlight, click select, double-click edit | UI-04, DOC-09 | P0 | Todo | 1. Kittest on a fixture with 2 components × 3 bodies: hiding a body hides it in the scene, and undo shows it again. Renaming a body persists through save/load. 2. A test provider adds a node under Root without framework changes. 3. 10 000 synthetic bodies: browser frame cost < 1 ms (criterion), and the tree is rebuilt only on affecting events (counter). 4. Hovering a row highlights the body (highlight layer contains it). |
@@ -1859,6 +1859,99 @@ runs 105 tests, 105 passed, in 12.6 s.
 - Owner check in `amg-app`: box selection and the filter bar with GPU picking (tested headless on
   CpuPickService only).
 
+### 2026-11-18 - UI-15 dialog widgets
+
+*Landed in `amg-ui` (status `Review`):*
+- **`widgets`** (new module, `widgets.rs` + `widgets/{expr,selection,fields,frame}.rs`):
+  - `format_quantity(q, &UnitPrefs)` and `display_unit(dim, &UnitPrefs)`: `DISPLAY_PRECISION` =
+    2 decimals, untrimmed (`15.00 mm`), in the document length unit (its square / cube for
+    areas / volumes), degrees for angles, kg for masses, else the dimension's canonical table
+    unit; dimensionless values print the bare number.
+  - `ExprInput` (as §A: `new(src, expected, params, prefs)`, `bound_param`, `nudge_step`,
+    `show`; plus `label`, `id_salt`, `desired_width`). Every frame it runs
+    `check_expr(src, dim, params, prefs)`, which wraps `ParamTable::try_eval`: the error span is
+    drawn underlined in the error colour (a `TextEdit` layouter), the message is shown under
+    the field and as the field's tooltip together with the `Diagnostic` hint. Errors without a
+    span (`WrongDimension`, `Cycle`) underline the whole trimmed expression. A `,` between two
+    digits outside parentheses is reported as amg-core's `ParseQuantityError::DecimalComma`
+    (message "use `.` as decimal separator", hint "Write 12.5, not 12,5.", span = the comma;
+    QUESTIONS #11). The value is shown next to the field (`d3 = 20.00 mm` when bound).
+  - Autocomplete (`completions(src, cursor, params)`): the word before the cursor (`12mm`
+    completes `mm`); every parameter starting with it (by name) first, then up to 12 functions,
+    constants and unit names (`expr::reserved_names`). A list under the field; Up/Down picks,
+    Tab (or a click) replaces the whole word (functions get `(`), Esc closes the list.
+  - Keys: `Enter` / focus loss commit (`ExprResponse::committed`, reported once: the focus
+    change is tracked in the field state, not with `Response::lost_focus`, which a repeated pass
+    reports twice); `Esc` restores the text from
+    focus time without committing; Up/Down without a list nudge a single literal by the step
+    in the display unit (`12 mm` → `13 mm`). `ExprResponse` gains `changed`, `error_span`,
+    `message`, `hint` and `is_valid()`.
+  - `SelectionField` (as §A, plus `mirror(&mut Selection)`): label (clicking it activates the
+    field), "N selected" button (shown pressed while active), "Clear <label>" button, a "needs …" warning outside the limits
+    (`selection_count_valid`). Only one field is active app-wide: the active field (id, filter,
+    pass) is recorded in egui memory; a click or a rising `active` flag (auto-focus) claims it,
+    and the other fields turn their flag off on their next draw. With `mirror`, activation sets
+    the document `Selection` to the field's items and, while active, the field takes the
+    selected items its filter admits (newest `max`), so UI-04's select rules feed it (the tool
+    forwards its events to a `SelectTool`).
+  - `ChoiceField` (dropdown, or `.buttons()` for a row of icon buttons), `toggle`,
+    `IntField` (`range`), `flip` (`⇄ label`, pressed while flipped).
+  - `DialogFrame` (as §A: `new`, `banner(Option<&Health>)`, `ok_enabled(Enablement)`,
+    `show(ctx, body)`; plus `help(url)` and `show_inside(ui, body)` for tool dialogs, which the
+    router already puts in a titled window) and `group(ui, title, body)` (collapsible, open by
+    default). A warning / error health is a bordered banner; a disabled OK shows its reason
+    next to the buttons and as its tooltip. `DialogAction::{None, Ok, Cancel}`.
+  - Labels reach AccessKit through `labelled_by` (text, combo and drag fields, the selection
+    button) or the widget's own text / `widget_info`.
+- **`tool`** (lane D, additive): after the tool dialog is drawn, `active_selection_filter(ctx)`
+  is stored in the router frame and intersected into the active tool's effective pick filter
+  (`tool.pick_filter() ∩ filter bar ∩ active selection field`), so hover, clicks and boxes only
+  pick what the active field accepts. Cleared when the tool finishes.
+
+*Evidence (Done-when; `tests/widgets.rs`, 6 kittest tests, plus unit tests in `widgets` /
+`widgets::{expr, selection}`):*
+1. `length_field_shows_the_value_and_a_unit_mismatch_disables_ok`: with `d1 = 10 mm`, typing
+   `d1 + 5` shows `15.00 mm` and OK is enabled. `12 kg` gives `WrongDimension`, underlines
+   0..5, shows "unit mismatch: expected mm, got t", and OK is disabled (AccessKit) with the
+   reason shown; clicking it does nothing. `2 * (d1 + 3 kg)` underlines exactly `(d1 + 3 kg)` (amg-doc's span of the
+   parenthesised operation).
+2. `typing_d_offers_every_d_parameter_and_tab_completes`: `d` lists `d1` and `depth` (not
+   `width`) plus units such as `deg`; Down + Tab completes `depth` (focus kept, `3.00 mm`
+   shown, list closed); `depth * 2 + wi` + Tab gives `depth * 2 + width` = `46.00 mm`.
+3. `decimal_comma_shows_the_hint`: `12,5` underlines the comma (2..3), shows "Write 12.5, not
+   12,5." and the decimal-separator message, OK disabled.
+4. `only_one_selection_field_is_active_and_it_sets_the_pick_filter` (real app, `AppHarness`,
+   CpuPickService): a tool with "Target faces" (auto-focused) and "Target body" (limit 1)
+   fields. The tool's effective filter is FACE; clicking "Target body" makes it the only active
+   field and the filter BODY; a viewport click (forwarded to UI-04's `SelectTool`) puts the
+   whole body in it ("1 selected"); clicking "Target faces" again empties the selection, keeps
+   the body field's item, and the next click selects a mesh face into the faces field.
+5. `every_widget_is_queryable_by_label`: Distance, Profile, Clear Profile, Extent, Direction
+   buttons, Chain faces, Count, Flip, Options, Help, OK, Cancel, the banner, the OK reason and
+   "0 selected" are found by label, and clicking the label nodes drives the widgets (a click on
+   the "Profile" label activates the field).
+- Also `enter_commits_esc_reverts_and_arrows_nudge` (bound display `d1 = 12.00 mm`, Up/Down,
+  Esc revert without commit, Enter commits once).
+
+*Deviations:*
+- `WrongDimension` has no span in S01, so the whole expression is underlined (the result as a
+  whole has the wrong unit). No `amg-doc` change.
+- The DecimalComma check is UI-side: the expression parser reads `12,5` as an argument-list
+  comma (a parse error), and `check_expr` reports amg-core's `DecimalComma` instead.
+- Nudge applies to single literals only; on an expression Up/Down does nothing (rewriting it
+  as a number would lose the parameter references). The step is a constant
+  (`DEFAULT_NUDGE_STEP` = 1 display unit) until UI-11 adds the preference.
+- `UnitPrefs` has only the length unit (S01 TODO FND-10), so the precision is fixed at 2 and
+  angles are always degrees.
+- The single active field is app-wide (egui memory), not per dialog: there is one tool dialog
+  at a time.
+
+*Leftovers:*
+- UI-05 uses `SelectionField::mirror` + a forwarded `SelectTool` for its selection inputs and
+  `check_expr` for OK enablement; UI-12 reuses `ExprInput` in its table.
+- The nudge step and display precision become preferences in UI-11.
+- Owner check in `amg-app`: the completion list and the underline look (tested headless).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2001,3 +2094,12 @@ additive pieces UI-05 should render:
   restore_selection_set}`, `PickMap::instances_of`, `SceneAdapter::occurrence_bodies`, the
   `select::{bar, naming, sets}` modules, and two commands (`select.save_set`, `select.clear`).
   `tool::SelectTool` / `tool::SELECT_TOOL` remain as re-exports.
+
+### 2026-11-18: UI-15 (lane D)
+- No change to `amg-doc`, `amg-core`, `amg-render` or `amg-jobs`, and no new dependency.
+  `ExprInput` uses the public `ParamTable::{try_eval, iter, get}`, `expr::{reserved_names,
+  format_value}`, `ExprError::span` and amg-core's `ParseQuantityError::DecimalComma`.
+- `amg-ui` additive API: the `widgets` module; `ExprInput::{label, id_salt, desired_width}`,
+  `ExprResponse::{changed, error_span, message, hint, is_valid}`, `SelectionField::mirror`,
+  `DialogFrame::{help, show_inside}`; the router intersects the active tool's pick filter with
+  `widgets::active_selection_filter`.

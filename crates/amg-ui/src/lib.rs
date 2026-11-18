@@ -25,6 +25,10 @@
 //! CPU and GPU implementations and latest-wins hover, [`preview::PreviewDriver`] and the
 //! [`select`] types.
 //!
+//! UI-15 adds the dialog [`widgets`]: `ExprInput`, `SelectionField` (the active one narrows the
+//! tool's pick filter), `ChoiceField`, toggle / integer / flip, `DialogFrame` and quantity
+//! formatting per the document `UnitPrefs`.
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
@@ -53,6 +57,7 @@ pub mod shortcut;
 pub mod theme;
 pub mod tool;
 pub mod viewport;
+pub mod widgets;
 
 // Domain-lane modules (stubs from UI-01; each lane owns its file).
 pub mod am;
