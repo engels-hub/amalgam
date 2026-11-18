@@ -905,7 +905,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-15 | Dialog widgets: `ExprInput` (live parse via `ParamTable::try_eval`, error spans, autocomplete of params/functions/units, nudge, bound-param display), `SelectionField`, `ChoiceField`, toggle/int/flip, `DialogFrame` (banner, OK enablement), quantity formatting per `UnitPrefs` | UI-04, DOC-04 | P0 | Done | 1. Kittest: typing `d1 + 5` in a length field with `d1 = 10 mm` shows `15.00 mm`. `12 kg` shows a unit-mismatch error underlined at the right span, and OK is disabled. 2. Typing `d` offers every parameter starting with `d`, and Tab completes. 3. `12,5` shows the `DecimalComma` hint (QUESTIONS #11). 4. Only one `SelectionField` is active at a time, and the active one sets the pick filter. 5. All widgets are queryable by label (AccessKit). |
 | UI-05 | Generic feature dialog renderer: `GenericFeatureTool` from `DialogRegistration` (conditions, auto-focus, live preview with debounce, preview-health banner), edit mode (preview rollback, `EditFeature` + `SetParamExpr` in one transaction), automatic `feature.<kind>` commands + toolbar placement + `FeatureUiInfo` | UI-15, SOL-01, DOC-12 | P0 | Todo | 1. The Extrude dialog is generated entirely from SOL-01's schema (no extrude-specific UI code; grep test). Changing extent type shows/hides the right fields. 2. Kittest: select a profile, type a distance → the preview appears ≤ debounce + 100 ms on a typical part. OK yields one undo entry with `AddFeature`. 3. Edit mode: changing the distance of an existing extrude keeps its model parameter `dN` and changes its expression. 4. An invalid input disables OK with the field error. Cancel leaves the document unchanged (revision equal). |
 | UI-06 | Manipulators: Distance, Angle, Triad, Plane gizmos via overlays (constant 90 px), CPU hit test, drag ↔ field binding both ways, Ctrl snapping, heads-up value | UI-05, RND-07 | P0 | Todo | 1. Dragging the extrude arrow by a scripted world delta of 12.5 mm writes `12.5 mm` into the field (prefs precision), and editing the field moves the arrow (kittest via `world_to_screen`). 2. Ctrl-drag snaps to 1 mm / 5°. 3. Triad: each of 10 parts hit-tests correctly in a 6-view matrix (unit test on `CameraView`). 4. Gizmo screen size stays 90 ± 2 px across a 1000× zoom range. |
-| UI-07 | Browser tree: framework nodes (settings, named views, origin, components/bodies/sketches/construction, selection sets), `BrowserProvider` API, virtualised rows, eye toggles (`SetBodyProps`, `SetOccurrenceVisible`, `ui.visibility` ExtRecord), rename, context menu, hover highlight, click select, double-click edit | UI-04, DOC-09 | P0 | Todo | 1. Kittest on a fixture with 2 components × 3 bodies: hiding a body hides it in the scene, and undo shows it again. Renaming a body persists through save/load. 2. A test provider adds a node under Root without framework changes. 3. 10 000 synthetic bodies: browser frame cost < 1 ms (criterion), and the tree is rebuilt only on affecting events (counter). 4. Hovering a row highlights the body (highlight layer contains it). |
+| UI-07 | Browser tree: framework nodes (settings, named views, origin, components/bodies/sketches/construction, selection sets), `BrowserProvider` API, virtualised rows, eye toggles (`SetBodyProps`, `SetOccurrenceVisible`, `ui.visibility` ExtRecord), rename, context menu, hover highlight, click select, double-click edit | UI-04, DOC-09 | P0 | Review | 1. Kittest on a fixture with 2 components × 3 bodies: hiding a body hides it in the scene, and undo shows it again. Renaming a body persists through save/load. 2. A test provider adds a node under Root without framework changes. 3. 10 000 synthetic bodies: browser frame cost < 1 ms (criterion), and the tree is rebuilt only on affecting events (counter). 4. Hovering a row highlights the body (highlight layer contains it). |
 | UI-08 | Timeline panel: node icons via `FeatureUiInfo`, groups, rollback marker drag (`SetMarker`), drag reorder with valid-range shading (`MoveFeature`), context menu, health badges + tooltips, hover highlight of outputs and error entities, recompute progress ring, hidden in Direct mode | UI-04, DOC-05, DOC-12 | P0 | Todo | 1. Kittest on a 20-node test timeline: dragging the marker to index 5 sends `SetMarker{5}`, and nodes ≥ 5 render as rolled back. 2. Dragging a node before its input is refused (no command sent, red shading shown). A valid move sends one `MoveFeature`. 3. An erroring test feature shows an error badge with the diagnostic message as tooltip. 4. Suppress/rename/delete/group via the context menu each give one undo entry. 5. 500 nodes render < 1 ms (criterion). |
 | UI-10 | Job/progress panel (`JobSystem::jobs()`, grouped, cancel), status-bar recompute/job indicators, toasts from `Diagnostic` (severity, hint, details via `report`, copy, open log folder), cancelled-is-not-error rule, GPU device-lost banner | UI-01, FND-04, FND-07 | P0 | Done | 1. Kittest: a 2 s test job shows progress; pressing Cancel resolves it as `Cancelled` within 200 ms and no error toast appears. 2. A failing job with an `amg_core::Error::InvalidArgument` shows the user message and hint, and "Details" contains the `report` chain. 3. Info toasts auto-hide after 6 s, and errors stay. 4. Simulated `is_lost()` shows the banner and Save stays enabled. |
 | UI-19 | File operations & recovery: New/Open/Open Recent/Save/Save As/Save Compact, `rfd` on a dedicated thread parented to the window, save/load as jobs with progress, dirty-close prompt (`CancelClose` + `Modal`), recovery dialog from `find_recoverable`, `RecoverySession::on_commit` per batch, `Placement::Menu` slots for Import/Export | UI-10, DOC-07, DOC-14 | P0 | Done | 1. Kittest with a fake file-dialog backend (trait): save → reopen gives an equal `design.json`. 2. Closing a dirty document shows the prompt, and Cancel keeps the app open. 3. Kill test: commit 5 commands, abort the process, restart → the recovery dialog offers the document and "Open recovered" restores it. 4. Opening a 50 MB file never blocks a frame > 16 ms (tracing assertion). |
@@ -1952,6 +1952,122 @@ runs 105 tests, 105 passed, in 12.6 s.
 - The nudge step and display precision become preferences in UI-11.
 - Owner check in `amg-app`: the completion list and the underline look (tested headless).
 
+### 2026-11-18 - UI-07 browser tree
+
+*Landed in `amg-ui` (status `Review`):*
+- **`browser`** (new module, `browser.rs` + `browser/{framework, visibility}.rs`):
+  `NodeKey` (as §A, plus `new`, `owned`, `as_str`), `BrowserNode` (as §A, plus builder methods
+  `new`, `visible`, `target`, `badge`, `renamable`, `icon`, `children`), `BrowserAnchor`
+  (`Root`, `Component`), `BrowserProvider` (as §A, `'static`), `BrowserState` (per document:
+  cached pre-order tree, expansion set, inline rename, hover; `rebuilds`, `node_count`,
+  `row_count`, `row_labels`, `node`, `is_expanded`, `set_expanded`, `reveal`, `invalidate`),
+  `ROW_HEIGHT`, `FRAMEWORK_PROVIDER`.
+  - **Framework nodes:** the root (design name, renamable) → Document Settings (units),
+    Named Views (Home / Top / Front / Right; double-click orients the camera), Origin (O, XY,
+    XZ, YZ, X, Y, Z; one eye), then the root component's contents, Selection Sets (when there
+    are any; rename, double-click restores, context menu Restore / Delete), then the providers'
+    root nodes. A component's contents: Bodies / Sketches / Construction folders (only when
+    non-empty; a folder's eye shows / hides everything in it in one undo entry), the providers'
+    nodes for `BrowserAnchor::Component(c)`, then child occurrences (recursively). Default
+    names are "Body<n>" (body order), "Sketch<n>", "Plane<n>" / "Axis<n>" / "Point<n>";
+    feature names and `BodyProps.name` win. Badges come from the creating feature's `Health`.
+  - **Eye:** bodies `SetBodyProps { visible }`, occurrences `SetOccurrenceVisible`, sketches /
+    construction / origin the `ExtRecord` `ui.visibility` (`browser::visibility`: version 1,
+    `data = {"hidden": [keys]}`, one record per design, `AddExt` / `SetExt`, removed when
+    empty; `hidden`, `is_hidden`, `sketch_key`, `construction_key`, `ORIGIN_KEY`,
+    `set_hidden_command` for the RND-07 / UI-09 overlays).
+  - **Rename** (context menu "Rename", or F2 on a hovered row; an inline field with the name
+    selected; Enter / focus loss commits, Esc cancels): bodies `SetBodyProps.name`,
+    occurrences and the root `RenameComponent` (R3), sketches / construction `RenameFeature`,
+    selection sets `select::sets::rename_set_command` (new).
+  - **Hover** feeds the router's Hover highlight when nothing in the viewport is hovered
+    (occurrence rows highlight all of their bodies). **Click** selects the node's target
+    (Ctrl / Shift / Cmd toggles); targets are re-resolved through `target_for_entity`, because
+    body instance indices are scene-side. **Double-click** goes to the provider; the framework
+    edits the creating feature (`AppCx::edit_feature`).
+  - **Rebuilds** happen only when a provider's `affected_by` accepts one of the frame's events
+    (the framework: body add / remove / props, component tree, occurrence visibility, sketch,
+    construction, timeline, health, `ExtChanged` of `ui.selection_sets` / `ui.visibility`,
+    `DocumentReplaced`), or when the workspace, the document identity or its units changed.
+    Expand / collapse only re-flattens the visible rows. Rows are drawn with
+    `ScrollArea::show_rows` at a fixed 18 pt row height.
+  - Accessibility names: the row label is the node label; the eye is a button "Hide <label>" /
+    "Show <label>"; the arrow is "Expand <label>" / "Collapse <label>".
+- **`module` / `registry`:** `Registrar::browser_provider`, `UiRegistry::browser_providers`
+  (a duplicate provider id is a registration conflict, like every other id).
+- **`app`:** `DocTab` gains the browser state and `sketch_edit: Option<FeatureId>`.
+  `AppCx::edit_feature(id)` / `AmalgamApp::edit_feature(id)`: a `sketch.sketch` feature enters
+  the sketch context and records `sketch_edit`; another kind starts the tool of its
+  `feature.<kind>` command (the UI-05 convention) with `ToolInit::edit = Some(id)`; without one
+  an info toast says so. `AmalgamApp::{browser_ui, browser, browser_mut}`,
+  `app::SKETCH_FEATURE_KIND`. The shell's left panel calls `browser_ui` (the UI-01 placeholder
+  is gone). **`tool`:** the Hover layer falls back to the browser's hover; tool factories get
+  `ToolInit::edit` through the new crate-private `start_tool_editing`.
+
+*Evidence (Done-when; `tests/browser.rs`, 7 kittest tests on the real app, plus unit tests in
+`browser::{framework, visibility}`):*
+1. Fixture: two components ("Bracket A", "Bracket B", via `NewComponent`) × three mesh bodies
+   each, plus a root construction plane.
+   - `eye_toggle_hides_a_body_in_the_scene_and_undo_shows_it_again`: clicking "Hide Body2" is
+     one undo entry, sets `visible = false`, and the body's scene instance is no longer drawn
+     (the other two are); the eye now reads "Show Body2"; undo draws it again. "Hide Bracket B"
+     hides all three of its bodies (`SetOccurrenceVisible`); the Bodies folder's eye hides its
+     three in one undo entry; "Hide Plane1" writes `ui.visibility`, and undo removes it.
+   - `renaming_a_body_persists_through_save_and_load`: right-click → Rename → "Base Plate" →
+     Enter sets `BodyProps.name`; Esc cancels a second rename; renaming the occurrence renames
+     its component; after Save As → close → open the names are back in the document and in
+     the browser.
+   - `click_selects_and_a_selection_set_restores_on_double_click`: a click selects Body1 (the
+     Selected layer has it), Ctrl+click adds Body3, `select.save_set` adds "Selection Sets" /
+     "Selection Set 1", and after clearing, a double-click on the set restores both bodies.
+2. `a_registered_provider_adds_nodes_under_root_without_framework_changes`: an
+   `inventory::submit!` module in the test file registers a provider. Its "Test Study" node
+   (with a child) appears under the root after the framework nodes, its `build` is called for
+   every component anchor, and its eye click reaches `set_visible`.
+3. `benches/browser.rs` (criterion): 10 000 one-triangle bodies with the Bodies folder expanded
+   (10 000+ rows). A steady frame takes 167 µs (criterion 162.7-172.2 µs); a full rebuild plus
+   frame, which only follows an affecting event, takes 2.88 ms (2.85-2.91 ms). The < 1 ms
+   budget is asserted on the steady frame's median under `AMG_STRICT_TIMING=1`; it passed
+   (bench profile, on a machine shared with another worker's build).
+   `the_tree_is_rebuilt_only_on_affecting_events`: expand / collapse, hovering rows, idle
+   frames, `AddParam`, `SetOccurrenceTransform` and clearing the selection leave
+   `BrowserState::rebuilds` unchanged; one `SetBodyProps` adds exactly one rebuild.
+4. `hovering_a_row_highlights_the_body`: hovering "Body5" puts exactly that body's render key
+   on the Hover layer; hovering "Bracket B" puts its three bodies there; moving to the viewport
+   clears it.
+
+The full `amg-ui` suite runs 125 tests, and all pass (the UI-01 shell snapshots were
+re-blessed, see deviations). `cargo clippy -p amg-ui --all-targets -- -D warnings` and
+`cargo fmt --all --check` are clean.
+
+*Deviations:*
+- **Shell snapshots re-blessed** (`tests/snapshots/shell_{dark,light}.png`): the browser
+  panel now shows the real tree (expand arrows, the Origin eye, no empty Bodies / Sketches
+  folders) instead of the UI-01 placeholder labels. The test code is unchanged; the owner
+  should glance at the new images.
+- `BrowserNode::icon` is carried but not drawn (no icon atlas until UI-21); the eye is the 👁
+  glyph at small size.
+- Occurrence rows target `PickTarget::Occurrence` with `EntityRef::InContext { path: [occ],
+  target: Body(first body) }` (the UI-04 encoding); components without bodies of their own
+  have no target. The bodies of a component placed several times appear under each
+  occurrence (node keys carry an `@occ.path` suffix), and a click selects the first displayed
+  instance.
+- Sketches have no hover / select target (sketch picking comes with RND-07 / UI-09), so
+  `ui.visibility` is stored, but no overlay reads it yet.
+- Registry `ContextMenuProvider`s (UI-21) are not consulted; the row menu is the framework's
+  Rename / Show / Hide plus `BrowserProvider::context_menu`.
+- "Activate component" and the Analysis folder (lane A request, Interface changes 2026-10-20)
+  are not part of this WP.
+- In kittest a double-click needs a wider `max_double_click_delay`: kittest runs one frame per
+  queued pointer event, and egui's clock advanced 0.75 s between the two clicks. The test sets
+  2 s; the app is unchanged.
+
+*Leftovers:*
+- UI-09 takes over `DocTab::sketch_edit` / the sketch context for the real sketch session;
+  UI-05 registers `feature.<kind>` commands, so that a double-click on bodies and construction
+  opens their dialogs (until then an info toast).
+- Owner check in `amg-app`: the browser with GPU picking and real fonts.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2103,3 +2219,14 @@ additive pieces UI-05 should render:
   `ExprResponse::{changed, error_span, message, hint, is_valid}`, `SelectionField::mirror`,
   `DialogFrame::{help, show_inside}`; the router intersects the active tool's pick filter with
   `widgets::active_selection_filter`.
+
+### 2026-11-18: UI-07 (lane D)
+- No change to `amg-doc`, `amg-render`, `amg-core` or `amg-jobs`, and no new dependency. The
+  browser uses the public `Command::{SetBodyProps, SetOccurrenceVisible, RenameComponent,
+  RenameFeature, AddExt, SetExt}`, `Design::{components, occurrences, body_props, exts}` and
+  `Evaluated::{bodies, sketches, constructions, node}`.
+- New `ExtRecord` kind `ui.visibility` (version 1, owned by `amg_ui::browser::visibility`).
+- `amg-ui` additive API: the `browser` module; `Registrar::browser_provider`,
+  `UiRegistry::browser_providers`; `AppCx::edit_feature`; `AmalgamApp::{browser_ui, browser,
+  browser_mut, edit_feature}`; `DocTab::sketch_edit`; `app::SKETCH_FEATURE_KIND`;
+  `select::sets::rename_set_command`.

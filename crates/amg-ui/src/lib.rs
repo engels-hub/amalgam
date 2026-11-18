@@ -35,6 +35,7 @@
 #![warn(missing_docs)]
 
 pub mod app;
+pub mod browser;
 mod builtin;
 pub mod command;
 pub mod design;

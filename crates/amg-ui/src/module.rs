@@ -176,6 +176,12 @@ impl Registrar<'_> {
         self.reg.add_panel(self.module, def);
     }
 
+    /// Adds a browser provider (UI-07): its nodes appear at the root and inside every
+    /// component, and row actions on them come back to it.
+    pub fn browser_provider(&mut self, p: Box<dyn crate::browser::BrowserProvider>) {
+        self.reg.add_browser_provider(self.module, p);
+    }
+
     /// Adds a body tessellator (UI-20). The most recently registered one that handles a
     /// `BodyGeom` variant is used.
     pub fn tessellator(&mut self, t: impl crate::scene::BodyTessellator) {
