@@ -134,6 +134,9 @@ pub(crate) struct ToolFrame {
     pub(crate) filter: EntityFilter,
     /// The select priority hits are lifted with (`Default` for other tools).
     pub(crate) priority: SelectPriority,
+    /// The filter of the active dialog's active `SelectionField` (UI-15), read after the
+    /// dialog was drawn; intersected into the active tool's filter.
+    pub(crate) dialog_filter: Option<EntityFilter>,
 }
 
 impl Default for ToolFrame {
@@ -146,6 +149,7 @@ impl Default for ToolFrame {
             cursor: None,
             filter: EntityFilter::ALL,
             priority: SelectPriority::Default,
+            dialog_filter: None,
         }
     }
 }
@@ -351,11 +355,16 @@ fn with_tool<R>(
         ..
     } = ts;
     let sel = &app.docs[app.active].selection;
+    // The active selection field of the tool's dialog narrows what the tool picks (UI-15).
+    let dialog = match (active.is_some(), frame.dialog_filter) {
+        (true, Some(f)) => f,
+        _ => EntityFilter::ALL,
+    };
     let (tool, priority): (&mut dyn Tool, SelectPriority) = match active {
         Some(a) => (a.tool.as_mut(), SelectPriority::Default),
         None => (select, sel.priority()),
     };
-    frame.filter = tool.pick_filter() & sel.filter() & priority.pick_filter();
+    frame.filter = tool.pick_filter() & sel.filter() & priority.pick_filter() & dialog;
     frame.priority = priority;
     let (cx, picks, scene) = app.tool_parts();
     let mut tcx = ToolCx::new(cx, frame, picks, scene);
@@ -391,6 +400,7 @@ fn finish_active(app: &mut AmalgamApp, ts: &mut ToolState, reason: FinishReason)
     ts.frame.preview.clear();
     ts.frame.finish = None;
     ts.frame.cursor = None;
+    ts.frame.dialog_filter = None;
     ts.dialog = None;
     ts.owners.clear();
 }
@@ -706,6 +716,7 @@ impl AmalgamApp {
                 .show(ctx, |ui| {
                     shown = Some(with_tool(app, ts, |t, cx| t.dialog_ui(ui, cx)));
                 });
+            ts.frame.dialog_filter = crate::widgets::active_selection_filter(ctx);
             if let Some(s) = shown {
                 ts.dialog = Some(s);
                 if !s {
