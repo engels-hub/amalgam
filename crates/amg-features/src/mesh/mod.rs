@@ -18,6 +18,8 @@
 //!   [`MeshSeparateFeature`] (`mesh.separate`) and [`MeshEraseFillFeature`]
 //!   (`mesh.erase_fill`). Numeric parameters are `Expr`s (they become model parameters when
 //!   the feature enters a design).
+//! - [`wrap`] (MESH-18): the wrap repair, a morphological closing through distance fields
+//!   (plain function), and its feature [`MeshWrapFeature`] (`mesh.wrap`).
 //!
 //! The feature types are plain serde structs registered with `register_feature!`; call
 //! [`link`] from a binary or test so the registrations are linked in.
@@ -37,6 +39,8 @@ pub mod shell;
 mod smooth;
 #[cfg(test)]
 mod tests;
+pub mod wrap;
+mod wrap_feature;
 
 pub use base::OutputMode;
 pub use cut::{
@@ -52,6 +56,7 @@ pub use repair::{MeshRepairFeature, RepairParams, SmallShellParams};
 pub use reverse::{MeshReverseNormalFeature, reverse_normals};
 pub use segment::{MeshFaceGroupsFeature, SegmentParams};
 pub use smooth::{MeshSmoothFeature, SmoothMethodParam, SmoothParams};
+pub use wrap_feature::{MeshWrapFeature, WRAP_FINE_VOXEL_PER_DIAGONAL};
 
 /// Forces the registrations of this module to be linked (registry `link()` convention).
 pub fn link() {}

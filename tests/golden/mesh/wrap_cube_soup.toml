@@ -1,0 +1,29 @@
+# Golden metrics for mesh/wrap_cube_soup. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+hausdorff_abs = 0.001
+
+[metrics]
+volume = 996.3331662976029
+area = 604.7407598637567
+vertices = 193
+triangles = 382
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -0.29617305859771825,
+    -0.3,
+    -0.30133681450806105,
+]
+max = [
+    12.299999999999999,
+    9.299999999999999,
+    9.299999999999999,
+]

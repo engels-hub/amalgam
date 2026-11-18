@@ -24,8 +24,8 @@ use amg_features::construct::{ConstructPlane, OriginEntity, PlaneDef, RefInput};
 use amg_features::mesh::{
     CutPlane, FairingParam, KeepSideParam, MeshEntityRef, MeshEraseFillFeature,
     MeshPlaneCutFeature, MeshReduceFeature, MeshRemeshFeature, MeshReverseNormalFeature,
-    MeshSeparateFeature, MeshShellFeature, MeshSmoothFeature, OriginPlane, OutputMode,
-    ReduceTarget, SmoothMethodParam,
+    MeshSeparateFeature, MeshShellFeature, MeshSmoothFeature, MeshWrapFeature, OriginPlane,
+    OutputMode, ReduceTarget, SmoothMethodParam,
 };
 use amg_jobs::{JobCtx, JobSystem, JobSystemConfig};
 use amg_mesh::{FaceGroupInfo, FaceId, GroupOrigin, IndexedMesh, ShellSide};
@@ -413,6 +413,56 @@ fn robust_shell_case() -> Case {
     }
 }
 
+/// MESH-18: a soup of two overlapping cubes, one inside out, wrapped into one solid.
+fn wrap_input() -> IndexedMesh {
+    let mut positions = Vec::new();
+    let mut tris = Vec::new();
+    for (k, min) in [Point3::ZERO, Point3::new(3.0, 1.0, 1.0)]
+        .into_iter()
+        .enumerate()
+    {
+        let s = shapes::cube(min, 6.0);
+        let base = positions.len() as u32;
+        positions.extend(s.positions);
+        tris.extend(s.triangles.iter().map(|t| {
+            let t = t.map(|i| i + base);
+            if k == 1 { [t[0], t[2], t[1]] } else { t }
+        }));
+    }
+    IndexedMesh::new(positions, tris).unwrap()
+}
+
+fn wrap_case() -> Case {
+    Case {
+        name: "wrap",
+        input: wrap_input(),
+        feature: |b| FeatureBox::new(MeshWrapFeature::new(b, "0.5 mm")),
+        edit: |_| Edit::Param("0.4 mm"),
+        check: |input, out, _| {
+            assert!(watertight(out));
+            let s = amg_mesh::MeshSpatial::build(
+                Arc::new(out.clone()),
+                &amg_mesh::BvhOpts::default(),
+                &JobCtx::detached(),
+            )
+            .unwrap();
+            let si = amg_mesh::self_intersections(
+                &s,
+                &amg_mesh::SelfIntersectOpts::default(),
+                &JobCtx::detached(),
+            )
+            .unwrap();
+            assert!(si.is_empty(), "{} SI pairs", si.len());
+            assert_eq!(amg_mesh::separate_shells(out).len(), 1);
+            // Union of the cubes (216 + 216 - 3 * 5 * 5 = 357 mm³) grown by about one voxel.
+            let v = out.signed_volume();
+            assert!(v > 357.0 && v < 357.0 * 1.5, "volume {v}");
+            let h = amg_testkit::one_sided_hausdorff(soup(out), soup(input), 20_000);
+            assert!(h <= 2.0 * (0.75 + 0.5), "hausdorff to input {h}");
+        },
+    }
+}
+
 fn erase_fill_case() -> Case {
     let (m, _) = sphere_with_cap();
     Case {
@@ -463,6 +513,7 @@ fn cases() -> Vec<Case> {
         quick_shell_case(),
         robust_shell_case(),
         erase_fill_case(),
+        wrap_case(),
     ]
 }
 
@@ -613,6 +664,11 @@ fn robust_shell_lifecycle() {
 #[test]
 fn erase_fill_lifecycle() {
     lifecycle(&erase_fill_case());
+}
+
+#[test]
+fn wrap_lifecycle() {
+    lifecycle(&wrap_case());
 }
 
 // ----------------------------------------------------------------------------- separate
@@ -938,6 +994,7 @@ fn every_op_kind_is_registered() {
         "mesh.shell",
         "mesh.separate",
         "mesh.erase_fill",
+        "mesh.wrap",
     ] {
         assert_eq!(reg.get(kind).unwrap().version, 1, "{kind}");
     }
