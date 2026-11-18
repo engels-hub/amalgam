@@ -1,0 +1,29 @@
+# Golden metrics for mesh/wrap_sphere_r10. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+hausdorff_abs = 0.001
+
+[metrics]
+volume = 4482.991698710582
+area = 1317.6589927932005
+vertices = 4953
+triangles = 9902
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -10.227048742164644,
+    -10.251620977882379,
+    -10.211688850387471,
+]
+max = [
+    10.243574980644489,
+    10.231176027411857,
+    10.231479773897838,
+]

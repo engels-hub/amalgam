@@ -264,8 +264,8 @@ pub fn offset_shell_sdf(
 }
 
 /// Largest `|f|` over the vertices of `m`: how far (mm, up to the band) a vertex is from the
-/// nearer of the two offset levels.
-fn max_abs_field(field: &ShellField, m: &IndexedMesh) -> f64 {
+/// nearer of the two offset levels (any field: the wrap (MESH-18) uses it too).
+pub(super) fn max_abs_field(field: &dyn ScalarField, m: &IndexedMesh) -> f64 {
     let mut out = vec![0.0; m.positions.len()];
     field.values(&m.positions, &mut out);
     out.iter().fold(0.0, |a, v| {
@@ -291,7 +291,7 @@ fn decimate_opts(tol: f64) -> DecimateOpts {
 
 /// MESH-07 at `tol`: in one piece below [`CHUNKED_MIN_FACES`], else in parallel chunks
 /// ([`decimate_chunked`], two passes on grids shifted by half a chunk).
-fn simplify(
+pub(super) fn simplify(
     m: &IndexedMesh,
     tol: f64,
     h: f64,
@@ -482,7 +482,10 @@ fn decimate_piece(
 }
 
 /// `(m, true)` when MESH-19 finds no intersecting pair.
-fn is_si_free(m: IndexedMesh, ctx: &JobCtx) -> Result<(IndexedMesh, bool), MeshFeatureError> {
+pub(super) fn is_si_free(
+    m: IndexedMesh,
+    ctx: &JobCtx,
+) -> Result<(IndexedMesh, bool), MeshFeatureError> {
     let s = MeshSpatial::build(Arc::new(m), &BvhOpts::default(), ctx)?;
     let pairs = self_intersections(&s, &SelfIntersectOpts { max_pairs: Some(1) }, ctx)?;
     let arc = Arc::clone(s.mesh());

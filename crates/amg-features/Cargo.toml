@@ -45,6 +45,10 @@ name = "mesh_shell"
 harness = false
 
 [[bench]]
+name = "mesh_wrap"
+harness = false
+
+[[bench]]
 name = "inspect_measure"
 harness = false
 
