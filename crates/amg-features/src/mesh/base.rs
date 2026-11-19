@@ -20,13 +20,14 @@ pub enum OutputMode {
     NewBody,
 }
 
-/// The mesh of `body` just before the feature.
+/// The mesh of `body` just before the feature (in a preview of a large input: its proxy).
 pub(super) fn input_mesh(
     ctx: &RecomputeCtx<'_>,
     body: BodyId,
 ) -> Result<Arc<IndexedMesh>, FeatureError> {
     match ctx.body(body)? {
-        BodyGeom::Mesh(m) => Ok(Arc::clone(m)),
+        // Previews of large inputs run on a decimated proxy (MESH-23).
+        BodyGeom::Mesh(m) => super::proxy::for_compute(ctx, Arc::clone(m)),
         _ => Err(MeshFeatureError::NotAMesh.into()),
     }
 }

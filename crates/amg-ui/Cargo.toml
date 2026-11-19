@@ -12,6 +12,8 @@ amg-core.workspace = true
 amg-jobs.workspace = true
 amg-doc.workspace = true
 amg-features.workspace = true
+# MESH-23: the Mesh Analysis panel runs the MESH-02/19 analysis.
+amg-mesh.workspace = true
 amg-render.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
@@ -38,6 +40,9 @@ criterion.workspace = true
 # UI-19 tests: read `design.json` out of saved files; time the UI-thread frame spans.
 zip.workspace = true
 tracing-subscriber.workspace = true
+# MESH-23 tests: corpus models and benchmark meshes, STL import / 3MF export of the Phase 1 script.
+amg-mesh = { workspace = true, features = ["corpus"] }
+amg-io.workspace = true
 
 [[bench]]
 name = "search"

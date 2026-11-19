@@ -112,6 +112,13 @@ pub(crate) enum ShellRequest {
     OpenSearch,
     File(DocTabId, crate::file::FileOp),
     RestoreSelectionSet(DocTabId, String),
+    /// Replace a highlight layer (additive, MESH-23).
+    Highlight(
+        DocTabId,
+        crate::scene::HighlightLayer,
+        Vec<crate::pick::PickTarget>,
+    ),
+
     EditFeature(DocTabId, amg_doc::FeatureId),
 }
 
@@ -264,6 +271,19 @@ impl AppCx<'_> {
             self.doc.id,
             name.to_owned(),
         ));
+    }
+
+    /// Replaces highlight layer `layer` with `targets` at the end of the frame, while this
+    /// document is the active one (additive, MESH-23: mesh defect highlighting on the `Error`
+    /// layer). Body targets are shown on every displayed instance of their body (their
+    /// `instance` is ignored). The router owns the `Hover` and `Selected` layers.
+    pub fn set_highlight(
+        &mut self,
+        layer: crate::scene::HighlightLayer,
+        targets: Vec<crate::pick::PickTarget>,
+    ) {
+        self.requests
+            .push(ShellRequest::Highlight(self.doc.id, layer, targets));
     }
 
     /// Queues editing feature `id` of this document (end of frame): a sketch enters sketch
@@ -688,6 +708,12 @@ impl AmalgamApp {
                 ShellRequest::RestoreSelectionSet(doc, name) => {
                     if self.docs.get(self.active).is_some_and(|d| d.id == doc) {
                         self.restore_selection_set(&name);
+                    }
+                }
+                ShellRequest::Highlight(doc, layer, targets) => {
+                    if self.docs.get(self.active).is_some_and(|d| d.id == doc) {
+                        let list = crate::tool::all_instances(&self.scene, &targets);
+                        self.scene.set_highlight(layer, &list);
                     }
                 }
                 ShellRequest::OpenSearch => {

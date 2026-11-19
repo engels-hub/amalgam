@@ -28,6 +28,7 @@ mod base;
 mod cut;
 mod error;
 mod offset;
+mod proxy;
 mod reduce;
 mod refs;
 mod remesh;
@@ -49,6 +50,10 @@ pub use cut::{
 };
 pub use error::MeshFeatureError;
 pub use offset::{DEFAULT_VOXEL_PER_THICKNESS, MIN_VOXEL_PER_DIAGONAL, MeshShellFeature};
+pub use proxy::{
+    PREVIEW_PROXY_FACES, PREVIEW_PROXY_TARGET, preview_proxy_limits, set_preview_proxy_limits,
+    uses_preview_proxy,
+};
 pub use reduce::{MeshReduceFeature, ReduceParams, ReduceTarget};
 pub use refs::{GroupMatch, MeshEntityRef, ResolvedGroup, resolve_group};
 pub use remesh::{EdgeLengthParam, MeshRemeshFeature, RemeshParams, RemeshSizing};

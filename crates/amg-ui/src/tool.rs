@@ -303,6 +303,10 @@ pub(crate) struct ToolState {
     owners: Vec<(egui::PointerButton, Owner)>,
     hover_tickets: Vec<(PickTicket, egui::Pos2)>,
     hover_shown: Vec<PickTarget>,
+    /// The hovered timeline error node's entities last written to the Error layer (UI-08); the
+    /// layer is only rewritten when this changes, so `AppCx::set_highlight` users (MESH-23
+    /// defects) keep it otherwise.
+    errors_shown: Vec<PickTarget>,
     selection_shown: Option<u64>,
     /// The active tool draws a dialog (learnt from its first `dialog_ui`).
     pub(crate) dialog: Option<bool>,
@@ -576,7 +580,10 @@ impl AmalgamApp {
             }
             // A hovered error node's diagnostic entities (UI-08).
             let errors = app.timeline_error_targets();
-            app.scene.set_highlight(HighlightLayer::Error, &errors);
+            if errors != ts.errors_shown {
+                app.scene.set_highlight(HighlightLayer::Error, &errors);
+                ts.errors_shown = errors;
+            }
             let sel = &app.docs[active].selection;
             if ts.selection_shown != Some(sel.revision()) {
                 ts.selection_shown = Some(sel.revision());
@@ -765,6 +772,34 @@ fn highlight_targets<'t>(
         match t {
             PickTarget::Occurrence(o) => out.extend(scene.occurrence_bodies(*o)),
             other => out.push(*other),
+        }
+    }
+    out
+}
+
+/// `targets` with every body target repeated for each displayed instance of its body
+/// (`AppCx::set_highlight`, additive MESH-23).
+pub(crate) fn all_instances(scene: &SceneAdapter, targets: &[PickTarget]) -> Vec<PickTarget> {
+    let mut out = Vec::with_capacity(targets.len());
+    let mut instances: Option<(amg_doc::BodyId, Vec<u32>)> = None;
+    for t in targets {
+        match *t {
+            PickTarget::Body { body, sub, .. } => {
+                if instances.as_ref().is_none_or(|(b, _)| *b != body) {
+                    instances = Some((body, scene.pick_map().instances_of(body)));
+                }
+                match &instances {
+                    // Not displayed yet: kept as given, resolved once it is.
+                    Some((_, list)) if list.is_empty() => out.push(*t),
+                    Some((_, list)) => out.extend(list.iter().map(|&instance| PickTarget::Body {
+                        body,
+                        instance,
+                        sub,
+                    })),
+                    None => {}
+                }
+            }
+            other => out.push(other),
         }
     }
     out
