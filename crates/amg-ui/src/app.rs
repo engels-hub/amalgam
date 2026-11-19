@@ -68,6 +68,8 @@ pub struct DocTab {
     pub(crate) bounds: amg_core::Aabb3,
     /// The browser tree, expansion and rename state (UI-07).
     pub(crate) browser: crate::browser::BrowserState,
+    /// The timeline cache, selection, drag and rename state (UI-08).
+    pub(crate) timeline: crate::timeline::TimelineState,
     /// The sketch opened for editing from the browser or timeline (UI-07 enters the sketch
     /// context; UI-09's sketch session takes it from here).
     pub sketch_edit: Option<amg_doc::FeatureId>,
@@ -771,6 +773,32 @@ impl AmalgamApp {
                 None => return,
             }
         };
+        // The kind's timeline info decides first (UI-08); without one, the UI-07 convention.
+        match self.registry.feature_ui(&kind).map(|i| i.edit) {
+            Some(crate::timeline::EditAction::StartTool(f)) => {
+                let cmd = format!("feature.{kind}");
+                let cid = self
+                    .registry
+                    .commands()
+                    .find(|c| c.id.0 == cmd)
+                    .map_or(crate::timeline::EDIT_TOOL_CMD, |c| c.id);
+                self.start_tool_editing(cid, f, Some(id));
+                return;
+            }
+            Some(crate::timeline::EditAction::NotEditable) => {
+                self.notify(Notification::info(
+                    "This feature can't be edited",
+                    format!("`{kind}` has no editor."),
+                ));
+                return;
+            }
+            Some(crate::timeline::EditAction::SketchMode) => {
+                self.docs[self.active].sketch_edit = Some(id);
+                self.with_cx(|cx| cx.enter_context(crate::design::SKETCH_CONTEXT));
+                return;
+            }
+            Some(crate::timeline::EditAction::GenericDialog) | None => {}
+        }
         if kind == SKETCH_FEATURE_KIND {
             self.docs[self.active].sketch_edit = Some(id);
             self.with_cx(|cx| cx.enter_context(crate::design::SKETCH_CONTEXT));
@@ -911,6 +939,7 @@ impl AmalgamApp {
             view: None,
             bounds: amg_core::Aabb3::EMPTY,
             browser: crate::browser::BrowserState::default(),
+            timeline: crate::timeline::TimelineState::default(),
             sketch_edit: None,
         });
         self.active = self.docs.len() - 1;

@@ -314,6 +314,21 @@ impl BrowserState {
         self.scroll_to = Some(i);
     }
 
+    /// Reveals the first node whose key matches `pred` (see [`Self::reveal`]); false if none
+    /// does (timeline "Find in Browser", UI-08).
+    pub fn reveal_first(&mut self, pred: impl Fn(&NodeKey) -> bool) -> bool {
+        let Some(key) = self
+            .entries
+            .iter()
+            .find(|e| pred(&e.node.key))
+            .map(|e| e.node.key.clone())
+        else {
+            return false;
+        };
+        self.reveal(&key);
+        true
+    }
+
     /// Marks the tree stale (it is rebuilt on the next draw).
     pub fn invalidate(&mut self) {
         self.dirty = true;

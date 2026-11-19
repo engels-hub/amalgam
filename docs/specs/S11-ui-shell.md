@@ -906,7 +906,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-05 | Generic feature dialog renderer: `GenericFeatureTool` from `DialogRegistration` (conditions, auto-focus, live preview with debounce, preview-health banner), edit mode (preview rollback, `EditFeature` + `SetParamExpr` in one transaction), automatic `feature.<kind>` commands + toolbar placement + `FeatureUiInfo` | UI-15, SOL-01, DOC-12 | P0 | Todo | 1. The Extrude dialog is generated entirely from SOL-01's schema (no extrude-specific UI code; grep test). Changing extent type shows/hides the right fields. 2. Kittest: select a profile, type a distance → the preview appears ≤ debounce + 100 ms on a typical part. OK yields one undo entry with `AddFeature`. 3. Edit mode: changing the distance of an existing extrude keeps its model parameter `dN` and changes its expression. 4. An invalid input disables OK with the field error. Cancel leaves the document unchanged (revision equal). |
 | UI-06 | Manipulators: Distance, Angle, Triad, Plane gizmos via overlays (constant 90 px), CPU hit test, drag ↔ field binding both ways, Ctrl snapping, heads-up value | UI-05, RND-07 | P0 | Todo | 1. Dragging the extrude arrow by a scripted world delta of 12.5 mm writes `12.5 mm` into the field (prefs precision), and editing the field moves the arrow (kittest via `world_to_screen`). 2. Ctrl-drag snaps to 1 mm / 5°. 3. Triad: each of 10 parts hit-tests correctly in a 6-view matrix (unit test on `CameraView`). 4. Gizmo screen size stays 90 ± 2 px across a 1000× zoom range. |
 | UI-07 | Browser tree: framework nodes (settings, named views, origin, components/bodies/sketches/construction, selection sets), `BrowserProvider` API, virtualised rows, eye toggles (`SetBodyProps`, `SetOccurrenceVisible`, `ui.visibility` ExtRecord), rename, context menu, hover highlight, click select, double-click edit | UI-04, DOC-09 | P0 | Done | 1. Kittest on a fixture with 2 components × 3 bodies: hiding a body hides it in the scene, and undo shows it again. Renaming a body persists through save/load. 2. A test provider adds a node under Root without framework changes. 3. 10 000 synthetic bodies: browser frame cost < 1 ms (criterion), and the tree is rebuilt only on affecting events (counter). 4. Hovering a row highlights the body (highlight layer contains it). |
-| UI-08 | Timeline panel: node icons via `FeatureUiInfo`, groups, rollback marker drag (`SetMarker`), drag reorder with valid-range shading (`MoveFeature`), context menu, health badges + tooltips, hover highlight of outputs and error entities, recompute progress ring, hidden in Direct mode | UI-04, DOC-05, DOC-12 | P0 | Todo | 1. Kittest on a 20-node test timeline: dragging the marker to index 5 sends `SetMarker{5}`, and nodes ≥ 5 render as rolled back. 2. Dragging a node before its input is refused (no command sent, red shading shown). A valid move sends one `MoveFeature`. 3. An erroring test feature shows an error badge with the diagnostic message as tooltip. 4. Suppress/rename/delete/group via the context menu each give one undo entry. 5. 500 nodes render < 1 ms (criterion). |
+| UI-08 | Timeline panel: node icons via `FeatureUiInfo`, groups, rollback marker drag (`SetMarker`), drag reorder with valid-range shading (`MoveFeature`), context menu, health badges + tooltips, hover highlight of outputs and error entities, recompute progress ring, hidden in Direct mode | UI-04, DOC-05, DOC-12 | P0 | Review | 1. Kittest on a 20-node test timeline: dragging the marker to index 5 sends `SetMarker{5}`, and nodes ≥ 5 render as rolled back. 2. Dragging a node before its input is refused (no command sent, red shading shown). A valid move sends one `MoveFeature`. 3. An erroring test feature shows an error badge with the diagnostic message as tooltip. 4. Suppress/rename/delete/group via the context menu each give one undo entry. 5. 500 nodes render < 1 ms (criterion). |
 | UI-10 | Job/progress panel (`JobSystem::jobs()`, grouped, cancel), status-bar recompute/job indicators, toasts from `Diagnostic` (severity, hint, details via `report`, copy, open log folder), cancelled-is-not-error rule, GPU device-lost banner | UI-01, FND-04, FND-07 | P0 | Done | 1. Kittest: a 2 s test job shows progress; pressing Cancel resolves it as `Cancelled` within 200 ms and no error toast appears. 2. A failing job with an `amg_core::Error::InvalidArgument` shows the user message and hint, and "Details" contains the `report` chain. 3. Info toasts auto-hide after 6 s, and errors stay. 4. Simulated `is_lost()` shows the banner and Save stays enabled. |
 | UI-19 | File operations & recovery: New/Open/Open Recent/Save/Save As/Save Compact, `rfd` on a dedicated thread parented to the window, save/load as jobs with progress, dirty-close prompt (`CancelClose` + `Modal`), recovery dialog from `find_recoverable`, `RecoverySession::on_commit` per batch, `Placement::Menu` slots for Import/Export | UI-10, DOC-07, DOC-14 | P0 | Done | 1. Kittest with a fake file-dialog backend (trait): save → reopen gives an equal `design.json`. 2. Closing a dirty document shows the prompt, and Cancel keeps the app open. 3. Kill test: commit 5 commands, abort the process, restart → the recovery dialog offers the document and "Open recovered" restores it. 4. Opening a 50 MB file never blocks a frame > 16 ms (tracing assertion). |
 | UI-21 | Marking menu: radial 8 wedges + overflow + repeat-last, click/gesture/hold modes, `MarkingMenuProvider` + `ContextMenuProvider` APIs, framework default provider | UI-03, UI-04 | P0 | Todo | 1. Kittest: right-click opens the menu, clicking the N wedge runs its command. A right-drag gesture toward E runs E's command without the menu staying open. 2. "Repeat <last>" runs the previous command. 3. A test provider adds an entry for a selected mesh body only (context check). 4. Every wedge is queryable by label. |
@@ -2068,6 +2068,107 @@ re-blessed, see deviations). `cargo clippy -p amg-ui --all-targets -- -D warning
   opens their dialogs (until then an info toast).
 - Owner check in `amg-app`: the browser with GPU picking and real fonts.
 
+### 2026-11-18 - UI-08 timeline panel
+
+*Landed in `amg-ui` (status `Review`):*
+- **`timeline`** (new module, `timeline.rs`): `FeatureUiInfo` and `EditAction` (as §Interfaces),
+  `TimelineState` (per document: a node cache rebuilt only when the design revision or the
+  evaluated state changes; selection, drag, rename and hover state; the last frame's drawn
+  nodes for tests), `NodeHealth`, `DrawnNode`, `DragView`, `EDIT_TOOL_CMD`, `SLOT_W`,
+  `computing_node`, `output_targets`, `entity_targets`.
+  - **Strip:** playback buttons ⏮ ⏴ ⏵ ⏭ (each a `SetMarker`; disabled when it would not move
+    the marker), then one 28 pt slot per node in a horizontal `ScrollArea::show_viewport`. Only
+    visible slots are drawn, plus the node being dragged. Node labels are the feature name,
+    else `<display_name><n>` (the ordinal within the kind). The icon is drawn as the initials
+    of the `FeatureUiInfo` display name. A kind without info gets the generic "◇" and the last
+    dotted segment of its kind as name (`tl_anonymous1`). An empty timeline shows "Timeline is
+    empty".
+  - **Groups:** an expanded group draws a bracket over its nodes (a button "Collapse <name>");
+    a collapsed group is one slot (a button "Expand <name>", context menu Expand / Ungroup).
+    Both use `SetGroup`.
+  - **Rollback marker:** a handle at the marker boundary (accessible Slider "Rollback
+    marker"). Dragging it previews the rolled-back nodes (dimmed) and sends one `SetMarker` on
+    release.
+  - **Reorder:** dragging a node uses `Timeline::valid_move_range`. Positions outside it are
+    shaded red for the whole drag, and a drop line marks the target. Release on a valid
+    position sends one `MoveFeature { to }` (the final index); an invalid drop sends nothing.
+  - **Context menu:** Edit Feature (disabled for `NotEditable`), Edit Sketch (when the
+    feature reads a sketch), Roll to Here, Suppress / Unsuppress, Rename (an inline popup
+    field; Enter commits, Esc cancels), Delete, Group / Ungroup, Find in Browser
+    (`BrowserState::reveal_first`). Actions apply to the timeline selection, in timeline
+    order, when the right-clicked node is part of it. Click selects, Ctrl / Shift toggles,
+    double-click edits. Each menu action is one `CommitBatch`, so one undo entry.
+  - **Health:** error nodes are tinted red and get an "Error" badge, warnings a "Warning"
+    badge. The badge's tooltip is the diagnostic message; the node's tooltip is the label plus
+    the messages. Suppressed nodes are struck through, rolled-back ones dimmed.
+  - **Hover:** a hovered node's output bodies go on the Hover layer (after the viewport and the
+    browser hover). A hovered error node's `Diagnostic::entities` go on the Error layer.
+  - **Progress ring:** while recompute is `Running`, the node at `progress × len` (below the
+    marker) gets an arc ring, and the strip repaints every 50 ms.
+  - Hidden in Direct mode (the shell draws the bottom panel only in parametric mode).
+- **`registry` / `module`:** `Registrar::feature_ui`, `UiRegistry::{feature_ui, feature_uis}`
+  (a duplicate kind is a registration conflict).
+- **`app`:** `DocTab::timeline`; `AmalgamApp::{timeline_ui, timeline, timeline_mut}`.
+  `edit_feature` consults `FeatureUiInfo::edit` first: `StartTool` starts that tool with
+  `ToolInit::edit` (command id `feature.<kind>` if registered, else `EDIT_TOOL_CMD`),
+  `SketchMode` enters the sketch context, `NotEditable` shows an info toast, `GenericDialog`
+  falls through to the UI-07 behaviour. **`shell`:** the UI-01 timeline placeholder is gone.
+  **`tool`:** the router's hover state is a `Vec<PickTarget>` (a node can have several
+  bodies), and the Error layer is set from the timeline each frame.
+
+*Evidence (Done-when; `tests/timeline.rs`, 6 kittest tests on the real app, plus 5 unit tests in
+`timeline::tests`):*
+1. `dragging_the_marker_to_index_5_rolls_back_the_rest`: 20 test blocks (labels Block1..Block20
+   from `FeatureUiInfo`). Dragging the marker handle to the boundary before node 5 previews
+   nodes ≥ 5 as rolled back with no command sent yet. Release gives one undo entry "Move
+   marker", the marker is 5, the drawn nodes ≥ 5 are rolled back, and `Evaluated` agrees
+   (node 5 `RolledBack`, node 4 `Ok`). ⏵ and ⏭ move it to 6 and 20; "Roll to Here" on Block3
+   puts it at 3.
+2. `moving_a_node_before_its_input_is_refused_and_a_valid_move_sends_one_command`: A, Chain(A),
+   B, C. Dragging Chain before A shows `to = 0`, `valid = false` and exactly position 0 shaded
+   red. Release sends nothing: the undo depth and the order are unchanged. Dragging it to the
+   end sends one "Move feature" entry, and the order becomes A, B, C, Chain.
+3. `an_erroring_feature_shows_an_error_badge_with_the_message_as_tooltip`: the Broken test
+   feature has `NodeHealth::Error` "invalid value for depth: the depth must be positive", an
+   Error badge and a red tint (the OK node has neither). Hovering the "Error" badge shows a
+   tooltip whose text is exactly that message. "Edit Feature" is disabled because Broken is
+   `NotEditable`.
+4. `context_menu_edits_are_one_undo_entry_each`: Suppress, Unsuppress, Rename (to "Base"),
+   Group (Block1 + Ctrl-click Block2 → "Group1"), Ungroup and Delete each add exactly one undo
+   entry, and the document reflects each one (collapse / expand of the group also works).
+5. `benches/timeline.rs` (criterion, 500 nodes in a 1280 × 34 strip): a steady frame takes
+   48.0 µs (criterion 46.8-49.3 µs), and a node-cache rebuild plus frame takes 211 µs
+   (209.4-213.9 µs). Under `AMG_STRICT_TIMING=1` the bench asserts a median under 1 ms over
+   200 frames; it passed (bench profile, on a machine shared with other workers' builds).
+   The bench also asserts that steady frames don't rebuild and that only the visible nodes
+   are drawn.
+
+Also tested: `hovering_a_node_highlights_its_output_bodies` (Block2 → its one body on the
+Hover layer; a node without outputs → empty; leaving clears it; `entity_targets` resolves a body
+entity) and `unknown_kinds_get_a_generic_node_and_direct_mode_hides_the_timeline`.
+
+The full `amg-ui` suite runs 136 tests, and all pass. The shell snapshots are unchanged (the
+empty timeline keeps its height and text). `cargo clippy -p amg-ui --all-targets -- -D warnings`
+and `cargo fmt --all --check` are clean.
+
+*Deviations:*
+- Icons: `IconId` is not drawn; the node shows the display name's initials (no icon atlas until
+  UI-21).
+- The computing node is derived from `RecomputeStatus::Running::progress` (`i / len` when node
+  i starts), because the running message carries the feature's name, not its id.
+- Recompute errors carry no entities today (`Diagnostic::entities` is empty for
+  `FeatureError`s), so the Error-layer hover is wired up, but only `entity_targets` is tested
+  directly.
+- Groups get default names `Group<n>`; renaming a group has no UI yet (`SetGroup` supports
+  it).
+
+*Leftovers:*
+- UI-21: real icons and the registry `ContextMenuProvider`s in the node menu.
+- Features that report error entities (lane-owned), so that the Error-layer hover shows
+  something in practice.
+- Owner check in `amg-app`: the strip with real fonts, and the progress ring during a slow
+  recompute.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2230,3 +2331,20 @@ additive pieces UI-05 should render:
   `UiRegistry::browser_providers`; `AppCx::edit_feature`; `AmalgamApp::{browser_ui, browser,
   browser_mut, edit_feature}`; `DocTab::sketch_edit`; `app::SKETCH_FEATURE_KIND`;
   `select::sets::rename_set_command`.
+
+### 2026-11-18: UI-08 (lane D)
+- No change to `amg-doc`, `amg-render`, `amg-core` or `amg-jobs`, and no new dependency. The
+  timeline uses the public `Timeline::{nodes, marker, len, node, group, groups,
+  valid_move_range}`, `Command::{SetMarker, MoveFeature, SetSuppressed, RenameFeature,
+  DeleteFeatures, GroupFeatures, Ungroup, SetGroup}`, `Health`, `RecomputeStatus` and
+  `DesignMode`.
+- `amg-ui` additive API: the `timeline` module (`FeatureUiInfo`, `EditAction`,
+  `TimelineState`, `NodeHealth`, `DrawnNode`, `DragView`, `EDIT_TOOL_CMD`, `SLOT_W`,
+  `computing_node`, `output_targets`, `entity_targets`); `Registrar::feature_ui`,
+  `UiRegistry::{feature_ui, feature_uis}` (a duplicate kind is a registration conflict);
+  `AmalgamApp::{timeline_ui, timeline, timeline_mut}`; `DocTab::timeline`;
+  `BrowserState::reveal_first`. `AmalgamApp::edit_feature` consults the kind's
+  `FeatureUiInfo::edit` first (then the UI-07 fallback). **`tool`** (small, focused edit next
+  to MESH-23's): the router's hover state is now a `Vec<PickTarget>`, the Hover layer falls back
+  to the browser hover and then to the hovered timeline node's output bodies, and the Error
+  layer shows the hovered error node's diagnostic entities.
