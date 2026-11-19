@@ -29,12 +29,17 @@
 //! tool's pick filter), `ChoiceField`, toggle / integer / flip, `DialogFrame` and quantity
 //! formatting per the document `UnitPrefs`.
 //!
+//! UI-08 adds the [`timeline`] strip: node icons from [`timeline::FeatureUiInfo`], groups,
+//! rollback-marker drag, drag reorder with valid-range shading, context menu, health badges,
+//! hover highlights and the recompute progress ring.
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
 #![warn(missing_docs)]
 
 pub mod app;
+pub mod browser;
 mod builtin;
 pub mod command;
 pub mod design;
@@ -55,6 +60,7 @@ pub mod select;
 mod shell;
 pub mod shortcut;
 pub mod theme;
+pub mod timeline;
 pub mod tool;
 pub mod viewport;
 pub mod widgets;

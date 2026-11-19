@@ -66,6 +66,13 @@ pub struct DocTab {
     pub(crate) view: Option<CameraView>,
     /// Bounds of the displayed scene (navigation pivot and fit).
     pub(crate) bounds: amg_core::Aabb3,
+    /// The browser tree, expansion and rename state (UI-07).
+    pub(crate) browser: crate::browser::BrowserState,
+    /// The timeline cache, selection, drag and rename state (UI-08).
+    pub(crate) timeline: crate::timeline::TimelineState,
+    /// The sketch opened for editing from the browser or timeline (UI-07 enters the sketch
+    /// context; UI-09's sketch session takes it from here).
+    pub sketch_edit: Option<amg_doc::FeatureId>,
 }
 
 /// A group of document commands applied as one undo entry at the end of the frame.
@@ -111,6 +118,8 @@ pub(crate) enum ShellRequest {
         crate::scene::HighlightLayer,
         Vec<crate::pick::PickTarget>,
     ),
+
+    EditFeature(DocTabId, amg_doc::FeatureId),
 }
 
 /// Read-only view for enablement, providers and panels.
@@ -162,6 +171,12 @@ impl std::fmt::Debug for AppCx<'_> {
 }
 
 impl<'a> AppCx<'a> {
+    /// The registry with the context's full lifetime (the browser draws providers while it
+    /// holds `&mut self`).
+    pub(crate) fn registry_ref(&self) -> &'a UiRegistry {
+        self.registry
+    }
+
     #[allow(
         clippy::too_many_arguments,
         reason = "crate-internal constructor over the app's disjoint fields"
@@ -269,6 +284,14 @@ impl AppCx<'_> {
     ) {
         self.requests
             .push(ShellRequest::Highlight(self.doc.id, layer, targets));
+    }
+
+    /// Queues editing feature `id` of this document (end of frame): a sketch enters sketch
+    /// mode; another feature starts the tool of its `feature.<kind>` command (UI-05) with
+    /// `ToolInit::edit = Some(id)`; without one an info toast says so (additive, UI-07).
+    pub fn edit_feature(&mut self, id: amg_doc::FeatureId) {
+        self.requests
+            .push(ShellRequest::EditFeature(self.doc.id, id));
     }
 
     /// Queues a file operation (New, Open, Save, …) on this document; it runs at the end of
@@ -483,6 +506,9 @@ impl std::fmt::Debug for AmalgamApp {
     }
 }
 
+/// Feature kind of sketches (S03); double-click opens sketch mode instead of a dialog.
+pub const SKETCH_FEATURE_KIND: &str = "sketch.sketch";
+
 /// Fallback workspace id when no module registered any workspace.
 const NO_WORKSPACE: WorkspaceId = WorkspaceId("design");
 
@@ -574,6 +600,7 @@ impl AmalgamApp {
             if !events.is_empty() {
                 doc.selection
                     .revalidate(&events, doc.document.design(), doc.document.evaluated());
+                doc.browser.on_events(&events, &self.registry);
             }
             if i == self.active {
                 if scene_stale {
@@ -673,6 +700,11 @@ impl AmalgamApp {
                 ShellRequest::OpenPanel(id) => self.open_panel(id),
                 ShellRequest::RunCommand(_) => {}
                 ShellRequest::File(doc, op) => self.file_op(Some(doc), op),
+                ShellRequest::EditFeature(doc, feature) => {
+                    if self.docs.get(self.active).is_some_and(|d| d.id == doc) {
+                        self.edit_feature(feature);
+                    }
+                }
                 ShellRequest::RestoreSelectionSet(doc, name) => {
                     if self.docs.get(self.active).is_some_and(|d| d.id == doc) {
                         self.restore_selection_set(&name);
@@ -756,6 +788,64 @@ impl AmalgamApp {
             CmdAction::Dyn(f) => self.with_cx(|cx| f(cx)),
         }
         true
+    }
+
+    /// Edits feature `id` of the active document now (see [`AppCx::edit_feature`]).
+    pub fn edit_feature(&mut self, id: amg_doc::FeatureId) {
+        let kind = {
+            let doc = &self.docs[self.active];
+            match doc.document.design().timeline().node(id) {
+                Some((_, node)) => node.feature.kind().to_owned(),
+                None => return,
+            }
+        };
+        // The kind's timeline info decides first (UI-08); without one, the UI-07 convention.
+        match self.registry.feature_ui(&kind).map(|i| i.edit) {
+            Some(crate::timeline::EditAction::StartTool(f)) => {
+                let cmd = format!("feature.{kind}");
+                let cid = self
+                    .registry
+                    .commands()
+                    .find(|c| c.id.0 == cmd)
+                    .map_or(crate::timeline::EDIT_TOOL_CMD, |c| c.id);
+                self.start_tool_editing(cid, f, Some(id));
+                return;
+            }
+            Some(crate::timeline::EditAction::NotEditable) => {
+                self.notify(Notification::info(
+                    "This feature can't be edited",
+                    format!("`{kind}` has no editor."),
+                ));
+                return;
+            }
+            Some(crate::timeline::EditAction::SketchMode) => {
+                self.docs[self.active].sketch_edit = Some(id);
+                self.with_cx(|cx| cx.enter_context(crate::design::SKETCH_CONTEXT));
+                return;
+            }
+            Some(crate::timeline::EditAction::GenericDialog) | None => {}
+        }
+        if kind == SKETCH_FEATURE_KIND {
+            self.docs[self.active].sketch_edit = Some(id);
+            self.with_cx(|cx| cx.enter_context(crate::design::SKETCH_CONTEXT));
+            return;
+        }
+        let cmd = format!("feature.{kind}");
+        let tool = self
+            .registry
+            .commands()
+            .find(|c| c.id.0 == cmd)
+            .and_then(|c| match c.action {
+                CmdAction::StartTool(f) => Some((c.id, f)),
+                _ => None,
+            });
+        match tool {
+            Some((cid, f)) => self.start_tool_editing(cid, f, Some(id)),
+            None => self.notify(Notification::info(
+                "Cannot edit this feature yet",
+                format!("No editor is registered for `{kind}`."),
+            )),
+        }
     }
 
     /// Asks for a registered command to run at the end of this (or the next) frame. This is
@@ -874,6 +964,9 @@ impl AmalgamApp {
             tools: ToolState::default(),
             view: None,
             bounds: amg_core::Aabb3::EMPTY,
+            browser: crate::browser::BrowserState::default(),
+            timeline: crate::timeline::TimelineState::default(),
+            sketch_edit: None,
         });
         self.active = self.docs.len() - 1;
         self.start_recovery_session(id);

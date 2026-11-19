@@ -46,9 +46,12 @@ pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     egui::Panel::bottom("amg_status_bar")
         .exact_size(STATUS_BAR_HEIGHT)
         .show(ui, |ui| status_bar(app, ui));
-    egui::Panel::bottom("amg_timeline")
-        .exact_size(TIMELINE_HEIGHT)
-        .show(ui, |ui| timeline(app, ui));
+    // The timeline is hidden in Direct mode (UI-08).
+    if app.active_document().document.design().meta().mode != amg_doc::DesignMode::Direct {
+        egui::Panel::bottom("amg_timeline")
+            .exact_size(TIMELINE_HEIGHT)
+            .show(ui, |ui| app.timeline_ui(ui));
+    }
     egui::Panel::left("amg_browser")
         .default_size(BROWSER_WIDTH)
         .show(ui, |ui| browser(app, ui));
@@ -426,53 +429,7 @@ fn toolbar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
 fn browser(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     ui.strong("BROWSER");
     ui.separator();
-    let doc = &app.docs[app.active];
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            egui::CollapsingHeader::new(doc.name.as_str())
-                .id_salt(("amg_browser_root", doc.id))
-                .default_open(true)
-                .show(ui, |ui| {
-                    for node in [
-                        "Document Settings",
-                        "Named Views",
-                        "Origin",
-                        "Bodies",
-                        "Sketches",
-                    ] {
-                        ui.label(node);
-                    }
-                });
-        });
-}
-
-fn timeline(app: &mut AmalgamApp, ui: &mut egui::Ui) {
-    let doc = &app.docs[app.active];
-    ui.horizontal_centered(|ui| {
-        for (label, tip) in [
-            ("⏮", "Go to start"),
-            ("⏴", "Step back"),
-            ("⏵", "Step forward"),
-            ("⏭", "Go to end"),
-        ] {
-            let _ = ui
-                .add_enabled(false, Button::new(label))
-                .on_disabled_hover_text(tip);
-        }
-        ui.separator();
-        let tl = doc.document.design().timeline();
-        if tl.is_empty() {
-            ui.weak("Timeline is empty");
-        }
-        for node in tl.nodes() {
-            let name = node
-                .name
-                .clone()
-                .unwrap_or_else(|| node.feature.kind().to_owned());
-            let _ = ui.add(Button::new(name).small());
-        }
-    });
+    app.browser_ui(ui);
 }
 
 fn status_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {

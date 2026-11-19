@@ -52,5 +52,13 @@ harness = false
 name = "scene"
 harness = false
 
+[[bench]]
+name = "browser"
+harness = false
+
+[[bench]]
+name = "timeline"
+harness = false
+
 [lints]
 workspace = true

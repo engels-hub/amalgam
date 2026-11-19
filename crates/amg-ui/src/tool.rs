@@ -302,7 +302,11 @@ pub(crate) struct ToolState {
     synth: InputSynth,
     owners: Vec<(egui::PointerButton, Owner)>,
     hover_tickets: Vec<(PickTicket, egui::Pos2)>,
-    hover_shown: Option<PickTarget>,
+    hover_shown: Vec<PickTarget>,
+    /// The hovered timeline error node's entities last written to the Error layer (UI-08); the
+    /// layer is only rewritten when this changes, so `AppCx::set_highlight` users (MESH-23
+    /// defects) keep it otherwise.
+    errors_shown: Vec<PickTarget>,
     selection_shown: Option<u64>,
     /// The active tool draws a dialog (learnt from its first `dialog_ui`).
     pub(crate) dialog: Option<bool>,
@@ -413,6 +417,16 @@ impl AmalgamApp {
         id: CmdId,
         factory: fn(&ToolInit<'_>) -> Box<dyn Tool>,
     ) {
+        self.start_tool_editing(id, factory, None);
+    }
+
+    /// Like `start_tool_with`, with `ToolInit::edit` set (edit an existing feature).
+    pub(crate) fn start_tool_editing(
+        &mut self,
+        id: CmdId,
+        factory: fn(&ToolInit<'_>) -> Box<dyn Tool>,
+        edit: Option<amg_doc::FeatureId>,
+    ) {
         with_state(self, |app, ts| {
             if let Some(a) = &ts.active {
                 let reason = if a.tool.commit_on_replace() {
@@ -428,7 +442,7 @@ impl AmalgamApp {
                 factory(&ToolInit {
                     env,
                     preselection: doc.selection.items(),
-                    edit: None,
+                    edit,
                 })
             };
             tracing::debug!(tool = %id, "tool started");
@@ -547,11 +561,28 @@ impl AmalgamApp {
                 ts.last_tick = None;
             }
             // Highlights.
-            let hover = ts.frame.hover.as_ref().map(|h| h.item.target);
+            // The viewport's hover, else the browser row under the pointer (UI-07), else the
+            // timeline node's output bodies (UI-08).
+            let hover = match ts
+                .frame
+                .hover
+                .as_ref()
+                .map(|h| h.item.target)
+                .or_else(|| app.browser_hover_target())
+            {
+                Some(t) => vec![t],
+                None => app.timeline_hover_targets(),
+            };
             if hover != ts.hover_shown {
-                ts.hover_shown = hover;
                 let list = highlight_targets(&app.scene, hover.iter());
                 app.scene.set_highlight(HighlightLayer::Hover, &list);
+                ts.hover_shown = hover;
+            }
+            // A hovered error node's diagnostic entities (UI-08).
+            let errors = app.timeline_error_targets();
+            if errors != ts.errors_shown {
+                app.scene.set_highlight(HighlightLayer::Error, &errors);
+                ts.errors_shown = errors;
             }
             let sel = &app.docs[active].selection;
             if ts.selection_shown != Some(sel.revision()) {
