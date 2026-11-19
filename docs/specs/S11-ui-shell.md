@@ -2103,3 +2103,17 @@ additive pieces UI-05 should render:
   `ExprResponse::{changed, error_span, message, hint, is_valid}`, `SelectionField::mirror`,
   `DialogFrame::{help, show_inside}`; the router intersects the active tool's pick filter with
   `widgets::active_selection_filter`.
+
+### 2026-11-18: MESH-23 (lane C, flagged for lane D)
+- **`AppCx::set_highlight(layer, targets)`** (additive): queues a `ShellRequest::Highlight` that
+  replaces a highlight layer at the end of the frame while the requesting document is active.
+  Body targets are expanded to every displayed instance of their body
+  (`tool::all_instances`, crate-private; an undisplayed body's target is kept as given). The
+  router keeps owning `Hover` and `Selected`; the Mesh Analysis panel (`amg_ui::mesh`) uses
+  `Error` for defective faces. About 25 added lines in `app.rs` / `tool.rs`, nothing else in
+  the framework changed. A later per-module highlight-layer API (or RND-08 overlays) can
+  replace it.
+- `amg-ui` gains a normal dependency on `amg-mesh` (workspace crate; the panel runs the MESH-02
+  analysis) and dev-dependencies `amg-mesh` (`corpus`) and `amg-io` (MESH-23 tests).
+- The mesh commands' labels end in `…` (dialog commands): a plain "Remesh" would tie with the
+  `test.remesh` fixture of `tests/commands.rs` in S-key search.

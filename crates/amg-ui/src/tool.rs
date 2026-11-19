@@ -746,6 +746,34 @@ fn highlight_targets<'t>(
     out
 }
 
+/// `targets` with every body target repeated for each displayed instance of its body
+/// (`AppCx::set_highlight`, additive MESH-23).
+pub(crate) fn all_instances(scene: &SceneAdapter, targets: &[PickTarget]) -> Vec<PickTarget> {
+    let mut out = Vec::with_capacity(targets.len());
+    let mut instances: Option<(amg_doc::BodyId, Vec<u32>)> = None;
+    for t in targets {
+        match *t {
+            PickTarget::Body { body, sub, .. } => {
+                if instances.as_ref().is_none_or(|(b, _)| *b != body) {
+                    instances = Some((body, scene.pick_map().instances_of(body)));
+                }
+                match &instances {
+                    // Not displayed yet: kept as given, resolved once it is.
+                    Some((_, list)) if list.is_empty() => out.push(*t),
+                    Some((_, list)) => out.extend(list.iter().map(|&instance| PickTarget::Body {
+                        body,
+                        instance,
+                        sub,
+                    })),
+                    None => {}
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// The selection box: a window has a solid outline, a crossing a dashed one, both over a light
 /// fill.
 fn paint_box(
