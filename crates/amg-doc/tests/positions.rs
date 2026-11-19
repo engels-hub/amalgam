@@ -909,6 +909,8 @@ proptest! {
                 name: None,
             });
         }
+        // Undo stops at the fixture setup (undoing it would delete the occurrences).
+        let base = fx.doc.history().stack().applied();
         let occs = [fx.o, fx.p];
         for s in steps {
             match s {
@@ -929,7 +931,11 @@ proptest! {
                     let n = fx.doc.design().timeline().len();
                     let _ = fx.doc.apply(Command::SetMarker { index: usize::from(m).min(n) });
                 }
-                Step::Undo => { fx.doc.undo(); }
+                Step::Undo => {
+                    if fx.doc.history().stack().applied() > base {
+                        fx.doc.undo();
+                    }
+                }
                 Step::Redo => { fx.doc.redo(); }
                 Step::Place(i, x) => {
                     let _ = fx.doc.apply(Command::SetOccurrenceTransforms {
