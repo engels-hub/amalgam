@@ -1129,6 +1129,14 @@ impl SceneAdapter {
             .collect()
     }
 
+    /// The body → world transform of the displayed instance `instance` of `body` (`None` if it
+    /// is not displayed; additive, INS-08: measurements on picked mesh faces).
+    pub fn instance_world(&self, body: BodyId, instance: u32) -> Option<Transform> {
+        let key = self.core.pick.body_key(body, instance)?;
+        let e = self.bodies.get(&body)?;
+        e.instances.iter().find(|i| i.key == key).map(|i| i.world)
+    }
+
     /// World corners and mesh vertex indices of face `face` of the instance `key`, for display
     /// meshes whose faces are their triangles (mesh bodies). `None` for B-rep display meshes
     /// (faces span triangle ranges) and unknown keys. CPU edge and vertex picks (UI-04).

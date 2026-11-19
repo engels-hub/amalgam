@@ -24,6 +24,8 @@ pub struct ViewportFrame<'a> {
     pub doc: DocTabId,
     /// The document's camera (UI-03).
     pub camera: &'a Camera,
+    /// The active tool's overlays to draw this frame (RND-07; additive, INS-08).
+    pub overlays: &'a amg_render::OverlayList,
 }
 
 /// Draws the 3D view into the viewport tab.
@@ -145,7 +147,10 @@ impl ViewportBackend for RenderViewport {
             if set_bg {
                 v.style.background = Background::Solid(bg);
             }
-            Some(v.style)
+            let style = v.style;
+            // The tool's immediate-mode overlays (INS-08): replaced every frame.
+            r.scene_mut().begin_overlays().clone_from(frame.overlays);
+            Some(style)
         })
         .flatten();
         self.background = Some(bg);
