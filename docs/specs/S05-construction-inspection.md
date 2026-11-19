@@ -778,7 +778,7 @@ pub mod display {
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | INS-01 | `amg-features::inspect::measure` core on meshes: operands, `measure_one`/`measure`, exact min distance (dual BVH, tri–tri), angles, centres, smart planar region, feature chains, plane/circle fits, `snap_on_face`, `report_rows` | MESH-02, MESH-03, FND-10 | P0 | Done | Tests pass. 1. **Analytic:** a 10 mm cube gives face area 100 ± 1e-9 mm², edge length 10 ± 1e-12, opposite-face distance 10 ± 1e-12 and angle 180°, adjacent faces 90° ± 1e-12 rad, body volume 1000 ± 1e-9. A point 5 mm above the face centre gives distance 5 ± 1e-12. 2. **Brute force:** `min_distance` equals the O(n·m) brute force (≤ 1e-12 mm absolute, same witness features) on 1 000 random pairs of 1–2 k-tri meshes under random rigid transforms, including intersecting, touching and nested configurations. 3. A tessellated 128-segment hole r = 5 in a block: one feature-edge pick gives a closed 128-edge chain with fit radius 5 ± 1e-9 (vertices on the circle). A 64-segment chain with σ = 0.002 mm noise gives radius 5 ± 0.005. 4. `grow_planar_region` on a CAD-exported STL (corpus, f32) returns exactly the ground-truth face set of 10 planar faces. 5. Non-rigid transform → `NonRigidTransform`. 6. Bit-identical results with 1 and 16 threads. 7. Criterion: point → 1 M-tri body < 0.1 ms median; two separated 1 M-tri bodies (gap ≥ 1 mm) < 20 ms; concentric icospheres r = 50 / 50.1 (1 M each) < 3 s, cancellable within 50 ms. |
-| INS-08 | Measure tool in `amg-ui::inspect`: hand-built dialog (filters, smart toggle, 3-point circle, precision, units, results with copy), snapping, job-backed results with supersede, RND-07 overlay (witness line, Δ, angle arc, circle) | INS-01, MESH-16, UI-02, UI-03, UI-04, UI-10, RND-04, RND-07 | P0 | Todo | Manual script on 3 corpus models: measure a hole diameter (1 click), a wall distance, an angle between two faces, a body volume; values equal the INS-01 API values for the same picks. Snap to vertex within 8 px and to edge within 5 px (automated test with a synthetic camera). No frame > 16 ms in the tracing profile while measuring two 1 M-tri bodies. A newer selection cancels the running job within 50 ms. Results use the document display unit and the chosen precision (`1/4 in` part shows inches). |
+| INS-08 | Measure tool in `amg-ui::inspect`: hand-built dialog (filters, smart toggle, 3-point circle, precision, units, results with copy), snapping, job-backed results with supersede, RND-07 overlay (witness line, Δ, angle arc, circle) | INS-01, MESH-16, UI-02, UI-03, UI-04, UI-10, RND-04, RND-07 | P0 | Review | Manual script on 3 corpus models: measure a hole diameter (1 click), a wall distance, an angle between two faces, a body volume; values equal the INS-01 API values for the same picks. Snap to vertex within 8 px and to edge within 5 px (automated test with a synthetic camera). No frame > 16 ms in the tracing profile while measuring two 1 M-tri bodies. A newer selection cancels the running job within 50 ms. Results use the document display unit and the chosen precision (`1/4 in` part shows inches). |
 | INS-02 | `amg-features::inspect::section` caps on meshes: loop orientation, CDT with split constraints, non-zero / even–odd fill, multi-plane clipping (≤ 6), outlines, open curves, `SectionStats`, `section_plane` | MESH-09 | P0 | Review | Tests pass. 1. **Watertight (note §3.4):** for every watertight MESH-28 corpus model and 3 seeded random planes, `plane_cut(keep = Negative, cap = false)` + caps welded at the snap tolerance is closed and manifold (100 %), including planes exactly through vertices and edges. 2. Cap area: 128-gon cylinder r = 10, perpendicular cut = ½·128·r²·sin(2π/128) within 1e-9 relative; axial cut = 2r·h exactly within 1e-9 relative. 3. Two overlapping closed cubes (one STL, two shells): cap area = area of the union of the squares (non-zero rule). 4. Box section with 6 planes: each cap lies inside the other 5 kept half-spaces (vertices ≤ 1e-9 mm outside). 5. Open cube (one face deleted): open curve reported, no cap through the gap. 6. Shoelace area of the oriented loops equals the cap triangle area within 1e-9 relative. 7. 1 M-tri body, one plane: < 50 ms; 10 M: < 500 ms. Deterministic across thread counts. |
 | INS-09 | Section Analysis tool + persistence: `SectionAnalysis` ExtRecord (`inspect.section` v1, migration hook), hand-built dialog (origin plane / picked planar region, offset expression + slider, tilt, flip, hatch, cap colour, scope), browser "Analysis" folder entries, combining visible analyses, cap jobs feeding RND-06, stats panel | INS-02, INS-08, DOC-05, DOC-07, UI-07, RND-06 | P0 | Todo | Creating, editing, hiding and deleting a section are each one undo step and survive save/load byte-identically. Two visible analyses combine (box-corner cut visible in a screenshot test with RND-09, or a manual check before RND-09). Dragging the offset slider on a 1 M-tri body keeps ≥ 60 fps (GPU clip), and caps catch up ≤ 100 ms after the drag stops. Phase 1 manual script: open STL → section at XY + 10 mm → read the section area → flip → hatch on → save → reopen. |
 | INS-03 | Physical properties of mesh bodies: `props::mesh_mass_props`, `combine`, density from material with default material, Properties panel, CoM glyph | INS-01, INS-08, MAT-06 | P0 | Todo | 1. A 10×20×30 box rotated by 20 random rotations and translated: volume 6000 ± 1e-9, CoM within 1e-9 mm, inertia = R·diag(m(b²+c²)/12, …)·Rᵀ within 1e-9 relative. 2. Icosphere r = 10: volume and inertia converge to the analytic sphere values (error falls ≥ 3.5× per subdivision level). 3. Translating a body changes `inertia_com` by < 1e-9 relative. 4. Non-watertight → volume-based fields `None` with a reason; area still given. 5. `combine` of two halves equals the whole within 1e-9 relative. 6. 1 M tris < 30 ms; 10 M < 300 ms; bit-identical across thread counts. 7. Mass of a 1000 mm³ PLA cube shows 1.24 g. |
@@ -1221,6 +1221,84 @@ pass; bench in release on the shared wave machine):
   splitting, so this was left.
 - Golden section stats for 10 corpus models (`tests/golden/inspect/`, S05 §Testing) are not
   added yet; they fit with INS-03's mass-property goldens.
+
+### 2026-11-19 - INS-08 Measure tool in `amg-ui::inspect` (lane A)
+
+*Landed* in `amg-ui::inspect` (lane A's module; it was a stub). No new dependency.
+- `inspect::MEASURE_CMD` ("Measure", shortcut `I`, keywords distance / angle / diameter / …):
+  pinned in INSPECT ▸ Inspect, also in SOLID ▸ Inspect and S-key search; enabled while the
+  design has a mesh body. It starts `inspect::measure::MeasureTool`.
+- **Dialog** (hand-built on `DialogFrame`, `SelectionField`, `toggle`, `ChoiceField`):
+  filter check boxes Body / Face / Edge / Vertex / Point (default Face + Edge + Vertex; a
+  pick becomes the first kind that applies, in the order vertex, edge, face, point, body),
+  *Smart selection*, *3-point circle*, length unit (default the document `UnitPrefs`) and
+  angle unit (deg / rad), precision 0–6 (− / + buttons, default `FormatSpec::for_unit`),
+  Selection 1 / 2, Restart, Pin / Clear pins, and the results table (`report_rows`) with a
+  copy button per row plus Copy all (copies the displayed text). OK and Esc close it;
+  nothing is committed.
+- **Picking and snapping** (`inspect::snap`): the tool picks faces (`EntityFilter::FACE`), so
+  it gets the triangle index and the click ray; `snap_on_face` (INS-01) snaps to a vertex
+  within 8 px, else an edge within 5 px (`Camera::pixel_size_at` at the hit, physical px).
+  Kinds the filter cannot use do not snap. Smart selection grows faces with
+  `grow_planar_region` and edges with `grow_feature_chain` (30°); Alt-click keeps the single
+  triangle or edge. A closed chain gets INS-01's circle fit, so a hole diameter is one click.
+  Preselected mesh bodies / faces become Selection 1 and 2.
+- **Jobs and supersede:** only picks without smart growth whose `estimated_cost` is `Inline`
+  are resolved and measured on the UI thread; everything else (resolution included) is one
+  `Interactive` job labelled "Measure". Every selection change bumps a generation, cancels
+  the running job and spawns the new one; late results of old generations are dropped.
+- **Overlay** (`inspect::overlay`, RND-07 `OverlayList`, always on top): witness line, end
+  points and distance label, dashed ΔX / ΔY / ΔZ legs with labels, an angle arc (48 px) with
+  its label, fitted / 3-point circles with ⌀ label, pick markers, picked chains and the hover
+  snap marker. Pin keeps a copy until the tool closes. Picked faces / regions / bodies are on
+  the `Preview` highlight layer (cleared on close).
+- `inspect::measure_snapshot(ctx)`: the tool's state (operands, report, rows, prefs, running
+  and superseded jobs) for tests and scripts.
+- Framework hooks (minimal, additive, recorded under S11 Interface changes 2026-11-19):
+  `Tool::overlay` + `AmalgamApp::tool_overlays`, `ViewportFrame::overlays` (copied into
+  `RenderScene::begin_overlays` by `RenderViewport`), `SceneAdapter::instance_world`. No change
+  in `amg-render` (its RND-07 API was enough).
+
+*Done-when evidence* (`crates/amg-ui/tests/measure_tool.rs`, kittest + CPU picking, dev
+profile, shared machine):
+1. Corpus script (`phase1_measure_script_on_three_corpus_models`, LFS pointers skipped unless
+   `AMG_REQUIRE_TESTDATA=1`), each step through viewport clicks; every report equals the INS-01
+   API result for the same picks (`assert_eq!` on `MeasureReport`; for the hole the clicked
+   chain has the aimed rim's vertex set and the same radius within 1e-9):
+   - `thingi10k/232912`: hole ⌀ 36.4 mm (one click), wall 4 mm, angle 90°, volume
+     19 523.404 mm³;
+   - `thingi10k/36371`: hole ⌀ 19 mm, wall 1.5 mm, angle 90°, volume 23 052.347 mm³;
+   - `thingi10k/1750623`: hole ⌀ 70 mm, wall 24.04 mm, angle 90°, volume 71 404.363 mm³.
+2. Snapping with a synthetic camera (`inspect::snap` unit tests, 1 and 2 px/pt): 7.5 px from a
+   vertex → vertex, 8.5 px along an edge → edge; 4.5 px from an edge → edge, 5.5 px → face.
+   In the app a click 4 px from a cube corner gives a vertex, and one away from edges a face.
+3. Two 1 M-tri bodies (2 007 040 faces, Body filter, two clicks, job to the pair result):
+   505 frames in 1.44 s, p50 0.43 ms, p99 0.94 ms, **max 2.6 ms**, 0 over 16 ms (`amg_ui.frame`
+   spans; assert only under `AMG_STRICT_TIMING=1`). The test warms the CPU pick service's BVH
+   first (tests only; the app picks on the GPU).
+4. A newer selection cancels the running job (nested spheres, a long min-distance job): the
+   job ended **1.9–2.5 ms** after the cancel over 4 runs (< 50 ms; strict assert under
+   `AMG_STRICT_TIMING=1`), and the new selection is measured.
+5. A 1/4 in cube in an inch document: rows `0.016 in^3`, `0.375 in^2` at the default
+   precision 3; − gives `0.02 in^3`, + + gives `0.0156 in^3`; Copy Volume writes
+   `0.0156 in^3`. The cube test checks 10 mm / 180° (opposite faces), 90° (adjacent), area
+   100 mm², Alt-click single triangle 50 mm², the overlay counts, Pin and restart.
+
+*Manual script for the owner* (real app, GPU picking): open each of the three STLs above;
+press `I`; (1) click a hole's rim edge → Diameter; (2) Restart, click a face, then the
+opposite face → Minimum distance with the witness line and Δ legs; (3) Restart, two adjacent
+faces → Angle with the arc; (4) Restart, filter Body only, click the part → Volume; set the
+document unit to inches (or open an inch part) and check the units; change precision; Copy;
+Pin; Esc. Watch the frame time with the tracing profile while measuring two 1 M-tri bodies.
+
+*Deviations / leftovers:*
+- The GPU path (RND-04 `GpuPickService` + overlay drawing in `RenderViewport`) is not covered
+  by automated tests here (headless kittest uses `NullViewport` and CPU picks); the manual
+  script covers it.
+- Changing the filter or smart toggle applies to the next pick (existing picks are not
+  re-resolved).
+- Units offer mm, cm, m, in, ft, µm; areas / volumes follow INS-01's `area_unit` /
+  `volume_unit` (ft → in², µm → mm²).
 
 ## Interface changes
 

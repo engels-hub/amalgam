@@ -2365,3 +2365,19 @@ additive pieces UI-05 should render:
   to MESH-23's): the router's hover state is now a `Vec<PickTarget>`, the Hover layer falls back
   to the browser hover and then to the hovered timeline node's output bodies, and the Error
   layer shows the hovered error node's diagnostic entities.
+
+### 2026-11-19: INS-08 (lane A, S05 Measure tool) — small additive framework hooks
+Flagged for lane D review. No change to `amg-render`, `amg-doc`, `amg-core` or `amg-jobs`, and no
+new dependency. The Measure tool lives in `amg-ui::inspect` (lane A's module).
+- **`tool`:** `Tool::overlay(&mut self, out: &mut amg_render::OverlayList, cx: &ToolCx)` (default
+  no-op). The router calls it once per frame after `update` (active tools only) into a per-document
+  `ToolState::overlay`, cleared when the tool finishes; `AmalgamApp::tool_overlays()` reads it
+  (tests). This is the UI-03 "non-committing tools that own overlays" request of 2026-10-20.
+- **`viewport`:** `ViewportFrame::overlays: &OverlayList` (the shell passes the active document's
+  list). `RenderViewport` copies it into `RenderScene::begin_overlays()` inside its existing
+  `with_renderer` lock each frame; labels were already projected and egui-painted there. The
+  `NullViewport` ignores it. Struct literals of `ViewportFrame` outside the crate need the new
+  field (there are none).
+- **`scene`:** `SceneAdapter::instance_world(body, instance) -> Option<Transform>`, the body →
+  world transform of a displayed instance (measurements need the rigid `to_world` of the picked
+  instance).

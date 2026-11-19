@@ -104,6 +104,10 @@ pub trait Tool: 'static {
     fn commit_on_replace(&self) -> bool {
         false
     }
+    /// The tool's RND-07 overlays for this frame (immediate mode): called once per frame
+    /// after [`Tool::update`] with an empty list, which the viewport then draws (additive,
+    /// INS-08).
+    fn overlay(&mut self, _out: &mut amg_render::OverlayList, _cx: &ToolCx<'_>) {}
     /// `Commit` → Some(batch) to apply (or None if nothing to do); `Cancel`/`Replaced` → None.
     fn finish(&mut self, reason: FinishReason, cx: &mut ToolCx<'_>) -> Option<CommitBatch>;
 }
@@ -313,6 +317,8 @@ pub(crate) struct ToolState {
     last_tick: Option<Instant>,
     /// The pointer was over the viewport in the last routed frame.
     pointer_inside: bool,
+    /// The active tool's overlays of this frame ([`Tool::overlay`]; additive, INS-08).
+    pub(crate) overlay: amg_render::OverlayList,
 }
 
 impl std::fmt::Debug for ToolState {
@@ -407,6 +413,7 @@ fn finish_active(app: &mut AmalgamApp, ts: &mut ToolState, reason: FinishReason)
     ts.frame.dialog_filter = None;
     ts.dialog = None;
     ts.owners.clear();
+    ts.overlay.clear();
 }
 
 impl AmalgamApp {
@@ -481,6 +488,12 @@ impl AmalgamApp {
         self.picks.pending() > 0 || ts.picks_pending() || ts.frame.preview.is_busy()
     }
 
+    /// The active tool's overlays of the active document's last routed frame
+    /// ([`Tool::overlay`]; additive, INS-08).
+    pub fn tool_overlays(&self) -> &amg_render::OverlayList {
+        &self.docs[self.active].tools.overlay
+    }
+
     /// The status hint of the active tool.
     pub(crate) fn tool_hint(&self) -> Option<Cow<'static, str>> {
         let a = self.docs[self.active].tools.active.as_ref()?;
@@ -527,6 +540,13 @@ impl AmalgamApp {
             if let Some(reason) = ts.frame.finish.take() {
                 finish_active(app, ts, reason);
             }
+            // The active tool's overlays (INS-08); the select tool has none.
+            let mut overlay = std::mem::take(&mut ts.overlay);
+            overlay.clear();
+            if ts.active.is_some() {
+                with_tool(app, ts, |t, cx| t.overlay(&mut overlay, cx));
+            }
+            ts.overlay = overlay;
             // Preview → scene preview layer.
             let up = {
                 let doc = &app.docs[active];
