@@ -51,5 +51,9 @@ harness = false
 name = "browser"
 harness = false
 
+[[bench]]
+name = "timeline"
+harness = false
+
 [lints]
 workspace = true

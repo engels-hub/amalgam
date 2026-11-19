@@ -37,6 +37,8 @@ pub struct UiRegistry {
     tessellators: Vec<(&'static str, Arc<dyn BodyTessellator>)>,
     /// Browser providers in registration order (UI-07).
     browser_providers: Vec<(&'static str, Box<dyn BrowserProvider>)>,
+    /// Timeline node info by feature kind (UI-08).
+    feature_uis: BTreeMap<&'static str, (&'static str, crate::timeline::FeatureUiInfo)>,
 }
 
 impl fmt::Debug for UiRegistry {
@@ -64,6 +66,7 @@ impl fmt::Debug for UiRegistry {
                     .map(|(_, p)| p.id())
                     .collect::<Vec<_>>(),
             )
+            .field("feature_uis", &self.feature_uis.keys().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -165,6 +168,28 @@ impl UiRegistry {
     /// are not among them).
     pub fn browser_providers(&self) -> impl Iterator<Item = &dyn BrowserProvider> + '_ {
         self.browser_providers.iter().map(|(_, p)| p.as_ref())
+    }
+
+    pub(crate) fn add_feature_ui(
+        &mut self,
+        module: &'static str,
+        info: crate::timeline::FeatureUiInfo,
+    ) {
+        if let Some((first, _)) = self.feature_uis.get(info.kind) {
+            conflict("feature UI info", info.kind, first, module);
+            return;
+        }
+        self.feature_uis.insert(info.kind, (module, info));
+    }
+
+    /// The timeline info of a feature kind (UI-08), if a module registered one.
+    pub fn feature_ui(&self, kind: &str) -> Option<&crate::timeline::FeatureUiInfo> {
+        self.feature_uis.get(kind).map(|(_, i)| i)
+    }
+
+    /// Every registered feature UI info, in kind order.
+    pub fn feature_uis(&self) -> impl Iterator<Item = &crate::timeline::FeatureUiInfo> + '_ {
+        self.feature_uis.values().map(|(_, i)| i)
     }
 
     /// The modules that registered tessellators, in registration order.

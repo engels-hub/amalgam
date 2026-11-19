@@ -302,7 +302,7 @@ pub(crate) struct ToolState {
     synth: InputSynth,
     owners: Vec<(egui::PointerButton, Owner)>,
     hover_tickets: Vec<(PickTicket, egui::Pos2)>,
-    hover_shown: Option<PickTarget>,
+    hover_shown: Vec<PickTarget>,
     selection_shown: Option<u64>,
     /// The active tool draws a dialog (learnt from its first `dialog_ui`).
     pub(crate) dialog: Option<bool>,
@@ -557,18 +557,26 @@ impl AmalgamApp {
                 ts.last_tick = None;
             }
             // Highlights.
-            // The viewport's hover, else the browser row under the pointer (UI-07).
-            let hover = ts
+            // The viewport's hover, else the browser row under the pointer (UI-07), else the
+            // timeline node's output bodies (UI-08).
+            let hover = match ts
                 .frame
                 .hover
                 .as_ref()
                 .map(|h| h.item.target)
-                .or_else(|| app.browser_hover_target());
+                .or_else(|| app.browser_hover_target())
+            {
+                Some(t) => vec![t],
+                None => app.timeline_hover_targets(),
+            };
             if hover != ts.hover_shown {
-                ts.hover_shown = hover;
                 let list = highlight_targets(&app.scene, hover.iter());
                 app.scene.set_highlight(HighlightLayer::Hover, &list);
+                ts.hover_shown = hover;
             }
+            // A hovered error node's diagnostic entities (UI-08).
+            let errors = app.timeline_error_targets();
+            app.scene.set_highlight(HighlightLayer::Error, &errors);
             let sel = &app.docs[active].selection;
             if ts.selection_shown != Some(sel.revision()) {
                 ts.selection_shown = Some(sel.revision());

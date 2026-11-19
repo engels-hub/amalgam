@@ -182,6 +182,12 @@ impl Registrar<'_> {
         self.reg.add_browser_provider(self.module, p);
     }
 
+    /// Adds the timeline info of a feature kind (UI-08): icon, display name and edit action.
+    /// A duplicate kind is a registration conflict.
+    pub fn feature_ui(&mut self, info: crate::timeline::FeatureUiInfo) {
+        self.reg.add_feature_ui(self.module, info);
+    }
+
     /// Adds a body tessellator (UI-20). The most recently registered one that handles a
     /// `BodyGeom` variant is used.
     pub fn tessellator(&mut self, t: impl crate::scene::BodyTessellator) {
