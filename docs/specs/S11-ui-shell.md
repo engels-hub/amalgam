@@ -909,7 +909,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-08 | Timeline panel: node icons via `FeatureUiInfo`, groups, rollback marker drag (`SetMarker`), drag reorder with valid-range shading (`MoveFeature`), context menu, health badges + tooltips, hover highlight of outputs and error entities, recompute progress ring, hidden in Direct mode | UI-04, DOC-05, DOC-12 | P0 | Done | 1. Kittest on a 20-node test timeline: dragging the marker to index 5 sends `SetMarker{5}`, and nodes ≥ 5 render as rolled back. 2. Dragging a node before its input is refused (no command sent, red shading shown). A valid move sends one `MoveFeature`. 3. An erroring test feature shows an error badge with the diagnostic message as tooltip. 4. Suppress/rename/delete/group via the context menu each give one undo entry. 5. 500 nodes render < 1 ms (criterion). |
 | UI-10 | Job/progress panel (`JobSystem::jobs()`, grouped, cancel), status-bar recompute/job indicators, toasts from `Diagnostic` (severity, hint, details via `report`, copy, open log folder), cancelled-is-not-error rule, GPU device-lost banner | UI-01, FND-04, FND-07 | P0 | Done | 1. Kittest: a 2 s test job shows progress; pressing Cancel resolves it as `Cancelled` within 200 ms and no error toast appears. 2. A failing job with an `amg_core::Error::InvalidArgument` shows the user message and hint, and "Details" contains the `report` chain. 3. Info toasts auto-hide after 6 s, and errors stay. 4. Simulated `is_lost()` shows the banner and Save stays enabled. |
 | UI-19 | File operations & recovery: New/Open/Open Recent/Save/Save As/Save Compact, `rfd` on a dedicated thread parented to the window, save/load as jobs with progress, dirty-close prompt (`CancelClose` + `Modal`), recovery dialog from `find_recoverable`, `RecoverySession::on_commit` per batch, `Placement::Menu` slots for Import/Export | UI-10, DOC-07, DOC-14 | P0 | Done | 1. Kittest with a fake file-dialog backend (trait): save → reopen gives an equal `design.json`. 2. Closing a dirty document shows the prompt, and Cancel keeps the app open. 3. Kill test: commit 5 commands, abort the process, restart → the recovery dialog offers the document and "Open recovered" restores it. 4. Opening a 50 MB file never blocks a frame > 16 ms (tracing assertion). |
-| UI-21 | Marking menu: radial 8 wedges + overflow + repeat-last, click/gesture/hold modes, `MarkingMenuProvider` + `ContextMenuProvider` APIs, framework default provider | UI-03, UI-04 | P0 | Todo | 1. Kittest: right-click opens the menu, clicking the N wedge runs its command. A right-drag gesture toward E runs E's command without the menu staying open. 2. "Repeat <last>" runs the previous command. 3. A test provider adds an entry for a selected mesh body only (context check). 4. Every wedge is queryable by label. |
+| UI-21 | Marking menu: radial 8 wedges + overflow + repeat-last, click/gesture/hold modes, `MarkingMenuProvider` + `ContextMenuProvider` APIs, framework default provider | UI-03, UI-04 | P0 | Review | 1. Kittest: right-click opens the menu, clicking the N wedge runs its command. A right-drag gesture toward E runs E's command without the menu staying open. 2. "Repeat <last>" runs the previous command. 3. A test provider adds an entry for a selected mesh body only (context check). 4. Every wedge is queryable by label. |
 | UI-12 | Parameters dialog: table (favourite, name, unit, expression, value, comment), user/model grouping, filter, add/delete/rename/edit/favourite via S01 commands, inline cycle/unit errors | UI-15, DOC-05 | P0 | Todo | 1. Kittest: add user param `w = 20 mm`, set a model param to `w * 2` → value `40.00 mm`. Renaming `w` → `width` rewrites the model param text. 2. `a = b`, `b = a` shows a cycle error on the second edit, and the document is unchanged. 3. Each edit is one undo entry. 4. 1 000 params render < 2 ms (criterion). |
 | UI-22 | Solid body display: `BodyTessellator` for `BodyGeom::Solid` via BREP-08 (per-face ranges → face sub-ids, edge polylines → edge sub-ids), quality presets, latest-wins re-tessellation | UI-20, BREP-08 | P0 | Todo | 1. A STEP test part (≥ 1 000 faces) displays with every face and edge pickable (PickMap round-trip). 2. Editing an upstream parameter re-tessellates only changed bodies (counter). 3. Tessellation runs on a job (no frame > 16 ms). |
 | UI-09 | Sketch mode core: Create/Edit/Finish Sketch, plane pick, look-at, SKETCH contextual tab + Sketch Palette (grid, snap, show profile/points/dimensions/constraints, slice), working copy + `SolverState` job (latest-wins), `analyze` → DOF colouring + status DOF, overlay rendering of curves/points/profiles, select & drag (`DragSession` → `CommitDrag`), inference engine on `query::snap_candidates` (glyphs, alignment lines, auto-constraints, Ctrl suppress), heads-up numeric input, Line tool | UI-03, UI-04, UI-15, SK-04, SK-05, SK-19, SK-20, RND-07 | P0 | Todo | 1. Kittest: create a sketch on XY, draw a closed 4-segment line chain using inference → 4 coincident + 2 horizontal + 2 vertical constraints auto-added, 1 profile detected. 2. DOF shown = 4 for that rectangle, entities coloured `Under`. 3. Dragging a corner for 1 000 frames: p95 UI-thread time < 2 ms per frame and no frame > 16 ms. Release = exactly one undo entry. 4. Undo inside the session reloads the working copy. 5. Finish Sketch leaves sketch mode and the timeline shows the sketch node with health Ok. |
@@ -2169,6 +2169,95 @@ and `cargo fmt --all --check` are clean.
 - Owner check in `amg-app`: the strip with real fonts, and the progress ring during a slow
   recompute.
 
+### 2026-11-19 - UI-21 marking menu and context-menu providers
+
+*Landed in `amg-ui` (status `Review`):*
+- **`marking`** (new module): `Wedge` (as §A, plus `ALL`, `index`, `dir`, `from_dir`, `name`),
+  `MarkingMenuBuilder` (`wedge`, `overflow` as §A, plus `wedge_any` = first registered of
+  several ids, `new`, `len`, `is_empty`), `MarkingMenuProvider` (as §A, `'static`),
+  `ContextTarget` (as §A), `ContextMenuProvider` (as §A, `'static`), `MarkingMenu` (resolved
+  `wedges`, `overflow`, `repeat`; `build`, `resolve`, `wedge`, `contains`), `OpenMarkingMenu`
+  (`center`, `menu`, `held`, `hot_wedge`), `context_menu_commands`, `context_menu_ui`,
+  `FrameworkMarkingMenu` + `marking::defaults`, constants `GESTURE_PT` (12), `CLICK_SLOP_PT`
+  (4), `HOLD` (300 ms), `RADIUS_PT`, `DEAD_ZONE_PT`, `OUTER_PT`.
+  - **Contents:** providers fill highest priority first (ties in registration order); the
+    first claim of a wedge wins, a later claim of a taken wedge goes to the overflow list;
+    claims of unregistered commands are skipped (so a later claim can take the wedge) and a
+    command appears once. Then the `ContextMenuProvider`s' entries for
+    `ContextTarget::Viewport(hovered)` go to the overflow list. "Repeat" is the most recent
+    command in the search recency list that is registered, except undo / redo / search.
+  - **Framework provider** (priority 0, registered by the `app` module): W `edit.undo`, E
+    `edit.redo`, N `sketch.sketch` | `feature.sketch.sketch`, NE `solid.press_pull` |
+    `feature.solid.press_pull` | `feature.solid.extrude`, SW `solid.move` | `feature.solid.move`,
+    S `edit.delete`, SE `inspect.measure`. Only undo / redo exist today; the others appear once
+    their lanes register those ids (see Interface changes).
+  - **Gestures** (right button, no modifier, when the active tool ignores the press; the
+    menu is built at the press, so it reflects that frame's selection and hover): release
+    within 12 pt before 300 ms opens the menu (it stays open); a drag beyond 12 pt runs the
+    wedge in the drag direction on release without opening anything (a trail with the
+    target's label follows the pointer); holding 300 ms with < 4 pt of movement opens it while
+    held, and the release over a wedge runs it (in the centre it stays open). While open:
+    clicking a wedge button, "Repeat <label>" or an overflow row runs it; a viewport press in
+    a wedge's sector (20..260 pt from the centre) runs that wedge; any other press or `Esc`
+    closes it. The press that closed the menu and the release that ended a gesture are
+    swallowed up to their click / drag end, so they never select. Commands run through
+    `request_command` (end of frame, enablement checked, recorded for recency). Disabled
+    entries show their reason as tooltip.
+  - The router (`tool`): the marking state lives in the per-document `ToolState`; it is the
+    popup step before the tool for pointer events, and `Esc` closes it before cancelling a
+    tool.
+- **Context providers wired** into the browser row menu (`ContextTarget::Browser(key)`, after
+  Rename / Show / Hide and `BrowserProvider::context_menu`) and the timeline node menu
+  (`ContextTarget::Timeline(id)`, after Find in Browser), behind a separator.
+- `Registrar::{marking_menu, context_menu}`, `UiRegistry::{marking_menu_providers,
+  context_menu_providers, marking_menu_owners}`, `AmalgamApp::{marking_menu,
+  open_marking_menu, close_marking_menu}`.
+
+*Evidence (Done-when; `tests/marking.rs`, 6 kittest tests on the real app, plus 3 unit tests in
+`marking::tests`):*
+1. `right_click_opens_the_menu_and_clicking_n_runs_it_and_a_gesture_runs_e`: a right click at
+   the viewport centre opens the menu there (not held, still open two frames later); clicking
+   the "Wedge N" button runs N once and closes it. A right drag of 80 pt to the right runs E
+   once on release, and `marking_menu()` is `None` after every one of the 8 drag steps and
+   after the release. A click in the S sector (not on the button) runs S; a click in the
+   centre and `Esc` only close it.
+   `holding_the_right_button_opens_the_menu_and_releasing_over_a_wedge_runs_it` covers hold
+   mode (held, release over W runs W; a release in the centre keeps it open).
+2. `repeat_runs_the_previous_command`: no "Repeat" after only an undo; after NE ran from the
+   menu (and an undo in between), "Repeat Wedge NE" is offered and runs NE again; a command
+   run another way (`run_command`) becomes the repeat entry.
+3. `a_test_provider_adds_an_entry_only_for_a_selected_mesh_body`: a priority-50 provider adds
+   "Mesh Body Only" to the overflow list only when a whole mesh body is selected; with nothing
+   or a solid body selected it is neither in `MarkingMenu::overflow` nor drawn. Its button runs
+   the command.
+4. `every_wedge_and_the_defaults_are_queryable_by_label`: each of the 8 wedges is found by
+   role Button and label, holds the provider's command, and sits in its own direction from the
+   centre (`Wedge::from_dir` of the button centre). The framework's Undo / Redo, displaced by
+   the test provider's wedges, are drawn in the overflow list.
+
+Also `context_providers_extend_the_browser_and_timeline_menus`: a provider's command in the
+Body1 row menu and in the first timeline node's menu runs; its unregistered id is skipped. The
+existing browser and timeline tests pass unchanged.
+
+*Deviations:*
+- A press / release that moved between 4 and 12 pt before 300 ms opens the menu (the note's
+  rules leave that band open; it is treated as a click). A hold needs < 4 pt.
+- `MarkingMenuBuilder::wedge_any` (additive) lets the framework provider name "press-pull,
+  else extrude" without a registry handle; claims are resolved by `MarkingMenu::resolve`.
+- Viewport context entries (`ContextTarget::Viewport`) are shown in the marking menu's overflow
+  list; there is no separate viewport context menu (as in Fusion).
+- Wedge buttons are labelled with the command label only, so a label that also exists in the
+  shell (Undo in the app bar) is found twice by kittest; the test counts it.
+
+*Leftovers:*
+- Icons: `IconId` is still not drawn (wedges, browser, timeline). Proposed **UI-23** "SVG icon
+  registry (`Registrar::icon`, egui_extras `svg`, licence row already planned in
+  THIRD_PARTY.md) and icons in toolbar, marking menu, browser and timeline".
+- The default wedges sketch / press-pull / move / delete / measure appear only when UI-09,
+  UI-05 / S04, a delete command and INS-08 register those ids; `edit.delete` has no owner yet
+  (proposed for UI-05 or a small framework WP).
+- Owner check in `amg-app`: the menu with real fonts and a real mouse (tested headless only).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2381,3 +2470,17 @@ new dependency. The Measure tool lives in `amg-ui::inspect` (lane A's module).
 - **`scene`:** `SceneAdapter::instance_world(body, instance) -> Option<Transform>`, the body →
   world transform of a displayed instance (measurements need the rigid `to_world` of the picked
   instance).
+
+### 2026-11-19: UI-21 (lane D)
+- No change outside `amg-ui` and no new dependency.
+- `amg-ui` additive API: the `marking` module (see the UI-21 log); `Registrar::{marking_menu,
+  context_menu}` as §A; `UiRegistry::{marking_menu_providers, context_menu_providers,
+  marking_menu_owners}`; `AmalgamApp::{marking_menu, open_marking_menu, close_marking_menu}`.
+  Small focused edits: `tool` (marking state in `ToolState`, popup step in `route_pointer`,
+  `Esc` closes the menu first), `shell` (draws the menu), `builtin` (registers the default
+  provider), `browser` / `timeline` (append registry context providers to their menus).
+- **For other lanes:** the framework provider places these ids once they are registered:
+  `sketch.sketch` (UI-09), `solid.press_pull` / `feature.solid.press_pull` /
+  `feature.solid.extrude` (S04 / UI-05), `solid.move` / `feature.solid.move`, `edit.delete`,
+  `inspect.measure` (S05 INS-08). A lane that wants its own wedges registers a
+  `MarkingMenuProvider` with priority > 0; context items go through `ContextMenuProvider`.

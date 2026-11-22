@@ -155,7 +155,10 @@ enum Drag {
 enum Action {
     Marker(usize),
     Move(FeatureId, usize),
-    Select { id: FeatureId, toggle: bool },
+    Select {
+        id: FeatureId,
+        toggle: bool,
+    },
     Edit(FeatureId),
     Suppress(FeatureId, bool),
     StartRename(FeatureId),
@@ -165,6 +168,8 @@ enum Action {
     Ungroup(GroupId),
     Collapse(GroupId, bool),
     FindInBrowser(FeatureId),
+    /// A context provider's command (UI-21).
+    Run(crate::command::CmdId),
 }
 
 /// A node as drawn in the last frame (tests, benches and the hover highlight read this).
@@ -486,6 +491,15 @@ impl TimelineState {
         }
         let status = cx.doc_tab().document.recompute_status();
         let valid_range = |id| cx.env().design.timeline().valid_move_range(id);
+        // Registry context providers below the node menu's own entries (UI-21).
+        let provider_menu = |ui: &mut egui::Ui, id: FeatureId| {
+            crate::marking::context_menu_ui(
+                ui,
+                registry,
+                &cx.env(),
+                &crate::marking::ContextTarget::Timeline(id),
+            )
+        };
         let mut actions = Vec::new();
         self.drawn.clear();
         self.drag_view = None;
@@ -517,7 +531,15 @@ impl TimelineState {
                 .auto_shrink([false, false])
                 .id_salt("amg_timeline_strip")
                 .show_viewport(ui, |ui, viewport| {
-                    self.strip(ui, viewport, &status, tokens, &valid_range, &mut actions);
+                    self.strip(
+                        ui,
+                        viewport,
+                        &status,
+                        tokens,
+                        &valid_range,
+                        &provider_menu,
+                        &mut actions,
+                    );
                 });
         });
         if let Some(r) = self.renaming.as_mut() {
@@ -585,6 +607,10 @@ impl TimelineState {
         clippy::too_many_lines,
         reason = "one draw pass over the visible slots"
     )]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "private drawing helper over disjoint borrows of the caller's state"
+    )]
     fn strip(
         &mut self,
         ui: &mut egui::Ui,
@@ -592,6 +618,7 @@ impl TimelineState {
         status: &RecomputeStatus,
         tokens: &crate::theme::ThemeTokens,
         valid_range: &dyn Fn(FeatureId) -> Option<RangeInclusive<usize>>,
+        provider_menu: &dyn Fn(&mut egui::Ui, FeatureId) -> Option<crate::command::CmdId>,
         actions: &mut Vec<Action>,
     ) {
         #[allow(clippy::cast_precision_loss, reason = "slot counts are small")]
@@ -838,6 +865,9 @@ impl TimelineState {
                             None => entry(ui, true, "Group", Action::Group(fid)),
                         }
                         entry(ui, true, "Find in Browser", Action::FindInBrowser(fid));
+                        if let Some(cmd) = provider_menu(ui, fid) {
+                            actions.push(Action::Run(cmd));
+                        }
                     });
                 }
             }
@@ -1194,6 +1224,7 @@ impl AmalgamApp {
                 }
                 self.timeline_repaint();
             }
+            Action::Run(cmd) => self.request_command(cmd),
         }
     }
 

@@ -39,6 +39,10 @@ pub struct UiRegistry {
     browser_providers: Vec<(&'static str, Box<dyn BrowserProvider>)>,
     /// Timeline node info by feature kind (UI-08).
     feature_uis: BTreeMap<&'static str, (&'static str, crate::timeline::FeatureUiInfo)>,
+    /// Marking-menu providers in registration order (UI-21).
+    marking_menus: Vec<(&'static str, Box<dyn crate::marking::MarkingMenuProvider>)>,
+    /// Context-menu providers in registration order (UI-21).
+    context_menus: Vec<(&'static str, Box<dyn crate::marking::ContextMenuProvider>)>,
 }
 
 impl fmt::Debug for UiRegistry {
@@ -67,6 +71,22 @@ impl fmt::Debug for UiRegistry {
                     .collect::<Vec<_>>(),
             )
             .field("feature_uis", &self.feature_uis.keys().collect::<Vec<_>>())
+            .field(
+                "marking_menus",
+                &self
+                    .marking_menus
+                    .iter()
+                    .map(|(m, _)| *m)
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "context_menus",
+                &self
+                    .context_menus
+                    .iter()
+                    .map(|(m, _)| *m)
+                    .collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
@@ -190,6 +210,43 @@ impl UiRegistry {
     /// Every registered feature UI info, in kind order.
     pub fn feature_uis(&self) -> impl Iterator<Item = &crate::timeline::FeatureUiInfo> + '_ {
         self.feature_uis.values().map(|(_, i)| i)
+    }
+
+    pub(crate) fn add_marking_menu(
+        &mut self,
+        module: &'static str,
+        p: Box<dyn crate::marking::MarkingMenuProvider>,
+    ) {
+        self.marking_menus.push((module, p));
+    }
+
+    pub(crate) fn add_context_menu(
+        &mut self,
+        module: &'static str,
+        p: Box<dyn crate::marking::ContextMenuProvider>,
+    ) {
+        self.context_menus.push((module, p));
+    }
+
+    /// The marking-menu providers in fill order: highest priority first, ties in registration
+    /// order (UI-21).
+    pub fn marking_menu_providers(&self) -> Vec<&dyn crate::marking::MarkingMenuProvider> {
+        let mut v: Vec<&dyn crate::marking::MarkingMenuProvider> =
+            self.marking_menus.iter().map(|(_, p)| p.as_ref()).collect();
+        v.sort_by_key(|p| std::cmp::Reverse(p.priority()));
+        v
+    }
+
+    /// The context-menu providers in registration order (UI-21).
+    pub fn context_menu_providers(
+        &self,
+    ) -> impl Iterator<Item = &dyn crate::marking::ContextMenuProvider> + '_ {
+        self.context_menus.iter().map(|(_, p)| p.as_ref())
+    }
+
+    /// The modules that registered marking-menu providers, in registration order.
+    pub fn marking_menu_owners(&self) -> Vec<&'static str> {
+        self.marking_menus.iter().map(|(m, _)| *m).collect()
     }
 
     /// The modules that registered tessellators, in registration order.

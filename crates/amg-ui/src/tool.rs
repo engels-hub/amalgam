@@ -319,6 +319,8 @@ pub(crate) struct ToolState {
     pointer_inside: bool,
     /// The active tool's overlays of this frame ([`Tool::overlay`]; additive, INS-08).
     pub(crate) overlay: amg_render::OverlayList,
+    /// The right-click marking menu (UI-21).
+    pub(crate) marking: crate::marking::MarkingState,
 }
 
 impl std::fmt::Debug for ToolState {
@@ -641,6 +643,8 @@ impl AmalgamApp {
                 };
                 let handled = used == InputResult::Consumed
                     || match key {
+                        // The marking menu is a popup: it closes before the tool cancels.
+                        egui::Key::Escape if ts.marking.close() => true,
                         egui::Key::Escape if ts.active.is_some() => {
                             finish_active(app, ts, FinishReason::Cancel);
                             true
@@ -944,10 +948,17 @@ fn route_pointer(
     };
     let tool =
         |app: &mut AmalgamApp, ts: &mut ToolState| with_tool(app, ts, |t, cx| t.input(ev, cx));
+    // The open marking menu / a tracked right press (popup step, UI-21).
+    if crate::marking::intercept(app, ts, ev) {
+        return;
+    }
     match ev {
-        ViewportEvent::Press { button, .. } => {
-            if tool(app, ts) == InputResult::Consumed && has_tool {
+        ViewportEvent::Press { button, pos, .. } => {
+            let used = tool(app, ts) == InputResult::Consumed;
+            if used && has_tool {
                 ts.set_owner(*button, Owner::Tool);
+            } else if !used && crate::marking::starts_gesture(ev) {
+                crate::marking::begin(app, ts, *pos);
             }
         }
         ViewportEvent::DragStart { button, from, .. } => match ts.owner(*button) {

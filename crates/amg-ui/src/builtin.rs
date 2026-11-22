@@ -35,6 +35,8 @@ pub fn register(r: &mut Registrar<'_>) {
     );
     register_file(r);
     register_select(r);
+    // UI-21: undo, redo, press-pull / extrude, move, sketch, delete and measure wedges.
+    r.marking_menu(Box::new(crate::marking::FrameworkMarkingMenu));
 }
 
 /// Selection commands (UI-04, spec §8).

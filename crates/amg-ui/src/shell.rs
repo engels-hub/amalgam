@@ -64,6 +64,7 @@ pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
     app.draw_tool_dialog(ui.ctx());
     crate::select::bar::show(app, ui.ctx());
     app.draw_select_through(ui.ctx());
+    app.draw_marking_menu(ui.ctx());
     search_popup(app, ui.ctx());
     job_panel(app, ui.ctx());
     toasts(app, ui.ctx());
