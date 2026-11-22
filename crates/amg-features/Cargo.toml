@@ -60,6 +60,9 @@ harness = false
 # Links the OCCT backend of amg-brep, for tests on real B-rep solids (S06 ASM-09). Needs
 # AMG_OCCT_DIR like amg-brep's own `occt` feature.
 occt = ["amg-brep/occt"]
+# MESH-27: links the Manifold boolean backend of amg-mesh (needs the vcpkg-built library, see
+# amg-manifold-sys). Without it `mesh.combine` fails with "boolean backend unavailable".
+manifold = ["amg-mesh/manifold"]
 
 [lints]
 workspace = true
