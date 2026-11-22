@@ -152,6 +152,24 @@ Findings from the OrcaSlicer `main` source (fetched 2026-10-20):
   `--outputdir`, `--arrange`, `--load-settings`, `--load-filaments`. IO-04 uses
   `orca-slicer --info` and `--export-3mf` as an automated "opens in Orca" check.
 
+#### 3.1.1 Probe: what Orca honours in a 3rd-party 3MF (IO-04, 2026-11-23)
+Sources: OrcaSlicer `bbs_3mf.cpp` (`main`), run against OrcaSlicer 2.4.0-alpha (`orca-slicer --info`, `--export-3mf`) with files written by the Orca flavour. "Source" = established from code only.
+
+| Input | Honoured? | Evidence |
+|---|---|---|
+| `Metadata/model_settings.config` is read for a file without a BBL `Application` | yes | source (`BBS_MODEL_CONFIG_FILE` is extracted regardless; only a parse failure of a BBL file is fatal) |
+| `<object id>` matches the build item's resource id; object `metadata name` | yes | CLI: re-export keeps the name |
+| Object `metadata extruder` | yes; wins over the colour-group mapping | CLI: re-export has the same extruder per object; source: the colour-group fallback runs only when the object has no config entry |
+| Colour groups + object `pid` without the config | yes (distinct colours numbered by ascending group id) | CLI: config removed, re-export gives extruders 1, 3, 3; source (`color_group_id_to_extruder_id_map`) |
+| `<part id>` = component/mesh resource id; part `name`, `extruder` (`volume_type`/`part_type` keys also read) | yes | source (`_generate_volumes_new` matches `subobject_id`); CLI: part names kept |
+| Part `subtype` (`normal_part`, `modifier_part`, ...) | yes | CLI: a `modifier_part` object counts 0 parts in `--info` and re-exports as `modifier_part`; without the config it becomes `normal_part` |
+| Triangle `paint_color` | yes | CLI: re-export histogram equals the written one for 3 and 4 filaments |
+| Triangle `pid`/`p1` | ignored | source comment; no effect seen |
+| Any other object/part `metadata key` (not `name`, `extruder`, `matrix`, `volume_type`, ...) | applied as a print setting by `set_deserialize` (object keys) | source |
+| `plate` / `model_instance` (`plater_id`, `plater_name`, `object_id`, `instance_id`) | parsed; the CLI re-export arranges everything onto one plate and keeps only the first plate name | CLI; per-plate membership needs a GUI check (pending owner) |
+| `extruder` above the number of project filaments | reset to 1 when `project_settings.config` lists fewer filaments | source (without that file there is no limit) |
+| Same colour in two groups | one extruder | source (colours are deduplicated); matters only without the config |
+
 ### 3.2 PrusaSlicer
 - **2.9.x (released).** It reads core geometry and `unit`. Multi-material comes from the
   triangle attribute `slic3rpe:mmu_segmentation` (namespace `http://schemas.slic3r.org/3mf/2017/06`,

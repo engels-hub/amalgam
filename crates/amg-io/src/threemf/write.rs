@@ -37,7 +37,7 @@ use rayon::prelude::*;
 use zip::write::SimpleFileOptions;
 
 use super::thumb;
-use super::xml::{NS_AMG, NS_CORE, NS_PROD};
+use super::xml::{NS_AMG, NS_CORE, NS_MAT, NS_PROD};
 use crate::endpoint::Sink;
 use crate::error::{ExportCheck, ExportReport, IoError, IoWarning};
 use crate::format::Format;
@@ -45,6 +45,8 @@ use crate::obj::{num, push_u64, roundtrip};
 use crate::options::{Compression, CoordPrecision, ExportOptions, SlicerFlavor, ValidityPolicy};
 use crate::scene::{NO_SLOT, NodeContent, ObjectKind, Scene, SceneNode, SlotIndex};
 use crate::units::scale_from_mm;
+
+mod orca;
 
 /// Vertices or triangles per serialisation block (the unit of parallel work; fixed, so the
 /// output does not depend on the thread count).
@@ -91,6 +93,11 @@ struct MeshOut {
     id: u32,
     /// Default base index (object `pindex`), if any.
     default: Option<u32>,
+    /// Resource id of the property group of `default` and of the triangle `pid`s (1 in the
+    /// Generic flavour; the object's filament number in the Orca flavour).
+    pid: u32,
+    /// Orca flavour: the object's filament (1-based), 0 in the Generic flavour.
+    fil: u8,
 }
 
 /// One written components object (a scene group node).
@@ -114,12 +121,16 @@ struct Plan {
     triangles: u64,
     /// Seed of the Production `p:UUID`s (a hash of the written content).
     uuid_seed: u64,
+    /// Scene root index of every build item (parallel to `items`).
+    item_root: Vec<u32>,
+    /// Orca/Bambu flavour data (`None` = Generic).
+    orca: Option<orca::OrcaPlan>,
 }
 
-/// Writes `scene` as a Generic 3MF package.
+/// Writes `scene` as a 3MF package (Generic, or Orca/Bambu flavour).
 ///
 /// # Errors
-/// [`IoError::Unsupported`] for the Orca and Prusa flavours (IO-04, IO-12),
+/// [`IoError::Unsupported`] for the Prusa flavour (IO-12),
 /// [`IoError::InvalidScene`] (inconsistent scene, non-finite numbers, bad thumbnail),
 /// [`IoError::Empty`], [`IoError::InvalidForFormat`] (policy `Require`),
 /// [`IoError::LimitExceeded`], [`IoError::Write`] or [`IoError::Cancelled`].
@@ -131,11 +142,11 @@ pub fn write(
 ) -> Result<ExportReport, IoError> {
     let t0 = Instant::now();
     ctx.checkpoint()?;
-    if opts.threemf.flavor != SlicerFlavor::Generic {
+    if opts.threemf.flavor == SlicerFlavor::Prusa {
         return Err(IoError::Unsupported {
             format: Format::ThreeMf,
             direction: "export",
-            reason: "the Orca and Prusa 3MF flavours are not implemented yet (IO-04, IO-12)",
+            reason: "the Prusa 3MF flavour is not implemented yet (IO-12)",
         });
     }
     scene.validate()?;
@@ -201,6 +212,9 @@ pub fn write(
     if thumbnail.is_some() {
         ct.push_str(" <Default Extension=\"png\" ContentType=\"image/png\"/>\n");
     }
+    if plan.orca.is_some() {
+        ct.push_str(" <Default Extension=\"config\" ContentType=\"text/xml\"/>\n");
+    }
     ct.push_str("</Types>\n");
     z.write_all(ct.as_bytes()).map_err(ioerr)?;
 
@@ -217,6 +231,12 @@ pub fn write(
         .map_err(zerr)?;
     write_model(&mut z, scene, &plan, opts, ctx, &mut report.warnings)?;
 
+    if plan.orca.is_some() {
+        z.start_file("Metadata/model_settings.config", base)
+            .map_err(zerr)?;
+        z.write_all(&orca::model_settings(scene, &plan))
+            .map_err(ioerr)?;
+    }
     if let Some(png) = &thumbnail {
         z.start_file("Metadata/thumbnail.png", base).map_err(zerr)?;
         z.write_all(png).map_err(ioerr)?;
@@ -323,6 +343,8 @@ fn plan(
     }
 
     // Materials.
+    let orca_plan = (opts.threemf.flavor == SlicerFlavor::Orca && opts.threemf.write_materials)
+        .then(|| orca::plan_filaments(scene, &order, warnings));
     let slot_count = scene.materials.len() as u32;
     let uses_slots = order.iter().any(|&i| {
         let o = &scene.objects[i as usize];
@@ -331,50 +353,75 @@ fn plan(
                 .as_ref()
                 .is_some_and(|f| f.iter().any(|&s| s != NO_SLOT))
     });
-    let materials = opts.threemf.write_materials && uses_slots && slot_count > 0;
+    let materials = match &orca_plan {
+        Some(o) => o.groups() > 0,
+        None => opts.threemf.write_materials && uses_slots && slot_count > 0,
+    };
     let mut synthetic_default = None;
     let mut meshes = Vec::with_capacity(order.len());
-    let first_mesh_id = if materials { 2 } else { 1 };
+    // Generic: one `basematerials` (id 1); Orca: one colour group per filament (ids 1..=N).
+    let first_mesh_id = match &orca_plan {
+        Some(o) => 1 + o.groups(),
+        None => 1 + u32::from(materials),
+    };
     let mut ids: HashMap<u32, u32> = HashMap::new();
     for (k, &i) in order.iter().enumerate() {
         let o = &scene.objects[i as usize];
         let id = first_mesh_id + k as u32;
         ids.insert(i, id);
-        let default = if !materials {
-            None
+        let (default, pid, fil) = if let Some(op) = orca_plan.as_ref().filter(|o| o.groups() > 0) {
+            let f = op.object_filament(o);
+            let assigned = o.material.is_some_and(|s| s != NO_SLOT)
+                || o.filament.is_some()
+                || o.face_materials
+                    .as_ref()
+                    .is_some_and(|fm| fm.iter().any(|&s| s != NO_SLOT));
+            (assigned.then_some(0), u32::from(f), f)
+        } else if orca_plan.is_some() {
+            (None, 1, 1)
         } else {
-            match o.material.filter(|&s| s != NO_SLOT) {
-                Some(s) => Some(u32::from(s)),
-                None => {
-                    let has_faces = o
-                        .face_materials
-                        .as_ref()
-                        .is_some_and(|f| f.iter().any(|&s| s != NO_SLOT));
-                    if has_faces {
-                        // Triangles with properties need an object default; faces without a
-                        // slot get a neutral "Default" base.
-                        Some(*synthetic_default.get_or_insert(slot_count))
-                    } else {
-                        None
+            let d = if !materials {
+                None
+            } else {
+                match o.material.filter(|&s| s != NO_SLOT) {
+                    Some(s) => Some(u32::from(s)),
+                    None => {
+                        let has_faces = o
+                            .face_materials
+                            .as_ref()
+                            .is_some_and(|f| f.iter().any(|&s| s != NO_SLOT));
+                        if has_faces {
+                            // Triangles with properties need an object default; faces without
+                            // a slot get a neutral "Default" base.
+                            Some(*synthetic_default.get_or_insert(slot_count))
+                        } else {
+                            None
+                        }
                     }
                 }
-            }
+            };
+            (d, 1, 0)
         };
         meshes.push(MeshOut {
             object: i,
             id,
             default,
+            pid,
+            fil,
         });
     }
-    let filament = order
-        .iter()
-        .any(|&i| scene.objects[i as usize].filament.is_some());
+    // Orca writes the extruder into `model_settings.config` instead.
+    let filament = orca_plan.is_none()
+        && order
+            .iter()
+            .any(|&i| scene.objects[i as usize].filament.is_some());
 
     // Groups (post-order, children first) and build items.
     let mut next_id = first_mesh_id + order.len() as u32;
     let mut groups = Vec::new();
     let mut items = Vec::new();
-    for r in &scene.roots {
+    let mut item_root = Vec::new();
+    for (ri, r) in scene.roots.iter().enumerate() {
         if let Some(id) = node_id(
             r,
             &ids,
@@ -384,6 +431,7 @@ fn plan(
             &mut skipped_empty,
         ) {
             items.push((id, r.transform));
+            item_root.push(ri as u32);
         }
     }
     if skipped_other > 0 {
@@ -410,6 +458,8 @@ fn plan(
         filament,
         triangles,
         uuid_seed: 0,
+        item_root,
+        orca: orca_plan,
     })
 }
 
@@ -458,7 +508,7 @@ fn model_size_bound(scene: &Scene, plan: &Plan, prec: CoordPrecision) -> u64 {
     for m in &plan.meshes {
         let mesh = &scene.objects[m.object as usize].mesh;
         b += mesh.vertex_count() as u64 * (32 + 3 * num_len);
-        b += mesh.face_count() as u64 * 100;
+        b += mesh.face_count() as u64 * if plan.orca.is_some() { 150 } else { 100 };
     }
     b += (plan.groups.iter().map(|g| g.children.len()).sum::<usize>() + plan.items.len()) as u64
         * (64 + 12 * 26);
@@ -562,6 +612,11 @@ fn write_model<W: Write + Send>(
     h.extend_from_slice(b"\" xmlns:p=\"");
     h.extend_from_slice(NS_PROD.as_bytes());
     h.push(b'"');
+    if plan.orca.as_ref().is_some_and(|o| o.groups() > 0) {
+        h.extend_from_slice(b" xmlns:m=\"");
+        h.extend_from_slice(NS_MAT.as_bytes());
+        h.push(b'"');
+    }
     if plan.filament {
         h.extend_from_slice(b" xmlns:amg=\"");
         h.extend_from_slice(NS_AMG.as_bytes());
@@ -606,7 +661,17 @@ fn write_model<W: Write + Send>(
         });
     }
     h.extend_from_slice(b" <resources>\n");
-    if plan.materials {
+    if let Some(o) = &plan.orca {
+        // One single-colour group per filament, in filament order: Orca numbers the distinct
+        // colours in ascending group-id order and takes an object's extruder from its `pid`.
+        for (k, c) in o.colors.iter().enumerate() {
+            h.extend_from_slice(b"  <m:colorgroup id=\"");
+            push_u64(&mut h, k as u64 + 1);
+            h.extend_from_slice(b"\">\n   <m:color color=\"");
+            color_hex(&mut h, *c);
+            h.extend_from_slice(b"\"/>\n  </m:colorgroup>\n");
+        }
+    } else if plan.materials {
         h.extend_from_slice(b"  <basematerials id=\"1\">\n");
         for m in &scene.materials {
             h.extend_from_slice(b"   <base name=\"");
@@ -653,13 +718,15 @@ fn write_model<W: Write + Send>(
             s.push(b'"');
         }
         if let Some(d) = m.default {
-            s.extend_from_slice(b" pid=\"1\" pindex=\"");
+            s.extend_from_slice(b" pid=\"");
+            push_u64(&mut s, u64::from(m.pid));
+            s.extend_from_slice(b"\" pindex=\"");
             push_u64(&mut s, u64::from(d));
             s.push(b'"');
         }
         uuid_attr(&mut s, plan.uuid_seed, TAG_OBJECT, u64::from(m.id));
         s.extend_from_slice(b">\n");
-        if let Some(f) = o.filament {
+        if let Some(f) = o.filament.filter(|_| plan.orca.is_none()) {
             s.extend_from_slice(b"   <metadatagroup>\n    <metadata name=\"amg:filament\">");
             push_u64(&mut s, u64::from(f));
             s.extend_from_slice(b"</metadata>\n   </metadatagroup>\n");
@@ -698,6 +765,7 @@ fn write_model<W: Write + Send>(
             None
         };
         let default = m.default;
+        let slot_fil: Option<(&[u8], u8)> = plan.orca.as_ref().map(|o| (&o.slot_fil[..], m.fil));
         stream_blocks(
             w,
             mesh.face_count(),
@@ -719,7 +787,22 @@ fn write_model<W: Write + Send>(
                     out.push(b'"');
                     // A face keeps the object default (real or synthetic) unless its own slot
                     // differs.
-                    if let Some(s) = faces.map(|fs| fs[f]).filter(|&s| s != NO_SLOT)
+                    if let Some((slot_fil, obj_fil)) = slot_fil {
+                        // Orca: the face's filament as `paint_color` (what Orca reads) and as
+                        // a triangle property into its colour group (what other readers see).
+                        if let Some(f) = faces
+                            .map(|fs| fs[f])
+                            .filter(|&s| s != NO_SLOT)
+                            .map(|s| slot_fil[usize::from(s)])
+                            .filter(|&f| f != obj_fil)
+                        {
+                            out.extend_from_slice(b" pid=\"");
+                            push_u64(&mut out, u64::from(f));
+                            out.extend_from_slice(b"\" p1=\"0\" paint_color=\"");
+                            out.extend_from_slice(crate::paint::encode_state(f).as_bytes());
+                            out.push(b'"');
+                        }
+                    } else if let Some(s) = faces.map(|fs| fs[f]).filter(|&s| s != NO_SLOT)
                         && Some(u32::from(s)) != default
                     {
                         out.extend_from_slice(b" pid=\"1\" p1=\"");
@@ -855,6 +938,18 @@ fn content_hash(scene: &Scene, plan: &Plan, opts: &ExportOptions) -> u64 {
             fold_text(h, &m.name),
             u64::from(u32::from_le_bytes(m.color.0)),
         );
+    }
+    if let Some(o) = &plan.orca {
+        // Orca: object filaments, filament colours (distinct file → distinct UUIDs).
+        h = plan
+            .meshes
+            .iter()
+            .fold(fold(h, 0x4F52_4341), |h, m| fold(h, u64::from(m.fil)));
+        h = o.slot_fil.iter().fold(h, |h, &f| fold(h, u64::from(f)));
+        h = o
+            .colors
+            .iter()
+            .fold(h, |h, c| fold(h, u64::from(u32::from_le_bytes(c.0))));
     }
     fold_text(h, unit_name(opts.unit))
 }

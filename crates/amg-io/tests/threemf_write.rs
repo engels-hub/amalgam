@@ -487,7 +487,7 @@ fn thumbnails_are_downscaled_png_with_the_package_relationship() {
 fn flavours_other_than_generic_are_not_yet_written() {
     let s = random_scene(5);
     let mut o = ExportOptions::default();
-    o.threemf.flavor = amg_io::SlicerFlavor::Orca;
+    o.threemf.flavor = amg_io::SlicerFlavor::Prusa;
     let mut out = Vec::new();
     let e = export(&s, Sink::Memory(&mut out), Format::ThreeMf, &o, &ctx()).unwrap_err();
     assert!(matches!(e, IoError::Unsupported { .. }));
