@@ -1,0 +1,5 @@
+# libFuzzer working state; minimised findings go to testdata/io/fuzz/<target>/.
+target/
+corpus/
+artifacts/
+coverage/

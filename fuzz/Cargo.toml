@@ -1,0 +1,99 @@
+# IO-16 (S12 §12, note `import-export-formats.md` §9.3): libFuzzer targets for the amg-io
+# readers and the 3MF write→read round trip. Its own workspace, outside the main one; build
+# and run with `cargo +nightly fuzz` (see README.md). The target bodies live in
+# `src/harness.rs`, which `crates/amg-io/tests/fuzz_replay.rs` also compiles, so the
+# committed crash artifacts replay on stable.
+[package]
+name = "amg-io-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "LicenseRef-Amalgam-Personal"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# MIT OR Apache-2.0 AND NCSA (bundled libFuzzer); fuzz-only, THIRD_PARTY.md.
+libfuzzer-sys = "0.4.13"
+amg-io = { path = "../crates/amg-io" }
+amg-core = { path = "../crates/amg-core" }
+amg-jobs = { path = "../crates/amg-jobs" }
+amg-mesh = { path = "../crates/amg-mesh" }
+# Same versions and features as the main workspace.
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+rayon = "1.12.0"
+
+# Not part of the main workspace (its members are `crates/*`).
+[workspace]
+members = ["."]
+
+# cargo-fuzz sets `--cfg fuzzing`.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[profile.release]
+debug = 1
+panic = "unwind"
+
+[lib]
+path = "src/lib.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "stl"
+path = "fuzz_targets/stl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "obj"
+path = "fuzz_targets/obj.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mtl"
+path = "fuzz_targets/mtl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ply"
+path = "fuzz_targets/ply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "threemf_package"
+path = "fuzz_targets/threemf_package.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "threemf_model"
+path = "fuzz_targets/threemf_model.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "paint_decode"
+path = "fuzz_targets/paint_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "roundtrip_scene"
+path = "fuzz_targets/roundtrip_scene.rs"
+test = false
+doc = false
+bench = false
+

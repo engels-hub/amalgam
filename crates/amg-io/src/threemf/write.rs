@@ -584,11 +584,19 @@ fn write_model<W: Write + Send>(
         }
     }
     meta.sort_by_key(|(n, _)| CORE_METADATA.iter().position(|c| c == n));
+    let mut value = Vec::new();
     for (n, v) in &meta {
+        // Empty values are not written, also when only characters that XML cannot carry made
+        // them non-empty (IO-16 fuzz finding `roundtrip_scene/control-char-metadata`).
+        value.clear();
+        escape(&mut value, v);
+        if value.is_empty() {
+            continue;
+        }
         h.extend_from_slice(b" <metadata name=\"");
         h.extend_from_slice(n.as_bytes());
         h.extend_from_slice(b"\">");
-        escape(&mut h, v);
+        h.extend_from_slice(&value);
         h.extend_from_slice(b"</metadata>\n");
     }
     if dropped > 0 {

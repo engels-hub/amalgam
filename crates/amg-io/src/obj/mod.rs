@@ -19,8 +19,8 @@ pub(crate) use write::{num, push_u64, roundtrip};
 // Shared with the PLY reader (IO-13).
 pub(crate) use triangulate::{Method, triangulate};
 
-#[cfg(test)]
-pub(crate) use read::{Tuning, read_tuned};
+#[doc(hidden)]
+pub use read::{Tuning, read_tuned};
 
 #[cfg(test)]
 mod tests;

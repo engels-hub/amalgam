@@ -1,0 +1,2 @@
+# Minimised fuzz artifacts (IO-16): byte-exact, no line-ending conversion, no git-LFS.
+* -text -filter -diff -merge

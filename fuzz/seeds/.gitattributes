@@ -1,0 +1,2 @@
+# Byte-exact seeds: no line-ending conversion, no git-LFS.
+* -text -filter -diff -merge

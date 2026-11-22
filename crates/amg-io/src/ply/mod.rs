@@ -17,8 +17,8 @@ pub use header::MAX_HEADER_BYTES;
 pub use read::read;
 pub use write::write;
 
-#[cfg(test)]
-pub(crate) use read::{Tuning, read_tuned};
+#[doc(hidden)]
+pub use read::{Tuning, read_tuned};
 
 #[cfg(test)]
 mod tests;

@@ -35,9 +35,10 @@ const MAX_MTL: u64 = 64 << 20;
 /// Colour of a material that the MTL does not define (the MTL default `Kd 0.8`).
 const DEFAULT_COLOR: Rgba8 = Rgba8([204, 204, 204, 255]);
 
-/// Knobs that tests turn; production uses the defaults.
+/// Knobs that tests and the IO-16 fuzz targets turn; production uses the defaults.
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Tuning {
+pub struct Tuning {
     /// Bytes per streamed chunk.
     pub chunk_bytes: usize,
     /// Smallest parallel block.
@@ -122,7 +123,12 @@ impl Acc {
     }
 }
 
-pub(crate) fn read_tuned(
+/// [`read`] with explicit [`Tuning`] (chunk-boundary tests and the IO-16 fuzz targets).
+///
+/// # Errors
+/// As [`read`].
+#[doc(hidden)]
+pub fn read_tuned(
     src: Source<'_>,
     opts: &ImportOptions,
     ctx: &JobCtx,
@@ -657,6 +663,7 @@ fn finish(
     // 2. Validate triangles: indices in range, finite corners.
     let finite_flags: Option<Vec<bool>> = (!acc.positions.par_iter().all(|p| p.is_finite()))
         .then(|| acc.positions.par_iter().map(|p| p.is_finite()).collect());
+    let has_non_finite = finite_flags.is_some();
     let verdict = |t: &[u32; 3]| -> u8 {
         if t[0] == DEAD {
             return 3;
@@ -797,7 +804,15 @@ fn finish(
             .collect()
     });
     let multi = w.objs.len() > 1;
-    let mut remap: Vec<u32> = if multi { vec![0; nv] } else { Vec::new() };
+    // Non-finite vertices are dropped with their faces (note §9.2): every object then keeps
+    // only the vertices it uses, as multi-object files always do (IO-16 fuzz finding
+    // `ply/nan-vertex`; OBJ had the same leak for single-object files).
+    let per_object_vertices = multi || has_non_finite;
+    let mut remap: Vec<u32> = if per_object_vertices {
+        vec![0; nv]
+    } else {
+        Vec::new()
+    };
     let mut positions = Some(std::mem::take(&mut acc.positions));
     let mut colors = colors;
     let mut tri_all = Some(std::mem::take(&mut acc.tri_v));
@@ -859,7 +874,7 @@ fn finish(
         }
 
         // Vertices: all of them for a single object, else the ones this object uses.
-        let (pos_o, col_o) = if multi {
+        let (pos_o, col_o) = if per_object_vertices {
             let mut used: Vec<u32> = tris.iter().flatten().copied().collect();
             used.par_sort_unstable();
             used.dedup();

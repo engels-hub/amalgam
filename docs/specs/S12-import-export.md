@@ -846,7 +846,7 @@ crates) passing.
 | IO-13 | PLY read/write: header (64 KiB limit), ASCII + binary LE/BE, generic elements/properties, vertex/face colours, UVs, point-cloud error; writer binary LE/ASCII, float/double | IO-01, MESH-28 | P0 | Done | 1. All PLY entries of the MESH-28 corpus parse with the manifest face count. 2. 12 synthetic quirk cases (BE, ASCII, uchar/ushort/uint list counts, int/uint indices, extra elements, colours as uchar and float, no faces → `PointCloud`, truncated body, header without `end_header`) behave as specified. 3. Write→read round-trip (double: bit-exact; float: ≤ 1 f32 ulp, with `PrecisionLoss` reported). 4. Agrees with `ply-rs-bw` on the corpus. 5. 1 GB binary PLY reads in < 3 s. |
 | IO-14 | `amg-features::io`: `ImportMeshFeature` (`io.import_mesh` v1, raw baked meshes, unit/up-axis/placement params), `import_commands` (one transaction: feature + baked payloads + body names), `scene_from_document` (selection, occurrence transforms, `ExportPrep` filaments and materials; mesh bodies), `link()` | IO-01, DOC-05, DOC-07, MESH-16, MAT-06 | P0 | Done | 1. Importing a corpus STL, 3MF (3 objects) and OBJ creates one timeline feature and the expected bodies. Undo removes them all, and redo restores them with an identical `content_hash`. 2. Editing `unit` mm→in rescales exactly (bbox ×25.4 bit-exact), and only dependants recompute (counter test). 3. Save→load of the `.amg` (DOC-07) restores bit-identical meshes from `bodies/`. 4. `scene_from_document` of an imported 3MF re-exports (IO-11) to a file whose scene equals the original import (objects, transforms within 1e-12, slots). 5. The feature's cache key is identical across two processes. *Needs the S01 baked-payload API (Interfaces requests).* |
 | IO-15 | `amg-ui::io`: File > Insert Mesh / Import, drag-and-drop onto the viewport, import dialog (format, declared/assumed unit dropdown with live mm/in extents and print-bed fit, up-axis, merge/separate), export dialog (format, selection, unit, 3MF flavour, validity report with "Repair first" (MESH-04) / "Export anyway"), job progress + cancel, remembered per-format choices | IO-14, IO-11, MESH-04, UI-01, UI-02, UI-10 | P0 | Todo | 1. Dropping each of STL/3MF/OBJ/PLY onto the viewport imports it. Dropping an unsupported file shows the `IoError` message and hint. 2. While a 1 GB STL imports, no frame exceeds 16 ms (tracing profile) and Cancel stops it within 200 ms. 3. Changing the unit in the dialog updates the shown extents without re-reading the file. 4. Exporting a body with holes shows the validity report, and "Repair first" runs MESH-04 and then exports successfully. 5. A manual Phase 1 script (drag STL → analyse → repair → export 3MF Orca flavour → open in Orca) passes on 3 corpus models. |
-| IO-16 | Robustness: `fuzz/` cargo-fuzz project (targets `stl`, `obj`, `mtl`, `ply`, `threemf_package`, `threemf_model`, `paint_decode`, `roundtrip_scene`), seed corpora, scheduled Linux nightly CI job (5 min/target, `-rss_limit_mb=2048 -timeout=2`), minimised crash artifacts in `testdata/io/fuzz/<target>/`, stable regression-replay test | IO-02, IO-03, IO-05, IO-13 | P0 | In progress (wp/IO-16-fuzz) | 1. Each target runs ≥ 1 h locally (or ≥ 10 M execs) with 0 crashes, 0 OOMs and 0 timeouts. The exec counts are in the PR. 2. `roundtrip_scene` holds for every generated scene (export→import equality as in IO-11 #1). 3. The replay test runs under `cargo nextest` on Windows stable and replays every artifact. 4. The CI job is green for 3 consecutive nights. 5. Every bug found has a fix plus a minimised artifact. |
+| IO-16 | Robustness: `fuzz/` cargo-fuzz project (targets `stl`, `obj`, `mtl`, `ply`, `threemf_package`, `threemf_model`, `paint_decode`, `roundtrip_scene`), seed corpora, scheduled Linux nightly CI job (5 min/target, `-rss_limit_mb=2048 -timeout=2`), minimised crash artifacts in `testdata/io/fuzz/<target>/`, stable regression-replay test | IO-02, IO-03, IO-05, IO-13 | P0 | Review (Done-when 4 pending CI) | 1. Each target runs ≥ 1 h locally (or ≥ 10 M execs) with 0 crashes, 0 OOMs and 0 timeouts. The exec counts are in the PR. 2. `roundtrip_scene` holds for every generated scene (export→import equality as in IO-11 #1). 3. The replay test runs under `cargo nextest` on Windows stable and replays every artifact. 4. The CI job is green for 3 consecutive nights. 5. Every bug found has a fix plus a minimised artifact. |
 | IO-06 | STEP AP203/214/242 import/export with assemblies, names, colours: `amg_io::brep` (`scene_from_foreign`/`foreign_from_scene`, `import_step`/`export_step`), `ImportBrepFeature`, components via ASM-01, health report of healed shapes | BREP-13, ASM-01, IO-14 | P0 | Todo | 1. The NIST MBE PMI STEP models (public, fetch-only) import with the right component tree, part names and colours (compared with the `ForeignModel` tree), and every body passes BRepCheck. 2. Round trip import → export AP242 → import keeps the component tree, names, colours, volumes (within 1e-9 relative) and bboxes (within 1e-6 mm). 3. The owner's Fusion STEP exports under `$AMG_TESTDATA_DIR/fusion/` (QUESTIONS #4) round-trip with the same checks (skipped when absent). 4. A 50 MB STEP imports with progress and cancels within 500 ms (OCCT progress range). |
 | IO-09 | Tessellated export quality: `ExportRefinement` presets Low/Medium/High/Custom per body (→ S02 `TessQuality`), tessellation cache by (body key, quality), solid bodies in `scene_from_document`, deviation report | BREP-08, IO-14 | P0 | Todo | 1. For 10 golden solids (S02 corpus), the measured max deviation (`amg-testkit` Hausdorff against a High+ reference) is ≤ the preset's surface deviation. 2. Every closed solid's tessellation passes `check_export` (watertight) and IO-11 validation. 3. A second export of an unchanged body hits the cache (no tessellation call, counter test). 4. A 1000-face part exports to 3MF Medium in < 300 ms end-to-end. |
 | IO-07 | IGES import/export (bodies only, no assemblies): `import_iges`/`export_iges` | BREP-13, IO-06 | P1 | Todo | 1. 5 public IGES samples import, with bodies passing BRepCheck after healing (failures listed in the health report). 2. Export→import round trip preserves volume within 1e-6 relative for 10 golden solids. |
@@ -1220,6 +1220,85 @@ budget row yet; the refinement report proposes adding "1 GB binary STL import < 
     - CI must set `AMG_3MF_PYTHON`, `AMG_3MF_SCHEMA_DIR` and `AMG_REQUIRE_3MF_VALIDATOR=1` (a venv with lib3mf 2.5.0 and xmlschema 4.3.2) so that Done-when 2 runs in CI.
     - Done-when 5 needs the owner's screenshots.
 
+### 2026-11-22 - IO-16 Robustness: fuzzing (implementing agent, worktree wp-IO-16-fuzz)
+
+Status `Review`. Done-when 1, 2, 3 and 5 are met locally. Done-when 4 (3 green nights) is pending CI: the workflow is written and passes actionlint.
+  - **What landed:**
+    - `fuzz/`: a cargo-fuzz crate (`amg-io-fuzz`) with its own `[workspace]`, so it is outside the main workspace (members `crates/*`). It has `fuzz/Cargo.lock` and the 8 targets `stl`, `obj`, `mtl`, `ply`, `threemf_package`, `threemf_model`, `paint_decode` and `roundtrip_scene`. Each target is a one-line wrapper around `fuzz/src/harness.rs`.
+    - Harness oracles:
+      - no panic, overflow (built with `-a`), OOM or timeout;
+      - every successful import passes `Scene::validate` and has finite positions and instance transforms;
+      - a second import per input uses other options: merge, Y-up, inch fallback, plus STL split/soup/face colours, OBJ face groups, and 3MF strict and keep-components;
+      - a read with tiny chunks (STL 61 B; OBJ 61 B / 7 B blocks; PLY 7 B / 3 records; 3MF 64 B) gives the same scene and report as the default read;
+      - the 3MF scanner agrees with the quick-xml reference path;
+      - `paint_decode`: the state stays in range, and `encode_state` round-trips;
+      - `roundtrip_scene`: export to 3MF with `Decimals(6)` and with `Roundtrip`, then import, compared as in IO-11 Done-when 1 (positions 1e-6 / bit-exact, indices, names, kinds, filaments, resolved slots, transforms 1e-12).
+    - The `roundtrip_scene` generator reads its own byte choices (no `arbitrary` in the harness). It makes 1-4 objects of every written kind (open or closed meshes, 3-32 vertices, up to 40 faces, about 3 % degenerate). It also makes 0-4 slots, per-face slots, filaments 1-255, groups 3 levels deep, rotations, uniform, non-uniform and mirror scales, any UTF-8 names, Title and Designer.
+    - The oracle models the documented IO-11 behaviour:
+      - characters XML 1.0 cannot carry are dropped;
+      - empty metadata is not written;
+      - an object with a face slot but no default gets the synthetic "Default" slot (IO-11 deviation 4).
+    - `crates/amg-io/tests/fuzz_replay.rs` compiles the harness by path (it uses only normal `amg-io` dependencies) and replays every file in `testdata/io/fuzz/<target>/` and `fuzz/seeds/<target>/` under stable nextest. It checks that every directory is a known target, and it skips un-fetched LFS pointers unless `AMG_REQUIRE_TESTDATA=1`. It also covers the stub package, generated round-trip inputs and the unit-overflow rule.
+    - Seeds: `fuzz/seeds/` (41 files, 14 kB) are written by `fuzz/make_seeds.py`. They have no format extensions and `-text -filter`, so the LFS rules do not apply. `fuzz/run.sh` also passes `testdata/io/heads`, `testdata/io/slicer` and the fetched Consortium suites by path.
+    - `.github/workflows/fuzz.yml`: nightly at 02:17 UTC plus `workflow_dispatch`, ubuntu-24.04, an 8-target matrix with `fail-fast: false`.
+      - Pinned nightly `nightly-2026-11-21` and cargo-fuzz 0.13.2; actions pinned to the ci.yml SHAs.
+      - `fuzz/run.sh <target> 300`: ASan, `-rss_limit_mb=2048 -timeout=2`.
+      - The working corpus is cached between nights. On failure, the findings are `tmin`-minimised and uploaded.
+      - `ci.yml` is unchanged; its Windows test job already runs the replay test.
+    - `THIRD_PARTY.md`: the libfuzzer-sys / arbitrary / cargo-fuzz row moves from Planned to In use (fuzz only).
+  - **Bugs found and fixed.** Each has a minimised artifact in `testdata/io/fuzz/` (listed in its README) and, where useful, a unit test:
+    1. `stl/endfacet-substring`: the ASCII chunk cutter split after any `endfacet` substring (`xendfacet`, solid names), so the result depended on the chunk size. `stl::ascii::is_cut` now accepts only whole tokens outside `solid`/`endsolid` name lines (unit test `cuts_are_whole_tokens_outside_solid_names`). The original fuzzer input was lost (Windows note in deviation 2); the file is hand-made, and a model of the old cutter confirms that it splits it.
+    2. `threemf_package/percent-utf8`: `xml::percent_decode` panicked on `%` followed by a multi-byte character (a `str` slice inside a char), and it also took `%+1` as an escape. Hex digits are now read from the bytes (hand-made zip; unit cases in `xml.rs`).
+    3. `ply/nan-vertex`: faces on NaN/inf vertices were dropped, but the vertices stayed in `positions`. PLY now drops them and remaps the indices, vertex colours and vertex UVs. Single-object OBJ had the same leak (`obj/inf-vertex`, found by reading the code); it now keeps only the vertices in use when any is non-finite.
+    4. `roundtrip_scene/control-char-metadata`: the 3MF writer checked for an empty metadata value before dropping XML-invalid characters, so a value of only control characters became `<metadata name="Title"></metadata>` and was read back as `""`. The check is now made after escaping.
+    5. `threemf_model/late-xmlns`: the fast scanner reported a bad value (`y="h"`) before it had seen the whole start tag. A later `xmlns="…"` makes the element foreign, which the reference path skips, so the result depended on the chunking. Value errors now wait until the element is known to be plain (vertices and triangles; new cases in the scanner's differential tests).
+    6. `ply/inch-overflow`: a finite double near `f64::MAX`, imported as inches (or cm/m/ft), became infinite in `Scene::rescale`, after the readers' NaN/inf filter. `import` now refuses such a scene with `IoError::InvalidScene` ("coordinates exceed the number range after converting … to mm"). The check only runs for non-mm units. Test `unit_conversion_overflow_is_refused`.
+    7. `ply/empty-element-count`: an ASCII element without properties and a declared count of 90 M (zero-byte records, so the allocation rule of note §9.1 bounds nothing) was walked record by record, taking over 15 s per read. Property-less elements are now skipped at once (raw 239-byte fuzzer input).
+  - **Evidence:**
+    1. Local runs, Windows, `--sanitizer none -a`, `-rss_limit_mb=2048 -timeout=2`, one in-process fuzzer at a time; exec counts:
+
+       | Target | Execs | Time | Result |
+       |---|---|---|---|
+       | `paint_decode` | 10 000 000 | 141 s | clean |
+       | `mtl` | 10 000 000 | 211 s | clean |
+       | `stl` | 866 731 | 1 h | clean |
+       | `obj` | 1 142 046 | 1 h | clean |
+       | `ply` | 8 566 015 | 1 h | clean |
+       | `threemf_model` | 959 515 | 1 h | clean |
+       | `threemf_package` | 1 598 684 | 1 h | clean |
+       | `roundtrip_scene` | 718 748 | 1 h | clean |
+
+       Peak RSS was 32-72 MB, and the slowest unit took < 1 s. Builds:
+       - `paint_decode`, `mtl` and `stl` used the build with fixes 1-2. Their code paths are untouched by fixes 3-7, apart from the mm-only no-op check of fix 6.
+       - `obj`, `threemf_model`, `threemf_package` and `roundtrip_scene` used the build with fixes 1-5. Fix 6 only adds an error after a non-mm rescale, and fix 7 only touches property-less PLY elements.
+       - `ply` used the final build (fixes 1-7). Its earlier final-code run had found fix 7 after 4.79 M execs.
+       Two earlier runs (`obj` after 1.05 M execs, `ply` after 11 k) stopped on `-timeout=2` while the shared machine was at 88 % CPU from other workers. Both inputs run in 1-5 ms each (20 runs in 24 ms), and whole-process timings of the same input varied from 5 ms to 6.2 s. These are host stalls, not slow inputs; the inputs are kept outside the repo, and both targets were re-run cleanly.
+    2. `roundtrip_scene` ran 718 748 generated scenes clean for 1 h, plus 48 generated inputs and the seeds in the replay test (`roundtrip_scene_on_generated_inputs`).
+    3. `fuzz_replay` (stable 1.97.1, nextest, Windows): `fuzz_artifacts_replay` replays all 8 artifacts and `fuzz_seeds_replay` all 41 seeds.
+    4. *Pending CI*: `.github/workflows/fuzz.yml` passes actionlint 1.7.7 (shellcheck was not installed, so the `run:` scripts were not shell-linted). Three consecutive green nights need the workflow on `main`.
+    5. Seven bugs, seven fixes, eight artifacts (OBJ shares fix 3).
+    - Gates:
+      - `cargo nextest run -p amg-io`: 275 passed;
+      - `cargo clippy -p amg-io --all-targets -- -D warnings`: clean;
+      - `cargo +1.97.1 clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings`: clean;
+      - `cargo fmt --all --check` and `rustfmt --check` of the fuzz crate: clean.
+      - Workspace clippy is left to the coordinator, as instructed.
+  - **Deviations (decide whether to keep):**
+    1. *No ASan locally* (approved by the coordinator 2026-11-22). The MSVC ASan runtime (`clang_rt.asan_dynamic_runtime_thunk-x86_64.lib`, from the VS "C++ AddressSanitizer" component) is not installed, so the local campaigns ran with `--sanitizer none`. Debug assertions and overflow checks stayed on, and `amg-io` has no `unsafe`. CI on Linux keeps ASan.
+    2. *Windows-only shims in `fuzz/src/lib.rs`* that make sanitizer-free libFuzzer work on MSVC:
+       - (a) `global_asm!` start/stop markers for the `.SCOV$C*` / `.SCOVP$*` sections. On MSVC only the ASan runtime defines them, and Rust statics would be renamed by the coverage pass.
+       - (b) `run()` catches a panic and executes `ud2`. On Windows `process::abort` is `__fastfail`, which libFuzzer cannot see, so the first screening runs wrote no crash files.
+       Both are `cfg(windows)`; Linux uses the stock libfuzzer-sys path.
+    3. *`run.sh` runs one in-process fuzzer, without `-jobs=1`.* That flag forks a worker that logs to `fuzz-0.log`; the memory is the same.
+    4. *Hidden `Tuning` / `read_tuned` for STL, OBJ and PLY* are now `#[doc(hidden)] pub`, the pattern of `threemf::read_with` (Interface changes).
+    5. *Overflow after a unit conversion is an error, not a drop.* The values are finite in the file, and dropping them silently would change the model. `InvalidScene` is reused so that no new error variant is needed.
+    6. *`roundtrip_scene` does not use the strict reader*, because its meshes may be open. IO-11 already checks the strict reader on closed scenes.
+  - **Left over:**
+    - Done-when 4 needs three green nights after merge. If the pinned nightly stops building, bump `FUZZ_TOOLCHAIN` in `fuzz.yml`.
+    - Fetching the Consortium suites in the fuzz job (for seeds) would need `fetch-3mf-suites.ps1` ported to bash. The job uses the committed seeds and the slicer fixtures today.
+    - The 6 s host stalls above mean that Windows local fuzzing on a loaded machine needs `-timeout` > 2 to avoid false alarms. CI on Linux is unaffected.
+    - Not found by fuzzing, but possible: 3MF components that nest huge (finite) transforms can still overflow when composed in `Scene::instances`.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1280,3 +1359,15 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **Reader addition (same crate, IO-03 code):** object `<metadatagroup>` entries are parsed; `amg:filament` in Amalgam's namespace `urn:amalgam:3mf:2026` becomes `SceneObject::filament` (other object metadata is still ignored). This lets the Generic flavour round-trip the slicer filament, which core 3MF has no field for.
 - **New normal dependency of `amg-io`:** `png` 0.18.1 (already in the workspace through `amg-render`; MIT / Apache-2.0; THIRD_PARTY.md row updated).
 - **amg-ui (lane D / MESH-23), not changed:** `crates/amg-ui/tests/mesh_workspace.rs::export_3mf` now takes the 3MF path (it fell back to STL only on `Unsupported`), and `phase1_script_on_three_corpus_models_exports_3mf` can be un-ignored by its owner. Both tests pass on 3 of 3 corpus models with this writer (see the 2026-11-22 Refinement-log entry).
+
+### 2026-11-22: from IO-16 (fuzzing)
+- **Additive hidden API of `amg-io` (same crate):** `amg_io::stl::{Tuning, read_tuned}`, `amg_io::obj::{Tuning, read_tuned}` and `amg_io::ply::{Tuning, read_tuned}` are now `#[doc(hidden)] pub` (they were `pub(crate)`, test-only), like the existing `threemf::{Tuning, read_with}`. The fuzz targets read with tiny chunks to cover the chunk-boundary paths. No change to any option struct or public signature.
+- **Behaviour fixes (same crate), each with a replayed artifact in `testdata/io/fuzz/`:**
+  - STL ASCII: chunk cuts only at whole `endfacet` tokens outside `solid`/`endsolid` names. Results now never depend on the chunking.
+  - 3MF `percent_decode`: no panic on `%` before a multi-byte character; `%+1` is no longer an escape.
+  - PLY and single-object OBJ: non-finite vertices are removed, not only their faces (note §9.2). The vertex indices of such files change; files without NaN/inf are unchanged.
+  - 3MF writer: a metadata value that is empty after dropping XML-invalid characters is not written.
+  - 3MF fast scanner: a bad attribute value only counts once the element is known to be plain, so a later `xmlns` that makes it foreign defers to the reference path, as the chunked read already did.
+  - PLY: elements without properties are skipped at once, whatever their declared count.
+  - `amg_io::import`: after a non-mm unit rescale, non-finite coordinates give `IoError::InvalidScene` ("coordinates exceed the number range after converting … to mm"). Before, they were passed on as infinities. No new error variant.
+- **New files outside the crates:** `fuzz/` (own workspace, not a member of the main one), `.github/workflows/fuzz.yml` (scheduled Linux job), `testdata/io/fuzz/`. `ci.yml` is unchanged: its Windows test job already runs `crates/amg-io/tests/fuzz_replay.rs`.
