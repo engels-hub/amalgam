@@ -1,6 +1,6 @@
 //! The Phase 1 mesh operations: their commands, dialog fields and the feature each builds.
 //!
-//! Every op is a MESH-16/26/18/12 timeline feature; the dialog only edits its parameters
+//! Every op is a MESH-16/26/18/12/27 timeline feature; the dialog only edits its parameters
 //! (inline [`Expr`]s, so the document turns them into model parameters) and [`OpParams::feature`]
 //! builds the feature for the preview and for OK.
 
@@ -10,13 +10,14 @@ use amg_core::{Aabb3, Dimension};
 use amg_doc::param::ParamTable;
 use amg_doc::{BodyId, Expr, FeatureBox, UnitPrefs};
 use amg_features::mesh::{
-    CutPlane, EdgeLengthParam, FairingParam, KeepSideParam, MeshEntityRef, MeshEraseFillFeature,
-    MeshFaceGroupsFeature, MeshPlaneCutFeature, MeshReduceFeature, MeshRemeshFeature,
-    MeshRepairFeature, MeshReverseNormalFeature, MeshSeparateFeature, MeshShellFeature,
-    MeshSmoothFeature, MeshWrapFeature, OriginPlane, OutputMode, ReduceParams, ReduceTarget,
-    RemeshParams, RemeshSizing, RepairParams, SegmentParams, SmoothMethodParam, SmoothParams,
+    CutPlane, EdgeLengthParam, FairingParam, KeepSideParam, MeshCombineFeature, MeshEntityRef,
+    MeshEraseFillFeature, MeshFaceGroupsFeature, MeshPlaneCutFeature, MeshReduceFeature,
+    MeshRemeshFeature, MeshRepairFeature, MeshReverseNormalFeature, MeshSeparateFeature,
+    MeshShellFeature, MeshSmoothFeature, MeshWrapFeature, OriginPlane, OutputMode, ReduceParams,
+    ReduceTarget, RemeshParams, RemeshSizing, RepairParams, SegmentParams, SmoothMethodParam,
+    SmoothParams,
 };
-use amg_mesh::{FaceId, IndexedMesh, ShellSide};
+use amg_mesh::{BoolOp, FaceId, IndexedMesh, ShellSide};
 
 use crate::command::CmdId;
 use crate::module::GroupId;
@@ -41,6 +42,9 @@ pub enum MeshOp {
     PlaneCut,
     /// MESH-10 shell (`mesh.shell`).
     Shell,
+    /// MESH-27 combine: join / cut / intersect with tool bodies (`mesh.combine`). Its dialog
+    /// is [`CombineTool`](super::combine::CombineTool) (two body fields).
+    Combine,
     /// MESH-09 separate shells (`mesh.separate`).
     Separate,
     /// Reverse normals (`mesh.reverse_normal`).
@@ -64,13 +68,14 @@ pub const GROUP_INSPECT: GroupId = GroupId("mesh.inspect");
 
 impl MeshOp {
     /// Every op, in toolbar order.
-    pub const ALL: [MeshOp; 11] = [
+    pub const ALL: [MeshOp; 12] = [
         MeshOp::Repair,
         MeshOp::Remesh,
         MeshOp::Reduce,
         MeshOp::Smooth,
         MeshOp::PlaneCut,
         MeshOp::Shell,
+        MeshOp::Combine,
         MeshOp::Separate,
         MeshOp::ReverseNormal,
         MeshOp::EraseFill,
@@ -87,6 +92,7 @@ impl MeshOp {
             MeshOp::Smooth => "mesh.smooth",
             MeshOp::PlaneCut => "mesh.plane_cut",
             MeshOp::Shell => "mesh.shell",
+            MeshOp::Combine => "mesh.combine",
             MeshOp::Separate => "mesh.separate",
             MeshOp::ReverseNormal => "mesh.reverse_normal",
             MeshOp::EraseFill => "mesh.erase_fill",
@@ -109,6 +115,7 @@ impl MeshOp {
             MeshOp::Smooth => "Smooth",
             MeshOp::PlaneCut => "Plane Cut",
             MeshOp::Shell => "Shell",
+            MeshOp::Combine => "Combine",
             MeshOp::Separate => "Separate",
             MeshOp::ReverseNormal => "Reverse Normal",
             MeshOp::EraseFill => "Erase and Fill",
@@ -136,6 +143,7 @@ impl MeshOp {
             MeshOp::Smooth => "Smooth the surface (Taubin, Laplacian or feature-preserving)",
             MeshOp::PlaneCut => "Cut the mesh with a plane and cap the cut",
             MeshOp::Shell => "Hollow the mesh to a wall of the given thickness",
+            MeshOp::Combine => "Join, cut or intersect the mesh with tool bodies",
             MeshOp::Separate => "Split the mesh into one body per shell",
             MeshOp::ReverseNormal => "Flip the normals of the body or of selected face groups",
             MeshOp::EraseFill => "Delete face groups and fill the holes",
@@ -153,6 +161,7 @@ impl MeshOp {
             MeshOp::Smooth => &["taubin", "laplacian", "denoise", "fair"],
             MeshOp::PlaneCut => &["split", "slice", "section", "bisect"],
             MeshOp::Shell => &["hollow", "offset", "thicken", "wall"],
+            MeshOp::Combine => &["boolean", "join", "union", "subtract", "intersect", "merge"],
             MeshOp::Separate => &["split", "shells", "components", "explode"],
             MeshOp::ReverseNormal => &["flip", "invert", "orientation"],
             MeshOp::EraseFill => &["delete", "remove", "patch", "fill"],
@@ -196,6 +205,7 @@ impl MeshOp {
                 | MeshOp::Reduce
                 | MeshOp::Smooth
                 | MeshOp::Shell
+                | MeshOp::Combine
                 | MeshOp::Wrap
                 | MeshOp::FaceGroups
         )
@@ -289,6 +299,10 @@ pub enum OpParams {
         robust: bool,
         auto_voxel: bool,
         voxel: String,
+    },
+    Combine {
+        op: BoolOp,
+        keep_tools: bool,
     },
     Separate,
     ReverseNormal,
@@ -402,6 +416,10 @@ impl OpParams {
                 robust: false,
                 auto_voxel: true,
                 voxel: "0.5 mm".into(),
+            },
+            MeshOp::Combine => OpParams::Combine {
+                op: BoolOp::Union,
+                keep_tools: false,
             },
             MeshOp::Separate => OpParams::Separate,
             MeshOp::ReverseNormal => OpParams::ReverseNormal,
@@ -548,7 +566,10 @@ impl OpParams {
                 v
             }
             OpParams::FaceGroups { angle, .. } => vec![("Angle threshold", angle.as_str(), A)],
-            OpParams::Separate | OpParams::ReverseNormal | OpParams::EraseFill { .. } => Vec::new(),
+            OpParams::Combine { .. }
+            | OpParams::Separate
+            | OpParams::ReverseNormal
+            | OpParams::EraseFill { .. } => Vec::new(),
         }
     }
 
@@ -737,6 +758,20 @@ impl OpParams {
                         expr(ui, "Voxel size", voxel, L);
                     }
                 }
+            }
+            OpParams::Combine { op, keep_tools } => {
+                ChoiceField::new(
+                    "Operation",
+                    op,
+                    &[
+                        (BoolOp::Union, "Join"),
+                        (BoolOp::Difference, "Cut"),
+                        (BoolOp::Intersection, "Intersect"),
+                    ],
+                )
+                .buttons()
+                .show(ui);
+                toggle(ui, "Keep tools", keep_tools);
             }
             OpParams::Separate => {
                 ui.label("Each shell becomes its own body; the largest stays in the input body.");
@@ -941,6 +976,9 @@ impl OpParams {
                 voxel: (*robust && !*auto_voxel).then(|| inline(voxel)),
                 output,
             }),
+            OpParams::Combine { .. } => {
+                return Err("Combine needs tool bodies (see `OpParams::combine_feature`)".into());
+            }
             OpParams::Separate => FeatureBox::new(MeshSeparateFeature { body }),
             OpParams::ReverseNormal => FeatureBox::new(MeshReverseNormalFeature {
                 body,
@@ -984,6 +1022,37 @@ impl OpParams {
                 output,
             }),
         })
+    }
+}
+
+impl OpParams {
+    /// The `mesh.combine` feature of `target` with `tools` (the Combine dialog's state).
+    ///
+    /// # Errors
+    /// Why OK is not possible: not the Combine state, or no tool.
+    pub fn combine_feature(
+        &self,
+        target: BodyId,
+        tools: &[BodyId],
+        new_body: bool,
+    ) -> Result<FeatureBox, Cow<'static, str>> {
+        let OpParams::Combine { op, keep_tools } = self else {
+            return Err("not a combine".into());
+        };
+        if tools.is_empty() {
+            return Err("Select the tool bodies".into());
+        }
+        Ok(FeatureBox::new(MeshCombineFeature {
+            target,
+            tools: tools.to_vec(),
+            op: *op,
+            keep_tools: *keep_tools,
+            output: if new_body {
+                OutputMode::NewBody
+            } else {
+                OutputMode::Replace
+            },
+        }))
     }
 }
 

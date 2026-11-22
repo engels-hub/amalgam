@@ -2,12 +2,12 @@
 //!
 //! MESH-23 (Phase 1 workspace):
 //! - **Toolbar and search.** One command per op ([`MeshOp`]: Repair, Remesh, Reduce, Smooth,
-//!   Plane Cut, Shell, Separate, Reverse Normal, Erase and Fill, Wrap in *Modify*; Generate
-//!   Face Groups in *Prepare*) plus [`ANALYSIS_CMD`] in *Inspect*. Every command is in a MESH
+//!   Plane Cut, Shell, Combine (MESH-27), Separate, Reverse Normal, Erase and Fill, Wrap in
+//!   *Modify*; Generate Face Groups in *Prepare*) plus [`ANALYSIS_CMD`] in *Inspect*. Every command is in a MESH
 //!   toolbar group and in S-key search (labels end in `…` for commands that open a dialog).
-//! - **Dialogs** ([`tool::MeshOpTool`]) are hand-built on the framework API (UI-03 tools and
+//! - **Dialogs** ([`tool::MeshOpTool`]; Combine: [`combine::CombineTool`]) are hand-built on the framework API (UI-03 tools and
 //!   previews, UI-04 selection, UI-15 widgets) and migrate to the UI-05 generic renderer in
-//!   Phase 2. Each one creates the op's MESH-16/26/18/12 timeline feature.
+//!   Phase 2. Each one creates the op's MESH-16/26/18/12 timeline feature (Combine: MESH-27's `mesh.combine`).
 //! - **Previews** go through `Document::preview` as cancellable, latest-wins jobs; inputs above
 //!   `amg_features::mesh::PREVIEW_PROXY_FACES` (2 M) are previewed on a decimated proxy. The
 //!   full compute after OK is the document's recompute job (progress and Cancel in the jobs
@@ -17,6 +17,7 @@
 //!   highlight layer (RND-04) through `AppCx::set_highlight`.
 
 pub mod analysis;
+pub mod combine;
 pub mod ops;
 pub mod tool;
 
@@ -29,6 +30,7 @@ use crate::panel::{DockSlot, PanelDef};
 use crate::tool::{Tool, ToolInit};
 
 pub use analysis::{ANALYSIS_PANEL, AnalysisPanel, DefectFaces, MeshAnalysis, analyse};
+pub use combine::CombineTool;
 pub use ops::{MeshOp, OpParams};
 pub use tool::MeshOpTool;
 
@@ -66,9 +68,15 @@ macro_rules! starters {
         fn starter(op: MeshOp) -> fn(&ToolInit<'_>) -> Box<dyn Tool> {
             match op {
                 $($op => $name,)*
+                MeshOp::Combine => start_combine,
             }
         }
     };
+}
+
+/// The Combine dialog has its own tool (two body fields).
+fn start_combine(init: &ToolInit<'_>) -> Box<dyn Tool> {
+    Box::new(CombineTool::new(init))
 }
 
 starters! {

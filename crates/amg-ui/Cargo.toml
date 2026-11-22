@@ -32,6 +32,8 @@ egui_kittest = { workspace = true, optional = true }
 [features]
 # `amg_ui::testing`: AppHarness (egui_kittest), NullViewport, CpuPickService stub. Dev/test only.
 testing = ["dep:egui_kittest"]
+# MESH-27: the Manifold boolean backend for the Combine dialog (forwards to amg-features).
+manifold = ["amg-features/manifold"]
 
 [dev-dependencies]
 amg-ui = { path = ".", features = ["testing"] }

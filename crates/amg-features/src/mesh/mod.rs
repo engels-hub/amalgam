@@ -18,6 +18,9 @@
 //!   [`MeshSeparateFeature`] (`mesh.separate`) and [`MeshEraseFillFeature`]
 //!   (`mesh.erase_fill`). Numeric parameters are `Expr`s (they become model parameters when
 //!   the feature enters a design).
+//! - [`MeshCombineFeature`] (`mesh.combine`, MESH-27): join / cut / intersect a mesh target
+//!   with mesh or solid tools (MESH-05 booleans); implicit operands are refused (they stay
+//!   implicit, QUESTIONS #63).
 //! - [`wrap`] (MESH-18): the wrap repair, a morphological closing through distance fields
 //!   (plain function), and its feature [`MeshWrapFeature`] (`mesh.wrap`).
 //!
@@ -25,6 +28,7 @@
 //! [`link`] from a binary or test so the registrations are linked in.
 
 mod base;
+mod combine;
 mod cut;
 mod error;
 mod offset;
@@ -44,6 +48,7 @@ pub mod wrap;
 mod wrap_feature;
 
 pub use base::OutputMode;
+pub use combine::{MAX_COMBINE_TOOLS, MeshCombineFeature};
 pub use cut::{
     CutPlane, FairingParam, KeepSideParam, MeshEraseFillFeature, MeshPlaneCutFeature,
     MeshSeparateFeature, OriginPlane,

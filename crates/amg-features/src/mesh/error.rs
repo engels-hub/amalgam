@@ -22,6 +22,12 @@ pub enum MeshFeatureError {
     /// A referenced face group has neither its id nor a matching fingerprint any more.
     #[error("referenced face group {0:?} no longer resolves")]
     UnresolvedGroup(FaceGroupId),
+    /// A combine operand is an implicit body: booleans with an implicit body stay implicit
+    /// (QUESTIONS #63), so a mesh combine never meshes it. The payload names the operand.
+    #[error(
+        "{0} is an implicit body: a combine with an implicit body stays implicit, use Implicit Combine (S08 IMP-08)"
+    )]
+    ImplicitOperand(String),
 }
 
 impl amg_core::Diagnostic for MeshFeatureError {
@@ -42,6 +48,10 @@ impl From<MeshFeatureError> for FeatureError {
             },
             MeshFeatureError::UnresolvedGroup(_) => FeatureError::InvalidValue {
                 field: "groups",
+                msg: e.to_string(),
+            },
+            MeshFeatureError::ImplicitOperand(_) => FeatureError::InvalidValue {
+                field: "tools",
                 msg: e.to_string(),
             },
             other => FeatureError::Kernel(other.to_string()),
