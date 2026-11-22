@@ -1,4 +1,4 @@
-//! 3MF reader (IO-03; spec S12 §6, note `import-export-formats.md` §2-§4, §9, §10).
+//! 3MF reader (IO-03) and Generic writer (IO-11, [`write`]; spec S12 §6, note `import-export-formats.md` §2-§4, §9, §10).
 //!
 //! - **Package** (`package`): zip with ZIP64 and data descriptors (the `zip` crate),
 //!   case-insensitive part names, content types, relationships resolved against their part,
@@ -23,7 +23,11 @@ mod config;
 mod model;
 mod package;
 mod scan;
+mod thumb;
+mod write;
 mod xml;
+
+pub use self::write::{application, write};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;

@@ -26,6 +26,9 @@ pub(crate) const NS_TRISETS: &str =
 pub(crate) const NS_BEAM: &str = "http://schemas.microsoft.com/3dmanufacturing/beamlattice/2017/02";
 /// PrusaSlicer.
 pub(crate) const NS_SLIC3R: &str = "http://schemas.slic3r.org/3mf/2017/06";
+/// Amalgam's own data in 3MF files (IO-11): object metadata `amg:filament`. Consumers that do
+/// not know it ignore it (it is never in `requiredextensions`).
+pub(crate) const NS_AMG: &str = "urn:amalgam:3mf:2026";
 /// The `xml:` prefix.
 pub(crate) const NS_XML: &str = "http://www.w3.org/XML/1998/namespace";
 

@@ -752,6 +752,7 @@ impl<'a> Builder<'a> {
         let mut so = SceneObject::new(Arc::new(mesh));
         so.name = obj.name.clone();
         so.kind = obj.kind;
+        so.filament = obj.filament;
         so.material = default_slot;
         so.face_materials = face.map(Arc::from);
         so.source_id = Some(match (&obj.uuid, p.key == self.root) {

@@ -427,11 +427,10 @@ fn reexport_round_trips_through_ply_and_obj() {
     }
 }
 
-/// Done-when 4 as written: re-export through the IO-11 3MF writer and read back. IO-11 (the
-/// 3MF writer) is not on this base yet (`amg_io::export` answers `Unsupported` for 3MF);
-/// IO-11 must un-ignore this test.
+/// Done-when 4 as written: re-export through the IO-11 3MF writer and read back. Orca writes
+/// coordinates with up to 9 significant digits, so the bit-exact comparison needs `Roundtrip`
+/// (the default `Decimals(6)` is within 1e-6 mm, IO-11 Done-when 1).
 #[test]
-#[ignore = "needs the IO-11 3MF writer"]
 fn reexport_3mf_round_trips() {
     link();
     let Some((_, tmf)) = corpus(THREE_MF) else {
@@ -443,11 +442,15 @@ fn reexport_3mf_round_trips() {
     recompute(&mut doc);
     let scene = exported(&doc);
     let mut out = Vec::new();
+    let opts = ExportOptions {
+        precision: CoordPrecision::Roundtrip,
+        ..ExportOptions::default()
+    };
     amg_io::export(
         &scene,
         Sink::Memory(&mut out),
         Format::ThreeMf,
-        &ExportOptions::default(),
+        &opts,
         &ctx(),
     )
     .unwrap();

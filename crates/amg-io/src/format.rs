@@ -91,7 +91,10 @@ const fn info(
             format,
             Format::Stl | Format::Obj | Format::ThreeMf | Format::Ply
         ),
-        can_export: matches!(format, Format::Stl | Format::Obj | Format::Ply),
+        can_export: matches!(
+            format,
+            Format::Stl | Format::Obj | Format::ThreeMf | Format::Ply
+        ),
         multi_object,
         colors,
     }
