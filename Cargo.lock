@@ -370,6 +370,7 @@ dependencies = [
  "dhat",
  "memchr",
  "ply-rs-bw",
+ "png",
  "proptest",
  "quick-xml 0.42.0",
  "rayon",

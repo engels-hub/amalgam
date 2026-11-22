@@ -13,6 +13,9 @@ pub use mtl::{Mtl, MtlMaterial, parse_mtl};
 pub use read::read;
 pub use write::write;
 
+// Number formatting shared with the 3MF writer (IO-11).
+pub(crate) use write::{num, push_u64, roundtrip};
+
 // Shared with the PLY reader (IO-13).
 pub(crate) use triangulate::{Method, triangulate};
 

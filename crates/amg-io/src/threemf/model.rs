@@ -19,8 +19,9 @@ use super::Tuning;
 use super::package::check_attrs;
 use super::scan::{self, ScanCtx, Triangles};
 use super::xml::{
-    NS_BEAM, NS_CORE, NS_MAT, NS_PROD, NS_SLIC3R, NS_TRISETS, NS_XML, Scopes, attr_value, is_xmlns,
-    malformed_at, parse_color, parse_id, parse_index, parse_number, parse_transform, trim,
+    NS_AMG, NS_BEAM, NS_CORE, NS_MAT, NS_PROD, NS_SLIC3R, NS_TRISETS, NS_XML, Scopes, attr_value,
+    is_xmlns, malformed_at, parse_color, parse_id, parse_index, parse_number, parse_transform,
+    trim,
 };
 use crate::error::IoError;
 use crate::options::ReadLimits;
@@ -127,6 +128,8 @@ pub(crate) struct Object {
     pub pid: Option<u32>,
     pub pindex: Option<u32>,
     pub uuid: Option<String>,
+    /// Slicer filament written by Amalgam (`amg:filament` in the object's metadata group).
+    pub filament: Option<u8>,
     pub content: Content,
     pub offset: usize,
 }
@@ -1319,6 +1322,7 @@ impl Parse<'_, '_> {
             pid,
             pindex,
             uuid,
+            filament: None,
             content: Content::Empty,
             offset: off,
         };
@@ -1359,7 +1363,7 @@ impl Parse<'_, '_> {
                             let c = self.components()?;
                             obj.content = Content::Components(c);
                         }
-                        (true, "metadatagroup") => self.x.skip()?,
+                        (true, "metadatagroup") => self.metadatagroup(obj, off)?,
                         _ => self.unknown(&ns, &local, off, false)?,
                     }
                 }
@@ -1392,6 +1396,51 @@ impl Parse<'_, '_> {
                 Ev::End(_) => return Ok(()),
                 Ev::Eof => return Err(self.err(obj_off, "<object> is not closed")),
             }
+        }
+    }
+
+    /// An object's `<metadatagroup>`: only Amalgam's own `amg:filament` is kept (IO-11).
+    fn metadatagroup(&mut self, obj: &mut Object, group_off: usize) -> Result<(), IoError> {
+        let mut names: BTreeSet<String> = BTreeSet::new();
+        loop {
+            match self.x.next()? {
+                Ev::Start(e, off) => {
+                    let (ns, local) = self.x.element_ns(&e);
+                    if self.core(&ns) && local == "metadata" {
+                        let (k, _) = self.metadata_attrs(&e, off, &mut names)?;
+                        let v = self.x.text()?;
+                        self.object_metadata(obj, &k, &v);
+                    } else {
+                        self.unknown(&ns, &local, off, false)?;
+                    }
+                }
+                Ev::Empty(e, off) => {
+                    let (ns, local) = self.x.element_ns(&e);
+                    if self.core(&ns) && local == "metadata" {
+                        self.metadata_attrs(&e, off, &mut names)?;
+                    } else {
+                        self.unknown(&ns, &local, off, true)?;
+                    }
+                }
+                Ev::Text(t) => {
+                    if self.strict && !trim(&t).is_empty() {
+                        return Err(self.err(self.x.pos(), "unexpected text in <metadatagroup>"));
+                    }
+                }
+                Ev::End(_) => return Ok(()),
+                Ev::Eof => return Err(self.err(group_off, "<metadatagroup> is not closed")),
+            }
+        }
+    }
+
+    fn object_metadata(&self, obj: &mut Object, name: &str, value: &str) {
+        if let Some((prefix, local)) = name.split_once(':')
+            && local == "filament"
+            && self.x.scopes.uri(prefix) == Some(NS_AMG)
+            && let Ok(f) = trim(value).parse::<u8>()
+            && f > 0
+        {
+            obj.filament = Some(f);
         }
     }
 

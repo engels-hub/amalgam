@@ -31,7 +31,7 @@ Agents update the row to **In use** (with version) when they add the dependency.
 | raw-window-handle 0.6.2 | `amg-ui` direct dependency for `RfdDialogs::with_parent` (the window handle traits); already transitive via winit, wgpu and rfd (S11 UI-19) | MIT / Apache-2.0 / Zlib | no | no | In use (0.6.2) |
 | directories 6.0.0 (+ transitive dirs-sys 0.5, option-ext 0.2) | `amg-ui` `%APPDATA%\Amalgam\layout.json` (UI-01); later prefs and shortcuts (S11) | MIT / Apache-2.0 (option-ext: MPL-2.0, weak copyleft, unmodified) | weak (option-ext) | no | In use (6.0.0) |
 | bitflags 2 | `amg-render` `PickFilter`, `amg-features::dialog` `EntityFilter` (S10, S11; already transitive via wgpu) | MIT / Apache-2.0 | no | no | Planned |
-| png 0.18.1 | `amg-render` headless capture, goldens, thumbnails; `amg-io` 3MF thumbnails (S10, S12) | MIT / Apache-2.0 | no | no | In use (0.18.1, `amg-render` dev-dependency only: the RND-07 image-plane test; already in `Cargo.lock` through eframe); the runtime use (RND-09 goldens, IO-15) is still planned |
+| png 0.18.1 | `amg-render` headless capture, goldens, thumbnails; `amg-io` 3MF thumbnails (S10, S12) | MIT / Apache-2.0 | no | no | In use (0.18.1, `amg-render` dev-dependency only: the RND-07 image-plane test; already in `Cargo.lock` through eframe; `amg-io` normal dependency since IO-11: 3MF thumbnail PNG encode); the runtime use (RND-09 goldens, IO-15) is still planned |
 | meshopt 0.7.0 (meshoptimizer) | `amg-render` clusters/LOD (S10 RND-14) | MIT / Apache-2.0 (meshoptimizer: MIT) | no | no | Planned (P2) |
 | Viridis colormap table (data) | `amg-render` (S10 RND-08) | CC0-1.0 (matplotlib colormaps) | no | no | In use |
 | Turbo colormap table (data) | `amg-render` (S10 RND-08) | Apache-2.0 (Google) | no | no | In use |

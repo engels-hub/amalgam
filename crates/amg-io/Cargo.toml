@@ -23,6 +23,8 @@ zip.workspace = true
 quick-xml = { version = "0.42.0", default-features = false }
 memchr = "2.8.3"
 serde_json.workspace = true
+# 3MF thumbnails (IO-11): PNG encode; same version as amg-render.
+png = "0.18.1"
 
 [features]
 default = []
@@ -64,4 +66,8 @@ harness = false
 
 [[bench]]
 name = "ply"
+harness = false
+
+[[bench]]
+name = "threemf_write"
 harness = false

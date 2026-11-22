@@ -430,7 +430,7 @@ fn norm_bits(x: f64) -> u64 {
 
 const POW10: [f64; 10] = [1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9];
 
-fn push_u64(out: &mut Vec<u8>, mut n: u64) {
+pub(crate) fn push_u64(out: &mut Vec<u8>, mut n: u64) {
     let mut buf = [0u8; 20];
     let mut i = buf.len();
     loop {
@@ -445,7 +445,7 @@ fn push_u64(out: &mut Vec<u8>, mut n: u64) {
 }
 
 /// `x` with at most `d` decimals, trailing zeros removed, `-0` written as `0`.
-fn fixed(out: &mut Vec<u8>, x: f64, d: u8) {
+pub(crate) fn fixed(out: &mut Vec<u8>, x: f64, d: u8) {
     let d = usize::from(d);
     if d < POW10.len() {
         let y = (x.abs() * POW10[d]).round();
@@ -486,7 +486,7 @@ fn fixed(out: &mut Vec<u8>, x: f64, d: u8) {
 }
 
 /// Shortest text that reads back to the same f64.
-fn roundtrip(out: &mut Vec<u8>, x: f64) {
+pub(crate) fn roundtrip(out: &mut Vec<u8>, x: f64) {
     if x == 0.0 {
         out.push(b'0');
         return;
@@ -500,7 +500,7 @@ fn roundtrip(out: &mut Vec<u8>, x: f64) {
     out.extend_from_slice(s.as_bytes());
 }
 
-fn num(out: &mut Vec<u8>, x: f64, prec: CoordPrecision) {
+pub(crate) fn num(out: &mut Vec<u8>, x: f64, prec: CoordPrecision) {
     match prec {
         CoordPrecision::Decimals(d) => fixed(out, x, d),
         CoordPrecision::Roundtrip => roundtrip(out, x),

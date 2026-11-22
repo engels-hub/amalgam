@@ -281,6 +281,12 @@ pub fn check_export(scene: &Scene, format: Format, ctx: &JobCtx) -> Result<Expor
         }
         ctx.checkpoint()?;
         let o = &scene.objects[i as usize];
+        // 3MF requires closed solids only of `model` and `solidsupport` objects (note §2.3).
+        if format == Format::ThreeMf
+            && !matches!(o.kind, ObjectKind::Model | ObjectKind::SolidSupport)
+        {
+            continue;
+        }
         let a = analyze(&o.mesh, &AnalyzeOpts::default(), ctx).map_err(|e| match e {
             amg_mesh::MeshError::Cancelled => IoError::Cancelled,
             e => IoError::Mesh(e),
@@ -326,6 +332,7 @@ pub fn export(
         Format::Stl => return stl::write(scene, dst, opts, ctx),
         Format::Obj => return obj::write(scene, dst, opts, ctx),
         Format::Ply => return ply::write(scene, dst, opts, ctx),
+        Format::ThreeMf => return threemf::write(scene, dst, opts, ctx),
         _ => {}
     }
     Err(IoError::Unsupported {
