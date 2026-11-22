@@ -1,0 +1,10 @@
+newmtl red
+Kd 1 0 0
+d 0.5
+newmtl blue
+Kd 0 0 1
+Tr 0.25
+map_Kd tex.png
+newmtl   spaced name  
+Kd 0.2 0.3
+bump b.png

@@ -304,15 +304,18 @@ pub(crate) fn percent_decode(s: &str) -> String {
     if !s.contains('%') {
         return s.to_owned();
     }
+    // Hex digits are read from the bytes: a `%` followed by a multi-byte character must not
+    // slice the `str` inside that character (IO-16 fuzz finding `threemf_package/percent-utf8`).
+    let hex = |c: u8| char::from(c).to_digit(16);
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%'
             && i + 2 < b.len()
-            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+            && let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2]))
         {
-            out.push(v);
+            out.push((h * 16 + l) as u8);
             i += 3;
             continue;
         }
@@ -446,6 +449,11 @@ mod tests {
             "/3d/textures/x.png"
         );
         assert_eq!(percent_decode("a%2"), "a%2");
+        // IO-16 fuzz findings: no slicing inside a multi-byte character, no sign as a digit.
+        assert_eq!(percent_decode("%a╒b"), "%a╒b");
+        assert_eq!(percent_decode("%╒x"), "%╒x");
+        assert_eq!(percent_decode("%+1"), "%+1");
+        assert_eq!(percent_decode("%e2%95%92%41"), "╒A");
     }
 
     #[test]

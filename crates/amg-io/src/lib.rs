@@ -200,6 +200,7 @@ fn import_3mf(
     }
     let scene = &mut out.scene;
     scene.rescale(unit, LengthUnit::Millimetre);
+    finite_in_mm(scene, unit)?;
     if opts.merge_objects && scene.instances().len() > 1 {
         let name = scene.metadata.get("Title").cloned();
         let (mesh, slots) = scene.flatten(ctx)?;
@@ -215,6 +216,34 @@ fn import_3mf(
         r.transform = up * r.transform;
     }
     Ok(out)
+}
+
+/// A unit conversion can overflow coordinates that were finite in the file (a double near
+/// `f64::MAX` read as inches; IO-16 fuzz finding `ply/inch-overflow`). Such a scene is
+/// refused instead of carrying infinities downstream. Free for millimetre files.
+fn finite_in_mm(scene: &Scene, unit: LengthUnit) -> Result<(), IoError> {
+    if unit == LengthUnit::Millimetre {
+        return Ok(());
+    }
+    let finite = |v: amg_core::Vec3| v.is_finite();
+    let mut ok = scene
+        .objects
+        .iter()
+        .all(|o| o.mesh.positions.iter().all(|&p| finite(p)));
+    let mut stack: Vec<&SceneNode> = scene.roots.iter().collect();
+    while ok && let Some(n) = stack.pop() {
+        ok = finite(n.transform.translation);
+        if let NodeContent::Group(c) = &n.content {
+            stack.extend(c);
+        }
+    }
+    if ok {
+        Ok(())
+    } else {
+        Err(IoError::InvalidScene {
+            message: format!("coordinates exceed the number range after converting {unit:?} to mm"),
+        })
+    }
 }
 
 /// What every unit-less mesh format shares after reading.
@@ -243,6 +272,7 @@ fn finish_import(
     }
     let scene = &mut out.scene;
     scene.rescale(unit, LengthUnit::Millimetre);
+    finite_in_mm(scene, unit)?;
     if opts.merge_objects && scene.objects.len() > 1 {
         let name = scene.objects[0].name.clone();
         let (mesh, slots) = scene.flatten(ctx)?;

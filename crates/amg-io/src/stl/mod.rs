@@ -6,6 +6,8 @@ mod weld;
 mod write;
 
 pub use read::read;
+#[doc(hidden)]
+pub use read::{Tuning, read_tuned};
 pub(crate) use read::{count_degenerate, open_at, stream};
 pub use write::write;
 

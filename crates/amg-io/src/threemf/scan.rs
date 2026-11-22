@@ -190,6 +190,10 @@ fn fast_vertices(chunk: &[u8], cx: &ScanCtx<'_>) -> Option<Result<Vec<Point3>, S
             Some(start) => {
                 let mut xyz = [None::<f64>; 3];
                 let mut seen = 0u8;
+                // A value error counts only once the whole element is known to be plain: an
+                // attribute after it (an `xmlns` say) can still make this a foreign element
+                // for the reference parser (IO-16 fuzz finding `threemf_model/late-xmlns`).
+                let mut bad: Option<String> = None;
                 while let Some((name, value)) = sc.attribute()? {
                     let k = match name {
                         b"x" => 0,
@@ -204,10 +208,15 @@ fn fast_vertices(chunk: &[u8], cx: &ScanCtx<'_>) -> Option<Result<Vec<Point3>, S
                     let v = std::str::from_utf8(value).ok()?;
                     match parse_number(v, cx.strict) {
                         Ok(v) => xyz[k] = Some(v),
-                        Err(m) => return Some(Err((start, m))),
+                        Err(m) => {
+                            bad.get_or_insert(m);
+                        }
                     }
                 }
                 sc.close()?;
+                if let Some(m) = bad {
+                    return Some(Err((start, m)));
+                }
                 match xyz {
                     [Some(x), Some(y), Some(z)] => out.push(Point3::new(x, y, z)),
                     _ => return Some(Err((start, "a vertex needs x, y and z".into()))),
@@ -398,6 +407,8 @@ fn fast_triangles(chunk: &[u8], cx: &ScanCtx<'_>) -> Option<Result<Triangles, Sc
         };
         let mut t = TriAttrs::default();
         let mut seen = 0u8;
+        // As for vertices: value errors wait until the element is known to be plain.
+        let mut bad: Option<String> = None;
         while let Some((name, value)) = sc.attribute()? {
             let name = std::str::from_utf8(name).ok()?;
             let kind = classify_tri_attr(name, cx);
@@ -415,10 +426,13 @@ fn fast_triangles(chunk: &[u8], cx: &ScanCtx<'_>) -> Option<Result<Triangles, Sc
             seen |= 1 << bit;
             let value = std::str::from_utf8(value).ok()?;
             if let Err(m) = apply_tri_attr(&mut t, kind, name, value, cx) {
-                return Some(Err((start, m)));
+                bad.get_or_insert(m);
             }
         }
         sc.close()?;
+        if let Some(m) = bad {
+            return Some(Err((start, m)));
+        }
         if let Err(e) = t.finish(start, &mut out) {
             return Some(Err(e));
         }
@@ -793,6 +807,8 @@ mod tests {
             r#"<vertex x="1" y="2" z="3" x="4"/>"#,
             r#"<vertex x="1." y="2" z="3"/>"#,
             r#"<vertex x="1,5" y="2" z="3"/>"#,
+            // IO-16: a bad value before an `xmlns` that makes the element foreign.
+            r#"<vertex x="0" y="h" xmlns="urn:x" z="0"/><vertex x="1" y="2" z="3"/>"#,
             "",
         ];
         for c in cases {
@@ -818,6 +834,7 @@ mod tests {
             r#"<triangle v1="0" v2="1" v3="2" paint_color="4"/><triangle v1="0" v2="1" v3="2"/>"#,
             r#"<triangle v1="0" v2="1" v3="2" slic3rpe:mmu_segmentation="8"/>"#,
             r#"<triangle v1="0" v2="1" v3="2" foo="1"/>"#,
+            r#"<triangle v1="a" v2="1" v3="2" xmlns="urn:x"/><triangle v1="0" v2="1" v3="2"/>"#,
             r#"<triangle v1="0" v2="1"/>"#,
             r#"<triangle v1="-1" v2="1" v3="2"/>"#,
             r#"<triangle v1="0" v2="1" v3="2" pid="0"/>"#,

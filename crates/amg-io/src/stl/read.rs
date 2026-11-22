@@ -28,9 +28,10 @@ const BLOCK_RECS: usize = 2048;
 /// Longest stretch of ASCII without an `endfacet` that we are willing to buffer.
 const MAX_ASCII_CARRY: usize = 256 << 20;
 
-/// Knobs that tests turn; production uses the defaults.
+/// Knobs that tests and the IO-16 fuzz targets turn; production uses the defaults.
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Tuning {
+pub struct Tuning {
     /// Bytes per streamed chunk.
     pub chunk_bytes: usize,
 }
@@ -56,7 +57,12 @@ pub fn read(src: Source<'_>, opts: &ImportOptions, ctx: &JobCtx) -> Result<Impor
     read_tuned(src, opts, ctx, Tuning::default())
 }
 
-pub(crate) fn read_tuned(
+/// [`read`] with explicit [`Tuning`] (chunk-boundary tests and the IO-16 fuzz targets).
+///
+/// # Errors
+/// As [`read`].
+#[doc(hidden)]
+pub fn read_tuned(
     src: Source<'_>,
     opts: &ImportOptions,
     ctx: &JobCtx,

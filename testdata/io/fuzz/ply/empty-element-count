@@ -1,0 +1,9 @@
+ply
+element f 89999899
+format ascii 1.cor g.rerty uchar blue
+element face 8
+property list uchar int vertex_indices
+end_header
+0 0 0 299ply
+element 8f 99999999
+propertrîui

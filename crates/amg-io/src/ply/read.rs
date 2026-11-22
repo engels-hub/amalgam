@@ -33,9 +33,10 @@ const DEAD: [u32; 3] = [u32::MAX - 1; 3];
 /// Longest token in an ASCII body.
 const MAX_TOKEN: usize = 64;
 
-/// Knobs that tests turn; production uses the defaults.
+/// Knobs that tests and the IO-16 fuzz targets turn; production uses the defaults.
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Tuning {
+pub struct Tuning {
     /// Bytes per streamed chunk.
     pub chunk_bytes: usize,
     /// Vertex records per parallel block.
@@ -61,7 +62,12 @@ pub fn read(src: Source<'_>, opts: &ImportOptions, ctx: &JobCtx) -> Result<Impor
     read_tuned(src, opts, ctx, Tuning::default())
 }
 
-pub(crate) fn read_tuned(
+/// [`read`] with explicit [`Tuning`] (chunk-boundary tests and the IO-16 fuzz targets).
+///
+/// # Errors
+/// As [`read`].
+#[doc(hidden)]
+pub fn read_tuned(
     src: Source<'_>,
     opts: &ImportOptions,
     ctx: &JobCtx,
@@ -793,6 +799,12 @@ impl Body {
             what,
             count: el.count,
         });
+        // Records without properties hold no bytes in any encoding, so the declared count
+        // bounds nothing: skip them at once instead of walking up to 2^64 empty ASCII records
+        // (IO-16 fuzz finding `ply/empty-element-count`).
+        if el.props.is_empty() {
+            return Ok(Outcome::Full);
+        }
         if enc != Encoding::Ascii
             && let Some(rec) = el.fixed_record()
         {
@@ -1154,6 +1166,30 @@ impl Body {
             return Err(IoError::Empty);
         }
         ctx.checkpoint()?;
+
+        // The non-finite vertices go too, not only their faces (note §9.2; IO-16 fuzz finding
+        // `ply/nan-vertex`): every remaining face has finite corners, so it remaps.
+        if any_nonfinite {
+            let keep_v: Vec<bool> = self.positions.par_iter().map(|p| p.is_finite()).collect();
+            let mut remap = vec![u32::MAX; nv];
+            let mut next = 0u32;
+            for (r, &k) in remap.iter_mut().zip(&keep_v) {
+                if k {
+                    *r = next;
+                    next += 1;
+                }
+            }
+            self.tri_v
+                .par_iter_mut()
+                .for_each(|t| *t = t.map(|c| remap[c as usize]));
+            compact(&mut self.positions, &keep_v);
+            if let Some(v) = self.colors.as_mut() {
+                compact(v, &keep_v);
+            }
+            if let Some(v) = self.vertex_uv.as_mut() {
+                compact(v, &keep_v);
+            }
+        }
 
         // Face colours become slots (only 65 534 distinct colours fit).
         let mut slots: Option<(Vec<MaterialSlot>, Vec<SlotIndex>)> = None;

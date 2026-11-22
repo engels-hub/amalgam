@@ -160,26 +160,51 @@ fn flush(verts: &mut Vec<[f32; 3]>, out: &mut Block) {
     verts.clear();
 }
 
-/// Index just after the last `endfacet` (any case) in `buf`, or `None`.
+/// Whether `buf[i..]` starts an `endfacet` (any case) that the lexer of [`parse_block`] reads
+/// as a keyword, so a block may end right after it: a whole token (whitespace or the buffer
+/// start before it, whitespace after it, so a later chunk cannot extend it), and not inside a
+/// `solid`/`endsolid` name, which runs to the end of the line. IO-16 fuzz finding
+/// `stl/endfacet-substring`: plain substring cuts split tokens like `xendfacety` and solid names,
+/// and the chunked read then differed from the whole-file read.
+fn is_cut(buf: &[u8], i: usize) -> bool {
+    const W: &[u8] = b"endfacet";
+    let end = i + W.len();
+    if end >= buf.len()
+        || !buf[i..end].eq_ignore_ascii_case(W)
+        || !is_ws(buf[end])
+        || (i > 0 && !is_ws(buf[i - 1]))
+    {
+        return false;
+    }
+    let line_start = buf[..i]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |p| p + 1);
+    !buf[line_start..i]
+        .split(|&b| is_ws(b))
+        .any(|t| t.eq_ignore_ascii_case(b"solid") || t.eq_ignore_ascii_case(b"endsolid"))
+}
+
+/// Index just after the last cut-able `endfacet` ([`is_cut`]) in `buf`, or `None`.
 pub(super) fn after_last_endfacet(buf: &[u8]) -> Option<usize> {
     const W: &[u8] = b"endfacet";
-    if buf.len() < W.len() {
+    if buf.len() <= W.len() {
         return None;
     }
-    (0..=buf.len() - W.len())
+    (0..buf.len() - W.len())
         .rev()
-        .find(|&i| buf[i..i + W.len()].eq_ignore_ascii_case(W))
+        .find(|&i| is_cut(buf, i))
         .map(|i| i + W.len())
 }
 
-/// Index just after the first `endfacet` at or after `from`, or `None`.
+/// Index just after the first cut-able `endfacet` ([`is_cut`]) at or after `from`, or `None`.
 pub(super) fn after_next_endfacet(buf: &[u8], from: usize) -> Option<usize> {
     const W: &[u8] = b"endfacet";
-    if buf.len() < W.len() || from > buf.len() - W.len() {
+    if buf.len() <= W.len() || from >= buf.len() - W.len() {
         return None;
     }
-    (from..=buf.len() - W.len())
-        .find(|&i| buf[i..i + W.len()].eq_ignore_ascii_case(W))
+    (from..buf.len() - W.len())
+        .find(|&i| is_cut(buf, i))
         .map(|i| i + W.len())
 }
 
@@ -224,5 +249,21 @@ mod tests {
         assert_eq!(after_next_endfacet(s, 11), Some(21));
         assert_eq!(after_last_endfacet(s), Some(21));
         assert_eq!(after_last_endfacet(b"nothing"), None);
+    }
+
+    /// IO-16 fuzz finding: only whole `endfacet` tokens outside solid names are cuts.
+    #[test]
+    fn cuts_are_whole_tokens_outside_solid_names() {
+        assert_eq!(after_next_endfacet(b"xendfacet y", 0), None);
+        assert_eq!(after_next_endfacet(b"endfacety z", 0), None);
+        // At the end of the buffer the token may continue in the next chunk.
+        assert_eq!(after_last_endfacet(b"a endfacet"), None);
+        assert_eq!(after_last_endfacet(b"endfacet\n"), Some(8));
+        assert_eq!(after_next_endfacet(b"solid my endfacet name\nx", 0), None);
+        assert_eq!(after_last_endfacet(b"ENDSOLID endfacet \n"), None);
+        assert_eq!(
+            after_last_endfacet(b"solid a\nendfacet\tsolid endfacet \n"),
+            Some(16)
+        );
     }
 }
