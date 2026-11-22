@@ -182,6 +182,18 @@ impl Registrar<'_> {
         self.reg.add_browser_provider(self.module, p);
     }
 
+    /// Adds a marking-menu provider (UI-21): it fills wedges and overflow entries of the
+    /// right-click menu, highest priority first.
+    pub fn marking_menu(&mut self, p: Box<dyn crate::marking::MarkingMenuProvider>) {
+        self.reg.add_marking_menu(self.module, p);
+    }
+
+    /// Adds a context-menu provider (UI-21): its commands appear in the browser row menu,
+    /// the timeline node menu and the marking menu's overflow list.
+    pub fn context_menu(&mut self, p: Box<dyn crate::marking::ContextMenuProvider>) {
+        self.reg.add_context_menu(self.module, p);
+    }
+
     /// Adds the timeline info of a feature kind (UI-08): icon, display name and edit action.
     /// A duplicate kind is a registration conflict.
     pub fn feature_ui(&mut self, info: crate::timeline::FeatureUiInfo) {

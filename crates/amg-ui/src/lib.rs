@@ -33,6 +33,10 @@
 //! rollback-marker drag, drag reorder with valid-range shading, context menu, health badges,
 //! hover highlights and the recompute progress ring.
 //!
+//! UI-21 adds the right-click [`marking`] menu (8 wedges, overflow, "Repeat", click / gesture /
+//! hold) with `MarkingMenuProvider`s and `ContextMenuProvider`s for the browser and timeline
+//! menus.
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
@@ -47,6 +51,7 @@ pub mod dock;
 pub mod file;
 pub mod input;
 mod jobs;
+pub mod marking;
 pub mod module;
 pub mod nav;
 pub mod notify;

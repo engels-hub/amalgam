@@ -603,6 +603,16 @@ impl BrowserState {
                 ui.close();
             }
             provider.context_menu(&key, ui, cx);
+            // Registry context providers (UI-21).
+            let picked = crate::marking::context_menu_ui(
+                ui,
+                cx.registry_ref(),
+                &cx.env(),
+                &crate::marking::ContextTarget::Browser(&key),
+            );
+            if let Some(cmd) = picked {
+                cx.run_command(cmd);
+            }
         });
     }
 }
