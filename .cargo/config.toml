@@ -7,3 +7,7 @@ xt = "nextest run --workspace"
 # OCCT install used by amg-occt-sys/build.rs (S02 §1): the vcpkg manifest install tree.
 # A real AMG_OCCT_DIR in the environment wins.
 AMG_OCCT_DIR = { value = "vcpkg_installed/x64-windows-amg", relative = true }
+
+[target.x86_64-pc-windows-msvc]
+# rust-lld (lld-link) ships with rustup: links much faster and with less memory than link.exe.
+linker = "rust-lld"
