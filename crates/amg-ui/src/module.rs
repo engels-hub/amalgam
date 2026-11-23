@@ -200,6 +200,12 @@ impl Registrar<'_> {
         self.reg.add_feature_ui(self.module, info);
     }
 
+    /// Adds a file-drop handler (IO-15): it is offered every dropped file that is not an
+    /// Amalgam design and returns true if it took the file.
+    pub fn file_drop(&mut self, h: crate::dialog::DropHandler) {
+        self.reg.add_drop_handler(self.module, h);
+    }
+
     /// Adds a body tessellator (UI-20). The most recently registered one that handles a
     /// `BodyGeom` variant is used.
     pub fn tessellator(&mut self, t: impl crate::scene::BodyTessellator) {

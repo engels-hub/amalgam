@@ -54,6 +54,50 @@ impl ImportSource {
             declared_unit,
         }
     }
+
+    /// Like [`ImportSource::from_bytes`] for a file, hashing it in 1 MiB blocks so a huge file
+    /// is never held twice in memory. Checks for cancellation per block and reports progress
+    /// over the whole `ctx` range. `path_hint` is the path as given.
+    ///
+    /// # Errors
+    /// [`ImportPrepError::Io`] with `IoError::Read` if the file cannot be read, or
+    /// `IoError::Cancelled`.
+    pub fn from_path(
+        path: &std::path::Path,
+        format: Format,
+        declared_unit: Option<LengthUnit>,
+        ctx: &amg_jobs::JobCtx,
+    ) -> Result<ImportSource, super::ImportPrepError> {
+        use std::io::Read;
+        let read_err = |source| amg_io::IoError::Read {
+            path: path.to_owned(),
+            source,
+        };
+        let mut file = std::fs::File::open(path).map_err(read_err)?;
+        let total = file.metadata().map_or(0, |m| m.len()).max(1);
+        let mut hasher = blake3::Hasher::new();
+        let mut buf = vec![0u8; 1 << 20];
+        let mut done = 0u64;
+        loop {
+            ctx.checkpoint().map_err(amg_io::IoError::from)?;
+            let n = file.read(&mut buf).map_err(read_err)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+            done += n as u64;
+            ctx.progress((done as f64 / total as f64).min(1.0) as f32);
+        }
+        Ok(ImportSource {
+            file_name: path
+                .file_name()
+                .map_or_else(|| "import".to_owned(), |n| n.to_string_lossy().into_owned()),
+            path_hint: Some(path.display().to_string()),
+            format,
+            blake3: hasher.finalize().to_hex().to_string(),
+            declared_unit,
+        })
+    }
 }
 
 /// One output body of an import: body slot `slot` of the feature, read from the baked payload

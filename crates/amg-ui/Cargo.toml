@@ -16,6 +16,8 @@ amg-features.workspace = true
 amg-materials.workspace = true
 # MESH-23: the Mesh Analysis panel runs the MESH-02/19 analysis.
 amg-mesh.workspace = true
+# IO-15: the import/export dialogs call amg_io directly (probe, import, export, check).
+amg-io.workspace = true
 amg-render.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
@@ -46,7 +48,6 @@ zip.workspace = true
 tracing-subscriber.workspace = true
 # MESH-23 tests: corpus models and benchmark meshes, STL import / 3MF export of the Phase 1 script.
 amg-mesh = { workspace = true, features = ["corpus"] }
-amg-io.workspace = true
 
 [[bench]]
 name = "search"

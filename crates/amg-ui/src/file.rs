@@ -147,7 +147,12 @@ impl FileDialogBackend for RfdDialogs {
 #[derive(Clone, Debug)]
 enum DialogPurpose {
     Open,
-    SaveTo { doc: DocTabId, compact: bool },
+    SaveTo {
+        doc: DocTabId,
+        compact: bool,
+    },
+    /// A module asked ([`crate::AppCx::pick_file`]): the answer goes to the channel.
+    Reply(mpsc::Sender<Option<PathBuf>>),
 }
 
 struct PendingDialog {
@@ -674,6 +679,18 @@ impl AmalgamApp {
         }
     }
 
+    /// Shows a native dialog for a module and sends the answer to `tx`; a busy dialog thread
+    /// answers `None` at once (IO-15).
+    pub(crate) fn pick_file_for(
+        &mut self,
+        req: FileDialogRequest,
+        tx: mpsc::Sender<Option<PathBuf>>,
+    ) {
+        if !self.show_dialog(req, DialogPurpose::Reply(tx.clone())) {
+            let _ = tx.send(None);
+        }
+    }
+
     fn poll_dialog(&mut self) {
         let Some(pending) = &self.files.dialog else {
             return;
@@ -692,6 +709,9 @@ impl AmalgamApp {
                 self.start_save(doc, with_amg_extension(path), compact);
             }
             (DialogPurpose::SaveTo { doc, .. }, None) => self.save_finished(doc, false),
+            (DialogPurpose::Reply(tx), answer) => {
+                let _ = tx.send(answer);
+            }
             (DialogPurpose::Open, None) => {}
         }
         self.repaint_now();

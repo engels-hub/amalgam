@@ -43,6 +43,8 @@ pub struct UiRegistry {
     marking_menus: Vec<(&'static str, Box<dyn crate::marking::MarkingMenuProvider>)>,
     /// Context-menu providers in registration order (UI-21).
     context_menus: Vec<(&'static str, Box<dyn crate::marking::ContextMenuProvider>)>,
+    /// File-drop handlers in registration order (IO-15).
+    drop_handlers: Vec<(&'static str, crate::dialog::DropHandler)>,
 }
 
 impl fmt::Debug for UiRegistry {
@@ -153,6 +155,15 @@ impl UiRegistry {
             return;
         }
         self.panels.insert(def.id, (module, def));
+    }
+
+    pub(crate) fn add_drop_handler(&mut self, module: &'static str, h: crate::dialog::DropHandler) {
+        self.drop_handlers.push((module, h));
+    }
+
+    /// The file-drop handlers in registration order (module id order).
+    pub fn drop_handlers(&self) -> Vec<crate::dialog::DropHandler> {
+        self.drop_handlers.iter().map(|(_, h)| *h).collect()
     }
 
     pub(crate) fn add_tessellator(&mut self, module: &'static str, t: Arc<dyn BodyTessellator>) {

@@ -84,9 +84,22 @@ pub struct CommitBatch {
     pub commands: Vec<DocCommand>,
 }
 
+/// The closure of [`ApplyFn`].
+pub(crate) type ApplyClosure = Box<dyn FnOnce(&mut Document) -> Result<(), amg_doc::CommandError>>;
+
+/// A closure that mutates the document directly (IO-15: baked-payload commits).
+pub(crate) struct ApplyFn(pub(crate) ApplyClosure, pub(crate) String);
+
+impl std::fmt::Debug for ApplyFn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ApplyFn").field(&self.1).finish()
+    }
+}
+
 #[derive(Debug)]
 enum DocAction {
     Commit(CommitBatch),
+    Apply(ApplyFn),
     Undo,
     Redo,
 }
@@ -120,6 +133,13 @@ pub(crate) enum ShellRequest {
     ),
 
     EditFeature(DocTabId, amg_doc::FeatureId),
+    /// Open a module dialog on a document (additive, IO-15).
+    OpenDialog(DocTabId, crate::dialog::BoxedDialog),
+    /// Show a native file dialog; the answer goes to the sender (additive, IO-15).
+    PickFile(
+        crate::file::FileDialogRequest,
+        std::sync::mpsc::Sender<Option<PathBuf>>,
+    ),
 }
 
 /// Read-only view for enablement, providers and panels.
@@ -298,6 +318,41 @@ impl AppCx<'_> {
     /// the frame (UI-19).
     pub fn file(&mut self, op: crate::file::FileOp) {
         self.requests.push(ShellRequest::File(self.doc.id, op));
+    }
+
+    /// Opens a module dialog on this document (see [`crate::dialog::AppDialog`]); it is drawn
+    /// from the next frame on (additive, IO-15).
+    pub fn open_dialog(&mut self, dialog: Box<dyn crate::dialog::AppDialog>) {
+        self.requests.push(ShellRequest::OpenDialog(
+            self.doc.id,
+            crate::dialog::BoxedDialog(dialog),
+        ));
+    }
+
+    /// Queues a direct mutation of this document, applied at the end of the frame as one
+    /// undo entry labelled `label` (additive, IO-15). For commits [`CommitBatch`] cannot
+    /// express, such as `Document::add_feature_baked`. An `Err` is shown as a toast.
+    pub fn apply_document(
+        &mut self,
+        label: impl Into<String>,
+        f: impl FnOnce(&mut Document) -> Result<(), amg_doc::CommandError> + 'static,
+    ) {
+        self.queue.push(
+            self.doc.id,
+            DocAction::Apply(ApplyFn(Box::new(f), label.into())),
+        );
+    }
+
+    /// Shows a native file dialog on the dialog thread; the path (or `None` for a cancel) comes
+    /// back through the receiver. If another file dialog is open the answer is `None`
+    /// (additive, IO-15).
+    pub fn pick_file(
+        &mut self,
+        req: crate::file::FileDialogRequest,
+    ) -> std::sync::mpsc::Receiver<Option<PathBuf>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.requests.push(ShellRequest::PickFile(req, tx));
+        rx
     }
 
     /// Queues undo for this document (applied at the end of the frame).
@@ -489,6 +544,8 @@ pub struct AmalgamApp {
     pub(crate) files: crate::file::FileState,
     /// Screen-space picking (UI-03): the viewport's GPU service, else the CPU one.
     pub(crate) picks: Box<dyn PickService>,
+    /// Open module dialogs with the document they belong to (additive, IO-15).
+    pub(crate) dialogs: Vec<(DocTabId, Box<dyn crate::dialog::AppDialog>)>,
 }
 
 impl std::fmt::Debug for AmalgamApp {
@@ -556,6 +613,7 @@ impl AmalgamApp {
             scene_doc: None,
             files: crate::file::FileState::default(),
             picks,
+            dialogs: Vec::new(),
         };
         app.scene = SceneAdapter::new(
             Box::new(CpuSceneBackend::new()),
@@ -626,6 +684,7 @@ impl AmalgamApp {
         self.poll_scene();
         self.route_logic();
         self.poll_files(ctx);
+        self.poll_dropped_files(ctx);
     }
 
     /// Inserts finished tessellations and keeps the highlight colours on the theme. Never
@@ -687,6 +746,17 @@ impl AmalgamApp {
                         );
                     }
                 }
+                DocAction::Apply(ApplyFn(f, label)) => {
+                    if let Err(e) = f(&mut doc.document) {
+                        let msg = format!("{label} failed: {e}");
+                        tracing::warn!("{msg}");
+                        self.status = Some(msg);
+                        self.notifications.push(
+                            Notification::error("Edit failed", format!("{label}: {e}"))
+                                .with_details(amg_core::report(&e)),
+                        );
+                    }
+                }
                 DocAction::Undo => {
                     doc.document.undo();
                 }
@@ -716,6 +786,8 @@ impl AmalgamApp {
                         self.scene.set_highlight(layer, &list);
                     }
                 }
+                ShellRequest::OpenDialog(doc, d) => self.dialogs.push((doc, d.0)),
+                ShellRequest::PickFile(req, tx) => self.pick_file_for(req, tx),
                 ShellRequest::OpenSearch => {
                     let at = self
                         .ctx

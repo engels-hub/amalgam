@@ -62,6 +62,7 @@ pub(crate) fn draw(app: &mut AmalgamApp, ui: &mut egui::Ui) {
         app.route_viewport(ui.ctx(), &response);
     }
     app.draw_tool_dialog(ui.ctx());
+    app.draw_dialogs(ui.ctx());
     crate::select::bar::show(app, ui.ctx());
     app.draw_select_through(ui.ctx());
     app.draw_marking_menu(ui.ctx());
