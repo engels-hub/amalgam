@@ -289,3 +289,121 @@ pub fn migrate_print_setup(
         ))),
     }
 }
+
+// ---- hand-off glue (AM-06) -----------------------------------------------------------------
+
+/// What a plate item resolved to.
+#[derive(Clone, Debug)]
+pub enum ItemGeom {
+    /// The body's mesh, body-local.
+    Mesh(std::sync::Arc<amg_mesh::IndexedMesh>),
+    /// The item cannot be handed off.
+    Unresolved(UnresolvedReason),
+}
+
+/// Why an item is not handed off.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UnresolvedReason {
+    /// The body does not exist (deleted, or the feature failed).
+    BodyMissing,
+    /// A solid without a tessellation (until IO-09) or an implicit / form body.
+    NotAMesh,
+    /// The body is hidden.
+    Hidden,
+}
+
+/// A plate item with its geometry, name and colour.
+#[derive(Clone, Debug)]
+pub struct ResolvedItem<'s> {
+    /// The item.
+    pub item: &'s PlateItem,
+    /// Its geometry.
+    pub geom: ItemGeom,
+    /// Object name: the body's name, else `Body <feature>.<slot>`.
+    pub name: String,
+    /// The body's appearance colour.
+    pub color: Option<amg_mesh::Rgba8>,
+}
+
+/// Resolves the items of `plate` against the evaluated design. An unknown plate gives no items.
+pub fn resolve_plate<'s>(
+    s: &'s PrintSetup,
+    plate: PlateId,
+    d: &Design,
+    e: &amg_doc::Evaluated,
+) -> Vec<ResolvedItem<'s>> {
+    let Some(plate) = s.plates.iter().find(|p| p.id == plate) else {
+        return Vec::new();
+    };
+    plate
+        .items
+        .iter()
+        .map(|item| {
+            let props = d.body_props(item.body);
+            let name = props
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("Body {}.{}", item.body.origin.0, item.body.slot));
+            let geom = match e.body(item.body) {
+                None => ItemGeom::Unresolved(UnresolvedReason::BodyMissing),
+                Some(_) if !props.visible => ItemGeom::Unresolved(UnresolvedReason::Hidden),
+                Some(b) => match &b.geom {
+                    amg_doc::BodyGeom::Mesh(m) => ItemGeom::Mesh(std::sync::Arc::clone(m)),
+                    _ => ItemGeom::Unresolved(UnresolvedReason::NotAMesh),
+                },
+            };
+            let color = d
+                .body_appearance(item.body)
+                .map(|a| amg_mesh::Rgba8(a.base_color.0));
+            ResolvedItem {
+                item,
+                geom,
+                name,
+                color,
+            }
+        })
+        .collect()
+}
+
+/// Effective transforms and meshes of `plate` as hand-off input. Items that cannot be handed
+/// off are skipped and reported with the reason.
+pub fn handoff_plate<'s>(
+    s: &'s PrintSetup,
+    plate: PlateId,
+    d: &Design,
+    e: &amg_doc::Evaluated,
+) -> (
+    amg_am::handoff::HandoffPlate<'s>,
+    Vec<(ItemId, UnresolvedReason)>,
+) {
+    let plate_name = s
+        .plates
+        .iter()
+        .find(|p| p.id == plate)
+        .map(|p| p.name.clone())
+        .unwrap_or_default();
+    let mut items = Vec::new();
+    let mut skipped = Vec::new();
+    for r in resolve_plate(s, plate, d, e) {
+        match r.geom {
+            ItemGeom::Mesh(mesh) => items.push(amg_am::handoff::HandoffItem {
+                transform: amg_am::place::effective_transform(&mesh, &r.item.placement),
+                name: r.name,
+                mesh,
+                filament: r.item.filament,
+                color: r.color,
+            }),
+            ItemGeom::Unresolved(why) => skipped.push((r.item.id, why)),
+        }
+    }
+    (
+        amg_am::handoff::HandoffPlate {
+            design_name: d.meta().name.clone(),
+            plate_name,
+            machine: &s.machine,
+            items,
+            thumbnail_png: None,
+        },
+        skipped,
+    )
+}

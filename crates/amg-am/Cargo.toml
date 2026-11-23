@@ -23,6 +23,11 @@ amg-mesh = { workspace = true, features = ["corpus"] }
 amg-testkit.workspace = true
 criterion.workspace = true
 proptest.workspace = true
+# Already used by amg-io tests (THIRD_PARTY.md): hand-off directories in AM-06 tests.
+tempfile = "3.27.0"
+
+[target.'cfg(windows)'.dependencies]
+winreg.workspace = true
 
 [lints]
 workspace = true
@@ -33,4 +38,8 @@ harness = false
 
 [[bench]]
 name = "overhang"
+harness = false
+
+[[bench]]
+name = "handoff"
 harness = false
