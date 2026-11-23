@@ -567,6 +567,7 @@ dependencies = [
  "amg-features",
  "amg-io",
  "amg-jobs",
+ "amg-materials",
  "amg-mesh",
  "amg-render",
  "amg-testkit",

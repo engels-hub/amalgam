@@ -2471,6 +2471,16 @@ new dependency. The Measure tool lives in `amg-ui::inspect` (lane A's module).
   world transform of a displayed instance (measurements need the rigid `to_world` of the picked
   instance).
 
+### 2026-11-23: INS-03 (lane A, S05 Properties panel) - one additive framework hook
+Flagged for lane D review. No change to `amg-render`, `amg-doc`, `amg-core` or `amg-jobs`;
+`amg-ui` gains the dependency `amg-materials` (a workspace crate below it; body material and
+density come from `Design::mass_material`).
+- **`panel`:** `Panel::overlay(&mut self, out: &mut amg_render::OverlayList, env: &CmdEnv)`
+  (default no-op). The router calls it once per frame for every instantiated panel of the active
+  document, after the active tool's `overlay`, into the same per-document `ToolState::overlay`
+  list that the viewport draws (`AmalgamApp::tool_overlays()` reads it in tests). The Properties
+  panel draws its centre-of-mass glyph with it.
+
 ### 2026-11-19: UI-21 (lane D)
 - No change outside `amg-ui` and no new dependency.
 - `amg-ui` additive API: the `marking` module (see the UI-21 log); `Registrar::{marking_menu,

@@ -8,11 +8,14 @@
 //! - [`measure`] (INS-01): operands, per-entity measures, exact minimum distance, angles,
 //!   smart selection (planar regions, feature-edge chains), plane and circle fits, snapping and
 //!   result rows.
+//! - [`props`] (INS-03): mass properties of closed meshes (volume, mass, CoM, inertia,
+//!   principal axes) and their `combine`.
 //! - [`section`] (INS-02): section caps on meshes (oriented loops, CDT with split constraints,
 //!   non-zero / even–odd fill, multi-plane clipping), outlines, open curves and stats.
 
 mod cache;
 pub mod measure;
+pub mod props;
 pub mod section;
 
 use amg_core::{Diagnostic, Severity};
