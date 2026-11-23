@@ -18,6 +18,8 @@ amg-materials.workspace = true
 amg-mesh.workspace = true
 # IO-15: the import/export dialogs call amg_io directly (probe, import, export, check).
 amg-io.workspace = true
+# AM-11: the Manufacture workspace (machine library, placement, fit check, slicer hand-off).
+amg-am.workspace = true
 amg-render.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true

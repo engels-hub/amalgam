@@ -707,7 +707,7 @@ Testing).
 | AM-03 | `amg-am::place`: `Placement`/`ZMode`, `effective_transform`, `face_down_rotation`, `rotate_about_build_axis`, `centre_on_plate`, `pick_plane_normal`, `check_fit` (hull vs bed polygon, excludes, height), `hulls_overlap`, `build_volume_geometry` | AM-01, MESH-01 | P0 | Done | 1. For 1 000 random rotations of corpus meshes: min z after `effective_transform` = elevation ± 1e-9 mm, and the footprint-AABB centre = `xy` ± 1e-9 mm. 2. Face-down on each face of a cube and of a tessellated 12-gon prism puts that face's normal at −Z within 1e-12 rad, with the anti-parallel case covered. 3. `check_fit` matches brute-force vertex containment on 200 random placements over rect, non-convex polygon and circle beds with excludes, and reports `max_outside_xy` within 1e-6 mm. 4. Modifying the mesh (scale 1.1 about an off-centre point) keeps the item on the plate at the same `xy`. 5. `effective_transform` + `check_fit` on 1 M tris < 15 ms; `footprint_hull` 1 M < 40 ms. |
 | AM-02 | `amg-am::overhang`: `classify_faces`, `analyze_overhang` (column support estimate + centroid fallback, islands, contact, stability), `vertex_severity`, `shader_params`, golden classification file for S10 | MESH-02, MESH-03, AM-03 | P0 | Done | 1. Golden tests in `tests/golden/am/` reproduce note §3.3: T-shape and shelf volumes within 0.5 % at 0.25 mm cells; the sphere cap area, projected area and support volume converge (error at least halves per 4× triangles / ½ cell, < 1 % at 320 k tris and 0.1 mm); the cube cases are exact (1e-9). 2. Strict-threshold behaviour at α = 45° vs 46° on the edge-balanced cube. 3. Rotation about Z by 37° changes area metrics by < 1e-9 relative and support volume by ≤ the documented cell bound. 4. An open mesh gives `approximate = true` with `FaceCentroids`. 5. `overhang_classes.toml` (5 000 cases) is generated and checked. 6. Results are identical across 1/4/16 threads. 7. Benchmarks: `classify_faces` 1 M tris < 15 ms; `analyze_overhang` 1 M tris with default support (≤ 512² rays) < 300 ms, coarse (≤ 128² rays) < 40 ms. |
 | AM-06 | Slicer hand-off library: `detect_slicers` (registry via `winreg`, known dirs, PATH), `parse_registry_exe`, `SlicerConfig`, `export_plate` (via IO-03, 3MF/STL, slicer-origin offset, atomic write), `launch` (detached), `prune_handoff_dir`; `amg-features::am::handoff_plate` | AM-03, IO-11, IO-04 | P0 | Done (Done-when 3 Orca GUI/Chitubox check pending owner) | 1. `parse_registry_exe` handles the owner's `D:\OrcaSlicer\D:\OrcaSlicer\orca-slicer.exe`, quoted paths and `,0` suffixes (unit fixtures). 2. Exported 3MF of a 3-item plate (two filament slots) re-imported through IO-03 gives the same plate-frame vertex positions within 1e-6 mm, names and extruders. 3. **Manual check (documented in PR):** on the owner's machine, one click opens the file in OrcaSlicer 2.4.0 with all items at the Amalgam plate positions (± 0.1 mm, read off the Orca object list), assigned to the right filament slots on the KCM preset, without a re-arrange prompt. The same file opens in Chitubox, and the chosen Chitubox format (3MF or STL) is recorded in the Refinement log. 4. A missing exe gives `SlicerNotFound` with a hint. 5. Export + spawn of a 1 M-tri plate < 3 s, and the UI is not blocked (runs as a job). |
-| AM-11 | `amg-ui::am` workspace (Phase 1): Manufacture workspace, setup browser, machine picker (library + user dir), add/remove bodies, plate scene with build-volume helper geometry, Place-on-plate face pick, Drop, Move/Rotate numeric dialog, Centre, out-of-volume tint + message, settings dialog (slicer path, hand-off dir), Send to Slicer / Export 3MF buttons | AM-01, AM-03, AM-06, UI-02, UI-03, UI-04, UI-10, RND-03, RND-07 | P0 | Todo | 1. Every command listed under Interfaces is reachable from the toolbar and S-key search, and each edit is one undo entry. 2. Picking a face of an imported STL puts it on the plate. 3. An item moved out of the volume turns red with a size message. 4. No frame > 16 ms in the tracing profile while placing a 1 M-tri body. 5. A manual Phase 1 script (open STL → new setup on Ender-3 V3 KE KCM → place face down → Send to Slicer) passes on 3 corpus models. |
+| AM-11 | `amg-ui::am` workspace (Phase 1): Manufacture workspace, setup browser, machine picker (library + user dir), add/remove bodies, plate scene with build-volume helper geometry, Place-on-plate face pick, Drop, Move/Rotate numeric dialog, Centre, out-of-volume tint + message, settings dialog (slicer path, hand-off dir), Send to Slicer / Export 3MF buttons | AM-01, AM-03, AM-06, UI-02, UI-03, UI-04, UI-10, RND-03, RND-07 | P0 | Review | 1. Every command listed under Interfaces is reachable from the toolbar and S-key search, and each edit is one undo entry. 2. Picking a face of an imported STL puts it on the plate. 3. An item moved out of the volume turns red with a size message. 4. No frame > 16 ms in the tracing profile while placing a 1 M-tri body. 5. A manual Phase 1 script (open STL → new setup on Ender-3 V3 KE KCM → place face down → Send to Slicer) passes on 3 corpus models. |
 | AM-12 | `amg-ui::am` overhang overlay + metrics panel: RND-08 overhang mode driven by `shader_params`, coarse/fine CPU analysis jobs with cancel-and-supersede, per-face class buffer after the fine job, island markers, per-item/plate metrics, α/contact settings in the setup | AM-02, AM-11, RND-08 | P0 | Todo | 1. Rotating a 1 M-tri item (numeric dialog with live preview) keeps the overlay in sync every frame. Coarse metrics update ≥ 10 Hz, fine metrics arrive < 500 ms after release, and no frame > 16 ms. 2. The overlay and the CPU class buffer agree on ≥ 99.9 % of faces of the test set (headless comparison once RND-09 exists; until then a screenshot in the PR). 3. With the overlay on, a 5 M-tri mesh orbits at ≥ 60 fps (vision budget, S10 bench). 4. Changing α updates colours immediately and metrics within 500 ms. |
 | AM-10 | Profile import: `SlicerDataDirs::discover`, Orca JSON with `inherits` chain (user/system/install roots), Chitubox `.cfgx`, PrusaSlicer INI; `orca_process_critical_angle`; "save as user profile" in the AM-11 machine picker | AM-01, AM-11 | P1 | Todo | 1. Fixture copies of the Orca system + user KE/KCM presets (committed under `testdata/am/profiles/`, values only, no personal G-code) resolve to 220 × 220 × 240 (user override) and 4 filament slots. 2. Abstract presets (`instantiation: false`) are not listed; a cycle and a missing parent each give an `Inherits` warning. 3. The Chitubox fixture gives the Mars 3 Pro values (143.43 × 89.60 × 175, 4098 × 2560). 4. A Prusa INI fixture parses `bed_shape`/`max_print_height`. 5. On the owner's machine `discover()` finds all three dirs (manual, PR). |
 | AM-04 | Orientation optimisation, CPU reference: stable hull poses, normal clusters, Fibonacci candidates, pattern-search refine, score terms + presets, fit guard, cosmetic face groups (setup record v2 + migration), Auto-Orient dialog in `amg-ui::am` showing the top 5 | AM-02, AM-12, MESH-16 | P1 | Todo | On the test set (≥ 25 models: synthetic brackets/bridges/mushrooms/T/L/overhang ladders + corpus models): 1. The chosen score is ≤ the best of the 6 axis-aligned orientations ("manual" baseline) on 100 % of models and ≥ 10 % lower on ≥ 40 %. 2. Within 2 % of a brute-force 16 384-direction optimum on ≥ 90 %. 3. Deterministic (same output across runs and thread counts). 4. 100 k tris < 2 s, 1 M tris < 20 s (CPU, Min-support preset). 5. v1 setup records migrate to v2 on load. |
@@ -1004,6 +1004,124 @@ Status `Review`. Done-when 1, 2, 4, 5 are met with tests; 3 is the owner's manua
 - **Done-when 3 (pending owner):** fixtures in `D:/coding/amalgam-handoff/AM-06-fixtures/` (`AMG_AM06_FIXTURE_DIR=<dir> cargo nextest run -p amg-am --test handoff write_manual_check_fixtures`); steps in `D:/coding/amalgam-handoff/AM-06.md`. The Chitubox 3MF vs STL decision is recorded here after that check.
 - **Leftovers:** Orca/Chitubox GUI check (item 3); `project_settings.config` filament colours are not written (IO-04 leftover), so Orca shows default filament colours; KCM preset selection is the user's in Orca (the file carries no preset); AM-11 wires `SendToSlicerJob` to the Send to Slicer button and the settings dialog (`detect_slicers`, `SlicerConfig`).
 
+### 2026-11-23 - AM-11 Manufacture workspace (amg-ui::am)
+Status `Review`. Done-when 1-4 are met with tests in `crates/amg-ui/tests/am_workspace.rs`. Done-when 5
+passes automatically up to the hand-off file on 3 corpus models (OrcaSlicer CLI `--info` included).
+The GUI step is the owner's manual check (steps in `D:/coding/amalgam-handoff/AM-11.md`).
+- **Landed (`crates/amg-ui/src/am/`, replacing the `am.rs` stub):**
+  - `mod.rs`: the *Manufacture* workspace, the ADDITIVE tab with groups Setup / Place / Analyse /
+    Output, 13 commands and the shared helpers;
+  - `layer.rs`: `AmLayer`, the plate scene as a document layer;
+  - `dialogs.rs`: the New Setup machine picker, Add Bodies and Move/Rotate;
+  - `tools.rs`: Place on Plate;
+  - `output.rs`: Send to Slicer and Export Plate 3MF;
+  - `settings.rs`: the Manufacture Settings dialog and its store;
+  - `browser.rs`: the setup browser provider and the Plate panel.
+- **Commands:**
+  - All of the Interfaces list: `am.new_setup`, `am.add_bodies`, `am.place_face_down`, `am.drop`,
+    `am.move_rotate`, `am.centre`, `am.overhang_toggle`, `am.auto_orient`, `am.arrange`,
+    `am.send_to_slicer` and `am.export_3mf`.
+  - Two more: `am.remove_items` and `am.settings`.
+  - Overhang Analysis, Auto-Orient and Arrange are registered but disabled, with the reason
+    "Arrives with AM-12 / AM-04 / AM-05".
+  - Every edit is one `SetExt` in one `CommitBatch` (New Setup: one `AddExt`).
+- **Plate scene.** While the workspace is active:
+  - the plate slab, the 10 mm grid, the volume edges and the keep-out areas are RND-07 overlays
+    (`build_volume_geometry`, cached per volume);
+  - the items of the active plate are drawn at their effective transforms, through a new per-body
+    view override in the scene adapter (S11 Interface changes, 2026-11-23, AM-11). Every other
+    body is hidden.
+  - The effective transforms and `check_fit` run as one latest-wins job per change (cancel and
+    supersede), so the UI thread never walks the vertices.
+  - Out-of-volume items are tinted red. A label next to the item and a line in the Plate panel give
+    the reason ("10.0 mm too tall", "25.0 mm outside the bed", "over a keep-out area").
+  - The first frame in the workspace fits the camera to the build volume.
+- **Active setup:** the one chosen in the browser (double-click or *Activate*) or in the Plate
+  panel; without a choice, the newest. Commands act on the selected items. With nothing selected,
+  Drop and Centre act on every item of the active plate, and Move/Rotate on the only one.
+- **Place on Plate:**
+  - a face pick (`EntityFilter::FACE`);
+  - `pick_plane_normal` + `face_down_rotation` run as a job, because a face group of a 1 M-tri mesh
+    can hold every face; the result is one `SetExt`;
+  - `z` stays on-plate with its elevation, and the tool finishes after the pick.
+- **Move/Rotate:**
+  - absolute x and y (the footprint centre) and the elevation (or the fixed z);
+  - rotate Z, tilt X and tilt Y, applied to the current rotation about plate axes, in the order
+    tilt Y, tilt X, rotate Z;
+  - a live preview through `AmLayer::preview` (the fit job runs on the preview placement); OK
+    commits.
+- **Send to Slicer / Export 3MF:**
+  - The UI thread only collects names, `Arc` meshes and placements. The effective transforms and
+    `export_plate` / AM-06 `send_to_slicer` (prune to 20, detached launch) run in one job.
+  - Without a configured slicer, the job runs `detect_slicers` and takes the machine's preferred
+    slicer; failing that, Chitubox for resin and OrcaSlicer for FFF; failing that, the first one
+    found.
+  - Errors (`SlicerNotFound` with its hint) are toasts. Unresolved items are skipped with a warning
+    toast.
+- **Settings** (the Phase 1 stand-in for the UI-11 "Manufacture" page) live in `am-settings.json`
+  in the config folder:
+  - the slicer (kind, exe, args, format), or "detect at each send";
+  - the hand-off folder (default: AM-06 `default_handoff_dir`);
+  - the user machine folder (default: `<config>/Amalgam/machines`).
+
+  *Detect installed slicers* runs `detect_slicers` as a job.
+- **Machine picker:**
+  - offers `MachineLibrary::builtin()` plus `load_user_dir(machines folder)`, and lists the load
+    warnings;
+  - preselects the KCM preset;
+  - adds the selected mesh bodies to the new setup's plate at the bed centre.
+- **Done-when 1 (pass).**
+  - `every_command_is_on_the_additive_toolbar_and_in_s_key_search`: each command is in an ADDITIVE
+    group, a search for its label returns it first, every keyword finds it, and S-key search runs
+    New Setup.
+  - `every_setup_edit_is_one_undo_entry`: New Setup, Add Bodies, Move/Rotate, Drop, Centre, Place on
+    Plate and Remove are one undo entry each, and undo/redo restore equal records.
+- **Done-when 2 (pass).** `picking_a_face_of_an_imported_stl_puts_it_on_the_plate` imports a tilted
+  box as binary STL and clicks a face found by a CPU pick through that screen point. Afterwards:
+  - the face's normal is at −Z (1e-9), the face is at z = 0 (1e-6) and the item's min z is 0
+    (1e-9), with the anchor unchanged;
+  - the scene shows the new transform, and leaving the workspace clears the overrides.
+- **Done-when 3 (pass).** `an_item_moved_out_of_the_volume_turns_red_with_a_size_message`:
+  - a 250 mm box on the 240 mm KCM gives "10.0 mm too tall";
+  - Move/Rotate to x = 235 gives "25.0 mm outside the bed", in the live preview and after OK;
+  - both instances are drawn in the tint (CPU scene backend) and the labels are drawn;
+  - Centre clears it.
+- **Done-when 4 (pass).** `timing_no_frame_over_16ms_while_placing_a_1m_tri_body` on 1 003 520 tris
+  runs Place on Plate (pick), Drop, Centre, a 60-frame Move/Rotate live preview with a new placement
+  every frame, and OK. Result: 236 frames, p50 0.64 ms, p99 1.05 ms, max 1.62 ms, 0 over 16 ms (test
+  profile, optimized + debuginfo, shared machine). Asserted under `AMG_STRICT_TIMING=1`.
+- **Done-when 5, automated part (pass on all 3).** `phase1_script_on_three_corpus_models` runs on
+  thingi10k 132062, 37825 and 36371:
+  - import the STL, New Setup on the KCM, Place on Plate by a face pick, Send to Slicer with a
+    stand-in executable;
+  - the hand-off 3MF re-imports with every vertex at its plate position;
+  - with `AMG_ORCA_SLICER`, the OrcaSlicer 2.4 CLI `--info` lists the one object (CLI only).
+
+  The GUI step (one click opens Orca with the item in place, on the KCM preset) is the owner's
+  check.
+- **Deviations / choices:**
+  1. Move/Rotate and the other dialogs are `AppDialog`s (IO-15), not tools, so they can stay open
+     next to the viewport and tests drive them through `dialog_mut`. Place on Plate is a tool
+     because it needs picks.
+  2. On a non-convex item, the picked face is turned down and the item dropped, but other geometry
+     can be lower than the face (as with slicers' "lay on face"). The face is then horizontal but
+     does not touch the plate.
+  3. New items all start at the bed centre (Arrange is AM-05). Add Bodies skips bodies that are
+     already on the plate.
+  4. The setup browser shows in every workspace, because providers are not per workspace. Item rows
+     select their body, and a non-mesh item gets a warning badge. Fit status shows only in the
+     Plate panel, because providers see `CmdEnv`, not the layer.
+  5. Enablement only sees `CmdEnv`, so it checks the newest setup. Actions use the active setup and
+     explain with a toast when there is nothing to do.
+  6. Several instances of one body (assemblies) all get the item transform. Phase 1 items are root
+     bodies.
+- **Leftovers (no new WPs):**
+  - the owner's GUI check (Done-when 5);
+  - thumbnails are not written (`thumbnail_png: None`);
+  - not in this WP: a per-item filament assignment UI (the record field exists, and the slot shows
+    in the browser) and "Update machine from library";
+  - AM-10's "save as user profile" goes into this machine picker.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1046,3 +1164,11 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   the container loader, and `Design::exts_of_kind(&self, kind) -> impl Iterator<Item = (&ExtKey,
   &ExtRecord)>`. AM-01 works without both (see its log entry).
 
+
+### 2026-11-23: from AM-11 (amg-ui::am)
+- No change to `amg-am` or `amg-features::am`. New dependency edge: `amg-ui` → `amg-am`.
+- Framework hook in `amg-ui` (lane D): per-body view overrides in the scene adapter
+  (`scene::{BodyView, BodyViews}`, `SceneAdapter::set_body_views`, `LayerOut::body_views`),
+  recorded in S11 Interface changes (2026-11-23, AM-11).
+- No `amg-render` change: the plate, grid, volume edges and keep-out areas use existing RND-07
+  overlay primitives, and the red tint is the instance's base colour.

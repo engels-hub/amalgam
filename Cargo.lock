@@ -564,6 +564,7 @@ dependencies = [
 name = "amg-ui"
 version = "0.1.0"
 dependencies = [
+ "amg-am",
  "amg-core",
  "amg-doc",
  "amg-features",
