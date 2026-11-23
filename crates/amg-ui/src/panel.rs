@@ -42,4 +42,8 @@ pub trait Panel: 'static {
     fn ui(&mut self, ui: &mut egui::Ui, cx: &mut AppCx<'_>);
     /// The document events of the frame (active document only).
     fn on_doc_events(&mut self, _events: &[amg_doc::DocEvent], _env: &CmdEnv<'_>) {}
+    /// The panel's RND-07 overlays for this frame (immediate mode): called once per frame for
+    /// every open panel of the active document, after the active tool's overlay, into the list
+    /// the viewport draws (additive, INS-03: the centre-of-mass glyph).
+    fn overlay(&mut self, _out: &mut amg_render::OverlayList, _env: &CmdEnv<'_>) {}
 }

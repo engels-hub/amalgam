@@ -548,6 +548,13 @@ impl AmalgamApp {
             if ts.active.is_some() {
                 with_tool(app, ts, |t, cx| t.overlay(&mut overlay, cx));
             }
+            // Panel overlays (INS-03).
+            {
+                let env = crate::app::env_of_doc(app.workspace, &app.docs[active], &app.jobs);
+                for panel in app.panels.values_mut() {
+                    panel.overlay(&mut overlay, &env);
+                }
+            }
             ts.overlay = overlay;
             // Preview → scene preview layer.
             let up = {

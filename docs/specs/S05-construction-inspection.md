@@ -781,7 +781,7 @@ pub mod display {
 | INS-08 | Measure tool in `amg-ui::inspect`: hand-built dialog (filters, smart toggle, 3-point circle, precision, units, results with copy), snapping, job-backed results with supersede, RND-07 overlay (witness line, Δ, angle arc, circle) | INS-01, MESH-16, UI-02, UI-03, UI-04, UI-10, RND-04, RND-07 | P0 | Done | Manual script on 3 corpus models: measure a hole diameter (1 click), a wall distance, an angle between two faces, a body volume; values equal the INS-01 API values for the same picks. Snap to vertex within 8 px and to edge within 5 px (automated test with a synthetic camera). No frame > 16 ms in the tracing profile while measuring two 1 M-tri bodies. A newer selection cancels the running job within 50 ms. Results use the document display unit and the chosen precision (`1/4 in` part shows inches). |
 | INS-02 | `amg-features::inspect::section` caps on meshes: loop orientation, CDT with split constraints, non-zero / even–odd fill, multi-plane clipping (≤ 6), outlines, open curves, `SectionStats`, `section_plane` | MESH-09 | P0 | Done (owner-accepted 2026-11-19) | Tests pass. 1. **Watertight (note §3.4):** for every watertight MESH-28 corpus model and 3 seeded random planes, `plane_cut(keep = Negative, cap = false)` + caps welded at the snap tolerance is closed and manifold (100 %), including planes exactly through vertices and edges. 2. Cap area: 128-gon cylinder r = 10, perpendicular cut = ½·128·r²·sin(2π/128) within 1e-9 relative; axial cut = 2r·h exactly within 1e-9 relative. 3. Two overlapping closed cubes (one STL, two shells): cap area = area of the union of the squares (non-zero rule). 4. Box section with 6 planes: each cap lies inside the other 5 kept half-spaces (vertices ≤ 1e-9 mm outside). 5. Open cube (one face deleted): open curve reported, no cap through the gap. 6. Shoelace area of the oriented loops equals the cap triangle area within 1e-9 relative. 7. 1 M-tri body, one plane: < 50 ms; 10 M: < 500 ms. Deterministic across thread counts. |
 | INS-09 | Section Analysis tool + persistence: `SectionAnalysis` ExtRecord (`inspect.section` v1, migration hook), hand-built dialog (origin plane / picked planar region, offset expression + slider, tilt, flip, hatch, cap colour, scope), browser "Analysis" folder entries, combining visible analyses, cap jobs feeding RND-06, stats panel | INS-02, INS-08, DOC-05, DOC-07, UI-07, RND-06 | P0 | Todo | Creating, editing, hiding and deleting a section are each one undo step and survive save/load byte-identically. Two visible analyses combine (box-corner cut visible in a screenshot test with RND-09, or a manual check before RND-09). Dragging the offset slider on a 1 M-tri body keeps ≥ 60 fps (GPU clip), and caps catch up ≤ 100 ms after the drag stops. Phase 1 manual script: open STL → section at XY + 10 mm → read the section area → flip → hatch on → save → reopen. |
-| INS-03 | Physical properties of mesh bodies: `props::mesh_mass_props`, `combine`, density from material with default material, Properties panel, CoM glyph | INS-01, INS-08, MAT-06 | P0 | In progress (engels-hub/wp-INS-03-mass-props) | 1. A 10×20×30 box rotated by 20 random rotations and translated: volume 6000 ± 1e-9, CoM within 1e-9 mm, inertia = R·diag(m(b²+c²)/12, …)·Rᵀ within 1e-9 relative. 2. Icosphere r = 10: volume and inertia converge to the analytic sphere values (error falls ≥ 3.5× per subdivision level). 3. Translating a body changes `inertia_com` by < 1e-9 relative. 4. Non-watertight → volume-based fields `None` with a reason; area still given. 5. `combine` of two halves equals the whole within 1e-9 relative. 6. 1 M tris < 30 ms; 10 M < 300 ms; bit-identical across thread counts. 7. Mass of a 1000 mm³ PLA cube shows 1.24 g. |
+| INS-03 | Physical properties of mesh bodies: `props::mesh_mass_props`, `combine`, density from material with default material, Properties panel, CoM glyph | INS-01, INS-08, MAT-06 | P0 | Review | 1. A 10×20×30 box rotated by 20 random rotations and translated: volume 6000 ± 1e-9, CoM within 1e-9 mm, inertia = R·diag(m(b²+c²)/12, …)·Rᵀ within 1e-9 relative. 2. Icosphere r = 10: volume and inertia converge to the analytic sphere values (error falls ≥ 3.5× per subdivision level). 3. Translating a body changes `inertia_com` by < 1e-9 relative. 4. Non-watertight → volume-based fields `None` with a reason; area still given. 5. `combine` of two halves equals the whole within 1e-9 relative. 6. 1 M tris < 30 ms; 10 M < 300 ms; bit-identical across thread counts. 7. Mass of a 1000 mm³ PLA cube shows 1.24 g. |
 | CON-01 | Construction framework + planes: `RefInput`/`OriginEntity`/`RefGeom`/`ConstructError`, `construct::math` plane functions (all 8 variants) and helpers, `ConstructPlane` feature registered (`construct.plane` v1) with inputs, `exprs`, compute against pre-resolved `RefGeom` (test resolver) | DOC-02, DOC-03, DOC-04 | P0 | Done | Table-driven tests: ≥ 5 analytic cases per variant plus every error in note §6. Examples: offset XY by 5 → z = 5. At-angle 30° about +X from XY → normal (0, −sin 30°, cos 30°) (right-hand rule). Tangent to cylinder r = 3 on Z at 0° from XZ → normal +Y, through (0, 3, 0). Midplane of z = 0 and z = 10 → z = 5. Three collinear points → `Collinear`. Results within 1e-12. The same inputs give a bit-identical frame. The feature serialises round-trip, recomputes from the cache, and an `Expr` parameter edit recomputes only it and its dependants (DOC-03 counter). |
 | CON-02 | Axes (6 variants) and points (6 variants): math + `ConstructAxis`/`ConstructPoint` features | CON-01 | P0 | Done | Same table-driven standard as CON-01 (≥ 5 analytic cases per variant, all errors). Point through three planes on random non-degenerate triples matches a 3×3 solve within 1e-9. Line–line on skew lines with a 0.01 mm gap → `Skew { distance: 0.01 ± 1e-12 }`. The features register, serialise and recompute. |
 | CON-03 | Reference resolution: `EntityRef`/`RefInput` → `ResolvedRef` for origin entities (with component transform), construction geometry, B-rep faces/edges/vertices (S02 analytic types, `CurveEval`/`SurfaceEval` adapters, context plane), sketch curves/points (S03 world mapping), planar mesh face groups (plane fit); `resolve_in` for tools; health mapping (FingerprintOnly → warning) | CON-01, DOC-06, BREP-09, SK-01, MESH-16 | P0 | Todo | On a test part (box with a hole, built with S04 or with direct `BrepKernel` calls): the planar face resolves to a `Plane` matching the face within 1e-9; the hole face resolves to a `Cylinder` with the exact radius; a circular edge resolves to a `Circle`; a sketch line resolves to a `Line` with `context_plane` = the sketch plane. Offset plane on a face survives an upstream extrude-distance edit (with DOC-06 naming) and moves with the face. A deleted referenced face gives a feature `Error` whose `Diagnostic.entities` contains the ref. |
@@ -1299,6 +1299,88 @@ Pin; Esc. Watch the frame time with the tracing profile while measuring two 1 M-
   re-resolved).
 - Units offer mm, cm, m, in, ft, µm; areas / volumes follow INS-01's `area_unit` /
   `volume_unit` (ft → in², µm → mm²).
+
+### 2026-11-23 - INS-03 mass properties of mesh bodies (lane A)
+
+*Landed* in `amg-features::inspect::props` and `amg-ui::inspect::props` (lane A's modules).
+- **`props::mesh_mass_props` / `combine` / `MassProps`** exactly as in the Interfaces block. The
+  divergence-theorem sums of note §4 are taken about the world-AABB centre, in world space
+  (any finite affine `to_world`; a mirroring map flips the winding sign, so a mirrored valid
+  body stays valid). Faces are cut into fixed chunks of 8192 by index, each chunk is summed
+  sequentially with compensated (two-sum) accumulators, and chunk sums are merged in chunk order,
+  so the result is bit-identical for any thread count. Volume-based fields are `None` with
+  `not_watertight` set for: no faces, not closed-and-consistently-oriented (INS-01's cached
+  `cache::oriented` check), negative volume (inverted), zero volume. Principal moments / axes
+  come from a cyclic Jacobi on the 3×3 tensor (no new dependency; note §4 said "nalgebra
+  internally", which `amg-features` does not have); axes are sorted by ascending moment, the
+  first two have their largest component positive, the third is their cross product.
+  `combine` adds areas, volumes and masses, takes the mass-weighted CoM, moves each
+  `inertia_com` to the common CoM (parallel axis) and sums `inertia_origin`; density is the
+  mean density; any part without volume values makes the total volume-less with a "k of n
+  bodies are not watertight" reason (the area still adds); tessellated parts keep the largest
+  deflection.
+- **Panel** (`amg-ui::inspect::props`, `PROPERTIES_CMD` "Properties", INSPECT ▸ Inspect, SOLID ▸
+  Inspect, S-key search, and the viewport context menu of a mesh body through a registered
+  `ContextMenuProvider`): the selected mesh bodies, else every mesh body. One cancellable job
+  "Mass properties" (`amg-jobs`, never on the UI thread) computes each body and the total;
+  a changed selection, mesh, placement or material supersedes it. Rows: volume, area, density,
+  mass (g, kg from 1 kg), centre of mass, inertia about the CoM and about the origin (kg·mm²),
+  principal moments and axes; a warning with the reason and the "Repair the mesh first" hint for
+  open meshes. Several bodies: the total plus a collapsing section per body.
+- **Density** only through MAT-06: `Design::mass_material(body, &MaterialPrefs, &LibrarySet)`;
+  a body without a material gets the `default_material` preference (PLA 1.24 g/cm³) and the
+  text "(default material)" on its density, mass and material rows.
+- **CoM glyph:** "Show centre of mass" (selection total) and, with several bodies, one toggle per
+  body. Three RND-07 rings and a dot, always on top, with a "CoM" label, through the new
+  `Panel::overlay` hook (S11 Interface changes 2026-11-23). No change in `amg-render`, so nothing
+  to record under S10.
+
+*Done-when evidence* (`cargo nextest run -p amg-features -p amg-ui`; bench in release on the
+shared wave machine, other workers compiling):
+1. 10×20×30 box under 20 random rotations and translations: volume 6000 ± 1e-9, area exact, CoM
+   within 1e-9 mm, `inertia_com` = R·diag(m(b²+c²)/12, …)·Rᵀ within 1e-9 relative (Frobenius),
+   `inertia_origin` within 1e-9, principal moments within 1e-9, axes orthonormal and
+   right-handed (`props::tests::rotated_translated_box_matches_the_analytic_values`).
+2. Icosphere r = 10, subdivisions 1–5: error of volume and of `I = 2/5·m·r²` falls ≥ 3.5× per
+   level, CoM at the centre within 1e-10 (`icosphere_converges_…`).
+3. Translations up to 87 m: `inertia_com` relative change < 1e-9 (`translating_a_body_…`).
+4. Open cube (one face removed): area 550, volume / mass / CoM / inertia / principal values
+   `None`, reason "the mesh is not closed and consistently oriented…"; an inverted cube gives
+   "inverted"; the panel shows the area, the reason and the repair hint
+   (`an_open_mesh_has_no_volume_based_values…`, `an_inverted_mesh_reports_a_reason`,
+   `an_open_mesh_shows_the_area_and_the_reason_but_no_volume`).
+5. `combine` of two boxes that form a 30×20×10 box under a rigid transform equals the whole
+   within 1e-9 relative: volume, mass, CoM, `inertia_com`, `inertia_origin`, principal moments;
+   the area differs by exactly the two cut faces (`combine_of_two_halves_equals_the_whole`).
+6. Criterion (`benches/inspect_props.rs`, release): **1 003 520 faces 4.96 ms** median
+   (< 30 ms), **9 996 980 faces 46.3 ms** (< 300 ms) with the closed-mesh flag cached. The very
+   first call, which also runs the closed-and-oriented check, is **14.6 ms** at 1 M and
+   **134-140 ms** at 10 M (also asserted, with the warm numbers, under `AMG_STRICT_TIMING=1` in
+   release: 14.3 / 139.5 ms). To get there `inspect/cache.rs::closed_oriented` (INS-01 code, same
+   result) now counting-sorts the directed edges by start vertex with atomic counters and checks
+   each edge and its reverse against the short out-lists (once each); vertices of out-degree > 64
+   or out-of-range indices fall back to the old sorted-edge check, kept as
+   `closed_oriented_sorted` and compared with it in a unit test (closed, open, flipped,
+   duplicate, non-manifold, degenerate, empty). Bit-identical result (whole `MassProps`, also
+   compared through `Debug` text) with 1, 2, 3, 7 and 16 rayon threads on a 327 680-face sphere
+   (`tests/inspect_props.rs::bit_identical_across_thread_counts`). The timing assert
+   (`timing_budgets`) runs the 1 M and 10 M cases only under `AMG_STRICT_TIMING=1`.
+7. `amg-ui/tests/properties_panel.rs`: a 1000 mm³ cube with no material shows "Mass: 1.24 g
+   (default material)", volume 1000 mm³, area 600 mm², centre (5, 5, 5), inertia 0.020667 kg·mm²
+   per axis; assigning built-in PETG (MAT-06 `assign_material_by_id`) shows its mass without the
+   default marker.
+Also: corpus `thingi10k-232912 / 36371 / 1750623` volumes (19 523.404 / 23 052.347 /
+71 404.363 mm³) equal the MESH-02 analysis volume or INS-01's body volume within 1e-9
+(skipped for un-fetched LFS pointers unless `AMG_REQUIRE_TESTDATA=1`).
+
+*Deviations / leftovers:*
+- The panel shows lengths in mm and masses in g / kg; the document display unit is not applied
+  yet. `MaterialPrefs` is the default (no preference store in the UI yet), and only the built-in
+  library is searched for the default material, so a user-library default is not seen.
+- A body placed several times shows the properties of its first placement; the INS-10 totals
+  for assemblies / occurrences are not part of this WP.
+- The GPU drawing of the glyph (RenderViewport) is not covered by automated tests (headless
+  kittest uses `NullViewport`): the tests check the overlay list.
 
 ## Interface changes
 

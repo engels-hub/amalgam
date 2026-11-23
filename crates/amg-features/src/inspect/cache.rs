@@ -5,6 +5,7 @@
 //! a small process-wide cache keyed by the mesh's `Arc` address. An entry is dropped once the
 //! cache holds the only reference to its mesh, so meshes are not kept alive.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use amg_jobs::JobCtx;
@@ -102,11 +103,82 @@ pub(crate) fn oriented(body: &MeshBody, ctx: &JobCtx) -> Result<bool, InspectErr
     Ok(flag)
 }
 
+/// Largest out-degree for which the adjacency check is used (scans are linear in it).
+const MAX_DEGREE: u32 = 64;
+
 /// Every directed edge appears exactly once and its reverse exactly once.
+///
+/// Fast path: a counting sort of the directed edges by start vertex (atomic counters, so it is
+/// parallel; the answer does not depend on the fill order), then each edge `(a, b)` is checked
+/// against the short out-lists of `a` (once) and `b` (the reverse once). Vertices of
+/// out-degree above [`MAX_DEGREE`] fall back to sorting the packed edge keys.
 fn closed_oriented(m: &IndexedMesh, ctx: &JobCtx) -> Result<bool, InspectError> {
     if m.tris.is_empty() {
         return Ok(false);
     }
+    let nv = m.positions.len();
+    if m.tris.iter().any(|t| t.iter().any(|&v| v as usize >= nv)) {
+        return closed_oriented_sorted(m, ctx);
+    }
+    let count: Vec<AtomicU32> = (0..=nv)
+        .into_par_iter()
+        .map(|_| AtomicU32::new(0))
+        .collect();
+    m.tris.par_chunks(1 << 14).for_each(|c| {
+        for t in c {
+            for k in 0..3 {
+                count[t[k] as usize].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    });
+    ctx.checkpoint()?;
+    // Exclusive prefix sums into `start` (length nv + 1).
+    let mut start = vec![0u32; nv + 1];
+    let mut acc = 0u32;
+    let mut max_deg = 0u32;
+    for (s, c) in start.iter_mut().zip(&count) {
+        *s = acc;
+        let d = c.load(Ordering::Relaxed);
+        max_deg = max_deg.max(d);
+        acc += d;
+    }
+    if max_deg > MAX_DEGREE {
+        return closed_oriented_sorted(m, ctx);
+    }
+    let cursor: Vec<AtomicU32> = start.par_iter().map(|&s| AtomicU32::new(s)).collect();
+    let out: Vec<AtomicU32> = (0..acc as usize)
+        .into_par_iter()
+        .map(|_| AtomicU32::new(0))
+        .collect();
+    m.tris.par_chunks(1 << 14).for_each(|c| {
+        for t in c {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                let at = cursor[a as usize].fetch_add(1, Ordering::Relaxed);
+                out[at as usize].store(b, Ordering::Relaxed);
+            }
+        }
+    });
+    ctx.checkpoint()?;
+    let list = |v: u32| &out[start[v as usize] as usize..start[v as usize + 1] as usize];
+    let occurrences = |v: u32, w: u32| {
+        list(v)
+            .iter()
+            .filter(|x| x.load(Ordering::Relaxed) == w)
+            .count()
+    };
+    Ok(m.tris.par_chunks(1 << 14).all(|c| {
+        c.iter().all(|t| {
+            (0..3).all(|k| {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                a != b && occurrences(a, b) == 1 && occurrences(b, a) == 1
+            })
+        })
+    }))
+}
+
+/// Reference implementation (and fallback): sort the packed directed edges.
+fn closed_oriented_sorted(m: &IndexedMesh, ctx: &JobCtx) -> Result<bool, InspectError> {
     let mut edges: Vec<u64> = m
         .tris
         .par_iter()
@@ -156,4 +228,52 @@ pub(crate) fn node_min_prims(bvh: &Bvh) -> Vec<u32> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use amg_core::Point3;
+
+    use super::*;
+
+    fn mesh(tris: Vec<[u32; 3]>) -> IndexedMesh {
+        let p = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(0.0, 0.0, 1.0),
+            Point3::new(1.0, 1.0, 1.0),
+        ];
+        IndexedMesh::new(p, tris).unwrap()
+    }
+
+    /// The adjacency check and the sort-based reference agree on closed, open, flipped,
+    /// duplicated, non-manifold and degenerate meshes.
+    #[test]
+    fn adjacency_check_matches_the_sorted_reference() {
+        let tet = vec![[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]];
+        let mut cases = vec![tet.clone()];
+        let mut open = tet.clone();
+        open.pop();
+        cases.push(open);
+        let mut flipped = tet.clone();
+        flipped[1] = [0, 3, 1];
+        cases.push(flipped);
+        let mut dup = tet.clone();
+        dup.push([0, 2, 1]);
+        cases.push(dup);
+        let mut fin = tet.clone();
+        fin.extend([[1, 4, 2], [2, 4, 1]]);
+        cases.push(fin);
+        let mut degenerate = tet.clone();
+        degenerate[0] = [0, 0, 1];
+        cases.push(degenerate);
+        cases.push(Vec::new());
+        let ctx = JobCtx::detached();
+        for (i, c) in cases.into_iter().enumerate() {
+            let m = mesh(c);
+            let want = !m.tris.is_empty() && closed_oriented_sorted(&m, &ctx).unwrap();
+            assert_eq!(closed_oriented(&m, &ctx).unwrap(), want, "case {i}");
+        }
+    }
 }
