@@ -27,6 +27,9 @@ pub struct LayerOut<'a> {
     pub overlays: &'a mut amg_render::OverlayList,
     /// The view's section planes and per-body section style.
     pub sections: &'a mut ViewSections,
+    /// Per-body view overrides of the committed bodies (additive, AM-11): `None` (the
+    /// default each frame) shows the design placements; the last layer that sets it wins.
+    pub body_views: &'a mut Option<std::sync::Arc<crate::scene::BodyViews>>,
 }
 
 /// The section planes of the view (RND-06) and which bodies they clip.

@@ -44,6 +44,26 @@ use crate::pick::{PickMode, PickTarget};
 use crate::theme::ThemeTokens;
 use raycast::Bvh;
 
+/// How a workspace shows one body instead of its design placement (additive, AM-11: the
+/// Manufacture workspace draws plate items at their plate transforms).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BodyView {
+    /// World transform of every instance of the body (replaces the occurrence placement, so
+    /// picking, bounds and highlights follow it).
+    pub transform: Transform,
+    /// Linear RGBA that replaces the base colour (alpha = opacity); `None` keeps the material.
+    pub tint: Option<[f32; 4]>,
+}
+
+/// Per-body view overrides of committed bodies (additive, AM-11). While set, the listed
+/// bodies are drawn with their [`BodyView`] and every other committed body is hidden (and not
+/// pickable). Preview bodies are not affected.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BodyViews {
+    /// The bodies shown, by id.
+    pub bodies: BTreeMap<BodyId, BodyView>,
+}
+
 /// Per-body section display (INS-09): which bodies the view's section planes clip
 /// (`Instance::sectioned`) and their cap colours (linear RGB; `None` = RND-06's darkened base
 /// colour).
@@ -359,6 +379,8 @@ struct Entry {
     uploads: u32,
     /// Clipped by the view's section planes, and the cap colour (INS-09, [`SectionStyle`]).
     section: (bool, Option<[f32; 3]>),
+    /// Base colour from the [`BodyViews`] override (AM-11).
+    view_tint: Option<[f32; 4]>,
 }
 
 impl std::fmt::Debug for Entry {
@@ -397,6 +419,8 @@ struct Core {
     model_material: Material,
     preview_material: Material,
     pending: BTreeSet<(Set, BodyId)>,
+    /// Per-body view overrides of committed bodies (AM-11).
+    views: Option<Arc<BodyViews>>,
 }
 
 /// The view of the document an update reads.
@@ -464,6 +488,12 @@ impl Core {
     /// Recomputes the entry's instances from the placements and sends what changed.
     fn sync_instances(&mut self, set: Set, id: BodyId, e: &mut Entry, src: &Src<'_>) {
         let mut wanted: Vec<(u32, Transform, bool)> = Vec::new();
+        let views = self.views.clone();
+        let view = match (set, views.as_deref()) {
+            (Set::Model, Some(v)) => Some(v.bodies.get(&id)),
+            _ => None,
+        };
+        e.view_tint = view.flatten().and_then(|v| v.tint);
         for path in src.placements.paths_of(e.component) {
             let Some(world) = src.placements.world(&path) else {
                 continue;
@@ -471,6 +501,11 @@ impl Core {
             let occ_visible = path
                 .iter()
                 .all(|o| src.design.occurrence(*o).is_none_or(|occ| occ.visible));
+            let (world, occ_visible) = match view {
+                None => (world, occ_visible),
+                Some(Some(v)) => (v.transform, occ_visible),
+                Some(None) => (world, false),
+            };
             let idx = self.path(&path);
             wanted.push((idx, world, occ_visible));
         }
@@ -526,6 +561,9 @@ impl Core {
             return;
         };
         let mut material = self.material(set, e);
+        if let Some(tint) = e.view_tint {
+            material.base_color = tint;
+        }
         let sectioned = match set {
             Set::Model => {
                 material.cap_color = e.section.1;
@@ -659,6 +697,7 @@ impl SceneAdapter {
                 model_material: Material::default(),
                 preview_material: Material::default(),
                 pending: BTreeSet::new(),
+                views: None,
             },
             bodies: BTreeMap::new(),
             preview: BTreeMap::new(),
@@ -947,6 +986,30 @@ impl SceneAdapter {
             self.core.sync_instances(Set::Model, *id, e, &src);
         }
         self.flush();
+    }
+
+    /// Sets or clears the per-body view overrides of committed bodies (additive, AM-11; see
+    /// [`BodyViews`]). Only instances whose description changes are rewritten (no upload).
+    pub fn set_body_views(
+        &mut self,
+        views: Option<Arc<BodyViews>>,
+        design: &Design,
+        evaluated: &Evaluated,
+    ) {
+        self.core.views = views;
+        let src = Src {
+            design,
+            placements: self.overlay.as_deref().unwrap_or(evaluated.placements()),
+        };
+        for (id, e) in &mut self.bodies {
+            self.core.sync_instances(Set::Model, *id, e, &src);
+        }
+        self.flush();
+    }
+
+    /// The per-body view overrides in force (AM-11).
+    pub fn body_views(&self) -> Option<&Arc<BodyViews>> {
+        self.core.views.as_ref()
     }
 
     /// Replaces a highlight layer (targets that are not displayed are kept and resolved once
@@ -1341,6 +1404,7 @@ fn reconcile(
                 opacity,
                 uploads: 0,
                 section: (true, None),
+                view_tint: None,
             };
             core.spawn(set, id, &mut e, jobs);
             core.sync_instances(set, id, &mut e, src);

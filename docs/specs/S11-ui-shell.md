@@ -2553,3 +2553,22 @@ dev-dependency; already in the workspace). Existing tests pass unchanged.
   `module.rs`, `lib.rs` (`pub mod dialog`).
 - **MESH-23 (`amg-ui::mesh`) not changed.** It had no export entry in `src`; the File ▸ Export entry
   is `io.export` (`amg-ui::io`).
+
+### 2026-11-23: AM-11 (lane G, S16 `amg-ui::am`) - one additive framework hook
+Flagged for lane D review. No change to `amg-render`, `amg-doc`, `amg-core` or `amg-jobs`. New
+normal dependency edge `amg-ui` → `amg-am` (workspace crate; its third-party dependencies are
+already listed). Existing tests pass unchanged.
+- **Per-body view overrides (`scene`):** `BodyView { transform: Transform, tint: Option<[f32; 4]> }`
+  and `BodyViews { bodies: BTreeMap<BodyId, BodyView> }`; `SceneAdapter::{set_body_views(Option<
+  Arc<BodyViews>>, &Design, &Evaluated), body_views()}`. While set, each listed committed body is
+  drawn with `transform` as the world transform of every instance (so picking, bounds,
+  `instance_world` and highlights follow it) and `tint` as its base colour; every other committed
+  body is hidden and not pickable. Preview bodies are not affected. Only instances whose
+  description changes are rewritten (no upload). Internally: `Core::views`, `Entry::view_tint`,
+  three lines in `sync_instances` / `send_instances`.
+- **`layer::LayerOut::body_views: &mut Option<Arc<BodyViews>>`** (new field; `LayerOut` is built
+  only by the router): `None` each frame, the last layer that sets it wins. After the layers ran,
+  the router compares it with `SceneAdapter::body_views()` (pointer, then value) and calls
+  `set_body_views` on a change, so switching documents or workspaces never keeps stale overrides.
+- Used by the Manufacture workspace: plate items at their plate transforms (`effective_transform`),
+  red when out of the build volume, every other body hidden while the workspace is active.

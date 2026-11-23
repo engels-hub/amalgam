@@ -401,6 +401,7 @@ fn run_doc_layers(
     app: &mut AmalgamApp,
     overlays: &mut amg_render::OverlayList,
     sections: &mut crate::layer::ViewSections,
+    body_views: &mut Option<std::sync::Arc<crate::scene::BodyViews>>,
 ) {
     let active = app.active;
     app.docs[active].layers.ensure(app.registry.doc_layers());
@@ -413,6 +414,7 @@ fn run_doc_layers(
             let mut out = crate::layer::LayerOut {
                 overlays: &mut *overlays,
                 sections: &mut *sections,
+                body_views: &mut *body_views,
             };
             layer.update(&mut cx, &mut out);
         }
@@ -595,9 +597,25 @@ impl AmalgamApp {
             }
             // Document layers (INS-09): overlays and the view's section planes.
             let mut sections = crate::layer::ViewSections::default();
-            run_doc_layers(app, &mut overlay, &mut sections);
+            let mut body_views = None;
+            run_doc_layers(app, &mut overlay, &mut sections, &mut body_views);
             if sections.style != ts.sections.style {
                 app.scene.set_section_style(&sections.style);
+            }
+            // Body view overrides (AM-11): compared with what the scene shows, so a document
+            // switch never keeps another document's overrides.
+            let same = match (&body_views, app.scene.body_views()) {
+                (None, None) => true,
+                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b) || a == b,
+                _ => false,
+            };
+            if !same {
+                let doc = &app.docs[active];
+                app.scene.set_body_views(
+                    body_views,
+                    doc.document.design(),
+                    doc.document.evaluated(),
+                );
             }
             ts.sections = sections;
             ts.overlay = overlay;
