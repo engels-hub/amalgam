@@ -249,6 +249,17 @@ pub fn section_plane(base: &Plane, offset: f64, tilt: [f64; 2], flip: bool) -> P
     if flip { p.flipped() } else { p }
 }
 
+/// Whether `body`'s mesh is closed and consistently oriented (every edge used once in each
+/// direction): the condition under which caps use [`FillRule::NonZero`] and RND-06 may draw its
+/// own caps. Cached per mesh `Arc` (shared with [`section_mesh`]'s [`FillRule::Auto`]); the
+/// first call costs one pass over the edges.
+///
+/// # Errors
+/// [`InspectError::Cancelled`].
+pub fn is_closed_oriented(body: &MeshBody, ctx: &JobCtx) -> Result<bool, InspectError> {
+    super::cache::oriented(body, ctx)
+}
+
 fn plane_finite(p: &Plane) -> bool {
     p.origin.is_finite()
         && p.x.get().is_finite()

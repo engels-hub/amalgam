@@ -43,6 +43,10 @@ pub struct UiRegistry {
     marking_menus: Vec<(&'static str, Box<dyn crate::marking::MarkingMenuProvider>)>,
     /// Context-menu providers in registration order (UI-21).
     context_menus: Vec<(&'static str, Box<dyn crate::marking::ContextMenuProvider>)>,
+    /// Per-document view layers in registration order (additive, INS-09).
+    doc_layers: Vec<crate::layer::DocLayerDef>,
+    /// The module of each entry of `doc_layers`.
+    doc_layer_modules: Vec<&'static str>,
 }
 
 impl fmt::Debug for UiRegistry {
@@ -218,6 +222,20 @@ impl UiRegistry {
         p: Box<dyn crate::marking::MarkingMenuProvider>,
     ) {
         self.marking_menus.push((module, p));
+    }
+
+    pub(crate) fn add_doc_layer(&mut self, module: &'static str, def: crate::layer::DocLayerDef) {
+        if let Some(i) = self.doc_layers.iter().position(|d| d.id == def.id) {
+            conflict("document layer", def.id, self.doc_layer_modules[i], module);
+            return;
+        }
+        self.doc_layers.push(def);
+        self.doc_layer_modules.push(module);
+    }
+
+    /// The per-document view layers in registration order (INS-09).
+    pub fn doc_layers(&self) -> &[crate::layer::DocLayerDef] {
+        &self.doc_layers
     }
 
     pub(crate) fn add_context_menu(

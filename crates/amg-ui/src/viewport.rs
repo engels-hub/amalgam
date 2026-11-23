@@ -26,6 +26,8 @@ pub struct ViewportFrame<'a> {
     pub camera: &'a Camera,
     /// The active tool's overlays to draw this frame (RND-07; additive, INS-08).
     pub overlays: &'a amg_render::OverlayList,
+    /// The view's section planes (RND-06; additive, INS-09: section analyses).
+    pub sections: &'a [amg_render::SectionPlane],
 }
 
 /// Draws the 3D view into the viewport tab.
@@ -96,6 +98,8 @@ pub fn paint_gradient(
 pub struct RenderViewport {
     rs: RenderState,
     view: ViewId,
+    /// The scene's section planes this viewport put there (INS-09), in frame order.
+    sections: Vec<amg_render::SectionKey>,
     background: Option<[f32; 3]>,
     lost: bool,
     actions: Vec<CameraAction>,
@@ -117,6 +121,7 @@ impl RenderViewport {
         RenderViewport {
             rs,
             view,
+            sections: Vec::new(),
             background: None,
             lost: false,
             actions: Vec::new(),
@@ -127,6 +132,37 @@ impl RenderViewport {
     /// The view drawn.
     pub fn view(&self) -> ViewId {
         self.view
+    }
+
+    /// Makes the scene's section planes equal `planes` (INS-09): existing keys are rewritten in
+    /// place (no reallocation while a slider drags), extra ones removed, missing ones added.
+    fn sync_sections(&mut self, planes: &[amg_render::SectionPlane]) {
+        let keys = &mut self.sections;
+        egui_glue::with_renderer(&self.rs, |r| {
+            let scene = r.scene_mut();
+            while keys.len() > planes.len() {
+                if let Some(k) = keys.pop() {
+                    scene.remove_section(k);
+                }
+            }
+            for (i, p) in planes.iter().enumerate() {
+                match keys.get(i).and_then(|k| scene.section_mut(*k)) {
+                    Some(s) => {
+                        if s != p {
+                            *s = *p;
+                        }
+                    }
+                    None => {
+                        let k = scene.add_section(*p);
+                        if i < keys.len() {
+                            keys[i] = k;
+                        } else {
+                            keys.push(k);
+                        }
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -153,6 +189,7 @@ impl ViewportBackend for RenderViewport {
             Some(style)
         })
         .flatten();
+        self.sync_sections(frame.sections);
         self.background = Some(bg);
         let out = Viewport { view: self.view }.show(ui, &self.rs);
         self.lost = out.lost;

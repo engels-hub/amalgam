@@ -556,6 +556,7 @@ impl DockContent for ShellDock<'_> {
                     doc: self.doc.id,
                     camera: &self.doc.camera,
                     overlays: &self.doc.tools.overlay,
+                    sections: &self.doc.tools.sections.planes,
                 };
                 *self.viewport_response = Some(self.viewport.show(ui, &frame));
                 *self.viewport_hovered = ui.rect_contains_pointer(ui.max_rect());

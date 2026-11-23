@@ -780,7 +780,7 @@ pub mod display {
 | INS-01 | `amg-features::inspect::measure` core on meshes: operands, `measure_one`/`measure`, exact min distance (dual BVH, tri–tri), angles, centres, smart planar region, feature chains, plane/circle fits, `snap_on_face`, `report_rows` | MESH-02, MESH-03, FND-10 | P0 | Done | Tests pass. 1. **Analytic:** a 10 mm cube gives face area 100 ± 1e-9 mm², edge length 10 ± 1e-12, opposite-face distance 10 ± 1e-12 and angle 180°, adjacent faces 90° ± 1e-12 rad, body volume 1000 ± 1e-9. A point 5 mm above the face centre gives distance 5 ± 1e-12. 2. **Brute force:** `min_distance` equals the O(n·m) brute force (≤ 1e-12 mm absolute, same witness features) on 1 000 random pairs of 1–2 k-tri meshes under random rigid transforms, including intersecting, touching and nested configurations. 3. A tessellated 128-segment hole r = 5 in a block: one feature-edge pick gives a closed 128-edge chain with fit radius 5 ± 1e-9 (vertices on the circle). A 64-segment chain with σ = 0.002 mm noise gives radius 5 ± 0.005. 4. `grow_planar_region` on a CAD-exported STL (corpus, f32) returns exactly the ground-truth face set of 10 planar faces. 5. Non-rigid transform → `NonRigidTransform`. 6. Bit-identical results with 1 and 16 threads. 7. Criterion: point → 1 M-tri body < 0.1 ms median; two separated 1 M-tri bodies (gap ≥ 1 mm) < 20 ms; concentric icospheres r = 50 / 50.1 (1 M each) < 3 s, cancellable within 50 ms. |
 | INS-08 | Measure tool in `amg-ui::inspect`: hand-built dialog (filters, smart toggle, 3-point circle, precision, units, results with copy), snapping, job-backed results with supersede, RND-07 overlay (witness line, Δ, angle arc, circle) | INS-01, MESH-16, UI-02, UI-03, UI-04, UI-10, RND-04, RND-07 | P0 | Done | Manual script on 3 corpus models: measure a hole diameter (1 click), a wall distance, an angle between two faces, a body volume; values equal the INS-01 API values for the same picks. Snap to vertex within 8 px and to edge within 5 px (automated test with a synthetic camera). No frame > 16 ms in the tracing profile while measuring two 1 M-tri bodies. A newer selection cancels the running job within 50 ms. Results use the document display unit and the chosen precision (`1/4 in` part shows inches). |
 | INS-02 | `amg-features::inspect::section` caps on meshes: loop orientation, CDT with split constraints, non-zero / even–odd fill, multi-plane clipping (≤ 6), outlines, open curves, `SectionStats`, `section_plane` | MESH-09 | P0 | Done (owner-accepted 2026-11-19) | Tests pass. 1. **Watertight (note §3.4):** for every watertight MESH-28 corpus model and 3 seeded random planes, `plane_cut(keep = Negative, cap = false)` + caps welded at the snap tolerance is closed and manifold (100 %), including planes exactly through vertices and edges. 2. Cap area: 128-gon cylinder r = 10, perpendicular cut = ½·128·r²·sin(2π/128) within 1e-9 relative; axial cut = 2r·h exactly within 1e-9 relative. 3. Two overlapping closed cubes (one STL, two shells): cap area = area of the union of the squares (non-zero rule). 4. Box section with 6 planes: each cap lies inside the other 5 kept half-spaces (vertices ≤ 1e-9 mm outside). 5. Open cube (one face deleted): open curve reported, no cap through the gap. 6. Shoelace area of the oriented loops equals the cap triangle area within 1e-9 relative. 7. 1 M-tri body, one plane: < 50 ms; 10 M: < 500 ms. Deterministic across thread counts. |
-| INS-09 | Section Analysis tool + persistence: `SectionAnalysis` ExtRecord (`inspect.section` v1, migration hook), hand-built dialog (origin plane / picked planar region, offset expression + slider, tilt, flip, hatch, cap colour, scope), browser "Analysis" folder entries, combining visible analyses, cap jobs feeding RND-06, stats panel | INS-02, INS-08, DOC-05, DOC-07, UI-07, RND-06 | P0 | Todo | Creating, editing, hiding and deleting a section are each one undo step and survive save/load byte-identically. Two visible analyses combine (box-corner cut visible in a screenshot test with RND-09, or a manual check before RND-09). Dragging the offset slider on a 1 M-tri body keeps ≥ 60 fps (GPU clip), and caps catch up ≤ 100 ms after the drag stops. Phase 1 manual script: open STL → section at XY + 10 mm → read the section area → flip → hatch on → save → reopen. |
+| INS-09 | Section Analysis tool + persistence: `SectionAnalysis` ExtRecord (`inspect.section` v1, migration hook), hand-built dialog (origin plane / picked planar region, offset expression + slider, tilt, flip, hatch, cap colour, scope), browser "Analysis" folder entries, combining visible analyses, cap jobs feeding RND-06, stats panel | INS-02, INS-08, DOC-05, DOC-07, UI-07, RND-06 | P0 | Review | Creating, editing, hiding and deleting a section are each one undo step and survive save/load byte-identically. Two visible analyses combine (box-corner cut visible in a screenshot test with RND-09, or a manual check before RND-09). Dragging the offset slider on a 1 M-tri body keeps ≥ 60 fps (GPU clip), and caps catch up ≤ 100 ms after the drag stops. Phase 1 manual script: open STL → section at XY + 10 mm → read the section area → flip → hatch on → save → reopen. |
 | INS-03 | Physical properties of mesh bodies: `props::mesh_mass_props`, `combine`, density from material with default material, Properties panel, CoM glyph | INS-01, INS-08, MAT-06 | P0 | Review | 1. A 10×20×30 box rotated by 20 random rotations and translated: volume 6000 ± 1e-9, CoM within 1e-9 mm, inertia = R·diag(m(b²+c²)/12, …)·Rᵀ within 1e-9 relative. 2. Icosphere r = 10: volume and inertia converge to the analytic sphere values (error falls ≥ 3.5× per subdivision level). 3. Translating a body changes `inertia_com` by < 1e-9 relative. 4. Non-watertight → volume-based fields `None` with a reason; area still given. 5. `combine` of two halves equals the whole within 1e-9 relative. 6. 1 M tris < 30 ms; 10 M < 300 ms; bit-identical across thread counts. 7. Mass of a 1000 mm³ PLA cube shows 1.24 g. |
 | CON-01 | Construction framework + planes: `RefInput`/`OriginEntity`/`RefGeom`/`ConstructError`, `construct::math` plane functions (all 8 variants) and helpers, `ConstructPlane` feature registered (`construct.plane` v1) with inputs, `exprs`, compute against pre-resolved `RefGeom` (test resolver) | DOC-02, DOC-03, DOC-04 | P0 | Done | Table-driven tests: ≥ 5 analytic cases per variant plus every error in note §6. Examples: offset XY by 5 → z = 5. At-angle 30° about +X from XY → normal (0, −sin 30°, cos 30°) (right-hand rule). Tangent to cylinder r = 3 on Z at 0° from XZ → normal +Y, through (0, 3, 0). Midplane of z = 0 and z = 10 → z = 5. Three collinear points → `Collinear`. Results within 1e-12. The same inputs give a bit-identical frame. The feature serialises round-trip, recomputes from the cache, and an `Expr` parameter edit recomputes only it and its dependants (DOC-03 counter). |
 | CON-02 | Axes (6 variants) and points (6 variants): math + `ConstructAxis`/`ConstructPoint` features | CON-01 | P0 | Done | Same table-driven standard as CON-01 (≥ 5 analytic cases per variant, all errors). Point through three planes on random non-degenerate triples matches a 3×3 solve within 1e-9. Line–line on skew lines with a 0.01 mm gap → `Skew { distance: 0.01 ± 1e-12 }`. The features register, serialise and recompute. |
@@ -1381,6 +1381,105 @@ Also: corpus `thingi10k-232912 / 36371 / 1750623` volumes (19 523.404 / 23 052.3
   for assemblies / occurrences are not part of this WP.
 - The GPU drawing of the glyph (RenderViewport) is not covered by automated tests (headless
   kittest uses `NullViewport`): the tests check the overlay list.
+
+### 2026-11-23 - INS-09 Section Analysis tool + persistence (lane A)
+
+*Landed* in `amg-features::inspect::doc` (new), `amg-features::inspect::section`
+(`is_closed_oriented`, additive) and `amg-ui::inspect::{section, section_tool}` (new), with
+small additive framework hooks in `amg-ui` (S11 Interface changes 2026-11-23: per-document view
+layers, `ViewportFrame::sections`, per-body section style in the scene adapter, the `closed` flag
+of mesh display meshes). No change in `amg-doc` or `amg-render` (S10 Interface changes 2026-11-23
+records one open request). No new dependency.
+- **Record** (`inspect::doc`), as in Interfaces: `SECTION_KIND = "inspect.section"`, v1,
+  `OriginPlane`, `SectionBase`, `HatchPattern`, `HatchStyle` (default: no hatch, 8 px, π/4),
+  `CapColor`, `SectionScope`, `SectionAnalysis::{to_record, from_record, plane}`,
+  `section_migrate`. Additive: `SectionAnalysis::{new, validate, base_plane, add_command,
+  command}`, `delete_command`, `analyses(design)`, `next_name` ("Section N"), `combine(items,
+  resolve) -> Combined { planes, owners, dropped, fallback }` (visible ones in order, at most 6),
+  `is_kept`, `SectionScope::covers`, `OriginPlane::{ALL, plane, name}`. `from_record` checks the
+  kind and the version (0 or newer → error, older → `section_migrate`), denies unknown fields and
+  validates finiteness and the base frame (a NaN would be stored as `null`).
+- **Layer** (`amg-ui::inspect::section::SectionLayer`, a `DocLayer`): every frame it decodes the
+  records (only when the design revision changed), applies the open dialog's draft (it replaces
+  the edited record or joins as a new one), combines the visible ones and hands RND-06 the planes
+  (caps on, hatch from the record) plus the per-body style: bodies covered by some used analysis
+  are clipped, with the first covering uniform cap colour. The **caps job** ("Section caps",
+  `amg-jobs`) runs INS-02 `section_mesh` over the mesh bodies in scope with all planes; any change
+  of planes, bodies, meshes or placements cancels it and starts a new one (supersede). Once its
+  result matches the current inputs, its outlines (dark) and open curves (red) are drawn as RND-07
+  polylines (`XRay` depth) and its stats are summed per analysis (`SectionSnapshot` /
+  `AnalysisStats`: area, perimeter, loops, open curves, extent, bodies).
+- **Dialog** (`SectionTool`, `SECTION_CMD` "Section Analysis", INSPECT ▸ Inspect pinned, SOLID ▸
+  Inspect, S-key search): name; base XY / YZ / XZ or *Pick face* (a click grows the coplanar
+  region with `grow_planar_region` and fits a plane with `fit_plane_faces`, as a job; a
+  preselected mesh face does the same); offset as an expression (`ExprInput`, length, parameters
+  allowed), a slider over the scene extent along the base normal and − / + 1 mm; tilt X / Y
+  (degrees); flip; hatch None / Lines / Cross; cap colour body / uniform (colour picker); bodies
+  all visible / listed (clicks toggle bodies, preselected bodies fill the list); visible; live
+  stats. OK → one `AddExt` (new) or `SetExt` (edit) batch; Cancel / Esc → nothing, and the draft
+  disappears. The draft's plane is shown as a dashed translucent square.
+- **Browser** (UI-07 provider): an "Analysis" folder at the root (only when there is an analysis)
+  with one renamable row per record and its eye; eye → hide / show, rename, double-click and
+  "Edit Section Analysis" → the dialog on that record, "Delete" → `SetExt { record: None }`; each
+  one undo step. Rebuilt on `ExtChanged` of the kind.
+- **Panel** "Section Statistics" (`SECTION_STATS_CMD`, right dock): per applied analysis its rows,
+  the "body is not closed: N open section curves" warning, "Updating caps…" while stale, the
+  analyses beyond 6 and unreadable records.
+
+*Done-when evidence* (`cargo nextest run -p amg-features -p amg-ui`: 209 + 199 pass; kittest with
+the CPU scene backend and CPU picking, test profile, shared machine):
+1. **One undo step each, save / load byte-identical.** `amg-features/tests/inspect_section_doc.rs`:
+   create / edit / hide / delete each add exactly one undo entry; undo and redo walk back and
+   forth through equal records. Two records (one with every field set, odd floats such as
+   0.1 + 0.2, tilt 1e-7) save → load → save: `design.json` and the whole `.amg` archive are
+   byte-identical and decode to the same values. In the app (`amg-ui/tests/section_tool.rs`): OK
+   of the dialog is one step, Esc after edits none; browser hide, rename, edit (double-click →
+   dialog → OK) and delete are one step each, and undo restores the previous record; the Phase 1
+   script saves, closes and reopens with the same record, planes and area.
+2. **Two visible analyses combine** (RND-09 is not done: an automated test on the combined clip
+   planes and caps, plus the owner's manual check): XY at z = 5 and YZ at x = 5 on a 10 mm cube
+   give two RND-06 planes whose kept region is the box corner (points checked), caps of 50 mm²
+   each with every cap vertex inside the other plane's kept side (≤ 1e-9 mm), equal to INS-02 on
+   the same planes; hiding one gives one 100 mm² cap.
+3. **Timing** (`timing_slider_drag_on_a_1m_tri_body`, 1 003 520-face benchmark sphere, a 120-step
+   kittest drag of the offset slider; CPU side, kittest has no GPU): 139–146 frames, UI-thread
+   frame p50 0.39–0.42 ms, p99 0.73–1.08 ms, **max 0.94–1.12 ms**, 0 over 16 ms; 25 caps jobs, 24
+   of them superseded; the caps of the final position were ready **15.2–20.3 ms** after the last
+   change (24–37 ms after the release, including the test's polling). Asserted (< 16 ms frames,
+   ≤ 100 ms catch-up) under `AMG_STRICT_TIMING=1`: passed 3 of 3 runs. The GPU side of the drag is
+   RND-06's clip; its bench (owner RTX 5060 Ti, 5 M tris, one plane) is 1.92 ms wall p50 per
+   frame (S10 RND-06 log), not re-measured here.
+4. **Phase 1 script**, automated part (`phase1_script_on_a_synthetic_stl`, and
+   `phase1_script_on_a_corpus_stl` on thingi10k/232912, skipped for an LFS pointer unless
+   `AMG_REQUIRE_TESTDATA=1`; ran with it): import STL → Section Analysis → offset "10 mm" → the
+   area shown equals INS-02's on the same plane (cube 400 mm²; 232912: 582.030 mm²) → Flip →
+   Lines hatch (same area) → OK → Save As → Close → Open: record, planes and area unchanged, and
+   the row is in the Analysis folder. The visual part is the owner's manual script (report).
+
+Also tested: per-body scope and uniform cap colour reach the instances (`sectioned`,
+`cap_color`); a picked top face gives the base z = 10 / +Z; an open cube reports 1 open curve and
+0 area, and the panel shows the warning; the offset expression `0.25 in + 3.65 mm` gives 10 mm.
+
+*Deviations:*
+- `amg-doc` has no extension-registration table (S01 `ExtRegistration`), so the version check and
+  `section_migrate` run in `from_record`, as for `am.print_setup`; there is no `inventory`
+  registration.
+- The displayed caps are RND-06's ray–plane caps of closed meshes, because RND-06 cannot draw CPU
+  cap meshes (request under S10 Interface changes). For them to appear at all, mesh display
+  meshes now carry `closed = is_closed_oriented` (they were always open before). The INS-02 caps
+  (the job) give the statistics, the outlines and the open curves. During a drag the GPU clip and
+  caps follow every frame, and the outlines and stats appear when the job catches up.
+- Body scope is per body, not per analysis: RND-06 planes clip every sectioned instance, so a body
+  in the scope of one visible analysis is clipped by all of them, and its caps are computed with
+  all planes.
+- Statistics are shown in mm / mm² (like INS-03), not in the document unit. Tilt is a degree
+  `DragValue`, not an expression. Hatch spacing and angle are stored in the record (defaults 8 px,
+  45°) but the dialog does not offer them.
+
+*Leftovers:* the on-canvas drag arrow and `Ref` bases (INS-11); section-stats goldens (INS-13).
+The GPU drawing of the outlines, caps and draft square is not covered by automated tests (headless
+kittest uses `NullViewport`): the owner's manual script covers it, and the screenshot test of the
+box-corner cut waits for RND-09.
 
 ## Interface changes
 

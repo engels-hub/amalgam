@@ -1917,3 +1917,15 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   until then no thumbnail is written.
 - **From S17 (materials).** RND-10 depends on MAT-02 (unchanged). `amg-render` receives plain
   linear floats via the `amg-ui::materials` adapter, with no crate dependency.
+
+### 2026-11-23: request from INS-09 (lane A, S05 Section Analysis)
+No change in `amg-render`: INS-09 uses the RND-06 API as it is (`add_section` / `section_mut` /
+`remove_section`, `Hatch`, `Instance::sectioned`, `Material::cap_color`) through the `amg-ui`
+viewport and scene adapter (S11 Interface changes 2026-11-23).
+- **Request (open, lane D's call):** a way to draw S05's geometric caps (INS-02 `Cap`: world
+  triangles with plane-local `uv` in mm) with RND-06's hatch and cap colour, e.g. a per-instance
+  "cap mesh" flag that uses `uv` for world-anchored hatching and skips clipping by its own plane.
+  Until then the displayed caps are RND-06's ray–plane caps of closed meshes (exact per pixel for
+  closed, oriented meshes); the CPU caps give the section statistics and the RND-07 outlines / open
+  curves, and per-analysis body scopes reduce to per-body `sectioned` (a body in the scope of one
+  visible analysis is clipped by all of them).

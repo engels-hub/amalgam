@@ -44,6 +44,27 @@ use crate::pick::{PickMode, PickTarget};
 use crate::theme::ThemeTokens;
 use raycast::Bvh;
 
+/// Per-body section display (INS-09): which bodies the view's section planes clip
+/// (`Instance::sectioned`) and their cap colours (linear RGB; `None` = RND-06's darkened base
+/// colour).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SectionStyle {
+    /// Bodies the planes clip; `None` = every body.
+    pub clipped: Option<BTreeSet<BodyId>>,
+    /// Cap colours by body.
+    pub cap_colors: BTreeMap<BodyId, [f32; 3]>,
+}
+
+impl SectionStyle {
+    /// `(sectioned, cap colour)` of `body`.
+    pub fn of(&self, body: BodyId) -> (bool, Option<[f32; 3]>) {
+        (
+            self.clipped.as_ref().is_none_or(|c| c.contains(&body)),
+            self.cap_colors.get(&body).copied(),
+        )
+    }
+}
+
 /// Render-side id of a pick owner: S10's `PickId` (0 means nothing; the adapter starts at 1).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct RenderEntityKey(pub u32);
@@ -336,6 +357,8 @@ struct Entry {
     visible: bool,
     opacity: f32,
     uploads: u32,
+    /// Clipped by the view's section planes, and the cap colour (INS-09, [`SectionStyle`]).
+    section: (bool, Option<[f32; 3]>),
 }
 
 impl std::fmt::Debug for Entry {
@@ -502,7 +525,14 @@ impl Core {
         let Some(mesh) = e.mesh.as_ref().map(|m| m.slot) else {
             return;
         };
-        let material = self.material(set, e);
+        let mut material = self.material(set, e);
+        let sectioned = match set {
+            Set::Model => {
+                material.cap_color = e.section.1;
+                e.section.0
+            }
+            Set::Preview => true,
+        };
         let layer = match set {
             Set::Model => Layer::Model,
             Set::Preview => Layer::Preview,
@@ -515,6 +545,7 @@ impl Core {
                 visible: inst.visible,
                 layer,
                 material,
+                sectioned,
             };
             if inst.sent.as_ref() != Some(&desc) {
                 self.ops.push(SceneOp::SetInstance {
@@ -966,6 +997,30 @@ impl SceneAdapter {
         self.flush();
     }
 
+    /// Which committed bodies the view's section planes clip and their cap colours (RND-06
+    /// `Instance::sectioned` / `Material::cap_color`; additive, INS-09). Bodies the style does
+    /// not mention are clipped with the default cap colour. Only instances whose description
+    /// changes are rewritten (no upload).
+    pub fn set_section_style(&mut self, style: &SectionStyle) {
+        let mut changed = false;
+        for (id, e) in &mut self.bodies {
+            let want = style.of(*id);
+            if e.section != want {
+                e.section = want;
+                self.core.send_instances(Set::Model, e);
+                changed = true;
+            }
+        }
+        if changed {
+            self.flush();
+        }
+    }
+
+    /// Whether `body` is clipped by the section planes, and its cap colour (INS-09).
+    pub fn section_of(&self, body: BodyId) -> Option<(bool, Option<[f32; 3]>)> {
+        self.bodies.get(&body).map(|e| e.section)
+    }
+
     /// Display quality of new tessellations.
     pub fn set_quality(&mut self, q: DisplayQuality) {
         self.core.quality = q;
@@ -1285,6 +1340,7 @@ fn reconcile(
                 visible,
                 opacity,
                 uploads: 0,
+                section: (true, None),
             };
             core.spawn(set, id, &mut e, jobs);
             core.sync_instances(set, id, &mut e, src);

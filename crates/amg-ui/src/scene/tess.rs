@@ -125,13 +125,19 @@ impl BodyTessellator for MeshTessellator {
         let smooth = mesh.attrs.vertex_normals.is_some();
         let b = mesh.render_buffers(origin, smooth);
         ctx.checkpoint()?;
+        // RND-06 caps only closed meshes; closed-and-oriented is the S05 condition (cached per
+        // mesh, shared with the section caps; additive, INS-09).
+        let body = amg_mesh::MeshBody::from_arc(Arc::clone(mesh));
+        let closed =
+            amg_features::inspect::section::is_closed_oriented(&body, ctx).unwrap_or(false);
+        ctx.checkpoint()?;
         Ok(DisplayMesh {
             data: MeshData {
                 origin: b.origin,
                 positions: b.positions,
                 normals: b.normals,
                 indices: b.indices,
-                closed: false,
+                closed,
             },
             face_ranges: Vec::new(),
         })
