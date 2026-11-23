@@ -88,6 +88,9 @@ pub struct InstanceDesc {
     pub material: Material,
     /// Clipped by the view's section planes (RND-06 `Instance::sectioned`; additive, INS-09).
     pub sectioned: bool,
+    /// RND-08 shading (`Instance::shading`; additive, AM-12). Changing it rewrites the instance
+    /// only, never the geometry.
+    pub shading: amg_render::Shading,
 }
 
 /// Highlight layers (S10 R-S10-5).
@@ -484,6 +487,7 @@ fn apply_gpu(
                 inst.layer = desc.layer;
                 inst.material = desc.material;
                 inst.sectioned = desc.sectioned;
+                inst.shading = desc.shading;
                 inst.pick = desc.key.pick_id();
                 return;
             }
@@ -493,6 +497,7 @@ fn apply_gpu(
                 layer: desc.layer,
                 material: desc.material,
                 sectioned: desc.sectioned,
+                shading: desc.shading,
                 // Bodies arrive as triangle meshes (no B-rep edge sets yet), so the wireframe
                 // styles draw their triangle wireframe.
                 mesh_wireframe: true,

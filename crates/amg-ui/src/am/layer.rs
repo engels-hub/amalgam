@@ -4,19 +4,28 @@
 //! 1. resolves the active setup and the items of its active plate (cheap: `Arc` clones);
 //! 2. finds items whose (mesh, placement, build volume) changed since their last fit check and
 //!    runs the effective transforms and `check_fit` for them as one latest-wins job (a newer
-//!    change cancels and supersedes a running one), so the UI thread never walks the vertices;
+//!    change supersedes a running one: it is cancelled, unless it started less than
+//!    [`FIT_GRACE`] ago, in which case it finishes and the newest change runs right after it, so
+//!    a drag does not flood the pool with cancelled jobs), so the UI thread never walks the
+//!    vertices;
 //! 3. hands the scene the items at their last known plate transforms
 //!    ([`crate::layer::LayerOut::body_views`]; other bodies are hidden), red when they do not fit;
 //! 4. draws the plate, grid, volume edges and keep-out areas as RND-07 overlays, plus a label
 //!    with the reason next to each item that does not fit.
 //!
 //! The first frame in the workspace fits the camera to the build volume.
+//!
+//! With Overhang Analysis on (AM-12, [`super::overhang`]), each item's view also carries the
+//! RND-08 overhang shading from AM-02 `shader_params` (same transform as the item, so the
+//! colours stay in sync every frame), the coarse/fine analysis jobs run for the plate and the
+//! island markers are drawn.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use amg_am::AmError;
 use amg_am::machine::BuildVolume;
+use amg_am::overhang::AnalysisSettings;
 use amg_am::place::{
     BuildVolumeGeometry, FIT_TOLERANCE, FitReport, Placement, build_volume_geometry, check_fit,
     effective_transform,
@@ -26,8 +35,9 @@ use amg_doc::{BodyId, ExtKey};
 use amg_features::am::{ItemGeom, ItemId, PrintSetup, UnresolvedReason, resolve_plate};
 use amg_jobs::{JobHandle, SpawnOptions};
 use amg_mesh::IndexedMesh;
-use amg_render::{DepthMode, LabelStyle, LineStyle};
+use amg_render::{DepthMode, LabelStyle, LineStyle, PointStyle};
 
+use super::overhang::{self, OverhangState, Quality, Want};
 use super::{AM, OUT_OF_VOLUME_TINT, active_setup, output};
 use crate::app::AppCx;
 use crate::layer::{DocLayer, LayerOut};
@@ -35,6 +45,11 @@ use crate::scene::{BodyView, BodyViews};
 
 /// Grid spacing of the plate, mm.
 pub const GRID_STEP: f64 = 10.0;
+
+/// A running fit check younger than this is not cancelled by a newer change (AM-12: cancelling
+/// one per frame during a drag left the pool busy with cancelled jobs and starved the overhang
+/// analysis); it finishes and the newest change runs next.
+pub const FIT_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
 
 const PLATE_FILL: [f32; 4] = [0.16, 0.17, 0.19, 1.0];
 const GRID_COLOR: [f32; 4] = [0.32, 0.34, 0.38, 1.0];
@@ -107,6 +122,7 @@ type EvalOut = Vec<(ItemId, Arc<IndexedMesh>, Placement, Transform, FitReport)>;
 struct Pending {
     inputs: Vec<(ItemId, usize, Placement)>,
     volume: BuildVolume,
+    started: std::time::Instant,
     handle: JobHandle<EvalOut, AmError>,
 }
 
@@ -127,6 +143,12 @@ pub struct AmLayer {
     checks: u64,
     pub(crate) export: Option<output::PendingExport>,
     pub(crate) last_output: Option<output::LastOutput>,
+    /// Overhang analyses and their jobs (AM-12).
+    pub(crate) overhang: OverhangState,
+    /// Analysis settings shown instead of the setup's (Overhang Settings live preview).
+    pub(crate) settings_preview: Option<AnalysisSettings>,
+    /// The settings used in the last frame.
+    shown_settings: Option<AnalysisSettings>,
 }
 
 impl std::fmt::Debug for AmLayer {
@@ -168,6 +190,9 @@ impl AmLayer {
             checks: 0,
             export: None,
             last_output: None,
+            overhang: OverhangState::default(),
+            settings_preview: None,
+            shown_settings: None,
         }
     }
 
@@ -186,9 +211,25 @@ impl AmLayer {
         &self.status
     }
 
-    /// A fit check is running.
+    /// A fit check or an overhang analysis is running.
     pub fn busy(&self) -> bool {
-        self.pending.is_some()
+        self.pending.is_some() || self.overhang.busy()
+    }
+
+    /// The overhang analyses of the plate (AM-12).
+    pub fn overhang(&self) -> &OverhangState {
+        &self.overhang
+    }
+
+    /// The analysis settings of the last frame (the live preview of Overhang Settings, else the
+    /// setup's).
+    pub fn shown_settings(&self) -> Option<&AnalysisSettings> {
+        self.shown_settings.as_ref()
+    }
+
+    /// The Overhang Settings preview.
+    pub fn settings_preview(&self) -> Option<&AnalysisSettings> {
+        self.settings_preview.as_ref()
     }
 
     /// Fit-check jobs finished so far.
@@ -249,11 +290,9 @@ impl AmLayer {
             .iter()
             .map(|(i, m, p)| (*i, Arc::as_ptr(m) as usize, *p))
             .collect();
-        if self
-            .pending
-            .as_ref()
-            .is_some_and(|p| p.inputs == inputs && p.volume == *volume)
-        {
+        if self.pending.as_ref().is_some_and(|p| {
+            (p.inputs == inputs && p.volume == *volume) || p.started.elapsed() < FIT_GRACE
+        }) {
             return;
         }
         self.cancel_pending();
@@ -275,6 +314,7 @@ impl AmLayer {
         self.pending = Some(Pending {
             inputs,
             volume: volume.clone(),
+            started: std::time::Instant::now(),
             handle,
         });
     }
@@ -295,6 +335,7 @@ impl AmLayer {
         if cx.env().workspace != AM {
             self.fitted = false;
             self.cancel_pending();
+            self.overhang.suspend();
             return;
         }
         self.poll_pending();
@@ -307,31 +348,55 @@ impl AmLayer {
             self.shown = None;
             self.status.clear();
             self.views = None;
+            self.overhang.reset();
             return;
         };
         if self.evals_for.as_ref() != Some(&key) {
             self.evals.clear();
             self.cancel_pending();
+            self.overhang.reset();
             self.evals_for = Some(key.clone());
         }
         self.shown = Some(key);
         let volume = setup.machine.volume.clone();
-        let (status, stale) = self.items(&setup, &design, &ev, &volume);
+        let (status, stale, wants) = self.items(&setup, &design, &ev, &volume);
         if !stale.is_empty() {
             self.spawn(cx, stale, &volume);
         }
         self.status = status;
+        let settings = self
+            .settings_preview
+            .clone()
+            .unwrap_or_else(|| setup.settings.clone());
+        let overlay = overhang::overlay_enabled();
+        if overlay {
+            self.overhang
+                .update(cx.jobs(), &wants, &settings, &setup.machine);
+        } else {
+            self.overhang.suspend();
+        }
+        let opts = overhang::analysis_opts(&settings, &setup.machine, Quality::Fine);
+        self.shown_settings = Some(settings);
         let bodies: BTreeMap<BodyId, BodyView> = self
             .status
             .iter()
             .filter_map(|s| {
                 let t = s.transform?;
                 let fits = s.fit.as_ref().is_none_or(|f| f.fits);
+                // The overlay's uniforms come from the same fit check as the transform, so
+                // colours and position never disagree.
+                let shading = match (&s.fit, overlay) {
+                    (Some(f), true) if !f.aabb.is_empty() => {
+                        Some(overhang::overlay_shading(&t, f.aabb.min.z, &opts))
+                    }
+                    _ => None,
+                };
                 Some((
                     s.body,
                     BodyView {
                         transform: t,
                         tint: (!fits).then_some(OUT_OF_VOLUME_TINT),
+                        shading,
                     },
                 ))
             })
@@ -342,6 +407,9 @@ impl AmLayer {
         }
         *out.body_views = self.views.clone();
         self.draw(&volume, out);
+        if overlay {
+            self.draw_islands(&wants, out);
+        }
         if !self.fitted {
             self.fitted = true;
             use crate::nav::CameraControl as _;
@@ -349,7 +417,8 @@ impl AmLayer {
         }
     }
 
-    /// Status of every item of the active plate and the items whose fit check is stale.
+    /// Status of every item of the active plate, the items whose fit check is stale and the
+    /// mesh items with their shown placements (overhang analysis).
     #[allow(clippy::type_complexity, reason = "one-off internal tuple")]
     fn items(
         &mut self,
@@ -357,12 +426,17 @@ impl AmLayer {
         design: &amg_doc::Design,
         ev: &amg_doc::Evaluated,
         volume: &BuildVolume,
-    ) -> (Vec<ItemStatus>, Vec<(ItemId, Arc<IndexedMesh>, Placement)>) {
+    ) -> (
+        Vec<ItemStatus>,
+        Vec<(ItemId, Arc<IndexedMesh>, Placement)>,
+        Vec<Want>,
+    ) {
         let resolved = resolve_plate(setup, setup.active_plate, design, ev);
         self.evals
             .retain(|id, _| resolved.iter().any(|r| r.item.id == *id));
         let mut status = Vec::with_capacity(resolved.len());
         let mut stale = Vec::new();
+        let mut wants = Vec::new();
         for r in &resolved {
             let placement = match self.preview {
                 Some((id, p)) if id == r.item.id => p,
@@ -381,6 +455,11 @@ impl AmLayer {
             };
             match &r.geom {
                 ItemGeom::Mesh(m) => {
+                    wants.push(Want {
+                        item: r.item.id,
+                        mesh: Arc::clone(m),
+                        placement,
+                    });
                     let e = self.evals.get(&r.item.id);
                     let fresh = e.is_some_and(|e| {
                         Arc::ptr_eq(&e.mesh, m) && e.placement == placement && e.volume == *volume
@@ -402,7 +481,45 @@ impl AmLayer {
             }
             status.push(st);
         }
-        (status, stale)
+        (status, stale, wants)
+    }
+
+    /// Island markers of the analysed items, at the items' shown transforms.
+    fn draw_islands(&self, wants: &[Want], out: &mut LayerOut<'_>) {
+        let style = PointStyle {
+            size_px: overhang::ISLAND_MARKER_PX,
+            color: overhang::ISLAND_MARKER_COLOR,
+            depth: DepthMode::AlwaysOnTop,
+        };
+        for w in wants {
+            let (Some(a), Some(t)) = (
+                self.overhang.analysis(w.item),
+                self.status
+                    .iter()
+                    .find(|s| s.item == w.item)
+                    .and_then(|s| s.transform),
+            ) else {
+                continue;
+            };
+            let pts = overhang::island_points(&w.mesh, &a.report, &t);
+            if !pts.is_empty() {
+                out.overlays.points(&pts, style, None);
+            }
+        }
+    }
+
+    /// The island marker positions of the analysed items at their shown transforms (what the
+    /// last frame drew while the overlay was on).
+    pub fn island_markers(&self) -> Vec<(ItemId, Vec<Point3>)> {
+        self.status
+            .iter()
+            .filter_map(|s| {
+                let a = self.overhang.analysis(s.item)?;
+                let t = s.transform?;
+                let e = self.evals.get(&s.item)?;
+                Some((s.item, overhang::island_points(&e.mesh, &a.report, &t)))
+            })
+            .collect()
     }
 
     fn draw(&mut self, volume: &BuildVolume, out: &mut LayerOut<'_>) {

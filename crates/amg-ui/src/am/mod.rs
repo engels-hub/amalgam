@@ -3,8 +3,8 @@
 //! AM-11 (Phase 1 workspace):
 //! - **Workspace and toolbar.** The *Manufacture* workspace with the ADDITIVE tab: groups
 //!   *Setup* (New Setup, Add Bodies, Remove), *Place* (Place on Plate, Drop, Move/Rotate,
-//!   Centre), *Analyse* (Overhang Analysis, Auto-Orient, Arrange: registered and disabled until
-//!   AM-12 / AM-04 / AM-05) and *Output* (Send to Slicer, Export 3MF, Manufacture Settings).
+//!   Centre), *Analyse* (Overhang Analysis and Overhang Settings since AM-12; Auto-Orient and
+//!   Arrange registered and disabled until AM-04 / AM-05) and *Output* (Send to Slicer, Export 3MF, Manufacture Settings).
 //!   Every command is also in S-key search. Every edit of a setup is one `Command::SetExt` (or
 //!   `AddExt` for a new setup) in one [`CommitBatch`], so it is one undo entry.
 //! - **Setup browser** ([`browser::SetupBrowser`]): Print Setups → setup (with the machine) →
@@ -25,11 +25,19 @@
 //! - **Place on Plate** ([`tools::PlaceOnPlateTool`]) picks a face; the face-down rotation runs
 //!   as a job. **Send to Slicer** and **Export 3MF** run AM-06's export (and launch) as
 //!   `amg-jobs` jobs ([`output`]).
+//!
+//! AM-12 ([`overhang`]): the Overhang Analysis toggle colours the items with the RND-08
+//! overhang shader (uniforms from AM-02 `shader_params`, every frame), runs AM-02
+//! `analyze_overhang` as coarse (while dragging) and fine (on release) jobs with
+//! cancel-and-supersede, keeps the fine per-face class buffer per item, marks the island
+//! vertices and shows the item / plate metrics in the Plate panel. Overhang Settings edits α,
+//! the contact tolerance and the support resolution of the setup with a live preview.
 
 pub mod browser;
 pub mod dialogs;
 pub mod layer;
 pub mod output;
+pub mod overhang;
 pub mod settings;
 pub mod tools;
 
@@ -55,7 +63,7 @@ use crate::tool::{Tool, ToolInit};
 use amg_doc::EntityRef;
 
 pub use browser::SetupBrowser;
-pub use dialogs::{AddBodiesDialog, MoveRotateDialog, NewSetupDialog};
+pub use dialogs::{AddBodiesDialog, MoveRotateDialog, NewSetupDialog, OverhangSettingsDialog};
 pub use layer::{AmLayer, ItemStatus, fit_message};
 pub use settings::{AmSettings, SettingsDialog};
 pub use tools::PlaceOnPlateTool;
@@ -94,6 +102,8 @@ pub const MOVE_ROTATE: CmdId = CmdId("am.move_rotate");
 pub const CENTRE: CmdId = CmdId("am.centre");
 /// Overhang overlay (AM-12).
 pub const OVERHANG_TOGGLE: CmdId = CmdId("am.overhang_toggle");
+/// Overhang Settings dialog: α, contact tolerance, support resolution (AM-12).
+pub const OVERHANG_SETTINGS: CmdId = CmdId("am.overhang_settings");
 /// Auto-Orient (AM-04).
 pub const AUTO_ORIENT: CmdId = CmdId("am.auto_orient");
 /// Arrange (AM-05).
@@ -304,10 +314,6 @@ fn has_items(env: &CmdEnv<'_>) -> Enablement {
     }
 }
 
-fn later_overhang(_: &CmdEnv<'_>) -> Enablement {
-    Enablement::disabled("Arrives with AM-12 (overhang overlay)")
-}
-
 fn later_orient(_: &CmdEnv<'_>) -> Enablement {
     Enablement::disabled("Arrives with AM-04 (orientation)")
 }
@@ -403,6 +409,24 @@ fn run_move_rotate(cx: &mut AppCx<'_>) {
     match MoveRotateDialog::new(cx) {
         Ok(d) => cx.open_dialog(Box::new(d)),
         Err(why) => cx.notify(Notification::info("Move/Rotate", why)),
+    }
+}
+
+fn overhang_on(_: &CmdEnv<'_>) -> bool {
+    overhang::overlay_enabled()
+}
+
+fn set_overhang(cx: &mut AppCx<'_>, on: bool) {
+    overhang::set_overlay_enabled(on);
+    if on {
+        cx.open_panel(PLATE_PANEL);
+    }
+}
+
+fn run_overhang_settings(cx: &mut AppCx<'_>) {
+    match OverhangSettingsDialog::new(cx) {
+        Ok(d) => cx.open_dialog(Box::new(d)),
+        Err(why) => cx.notify(Notification::info("Overhang Settings", why)),
     }
 }
 
@@ -523,12 +547,30 @@ fn commands() -> Vec<Cmd> {
         Cmd {
             id: OVERHANG_TOGGLE,
             label: "Overhang Analysis",
-            tooltip: "Show overhangs and support estimates (arrives with AM-12)",
-            keywords: &["overhang", "support", "analysis"],
+            tooltip: "Colour overhangs on the plate and show support estimates and islands",
+            keywords: &["overhang", "support", "analysis", "islands"],
             group: GROUP_ANALYSE,
             pinned: true,
-            action: CmdAction::Run(run_later),
-            enabler: Enabler::When(later_overhang),
+            action: CmdAction::Toggle {
+                get: overhang_on,
+                set: set_overhang,
+            },
+            enabler: Enabler::When(has_items),
+        },
+        Cmd {
+            id: OVERHANG_SETTINGS,
+            label: "Overhang Settings…",
+            tooltip: "Critical angle, contact tolerance and support-estimate resolution of the setup",
+            keywords: &[
+                "critical angle",
+                "alpha",
+                "contact tolerance",
+                "support cell",
+            ],
+            group: GROUP_ANALYSE,
+            pinned: false,
+            action: CmdAction::Run(run_overhang_settings),
+            enabler: Enabler::When(has_setup),
         },
         Cmd {
             id: AUTO_ORIENT,

@@ -1,4 +1,5 @@
-//! The Manufacture dialogs: New Setup (machine picker), Add Bodies and Move/Rotate.
+//! The Manufacture dialogs: New Setup (machine picker), Add Bodies, Move/Rotate and Overhang
+//! Settings (AM-12).
 //!
 //! They are module dialogs ([`AppDialog`]) hand-built on the framework API; UI-05's generic
 //! renderer replaces them in Phase 2. Each OK submits one `CommitBatch` (one undo entry).
@@ -8,6 +9,7 @@ use std::borrow::Cow;
 use amg_am::machine::{
     BedShape, LoadWarning, Machine, MachineKey, MachineLibrary, ProcessParams, Technology,
 };
+use amg_am::overhang::AnalysisSettings;
 use amg_am::place::{Placement, ZMode};
 use amg_core::glam::{DQuat, DVec2};
 use amg_doc::{BodyId, ExtKey};
@@ -447,6 +449,177 @@ impl AppDialog for MoveRotateDialog {
 
     fn show(&mut self, ctx: &egui::Context, cx: &mut AppCx<'_>) -> bool {
         let action = DialogFrame::new("Move/Rotate").show(ctx, |ui| self.form(ui));
+        match action {
+            DialogAction::Ok => {
+                self.apply(cx);
+                false
+            }
+            DialogAction::Cancel => {
+                self.set_preview(cx, false);
+                false
+            }
+            DialogAction::None => {
+                self.set_preview(cx, true);
+                true
+            }
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+// ---- Overhang Settings (AM-12) ------------------------------------------------------------
+
+/// The fields of [`OverhangSettingsDialog`] (degrees and mm, as shown).
+#[derive(Clone, Debug, PartialEq)]
+pub struct OverhangFields {
+    /// Critical overhang angle α from the horizontal, degrees, (0, 90].
+    pub critical_deg: f64,
+    /// Use the machine's contact tolerance.
+    pub auto_tolerance: bool,
+    /// Contact tolerance, mm (used when not automatic).
+    pub tolerance: f64,
+    /// Support-estimate cell, mm.
+    pub support_cell: f64,
+    /// Ray budget of the fine estimate.
+    pub max_rays: u32,
+}
+
+/// Overhang Settings: α, contact tolerance and the support-estimate resolution of the active
+/// setup, with a live preview (colours at once, coarse metrics while editing, fine on hold);
+/// OK is one undo entry.
+#[derive(Debug)]
+pub struct OverhangSettingsDialog {
+    key: ExtKey,
+    machine_tolerance: f64,
+    /// The fields.
+    pub fields: OverhangFields,
+}
+
+impl OverhangSettingsDialog {
+    /// The dialog on the active setup.
+    ///
+    /// # Errors
+    /// A message when there is no setup.
+    pub fn new(cx: &mut AppCx<'_>) -> Result<OverhangSettingsDialog, &'static str> {
+        let Some((key, s)) = current_setup(cx) else {
+            return Err("Create a print setup first (New Setup).");
+        };
+        let base = s.settings.clone();
+        let machine_tolerance = s.machine.default_contact_tolerance();
+        Ok(OverhangSettingsDialog {
+            key,
+            fields: OverhangFields {
+                critical_deg: base.critical_angle.to_degrees(),
+                auto_tolerance: base.contact_tolerance.is_none(),
+                tolerance: base.contact_tolerance.unwrap_or(machine_tolerance),
+                support_cell: base.support_cell,
+                max_rays: base.max_rays,
+            },
+            machine_tolerance,
+        })
+    }
+
+    /// The settings the fields describe (clamped to valid values).
+    pub fn settings(&self) -> AnalysisSettings {
+        let f = &self.fields;
+        AnalysisSettings {
+            critical_angle: f.critical_deg.clamp(0.1, 90.0).to_radians(),
+            contact_tolerance: (!f.auto_tolerance).then_some(f.tolerance.max(0.0)),
+            support_cell: f.support_cell.max(0.01),
+            max_rays: f.max_rays.max(1),
+        }
+    }
+
+    fn set_preview(&self, cx: &mut AppCx<'_>, on: bool) {
+        let s = self.settings();
+        if let Some(l) = cx.doc_layer::<AmLayer>() {
+            l.settings_preview = on.then_some(s);
+        }
+    }
+
+    /// Applies the fields (one undo entry).
+    pub fn apply(&self, cx: &mut AppCx<'_>) {
+        self.set_preview(cx, false);
+        let Some((k, mut s)) = current_setup(cx) else {
+            return;
+        };
+        if k != self.key {
+            return;
+        }
+        let new = self.settings();
+        if s.settings == new {
+            return;
+        }
+        s.settings = new;
+        submit_setup(cx, "Overhang Settings", k, &s);
+    }
+
+    fn form(&mut self, ui: &mut egui::Ui) {
+        let f = &mut self.fields;
+        ui.horizontal(|ui| {
+            ui.label("Critical angle α");
+            ui.add(
+                egui::DragValue::new(&mut f.critical_deg)
+                    .speed(0.5)
+                    .range(0.1..=90.0)
+                    .suffix("°"),
+            );
+        });
+        ui.weak(
+            "Downward faces within α of the horizontal need support (45° is the usual rule;              a larger α flags more faces).",
+        );
+        ui.checkbox(
+            &mut f.auto_tolerance,
+            format!(
+                "Machine contact tolerance ({:.3} mm)",
+                self.machine_tolerance
+            ),
+        );
+        ui.add_enabled_ui(!f.auto_tolerance, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Contact tolerance");
+                ui.add(
+                    egui::DragValue::new(&mut f.tolerance)
+                        .speed(0.01)
+                        .range(0.0..=10.0)
+                        .suffix(" mm"),
+                );
+            });
+        });
+        ui.horizontal(|ui| {
+            ui.label("Support cell");
+            ui.add(
+                egui::DragValue::new(&mut f.support_cell)
+                    .speed(0.05)
+                    .range(0.01..=10.0)
+                    .suffix(" mm"),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Max rays");
+            ui.add(
+                egui::DragValue::new(&mut f.max_rays)
+                    .speed(1024.0)
+                    .range(1..=4_194_304),
+            );
+        });
+    }
+}
+
+impl AppDialog for OverhangSettingsDialog {
+    fn title(&self) -> Cow<'static, str> {
+        Cow::Borrowed("Overhang Settings")
+    }
+
+    fn show(&mut self, ctx: &egui::Context, cx: &mut AppCx<'_>) -> bool {
+        let action = DialogFrame::new("Overhang Settings").show(ctx, |ui| self.form(ui));
         match action {
             DialogAction::Ok => {
                 self.apply(cx);

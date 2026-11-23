@@ -708,7 +708,7 @@ Testing).
 | AM-02 | `amg-am::overhang`: `classify_faces`, `analyze_overhang` (column support estimate + centroid fallback, islands, contact, stability), `vertex_severity`, `shader_params`, golden classification file for S10 | MESH-02, MESH-03, AM-03 | P0 | Done | 1. Golden tests in `tests/golden/am/` reproduce note §3.3: T-shape and shelf volumes within 0.5 % at 0.25 mm cells; the sphere cap area, projected area and support volume converge (error at least halves per 4× triangles / ½ cell, < 1 % at 320 k tris and 0.1 mm); the cube cases are exact (1e-9). 2. Strict-threshold behaviour at α = 45° vs 46° on the edge-balanced cube. 3. Rotation about Z by 37° changes area metrics by < 1e-9 relative and support volume by ≤ the documented cell bound. 4. An open mesh gives `approximate = true` with `FaceCentroids`. 5. `overhang_classes.toml` (5 000 cases) is generated and checked. 6. Results are identical across 1/4/16 threads. 7. Benchmarks: `classify_faces` 1 M tris < 15 ms; `analyze_overhang` 1 M tris with default support (≤ 512² rays) < 300 ms, coarse (≤ 128² rays) < 40 ms. |
 | AM-06 | Slicer hand-off library: `detect_slicers` (registry via `winreg`, known dirs, PATH), `parse_registry_exe`, `SlicerConfig`, `export_plate` (via IO-03, 3MF/STL, slicer-origin offset, atomic write), `launch` (detached), `prune_handoff_dir`; `amg-features::am::handoff_plate` | AM-03, IO-11, IO-04 | P0 | Done (Done-when 3 Orca GUI/Chitubox check pending owner) | 1. `parse_registry_exe` handles the owner's `D:\OrcaSlicer\D:\OrcaSlicer\orca-slicer.exe`, quoted paths and `,0` suffixes (unit fixtures). 2. Exported 3MF of a 3-item plate (two filament slots) re-imported through IO-03 gives the same plate-frame vertex positions within 1e-6 mm, names and extruders. 3. **Manual check (documented in PR):** on the owner's machine, one click opens the file in OrcaSlicer 2.4.0 with all items at the Amalgam plate positions (± 0.1 mm, read off the Orca object list), assigned to the right filament slots on the KCM preset, without a re-arrange prompt. The same file opens in Chitubox, and the chosen Chitubox format (3MF or STL) is recorded in the Refinement log. 4. A missing exe gives `SlicerNotFound` with a hint. 5. Export + spawn of a 1 M-tri plate < 3 s, and the UI is not blocked (runs as a job). |
 | AM-11 | `amg-ui::am` workspace (Phase 1): Manufacture workspace, setup browser, machine picker (library + user dir), add/remove bodies, plate scene with build-volume helper geometry, Place-on-plate face pick, Drop, Move/Rotate numeric dialog, Centre, out-of-volume tint + message, settings dialog (slicer path, hand-off dir), Send to Slicer / Export 3MF buttons | AM-01, AM-03, AM-06, UI-02, UI-03, UI-04, UI-10, RND-03, RND-07 | P0 | Done (Done-when 5 Orca GUI check pending owner) | 1. Every command listed under Interfaces is reachable from the toolbar and S-key search, and each edit is one undo entry. 2. Picking a face of an imported STL puts it on the plate. 3. An item moved out of the volume turns red with a size message. 4. No frame > 16 ms in the tracing profile while placing a 1 M-tri body. 5. A manual Phase 1 script (open STL → new setup on Ender-3 V3 KE KCM → place face down → Send to Slicer) passes on 3 corpus models. |
-| AM-12 | `amg-ui::am` overhang overlay + metrics panel: RND-08 overhang mode driven by `shader_params`, coarse/fine CPU analysis jobs with cancel-and-supersede, per-face class buffer after the fine job, island markers, per-item/plate metrics, α/contact settings in the setup | AM-02, AM-11, RND-08 | P0 | Todo | 1. Rotating a 1 M-tri item (numeric dialog with live preview) keeps the overlay in sync every frame. Coarse metrics update ≥ 10 Hz, fine metrics arrive < 500 ms after release, and no frame > 16 ms. 2. The overlay and the CPU class buffer agree on ≥ 99.9 % of faces of the test set (headless comparison once RND-09 exists; until then a screenshot in the PR). 3. With the overlay on, a 5 M-tri mesh orbits at ≥ 60 fps (vision budget, S10 bench). 4. Changing α updates colours immediately and metrics within 500 ms. |
+| AM-12 | `amg-ui::am` overhang overlay + metrics panel: RND-08 overhang mode driven by `shader_params`, coarse/fine CPU analysis jobs with cancel-and-supersede, per-face class buffer after the fine job, island markers, per-item/plate metrics, α/contact settings in the setup | AM-02, AM-11, RND-08 | P0 | Review | 1. Rotating a 1 M-tri item (numeric dialog with live preview) keeps the overlay in sync every frame. Coarse metrics update ≥ 10 Hz, fine metrics arrive < 500 ms after release, and no frame > 16 ms. 2. The overlay and the CPU class buffer agree on ≥ 99.9 % of faces of the test set (headless comparison once RND-09 exists; until then a screenshot in the PR). 3. With the overlay on, a 5 M-tri mesh orbits at ≥ 60 fps (vision budget, S10 bench). 4. Changing α updates colours immediately and metrics within 500 ms. |
 | AM-10 | Profile import: `SlicerDataDirs::discover`, Orca JSON with `inherits` chain (user/system/install roots), Chitubox `.cfgx`, PrusaSlicer INI; `orca_process_critical_angle`; "save as user profile" in the AM-11 machine picker | AM-01, AM-11 | P1 | Todo | 1. Fixture copies of the Orca system + user KE/KCM presets (committed under `testdata/am/profiles/`, values only, no personal G-code) resolve to 220 × 220 × 240 (user override) and 4 filament slots. 2. Abstract presets (`instantiation: false`) are not listed; a cycle and a missing parent each give an `Inherits` warning. 3. The Chitubox fixture gives the Mars 3 Pro values (143.43 × 89.60 × 175, 4098 × 2560). 4. A Prusa INI fixture parses `bed_shape`/`max_print_height`. 5. On the owner's machine `discover()` finds all three dirs (manual, PR). |
 | AM-04 | Orientation optimisation, CPU reference: stable hull poses, normal clusters, Fibonacci candidates, pattern-search refine, score terms + presets, fit guard, cosmetic face groups (setup record v2 + migration), Auto-Orient dialog in `amg-ui::am` showing the top 5 | AM-02, AM-12, MESH-16 | P1 | Todo | On the test set (≥ 25 models: synthetic brackets/bridges/mushrooms/T/L/overhang ladders + corpus models): 1. The chosen score is ≤ the best of the 6 axis-aligned orientations ("manual" baseline) on 100 % of models and ≥ 10 % lower on ≥ 40 %. 2. Within 2 % of a brute-force 16 384-direction optimum on ≥ 90 %. 3. Deterministic (same output across runs and thread counts). 4. 100 k tris < 2 s, 1 M tris < 20 s (CPU, Min-support preset). 5. v1 setup records migrate to v2 on load. |
 | AM-13 | Orientation GPU scoring: per-direction classification dispatch, A-buffer support-volume pass, CMP-01 reductions; `ComputeBackend::Gpu/Auto` | AM-04, CMP-01, FND-09 | P1 | Todo | GPU support volume within 1 % of CPU at equal cell size on the test set, and the same best orientation on ≥ 95 % (ties within 0.5 % excepted). 1 M tris, 1 024 candidates + refine < 5 s on the RTX 5060 Ti. CPU fallback is used when there is no adapter (WARP test in CI). |
@@ -1122,6 +1122,104 @@ The GUI step is the owner's manual check (steps in `D:/coding/amalgam-handoff/AM
     in the browser) and "Update machine from library";
   - AM-10's "save as user profile" goes into this machine picker.
 
+### 2026-11-23 - AM-12 overhang overlay and metrics (amg-ui::am)
+Status `Review`. Done-when 1, 2 (CPU form, see below), 3 and 4 are met with tests and measured
+numbers in `crates/amg-ui/tests/am_overhang.rs`. The screenshot / live-GPU look is the owner's check
+(steps in `D:/coding/amalgam-handoff/AM-12.md`).
+- **Landed (`crates/amg-ui/src/am/overhang.rs`, wired into `layer.rs`, `browser.rs`, `dialogs.rs`,
+  `mod.rs`):**
+  - *Overlay:* while Overhang Analysis is on, every plate item's `BodyView` carries
+    `Shading::Analysis(Analysis::Overhang { .. })` built by `overlay_shading` from AM-02
+    `shader_params`: build direction `R·d_local`, `α = acos(cos α)`, plate height = the contact
+    plane's zero = the item's min z from the fit check, and the contact tolerance. The uniforms come
+    from the same fit-check result as the drawn transform, so colours and position never disagree.
+    α (also the live preview of Overhang Settings) changes only the instance record.
+  - *Jobs:* `OverhangState` runs AM-02 `analyze_overhang` for the plate's mesh items as one
+    latest-wins `amg-jobs` job:
+    - coarse (cell ×2, ≤ 128² rays: `analysis_opts`) while an item's placement or the settings
+      changed since the last frame;
+    - fine (the setup's settings) once they held still for a frame.
+
+    A newer input cancels a running fine job (counter `superseded`). A running coarse job younger
+    than `COARSE_GRACE` (1 s) finishes, and the newest input runs next. `MeshSpatial` is built in the
+    job on first use and cached per mesh (`Arc` identity).
+  - *Class buffer:* the latest `ItemAnalysis` per item keeps the `OverhangReport`. Its `face_class`
+    is the per-face class buffer; it also holds the metrics, islands, quality and run time.
+  - *Island markers:* RND-07 points (9 px, magenta, always on top) at the island vertices, at the
+    item's drawn transform.
+  - *Metrics panel:* an Overhang section in the Plate panel with the toggle, Overhang Settings… and a
+    "Selected item" / "Plate" scope:
+    - item: area, projected area, contact, footprint, height, islands, support volume (on plate /
+      on part, cell, rays) and stability;
+    - plate: the sums over the items (`PlateMetrics`; tallest height, items that tip over);
+    - coarse or approximate numbers are flagged, and a spinner shows while a job runs.
+  - *Settings:* `OverhangSettingsDialog` (command `am.overhang_settings`, "Overhang Settings…" in the
+    Analyse group): α in degrees, machine or explicit contact tolerance, support cell and max rays,
+    with a live preview through `AmLayer::settings_preview`. OK is one `SetExt` (one undo entry).
+  - `am.overhang_toggle` is now a `CmdAction::Toggle`, enabled when the plate has items. Its state is
+    a session-wide view setting (`overhang::overlay_enabled`), because toggle getters see only
+    `CmdEnv`, not the document layer.
+- **Done-when 1 (pass).** `timing_rotating_a_1m_tri_item_keeps_the_overlay_in_sync`: a 1 003 520-tri
+  ellipsoid, a 150-frame Move/Rotate drag with tilt and rotate Z changing every frame, app-sized job
+  pools (test profile, optimized + debuginfo, shared machine, `AMG_STRICT_TIMING=1`).
+  - The overlay's plate height equals the min z of the drawn transform on 150/150 frames.
+  - Coarse metrics: 27 updates in 1.27 s = 21.2 Hz (max gap 84 ms, coarse job p50 34 ms).
+  - Fine metrics 63 ms after release (fine job 30 ms).
+  - 183 frames: p50 0.96 ms, p99 3.1 ms, max 3.3 ms, 0 over 16 ms.
+  - Isolated job costs on the same mesh: coarse 30 ms, fine 31 ms (few support rays on this
+    footprint), fit check 17 ms.
+
+  `a_move_during_the_fine_pass_supersedes_it` checks that a move cancels a running fine job and
+  that the stored result is for the newest placement.
+- **Done-when 2 (pass, CPU form; RND-09 is not done).**
+  `overlay_classes_agree_with_the_cpu_class_buffer_on_the_test_set` evaluates the RND-08 rule on the
+  CPU in f32, exactly as the shader does (`shader_face_classes`: the instance record of the same
+  uniforms, the flat world normal, the height at the face centroid). It compares that with the fine
+  `face_class` buffer:
+  - 458 564 / 458 884 faces agree (99.930 %);
+  - over 11 meshes × 4 orientations, α ∈ {45°, 30°, 60°}: T + floating block, 100 k ellipsoid,
+    tilted box and 8 thingi10k corpus models.
+
+  The misses are AM-02 `Degenerate` faces (zero-area corpus triangles, which the shader colours from
+  its f32 normal) and the contact band: AM-02 decides contact per face by its highest corner, the
+  shader per fragment, so a face that straddles the slab top is partly contact on screen.
+  `overhang_toggle_colours_items_runs_the_fine_analysis_and_marks_islands` checks the same through
+  the app (instance shading vs class buffer: 100 % on the T + block) and that the class buffer
+  equals a direct `analyze_overhang`. Owner check: a screenshot with the overlay on.
+- **Done-when 3 (pass).**
+  - GPU: `AMG_BENCH_FIELDS_ONLY=1 cargo bench -p amg-render --bench viewport` (RTX 5060 Ti / DX12,
+    2560×1440, 4× MSAA, 600-frame orbit, 5 000 000 tris, overhang mode): wall p50 1.241 / p99
+    1.343 ms, GPU p50 1.225 / p99 1.293 ms (≈ 745 fps at p99; +0.26 ms vs material).
+  - UI side: `timing_orbiting_a_5m_tri_item_with_the_overlay_costs_no_vertex_work` (5 017 600 tris,
+    240 orbit frames, overlay on): p50 0.45 ms, p99 0.84 ms, max 1.1 ms. No analysis job starts
+    while orbiting, because the overlay is uniforms only.
+- **Done-when 4 (pass).** `changing_alpha_recolours_at_once_and_fine_metrics_follow_within_500ms`
+  (100 k ellipsoid, α 45° → 60° in Overhang Settings): the instance carries the new α 2 frames after
+  the edit (the dialog draws after the layers). The fine metrics for 60° arrive after 16 ms
+  (`AMG_STRICT_TIMING=1`). OK is one undo entry.
+- **Deviations / choices:**
+  1. The per-face class buffer is not shown on the GPU: RND-08 has no per-face buffer. The display
+     stays the live shader, and the exact buffer lives on the CPU (metrics, markers, agreement
+     check). Requested under S10 Interface changes (2026-11-23, AM-12); coordinator decision.
+  2. In AM-02's convention a *larger* α flags more faces (`−n·d > cos α`); the dialog says so.
+  3. AM-11's fit-check job now follows the same "let a young job finish" rule (`FIT_GRACE` =
+     250 ms). Cancelling one per frame during a drag left the pool full of cancelled jobs and
+     starved the coarse pass (0 coarse updates in 1.2 s before the change). AM-11's tests pass
+     unchanged.
+  4. Framework hooks (lane D, additive; S11 Interface changes 2026-11-23, AM-12): `BodyView::shading`,
+     `InstanceDesc::shading` and `AppHarnessBuilder::job_threads`. With the harness's default
+     2-thread pool the 1 M drag gives 5 Hz coarse, so the timing tests use the app's machine-sized
+     pools.
+  5. Coarse vs fine is decided per frame ("moving" = the input differs from the last frame), not by
+     mouse state. So it works the same for the numeric dialog, a future drag gizmo and α edits.
+  6. Results are cached by (mesh `Arc` identity, placement, settings), not by `content_hash`
+     (Decision 4). A re-evaluated body with a new `Arc` is analysed again.
+- **Leftovers (no new WPs):**
+  - the GPU per-face class buffer (S10 request); with it, the fine classes can replace the live
+    colours after release;
+  - configurable overhang colours (RND-08 leftover);
+  - the owner's screenshot of the overlay.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1172,3 +1270,12 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   recorded in S11 Interface changes (2026-11-23, AM-11).
 - No `amg-render` change: the plate, grid, volume edges and keep-out areas use existing RND-07
   overlay primitives, and the red tint is the instance's base colour.
+
+### 2026-11-23: from AM-12 (amg-ui::am)
+- No change to `amg-am` or `amg-features::am`, and no new dependency.
+- Framework hooks in `amg-ui` (lane D): `scene::BodyView::shading`, `scene::InstanceDesc::shading`
+  and `testing::AppHarnessBuilder::job_threads`, recorded in S11 Interface changes (2026-11-23,
+  AM-12).
+- No `amg-render` change. The per-face class buffer is requested under S10 Interface changes
+  (2026-11-23, AM-12).
+- New command `am.overhang_settings` (Overhang Settings…) next to the Interfaces list.
