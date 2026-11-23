@@ -52,6 +52,7 @@ pub mod dock;
 pub mod file;
 pub mod input;
 mod jobs;
+pub mod layer;
 pub mod marking;
 pub mod module;
 pub mod nav;

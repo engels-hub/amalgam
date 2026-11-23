@@ -84,8 +84,10 @@ pub struct InstanceDesc {
     pub visible: bool,
     /// Scene layer (`Model`, or `Preview` for preview bodies).
     pub layer: Layer,
-    /// Colour and PBR parameters (opacity is `base_color[3]`).
+    /// Colour and PBR parameters (opacity is `base_color[3]`; `cap_color` for sections).
     pub material: Material,
+    /// Clipped by the view's section planes (RND-06 `Instance::sectioned`; additive, INS-09).
+    pub sectioned: bool,
 }
 
 /// Highlight layers (S10 R-S10-5).
@@ -481,6 +483,7 @@ fn apply_gpu(
                 inst.visible = desc.visible;
                 inst.layer = desc.layer;
                 inst.material = desc.material;
+                inst.sectioned = desc.sectioned;
                 inst.pick = desc.key.pick_id();
                 return;
             }
@@ -489,6 +492,7 @@ fn apply_gpu(
                 visible: desc.visible,
                 layer: desc.layer,
                 material: desc.material,
+                sectioned: desc.sectioned,
                 // Bodies arrive as triangle meshes (no B-rep edge sets yet), so the wireframe
                 // styles draw their triangle wireframe.
                 mesh_wireframe: true,

@@ -188,6 +188,12 @@ impl Registrar<'_> {
         self.reg.add_marking_menu(self.module, p);
     }
 
+    /// Adds a per-document view layer (additive, INS-09): created for each document, updated
+    /// every frame while it is active (see [`crate::layer`]).
+    pub fn doc_layer(&mut self, def: crate::layer::DocLayerDef) {
+        self.reg.add_doc_layer(self.module, def);
+    }
+
     /// Adds a context-menu provider (UI-21): its commands appear in the browser row menu,
     /// the timeline node menu and the marking menu's overflow list.
     pub fn context_menu(&mut self, p: Box<dyn crate::marking::ContextMenuProvider>) {

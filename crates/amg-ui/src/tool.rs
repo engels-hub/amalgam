@@ -319,6 +319,9 @@ pub(crate) struct ToolState {
     pointer_inside: bool,
     /// The active tool's overlays of this frame ([`Tool::overlay`]; additive, INS-08).
     pub(crate) overlay: amg_render::OverlayList,
+    /// The view's section planes and per-body style from the document layers (additive,
+    /// INS-09).
+    pub(crate) sections: crate::layer::ViewSections,
     /// The right-click marking menu (UI-21).
     pub(crate) marking: crate::marking::MarkingState,
 }
@@ -391,6 +394,30 @@ fn with_state<R>(app: &mut AmalgamApp, f: impl FnOnce(&mut AmalgamApp, &mut Tool
     // `f` may not switch documents; put the state back where it came from.
     app.docs[active].tools = ts;
     r
+}
+
+/// Runs the active document's layers (created on first use) in registration order.
+fn run_doc_layers(
+    app: &mut AmalgamApp,
+    overlays: &mut amg_render::OverlayList,
+    sections: &mut crate::layer::ViewSections,
+) {
+    let active = app.active;
+    app.docs[active].layers.ensure(app.registry.doc_layers());
+    for i in 0..app.docs[active].layers.list.len() {
+        let Some(mut layer) = app.docs[active].layers.list[i].1.take() else {
+            continue;
+        };
+        {
+            let (mut cx, _, _) = app.tool_parts();
+            let mut out = crate::layer::LayerOut {
+                overlays: &mut *overlays,
+                sections: &mut *sections,
+            };
+            layer.update(&mut cx, &mut out);
+        }
+        app.docs[active].layers.list[i].1 = Some(layer);
+    }
 }
 
 /// Finishes the active tool with `reason`; a commit's batch is submitted (one undo entry at
@@ -496,6 +523,17 @@ impl AmalgamApp {
         &self.docs[self.active].tools.overlay
     }
 
+    /// The section planes and per-body section style of the active document's last routed
+    /// frame, from its document layers (additive, INS-09).
+    pub fn view_sections(&self) -> &crate::layer::ViewSections {
+        &self.docs[self.active].tools.sections
+    }
+
+    /// The active document's layer of type `T` (additive, INS-09; tests and scripts).
+    pub fn doc_layer<T: crate::layer::DocLayer>(&self) -> Option<&T> {
+        self.docs[self.active].layers.get::<T>()
+    }
+
     /// The status hint of the active tool.
     pub(crate) fn tool_hint(&self) -> Option<Cow<'static, str>> {
         let a = self.docs[self.active].tools.active.as_ref()?;
@@ -555,6 +593,13 @@ impl AmalgamApp {
                     panel.overlay(&mut overlay, &env);
                 }
             }
+            // Document layers (INS-09): overlays and the view's section planes.
+            let mut sections = crate::layer::ViewSections::default();
+            run_doc_layers(app, &mut overlay, &mut sections);
+            if sections.style != ts.sections.style {
+                app.scene.set_section_style(&sections.style);
+            }
+            ts.sections = sections;
             ts.overlay = overlay;
             // Preview → scene preview layer.
             let up = {

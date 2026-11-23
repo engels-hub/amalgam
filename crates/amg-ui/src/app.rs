@@ -73,6 +73,8 @@ pub struct DocTab {
     /// The sketch opened for editing from the browser or timeline (UI-07 enters the sketch
     /// context; UI-09's sketch session takes it from here).
     pub sketch_edit: Option<amg_doc::FeatureId>,
+    /// Module state attached to this document (additive, INS-09; [`crate::layer`]).
+    pub(crate) layers: crate::layer::DocLayers,
 }
 
 /// A group of document commands applied as one undo entry at the end of the frame.
@@ -230,6 +232,13 @@ impl AppCx<'_> {
     /// The read-only view.
     pub fn env(&self) -> CmdEnv<'_> {
         env_of_doc(self.workspace, self.doc, self.jobs)
+    }
+
+    /// The document's view layer of type `T` ([`crate::layer::DocLayer`]; additive, INS-09).
+    /// `None` if no such layer is registered, the document has not been active yet, or the
+    /// layer itself is running.
+    pub fn doc_layer<T: crate::layer::DocLayer>(&mut self) -> Option<&mut T> {
+        self.doc.layers.get_mut::<T>()
     }
 
     /// The document's selection.
@@ -1039,6 +1048,7 @@ impl AmalgamApp {
             browser: crate::browser::BrowserState::default(),
             timeline: crate::timeline::TimelineState::default(),
             sketch_edit: None,
+            layers: crate::layer::DocLayers::default(),
         });
         self.active = self.docs.len() - 1;
         self.start_recovery_session(id);

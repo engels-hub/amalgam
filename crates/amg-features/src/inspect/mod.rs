@@ -1,8 +1,8 @@
 //! Inspection math (S05 §2–§6, lane A): measurement and section caps; later mass properties,
 //! analysis fields and interference.
 //!
-//! Plain functions over `amg-core` / `amg-mesh` types, with no `amg-doc` types, so they are
-//! testable without a document (S05 §1). Conventions and tolerances are in
+//! Plain functions over `amg-core` / `amg-mesh` types, with no `amg-doc` types except in
+//! [`doc`], so they are testable without a document (S05 §1). Conventions and tolerances are in
 //! `docs/notes/inspection-geometry.md`.
 //!
 //! - [`measure`] (INS-01): operands, per-entity measures, exact minimum distance, angles,
@@ -12,8 +12,11 @@
 //!   principal axes) and their `combine`.
 //! - [`section`] (INS-02): section caps on meshes (oriented loops, CDT with split constraints,
 //!   non-zero / even–odd fill, multi-plane clipping), outlines, open curves and stats.
+//! - [`doc`] (INS-09): the `inspect.section` extension record ([`doc::SectionAnalysis`]), its
+//!   commands and migration hook, and the combination of visible analyses.
 
 mod cache;
+pub mod doc;
 pub mod measure;
 pub mod props;
 pub mod section;

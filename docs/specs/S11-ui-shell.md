@@ -2481,6 +2481,35 @@ density come from `Design::mass_material`).
   list that the viewport draws (`AmalgamApp::tool_overlays()` reads it in tests). The Properties
   panel draws its centre-of-mass glyph with it.
 
+### 2026-11-23: INS-09 (lane A, S05 Section Analysis) - additive framework hooks
+Flagged for lane D review. No change to `amg-render`, `amg-doc`, `amg-core` or `amg-jobs`, and no
+new dependency. The tool, layer, browser folder and panel live in `amg-ui::inspect::{section,
+section_tool}` (lane A's modules).
+- **`layer` (new module):** per-document view layers, for module state that must act on the view
+  whatever tool or panel is open (persistent section analyses). `DocLayer` trait (`update(&mut
+  self, cx: &mut AppCx, out: &mut LayerOut)`), `DocLayerDef { id, create }`,
+  `LayerOut { overlays, sections }`, `ViewSections { planes: Vec<amg_render::SectionPlane>, style:
+  SectionStyle }`. `Registrar::doc_layer(def)` (duplicate id = registration conflict),
+  `UiRegistry::doc_layers()`. Each `DocTab` holds its layers (`pub(crate) layers`, created the
+  first time it is active); the router runs them once per frame for the active document, after
+  the tool's and the panels' overlays, in registration order. `AppCx::doc_layer::<T>()`
+  (tools, panels, browser providers) and `AmalgamApp::{doc_layer::<T>(), view_sections()}` (tests)
+  reach them.
+- **`viewport`:** `ViewportFrame::sections: &[amg_render::SectionPlane]` (the shell passes the
+  active document's planes). `RenderViewport` keeps the `SectionKey`s it added and rewrites them in
+  place each frame (`section_mut`, add / remove only when the count changes). `NullViewport`
+  ignores it.
+- **`scene`:** `SectionStyle { clipped: Option<BTreeSet<BodyId>>, cap_colors: BTreeMap<BodyId,
+  [f32; 3]> }` and `SceneAdapter::{set_section_style, section_of}`: per committed body, RND-06
+  `Instance::sectioned` and `Material::cap_color` (instances are rewritten only when their
+  description changes; no upload). `InstanceDesc::sectioned: bool` (new field; the GPU backend
+  forwards it; struct literals outside the crate: none). The router calls `set_section_style`
+  when the layers' style changes.
+- **`scene::tess`:** `MeshTessellator` sets `MeshData::closed` for meshes that are closed and
+  consistently oriented (`amg_features::inspect::section::is_closed_oriented`, cached per mesh,
+  on the tessellation job), so RND-06 caps them; it was always `false`, so no mesh body ever got a
+  GPU cap before.
+
 ### 2026-11-19: UI-21 (lane D)
 - No change outside `amg-ui` and no new dependency.
 - `amg-ui` additive API: the `marking` module (see the UI-21 log); `Registrar::{marking_menu,
