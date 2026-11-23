@@ -53,6 +53,9 @@ pub struct BodyView {
     pub transform: Transform,
     /// Linear RGBA that replaces the base colour (alpha = opacity); `None` keeps the material.
     pub tint: Option<[f32; 4]>,
+    /// RND-08 shading of every instance of the body (additive, AM-12: the overhang overlay);
+    /// `None` draws the material.
+    pub shading: Option<amg_render::Shading>,
 }
 
 /// Per-body view overrides of committed bodies (additive, AM-11). While set, the listed
@@ -381,6 +384,8 @@ struct Entry {
     section: (bool, Option<[f32; 3]>),
     /// Base colour from the [`BodyViews`] override (AM-11).
     view_tint: Option<[f32; 4]>,
+    /// RND-08 shading from the [`BodyViews`] override (AM-12).
+    view_shading: Option<amg_render::Shading>,
 }
 
 impl std::fmt::Debug for Entry {
@@ -494,6 +499,7 @@ impl Core {
             _ => None,
         };
         e.view_tint = view.flatten().and_then(|v| v.tint);
+        e.view_shading = view.flatten().and_then(|v| v.shading.clone());
         for path in src.placements.paths_of(e.component) {
             let Some(world) = src.placements.world(&path) else {
                 continue;
@@ -575,6 +581,10 @@ impl Core {
             Set::Model => Layer::Model,
             Set::Preview => Layer::Preview,
         };
+        let shading = match set {
+            Set::Model => e.view_shading.clone().unwrap_or_default(),
+            Set::Preview => amg_render::Shading::Material,
+        };
         for inst in &mut e.instances {
             let desc = InstanceDesc {
                 key: inst.key,
@@ -584,6 +594,7 @@ impl Core {
                 layer,
                 material,
                 sectioned,
+                shading: shading.clone(),
             };
             if inst.sent.as_ref() != Some(&desc) {
                 self.ops.push(SceneOp::SetInstance {
@@ -1405,6 +1416,7 @@ fn reconcile(
                 uploads: 0,
                 section: (true, None),
                 view_tint: None,
+                view_shading: None,
             };
             core.spawn(set, id, &mut e, jobs);
             core.sync_instances(set, id, &mut e, src);

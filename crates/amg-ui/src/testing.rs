@@ -71,6 +71,7 @@ pub struct AppHarnessBuilder {
     registry: Option<UiRegistry>,
     wgpu: Option<egui_wgpu::WgpuSetup>,
     viewport: Option<Box<dyn ViewportBackend>>,
+    job_threads: Option<(usize, usize)>,
 }
 
 impl std::fmt::Debug for AppHarnessBuilder {
@@ -90,6 +91,7 @@ impl Default for AppHarnessBuilder {
             registry: None,
             wgpu: None,
             viewport: None,
+            job_threads: None,
         }
     }
 }
@@ -113,6 +115,13 @@ impl AppHarnessBuilder {
         self
     }
 
+    /// Job pool sizes (interactive, background) instead of the default 2 / 1, e.g. the app's
+    /// own sizing for timing tests (additive, AM-12). Zero means the machine's parallelism.
+    pub fn job_threads(mut self, interactive: usize, background: usize) -> Self {
+        self.job_threads = Some((interactive, background));
+        self
+    }
+
     /// Render with wgpu (snapshot tests), e.g. a WARP device.
     pub fn wgpu(mut self, setup: egui_wgpu::WgpuSetup) -> Self {
         self.wgpu = Some(setup);
@@ -131,10 +140,11 @@ impl AppHarnessBuilder {
     /// If the job system's threads cannot be created.
     pub fn build(self) -> AppHarness {
         let slot = Arc::new(OnceLock::new());
+        let (interactive, background) = self.job_threads.unwrap_or((2, 1));
         #[allow(clippy::expect_used, reason = "test support; no threads means no test")]
         let jobs = JobSystem::new(JobSystemConfig {
-            interactive_threads: std::num::NonZeroUsize::new(2),
-            background_threads: std::num::NonZeroUsize::new(1),
+            interactive_threads: std::num::NonZeroUsize::new(interactive),
+            background_threads: std::num::NonZeroUsize::new(background),
             notifier: Some(repaint_notifier(&slot)),
         })
         .expect("job system");

@@ -2572,3 +2572,20 @@ already listed). Existing tests pass unchanged.
   `set_body_views` on a change, so switching documents or workspaces never keeps stale overrides.
 - Used by the Manufacture workspace: plate items at their plate transforms (`effective_transform`),
   red when out of the build volume, every other body hidden while the workspace is active.
+### 2026-11-23: AM-12 (lane G, S16 `amg-ui::am`) - additive framework hooks
+Flagged for lane D review. No change to `amg-render`, `amg-doc`, `amg-core` or `amg-jobs`; no new
+dependency. Existing tests pass unchanged.
+- **`scene::BodyView::shading: Option<amg_render::Shading>`** (new field next to AM-11's `tint`):
+  the RND-08 shading of every instance of the listed body; `None` draws the material. Internally
+  `Entry::view_shading`, one line in `sync_instances`, and `send_instances` puts it into the
+  description (preview bodies always draw `Shading::Material`).
+- **`scene::InstanceDesc::shading: amg_render::Shading`** (new field): the GPU backend copies it
+  into `Instance::shading` when it adds or rewrites an instance; the CPU backend stores it (tests
+  read it). Changing it rewrites the instance only (RND-08: no geometry upload).
+- **`testing::AppHarnessBuilder::job_threads(interactive, background)`**: pool sizes for the
+  harness's `JobSystem` instead of the fixed 2 / 1 (0 = the machine's parallelism, like the app's
+  `JobSystemConfig::default`). Used by AM-12's timing tests so they measure the app's pool, not a
+  2-thread one.
+- Used by the Manufacture workspace's Overhang Analysis: each plate item's view carries
+  `Shading::Analysis(Analysis::Overhang { .. })` built from AM-02 `shader_params` at the item's
+  drawn transform.

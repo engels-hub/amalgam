@@ -4,9 +4,11 @@ use amg_doc::{DocEvent, ExtKey};
 use amg_features::am::{PRINT_SETUP_KIND, PlateId, PrintSetup, delete_setup_command, setups};
 
 use super::layer::AmLayer;
+use super::overhang::{self, Quality};
 use super::{
-    ADD_BODIES, CENTRE, DROP, EXPORT_3MF, MOVE_ROTATE, NEW_SETUP, PLACE_FACE_DOWN, SEND_TO_SLICER,
-    SETTINGS, active_setup, dialogs::machine_summary, submit_setup,
+    ADD_BODIES, CENTRE, DROP, EXPORT_3MF, MOVE_ROTATE, NEW_SETUP, OVERHANG_SETTINGS,
+    PLACE_FACE_DOWN, SEND_TO_SLICER, SETTINGS, active_setup, dialogs::machine_summary,
+    selected_bodies, submit_setup,
 };
 use crate::app::{AppCx, CmdEnv, CommitBatch};
 use crate::browser::{BrowserAnchor, BrowserNode, BrowserProvider, NodeKey};
@@ -171,13 +173,113 @@ fn plate_node(env: &CmdEnv<'_>, k: &ExtKey, s: &PrintSetup, plate: PlateId) -> B
 
 // ---- Plate panel --------------------------------------------------------------------------
 
-/// The Plate panel: the active setup and machine, the items with their fit, and the main
-/// commands.
+/// The Plate panel: the active setup and machine, the items with their fit, the main commands
+/// and the overhang metrics (AM-12) of the selected item or the whole plate.
 #[derive(Debug, Default)]
-pub struct PlatePanel;
+pub struct PlatePanel {
+    /// Show the plate's metrics instead of the selected item's.
+    pub plate_scope: bool,
+}
 
 pub(crate) fn create_panel() -> Box<dyn Panel> {
-    Box::new(PlatePanel)
+    Box::new(PlatePanel::default())
+}
+
+fn rows_grid(ui: &mut egui::Ui, id: &str, rows: &[(&'static str, String)]) {
+    egui::Grid::new(id).num_columns(2).show(ui, |ui| {
+        for (l, v) in rows {
+            ui.label(*l);
+            ui.label(v);
+            ui.end_row();
+        }
+    });
+}
+
+impl PlatePanel {
+    /// The Overhang section: toggle, settings, metrics.
+    fn overhang_ui(&mut self, ui: &mut egui::Ui, cx: &mut AppCx<'_>) {
+        ui.horizontal(|ui| {
+            let mut on = overhang::overlay_enabled();
+            if ui.checkbox(&mut on, "Overhang Analysis").changed() {
+                overhang::set_overlay_enabled(on);
+            }
+            if ui.button("Overhang Settings…").clicked() {
+                cx.run_command(OVERHANG_SETTINGS);
+            }
+        });
+        if !overhang::overlay_enabled() {
+            return;
+        }
+        let Some(l) = cx.doc_layer::<AmLayer>() else {
+            return;
+        };
+        if let Some(s) = l.shown_settings() {
+            ui.weak(format!(
+                "α = {:.1}°{}",
+                s.critical_angle.to_degrees(),
+                if l.settings_preview().is_some() {
+                    " (preview)"
+                } else {
+                    ""
+                }
+            ));
+        }
+        let status = l.status().to_vec();
+        let items: Vec<_> = status
+            .iter()
+            .filter(|s| s.unresolved.is_none())
+            .map(|s| s.item)
+            .collect();
+        let busy = l.overhang().busy();
+        let plate = l.overhang().plate_metrics(&items);
+        let per_item: Vec<_> = status
+            .iter()
+            .map(|s| {
+                (
+                    s.body,
+                    s.name.clone(),
+                    l.overhang().analysis(s.item).cloned(),
+                )
+            })
+            .collect();
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.plate_scope, false, "Selected item");
+            ui.selectable_value(&mut self.plate_scope, true, "Plate");
+            if busy {
+                ui.spinner();
+            }
+        });
+        if self.plate_scope {
+            rows_grid(ui, "am.overhang.plate", &overhang::plate_rows(&plate));
+            if plate.approximate {
+                ui.weak("Some numbers are coarse or approximate (open mesh).");
+            }
+            return;
+        }
+        let sel = selected_bodies(cx);
+        let one = match per_item.as_slice() {
+            [only] => Some(only),
+            _ => per_item.iter().find(|(b, _, _)| sel.contains(b)),
+        };
+        match one {
+            None => {
+                ui.weak("Select an item (or show the plate).");
+            }
+            Some((_, name, None)) => {
+                ui.label(name);
+                ui.weak("Analysing…");
+            }
+            Some((_, name, Some(a))) => {
+                ui.label(egui::RichText::new(name).strong());
+                rows_grid(ui, "am.overhang.item", &overhang::metric_rows(a.metrics()));
+                ui.weak(match (a.quality, a.metrics().approximate) {
+                    (Quality::Coarse, _) => "Coarse (updating while you move it)",
+                    (Quality::Fine, true) => "Approximate: the mesh is open",
+                    (Quality::Fine, false) => "Fine",
+                });
+            }
+        }
+    }
 }
 
 impl Panel for PlatePanel {
@@ -269,6 +371,8 @@ impl Panel for PlatePanel {
                 cx.run_command(SETTINGS);
             }
         });
+        ui.separator();
+        self.overhang_ui(ui, cx);
         if let Some(o) = cx
             .doc_layer::<AmLayer>()
             .and_then(|l| l.last_output().cloned())

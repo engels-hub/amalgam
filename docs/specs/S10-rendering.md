@@ -1929,3 +1929,15 @@ viewport and scene adapter (S11 Interface changes 2026-11-23).
   closed, oriented meshes); the CPU caps give the section statistics and the RND-07 outlines / open
   curves, and per-analysis body scopes reduce to per-body `sectioned` (a body in the scope of one
   visible analysis is clipped by all of them).
+### 2026-11-23: request from AM-12 (lane G, S16 overhang overlay)
+No change in `amg-render`: AM-12 sets `Instance::shading = Shading::Analysis(Analysis::Overhang {
+build_up, critical, plate_height, plate_tol })` per plate item through the `amg-ui` scene adapter
+(S11 Interface changes 2026-11-23, AM-12), from AM-02 `shader_params`.
+- **Request (open, from S16 Expected-from-other-specs, also RND-08's leftover):** a per-face class
+  or scalar buffer indexed by `primitive_index` (with the vertex-pulling fallback when
+  `PRIMITIVE_INDEX` is missing), so the exact CPU classes of AM-12's fine pass can be shown after
+  the job. Proposed shape: `upload_face_classes(gpu, mesh, &[u8]) -> GpuField` (`FieldKind::FaceClass`,
+  length = triangle count) and `Analysis::Overhang { .., classes: Option<FieldKey> }`: when bound, the
+  fragment takes the class from the buffer and only the severity ramp from the normal. Until then
+  the live shader is the display; AM-12 measured 99.93 % per-face agreement with the CPU buffer
+  (the misses are degenerate faces and the per-fragment vs per-face contact band).
