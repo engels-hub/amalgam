@@ -100,3 +100,37 @@ fn feature_serializes_round_trip() {
     assert_eq!(back, f);
     let _ = Arc::new(back);
 }
+
+#[test]
+fn source_from_path_hashes_like_from_bytes_and_cancels() {
+    let dir = std::env::temp_dir().join(format!("amg-io15-src-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("part.stl");
+    // More than one 1 MiB block.
+    let bytes: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&path, &bytes).unwrap();
+    let ctx = amg_jobs::JobCtx::detached();
+    let s = ImportSource::from_path(&path, Format::Stl, Some(LengthUnit::Inch), &ctx).unwrap();
+    let want = ImportSource::from_bytes("part.stl", Format::Stl, Some(LengthUnit::Inch), &bytes);
+    assert_eq!(s.blake3, want.blake3);
+    assert_eq!(s.file_name, "part.stl");
+    assert_eq!(s.declared_unit, Some(LengthUnit::Inch));
+    assert_eq!(
+        s.path_hint.as_deref(),
+        Some(path.display().to_string().as_str())
+    );
+
+    let token = amg_jobs::CancelToken::new();
+    token.cancel();
+    let cancelled = amg_jobs::JobCtx::with_token(token);
+    assert!(matches!(
+        ImportSource::from_path(&path, Format::Stl, None, &cancelled),
+        Err(ImportPrepError::Io(amg_io::IoError::Cancelled))
+    ));
+    let missing = ImportSource::from_path(&dir.join("nope.stl"), Format::Stl, None, &ctx);
+    assert!(matches!(
+        missing,
+        Err(ImportPrepError::Io(amg_io::IoError::Read { .. }))
+    ));
+    let _ = std::fs::remove_dir_all(dir);
+}

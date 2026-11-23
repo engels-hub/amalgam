@@ -2484,3 +2484,33 @@ new dependency. The Measure tool lives in `amg-ui::inspect` (lane A's module).
   `feature.solid.extrude` (S04 / UI-05), `solid.move` / `feature.solid.move`, `edit.delete`,
   `inspect.measure` (S05 INS-08). A lane that wants its own wedges registers a
   `MarkingMenuProvider` with priority > 0; context items go through `ContextMenuProvider`.
+
+### 2026-11-23: IO-15 (lane G, S12 `amg-ui::io`) — small additive framework hooks
+Flagged for lane D review. No change outside `amg-ui` (plus `ImportSource::from_path` in
+`amg-features::io`, see S12) and one new normal dependency edge: `amg-ui` → `amg-io` (it was a
+dev-dependency; already in the workspace). Existing tests pass unchanged.
+- **New module `dialog`:** `AppDialog` (`title`, `show(&mut self, &egui::Context, &mut AppCx) -> bool`,
+  `as_any`, `as_any_mut`) and `DropHandler = fn(&mut AppCx, &Path) -> bool`. A module dialog that
+  is not a tool (a tool's dialog lives and dies with the tool): opened with `AppCx::open_dialog`,
+  drawn by the shell once per frame for the active document after the tool dialog
+  (`AmalgamApp::draw_dialogs`), shown again when its document becomes active, dropped when that
+  document closes. `AmalgamApp::{dialog::<T>, dialog_mut::<T>, dialog_titles}` for tests.
+- **`AppCx` (additive):**
+  - `open_dialog(Box<dyn AppDialog>)` (end-of-frame `ShellRequest::OpenDialog`).
+  - `apply_document(label, FnOnce(&mut Document) -> Result<(), CommandError>)`: a direct document
+    mutation at the end of the frame, for commits `CommitBatch` cannot carry
+    (`Document::add_feature_baked`, with baked mesh payloads). An `Err` is a toast like a failed
+    batch. New private `DocAction::Apply`.
+  - `pick_file(FileDialogRequest) -> Receiver<Option<PathBuf>>`: the native Open/Save dialog on the
+    existing dialog thread for a module (`DialogPurpose::Reply`); `None` if the user cancels or a
+    file dialog is already open.
+- **`Registrar::file_drop(DropHandler)`** and `UiRegistry::drop_handlers()`. `AmalgamApp::logic` calls
+  `poll_dropped_files`: every path in egui's `raw.dropped_files` that ends in `.amg` opens as a
+  document (`open_path`), the others are offered to the handlers in module id order; if none takes
+  the file a warning toast says so. The handler runs with an `AppCx` on the active document.
+  The window is the drop target (egui reports no drop position); `amg-ui::io` takes every other file.
+- **Small focused edits:** `app.rs` (the above plus `AmalgamApp::dialogs`), `file.rs`
+  (`DialogPurpose::Reply`, `pick_file_for`), `shell.rs` (one `draw_dialogs` call), `registry.rs`,
+  `module.rs`, `lib.rs` (`pub mod dialog`).
+- **MESH-23 (`amg-ui::mesh`) not changed.** It had no export entry in `src`; the File ▸ Export entry
+  is `io.export` (`amg-ui::io`).

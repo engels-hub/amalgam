@@ -47,6 +47,7 @@ pub mod browser;
 mod builtin;
 pub mod command;
 pub mod design;
+pub mod dialog;
 pub mod dock;
 pub mod file;
 pub mod input;
