@@ -11,6 +11,15 @@ publish.workspace = true
 name = "amg-app"
 path = "src/main.rs"
 
+[features]
+# Owner decision 2026-11-25. `manifold` (default): Manifold booleans for Combine (MESH-27).
+# `occt` (opt-in): the OpenCASCADE B-rep backend; needs the vcpkg manifest feature `occt`
+# installed (AMG_OCCT_DIR, see docs/notes/occt-integration.md). `cargo app` runs the app with both.
+# Opt-in keeps workspace builds and CI jobs without OCCT, as before.
+default = ["manifold"]
+manifold = ["amg-ui/manifold"]
+occt = ["amg-features/occt"]
+
 [dependencies]
 amg-core.workspace = true
 amg-jobs.workspace = true
