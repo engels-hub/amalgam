@@ -573,6 +573,7 @@ dependencies = [
  "amg-materials",
  "amg-mesh",
  "amg-render",
+ "amg-sketch",
  "amg-testkit",
  "amg-ui",
  "criterion 0.8.2",

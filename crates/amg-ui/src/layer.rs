@@ -30,6 +30,9 @@ pub struct LayerOut<'a> {
     /// Per-body view overrides of the committed bodies (additive, AM-11): `None` (the
     /// default each frame) shows the design placements; the last layer that sets it wins.
     pub body_views: &'a mut Option<std::sync::Arc<crate::scene::BodyViews>>,
+    /// The command of the document's active tool (`None`: the select tool runs; additive,
+    /// UI-09: the sketch session restarts its own tool when none is active).
+    pub active_tool: Option<crate::command::CmdId>,
 }
 
 /// The section planes of the view (RND-06) and which bodies they clip.

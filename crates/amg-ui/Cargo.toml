@@ -12,6 +12,8 @@ amg-core.workspace = true
 amg-jobs.workspace = true
 amg-doc.workspace = true
 amg-features.workspace = true
+# UI-09: sketch mode (solver jobs, queries / inference, profiles).
+amg-sketch.workspace = true
 # INS-03: density of the body material (`Design::mass_material`, default-material preference).
 amg-materials.workspace = true
 # MESH-23: the Mesh Analysis panel runs the MESH-02/19 analysis.

@@ -315,6 +315,12 @@ impl AppCx<'_> {
             .push(ShellRequest::Highlight(self.doc.id, layer, targets));
     }
 
+    /// Takes the sketch the shell asked to edit (`DocTab::sketch_edit`; additive, UI-09: the
+    /// sketch session opens it).
+    pub fn take_sketch_edit(&mut self) -> Option<amg_doc::FeatureId> {
+        self.doc.sketch_edit.take()
+    }
+
     /// Queues editing feature `id` of this document (end of frame): a sketch enters sketch
     /// mode; another feature starts the tool of its `feature.<kind>` command (UI-05) with
     /// `ToolInit::edit = Some(id)`; without one an info toast says so (additive, UI-07).

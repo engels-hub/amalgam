@@ -141,6 +141,8 @@ pub(crate) struct ToolFrame {
     /// The filter of the active dialog's active `SelectionField` (UI-15), read after the
     /// dialog was drawn; intersected into the active tool's filter.
     pub(crate) dialog_filter: Option<EntityFilter>,
+    /// The keyboard modifiers of the newest routed frame (additive, UI-09).
+    pub(crate) mods: egui::Modifiers,
 }
 
 impl Default for ToolFrame {
@@ -154,6 +156,7 @@ impl Default for ToolFrame {
             filter: EntityFilter::ALL,
             priority: SelectPriority::Default,
             dialog_filter: None,
+            mods: egui::Modifiers::NONE,
         }
     }
 }
@@ -275,6 +278,12 @@ impl<'a> ToolCx<'a> {
             self.app.env().evaluated,
             self.scene,
         )
+    }
+
+    /// The keyboard modifiers held in the newest routed viewport frame (additive, UI-09:
+    /// Ctrl suppresses sketch inference while hovering).
+    pub fn modifiers(&self) -> egui::Modifiers {
+        self.frame.mods
     }
 
     /// The scene adapter (pick map, occurrence paths; additive, UI-04).
@@ -402,6 +411,7 @@ fn run_doc_layers(
     overlays: &mut amg_render::OverlayList,
     sections: &mut crate::layer::ViewSections,
     body_views: &mut Option<std::sync::Arc<crate::scene::BodyViews>>,
+    active_tool: Option<CmdId>,
 ) {
     let active = app.active;
     app.docs[active].layers.ensure(app.registry.doc_layers());
@@ -415,6 +425,7 @@ fn run_doc_layers(
                 overlays: &mut *overlays,
                 sections: &mut *sections,
                 body_views: &mut *body_views,
+                active_tool,
             };
             layer.update(&mut cx, &mut out);
         }
@@ -598,7 +609,14 @@ impl AmalgamApp {
             // Document layers (INS-09): overlays and the view's section planes.
             let mut sections = crate::layer::ViewSections::default();
             let mut body_views = None;
-            run_doc_layers(app, &mut overlay, &mut sections, &mut body_views);
+            let active_tool = ts.active.as_ref().map(|a| a.id);
+            run_doc_layers(
+                app,
+                &mut overlay,
+                &mut sections,
+                &mut body_views,
+                active_tool,
+            );
             if sections.style != ts.sections.style {
                 app.scene.set_section_style(&sections.style);
             }
@@ -766,6 +784,7 @@ impl AmalgamApp {
             };
             // `accept` reads the context (layers): never call it under the input lock.
             let input = ctx.input(Clone::clone);
+            ts.frame.mods = input.modifiers;
             let events = ts.synth.pointer_events(&input, &view, accept);
             ts.pointer_inside =
                 input.pointer.latest_pos().is_some_and(accept) || ts.synth.is_pressed();
