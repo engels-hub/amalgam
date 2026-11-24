@@ -34,7 +34,9 @@ fn fd_check(r: &dyn Residual, x: &[f64]) -> Result<(), String> {
         r.eval(xx, &mut o);
         o
     };
-    let h = 1e-3;
+    // Five-point stencil; on strongly curved geometry (small arcs) its h^4 truncation error at
+    // h = 1e-3 can exceed the tolerance, so smaller steps are tried before failing.
+    const STEPS: [f64; 3] = [1e-3, 2.5e-4, 6.25e-5];
     for (k, p) in r.params().iter().enumerate() {
         let x0 = x[p.index()];
         let mut at = |d: f64| {
@@ -43,12 +45,23 @@ fn fd_check(r: &dyn Residual, x: &[f64]) -> Result<(), String> {
             xx[p.index()] = x0;
             v
         };
-        let (p2, p1, m1, m2) = (at(2.0 * h), at(h), at(-h), at(-2.0 * h));
+        let fds: Vec<Vec<f64>> = STEPS
+            .iter()
+            .map(|&h| {
+                let (p2, p1, m1, m2) = (at(2.0 * h), at(h), at(-h), at(-2.0 * h));
+                (0..m)
+                    .map(|i| (-p2[i] + 8.0 * p1[i] - 8.0 * m1[i] + m2[i]) / (12.0 * h))
+                    .collect()
+            })
+            .collect();
         for i in 0..m {
-            let fd = (-p2[i] + 8.0 * p1[i] - 8.0 * m1[i] + m2[i]) / (12.0 * h);
             let a = j[i * n + k];
-            let err = (a - fd).abs();
-            if err > 1e-9 && err > 1e-6 * a.abs().max(fd.abs()) {
+            let ok = |fd: f64| {
+                let err = (a - fd).abs();
+                err <= 1e-9 || err <= 1e-6 * a.abs().max(fd.abs())
+            };
+            if !fds.iter().any(|fd| ok(fd[i])) {
+                let fd = fds[0][i];
                 return Err(format!(
                     "row {i}, param {p:?}: analytic {a:e}, finite difference {fd:e}"
                 ));
