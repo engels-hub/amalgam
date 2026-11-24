@@ -71,7 +71,7 @@ pub struct BrowserNode {
     pub key: NodeKey,
     /// Row text.
     pub label: String,
-    /// Icon (drawn once the icon atlas exists, UI-21; unused until then).
+    /// Icon (UI-23; a missing or unknown icon shows the label only).
     pub icon: IconId,
     /// `Some`: the eye toggle is shown with this state.
     pub visible: Option<bool>,
@@ -176,6 +176,9 @@ pub const ROW_HEIGHT: f32 = 18.0;
 /// Indent per level, points.
 const INDENT: f32 = 12.0;
 /// Width of the expand arrow / eye columns, points.
+/// Node icon size, points (UI-23).
+const ICON_PT: f32 = 14.0;
+
 const ICON_W: f32 = 16.0;
 
 /// One node of the flattened tree (pre-order).
@@ -550,6 +553,11 @@ impl BrowserState {
                 actions.push(Action::Rename(i, text));
             }
             return;
+        }
+        if let Some(img) =
+            crate::icons::image(&row, node.icon, ICON_PT, node.visible != Some(false))
+        {
+            row.add(img);
         }
         let mut text = egui::RichText::new(&node.label);
         if node.visible == Some(false) {

@@ -349,7 +349,7 @@ fn command_button(
     let en = def.enablement(env);
     let mut r = ui.add_enabled(
         en == Enablement::Enabled,
-        egui::Button::new(label).selected(hot),
+        crate::icons::button(ui, def.icon, label, en == Enablement::Enabled).selected(hot),
     );
     if let Enablement::Disabled(reason) = &en {
         r = r.on_disabled_hover_text(reason.as_ref());

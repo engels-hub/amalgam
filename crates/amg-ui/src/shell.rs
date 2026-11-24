@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use egui::{Button, RichText};
+use egui::RichText;
 
 use crate::app::{AmalgamApp, AppCx, CmdEnv, CommandQueue, DocTab, ShellRequest};
 use crate::command::{CmdId, CommandDef};
@@ -159,9 +159,15 @@ fn command_button(
 ) -> bool {
     let enablement = def.enablement(env);
     let mut button = if def.is_toggle() {
-        Button::selectable(def.checked(env), def.label.as_ref())
+        {
+            let on = def.checked(env);
+            crate::icons::button(ui, def.icon, def.label.as_ref(), enablement.is_enabled())
+                .selected(on)
+                .frame_when_inactive(on)
+                .frame(true)
+        }
     } else {
-        Button::new(def.label.as_ref())
+        crate::icons::button(ui, def.icon, def.label.as_ref(), enablement.is_enabled())
     };
     if let Some(sc) = shortcuts.display_of(def.id) {
         button = button.shortcut_text(sc);
@@ -301,7 +307,10 @@ fn app_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
             |l| format!("Redo {l} (Ctrl+Y)"),
         );
         if ui
-            .add_enabled(can_undo, Button::new("Undo"))
+            .add_enabled(
+                can_undo,
+                crate::icons::button(ui, crate::icons::ids::UNDO, "Undo", can_undo),
+            )
             .on_hover_text(undo_tip)
             .on_disabled_hover_text("Nothing to undo")
             .clicked()
@@ -309,7 +318,10 @@ fn app_bar(app: &mut AmalgamApp, ui: &mut egui::Ui) {
             app.request_undo(id);
         }
         if ui
-            .add_enabled(can_redo, Button::new("Redo"))
+            .add_enabled(
+                can_redo,
+                crate::icons::button(ui, crate::icons::ids::REDO, "Redo", can_redo),
+            )
             .on_hover_text(redo_tip)
             .on_disabled_hover_text("Nothing to redo")
             .clicked()

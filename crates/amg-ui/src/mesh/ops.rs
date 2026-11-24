@@ -124,6 +124,25 @@ impl MeshOp {
         }
     }
 
+    /// The op's icon (UI-23).
+    pub fn icon(self) -> crate::module::IconId {
+        use crate::icons::ids;
+        match self {
+            MeshOp::Repair => ids::REPAIR,
+            MeshOp::Remesh => ids::REMESH,
+            MeshOp::Reduce => ids::REDUCE,
+            MeshOp::Smooth => ids::SMOOTH,
+            MeshOp::PlaneCut => ids::CUT,
+            MeshOp::Shell => ids::SHELL,
+            MeshOp::Combine => ids::COMBINE,
+            MeshOp::Separate => ids::SEPARATE,
+            MeshOp::ReverseNormal => ids::REVERSE_NORMAL,
+            MeshOp::EraseFill => ids::ERASE,
+            MeshOp::Wrap => ids::WRAP,
+            MeshOp::FaceGroups => ids::FACE_GROUPS,
+        }
+    }
+
     /// Toolbar / search label: the title with `…`, the convention for commands that open a
     /// dialog.
     pub fn label(self) -> String {

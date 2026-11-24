@@ -50,6 +50,7 @@ pub fn register(r: &mut Registrar<'_>) {
             "Measure",
             CmdAction::StartTool(start_measure),
         )
+        .with_icon(crate::icons::ids::MEASURE)
         .with_tooltip(
             "Measure distances, angles, lengths, areas, volumes and hole diameters (smart \
                  selection, snapping, 3-point circle)",
@@ -85,6 +86,7 @@ pub fn register(r: &mut Registrar<'_>) {
             "Properties",
             CmdAction::Run(|cx| cx.open_panel(PROPERTIES_PANEL)),
         )
+        .with_icon(crate::icons::ids::PROPERTIES)
         .with_tooltip(
             "Volume, area, mass, centre of mass and inertia of the selected mesh bodies, with              the density of their material",
         )
@@ -117,6 +119,7 @@ pub fn register(r: &mut Registrar<'_>) {
             "Section Analysis",
             CmdAction::StartTool(start_section),
         )
+        .with_icon(crate::icons::ids::SECTION)
         .with_tooltip(
             "Cut the view with a plane (origin plane or picked face, offset, tilt, flip): caps,              hatching and the section area; saved with the design, listed under Analysis",
         )
@@ -148,6 +151,7 @@ pub fn register(r: &mut Registrar<'_>) {
             "Section Statistics",
             CmdAction::Run(|cx| cx.open_panel(SECTION_PANEL)),
         )
+        .with_icon(crate::icons::ids::SECTION_STATS)
         .with_tooltip("Section area, perimeter, loops and extent of the visible section analyses")
         .with_keywords(&["inspect", "section", "area", "perimeter", "cross section"])
         .placed(Placement::Toolbar {

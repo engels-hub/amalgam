@@ -60,6 +60,7 @@ impl BrowserProvider for SetupBrowser {
             return;
         }
         let mut root = BrowserNode::new(NodeKey::new(ROOT), "Print Setups");
+        root.icon = crate::icons::ids::PRINTER;
         for (k, s) in all {
             let node = match s {
                 Ok(s) => setup_node(env, &k, &s),
@@ -117,6 +118,7 @@ impl BrowserProvider for SetupBrowser {
 
 fn setup_node(env: &CmdEnv<'_>, k: &ExtKey, s: &PrintSetup) -> BrowserNode {
     let mut n = BrowserNode::new(setup_key(k), format!("{} — {}", s.name, s.machine.name));
+    n.icon = crate::icons::ids::PRINTER;
     n.renamable = true;
     for p in &s.plates {
         n.children.push(plate_node(env, k, s, p.id));
@@ -140,6 +142,7 @@ fn plate_node(env: &CmdEnv<'_>, k: &ExtKey, s: &PrintSetup, plate: PlateId) -> B
         NodeKey::owned(format!("am.plate.{}.{}", k.id, p.id.0)),
         format!("{}{active}", p.name),
     );
+    n.icon = crate::icons::ids::ARRANGE;
     for it in &p.items {
         let props = env.design.body_props(it.body);
         let name = props
@@ -154,6 +157,7 @@ fn plate_node(env: &CmdEnv<'_>, k: &ExtKey, s: &PrintSetup, plate: PlateId) -> B
             NodeKey::owned(format!("am.item.{}.{}", k.id, it.id.0)),
             label,
         );
+        c.icon = crate::icons::ids::BODY;
         c.target = SelItem::from_target(PickTarget::Body {
             body: it.body,
             instance: 0,

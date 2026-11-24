@@ -182,6 +182,13 @@ impl Registrar<'_> {
         self.reg.add_browser_provider(self.module, p);
     }
 
+    /// Registers an icon (UI-23): `svg` is an embedded SVG (`include_bytes!`) of a 24x24 stroke
+    /// icon on `currentColor`, tinted with the text colour. A duplicate id panics in debug builds and
+    /// is dropped in release builds, like the other registries.
+    pub fn icon(&mut self, id: IconId, svg: &'static [u8]) {
+        self.reg.add_icon(self.module, id, svg);
+    }
+
     /// Adds a marking-menu provider (UI-21): it fills wedges and overflow entries of the
     /// right-click menu, highest priority first.
     pub fn marking_menu(&mut self, p: Box<dyn crate::marking::MarkingMenuProvider>) {

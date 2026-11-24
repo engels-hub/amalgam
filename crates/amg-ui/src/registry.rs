@@ -39,6 +39,8 @@ pub struct UiRegistry {
     browser_providers: Vec<(&'static str, Box<dyn BrowserProvider>)>,
     /// Timeline node info by feature kind (UI-08).
     feature_uis: BTreeMap<&'static str, (&'static str, crate::timeline::FeatureUiInfo)>,
+    /// SVG icons by id (UI-23).
+    icons: BTreeMap<&'static str, (&'static str, &'static [u8])>,
     /// Marking-menu providers in registration order (UI-21).
     marking_menus: Vec<(&'static str, Box<dyn crate::marking::MarkingMenuProvider>)>,
     /// Context-menu providers in registration order (UI-21).
@@ -225,6 +227,32 @@ impl UiRegistry {
     /// Every registered feature UI info, in kind order.
     pub fn feature_uis(&self) -> impl Iterator<Item = &crate::timeline::FeatureUiInfo> + '_ {
         self.feature_uis.values().map(|(_, i)| i)
+    }
+
+    pub(crate) fn add_icon(
+        &mut self,
+        module: &'static str,
+        id: crate::module::IconId,
+        svg: &'static [u8],
+    ) {
+        if id.0.is_empty() {
+            return;
+        }
+        if let Some((first, _)) = self.icons.get(id.0) {
+            conflict("icon", id.0, first, module);
+            return;
+        }
+        self.icons.insert(id.0, (module, svg));
+    }
+
+    /// Every registered icon: id and SVG bytes (UI-23).
+    pub fn icons(&self) -> impl Iterator<Item = (&'static str, &'static [u8])> + '_ {
+        self.icons.iter().map(|(k, (_, s))| (*k, *s))
+    }
+
+    /// Whether an icon is registered.
+    pub fn has_icon(&self, id: crate::module::IconId) -> bool {
+        self.icons.contains_key(id.0)
     }
 
     pub(crate) fn add_marking_menu(
