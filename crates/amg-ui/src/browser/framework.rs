@@ -103,29 +103,46 @@ pub(super) fn build_tree(env: &CmdEnv<'_>, ps: &[&dyn BrowserProvider], b: &mut 
 
     let root_id = design.root();
     let root = b.open(
-        BrowserNode::new(ROOT_KEY, design.meta().name.clone()).renamable(),
+        BrowserNode::new(ROOT_KEY, design.meta().name.clone())
+            .icon(crate::icons::ids::COMPONENT)
+            .renamable(),
         0,
         0,
     );
     // Document Settings.
     let s = b.open(
-        BrowserNode::new(NodeKey::new("settings"), "Document Settings"),
+        BrowserNode::new(NodeKey::new("settings"), "Document Settings")
+            .icon(crate::icons::ids::SETTINGS),
         0,
         1,
     );
     let len: amg_core::units::Unit = design.meta().default_units.length.into();
     let unit = format!("Units: {}", len.symbol());
-    b.push_tree(BrowserNode::new(NodeKey::new("settings/units"), unit), 0, 2);
+    b.push_tree(
+        BrowserNode::new(NodeKey::new("settings/units"), unit).icon(crate::icons::ids::RULER),
+        0,
+        2,
+    );
     b.close(s);
     // Named Views.
-    let v = b.open(BrowserNode::new(NodeKey::new("views"), "Named Views"), 0, 1);
+    let v = b.open(
+        BrowserNode::new(NodeKey::new("views"), "Named Views").icon(crate::icons::ids::CAMERA),
+        0,
+        1,
+    );
     for (key, label) in NAMED_VIEWS {
-        b.push_tree(BrowserNode::new(NodeKey::new(key), *label), 0, 2);
+        b.push_tree(
+            BrowserNode::new(NodeKey::new(key), *label).icon(crate::icons::ids::CAMERA),
+            0,
+            2,
+        );
     }
     b.close(v);
     // Origin.
     let o = b.open(
-        BrowserNode::new(NodeKey::new("origin"), "Origin").visible(!c.hidden.contains(ORIGIN_KEY)),
+        BrowserNode::new(NodeKey::new("origin"), "Origin")
+            .icon(crate::icons::ids::ORIGIN)
+            .visible(!c.hidden.contains(ORIGIN_KEY)),
         0,
         1,
     );
@@ -139,13 +156,20 @@ pub(super) fn build_tree(env: &CmdEnv<'_>, ps: &[&dyn BrowserProvider], b: &mut 
     let sets = selection_sets(design);
     if !sets.is_empty() {
         let s = b.open(
-            BrowserNode::new(NodeKey::new("sets"), "Selection Sets"),
+            BrowserNode::new(NodeKey::new("sets"), "Selection Sets")
+                .icon(crate::icons::ids::BOOKMARKS),
             0,
             1,
         );
         for set in sets {
             let key = NodeKey::owned(format!("set/{}", set.name));
-            b.push_tree(BrowserNode::new(key, set.name).renamable(), 0, 2);
+            b.push_tree(
+                BrowserNode::new(key, set.name)
+                    .icon(crate::icons::ids::BOOKMARK)
+                    .renamable(),
+                0,
+                2,
+            );
         }
         b.close(s);
     }
@@ -195,6 +219,7 @@ fn component(
         let any = bodies.iter().any(|id| design.body_props(*id).visible);
         let f = b.open(
             BrowserNode::new(NodeKey::owned(format!("bodies/{}{sfx}", comp.0)), "Bodies")
+                .icon(crate::icons::ids::FOLDER)
                 .visible(any),
             0,
             depth,
@@ -209,6 +234,7 @@ fn component(
                 NodeKey::owned(format!("body/{}:{}{sfx}", id.origin.0, id.slot)),
                 label,
             )
+            .icon(crate::icons::ids::BODY)
             .visible(props.visible)
             .renamable()
             .badge(badge(eval.node(id.origin).map(|n| &n.health)))
@@ -234,6 +260,7 @@ fn component(
                 NodeKey::owned(format!("sketches/{}{sfx}", comp.0)),
                 "Sketches",
             )
+            .icon(crate::icons::ids::FOLDER)
             .visible(any),
             0,
             depth,
@@ -241,6 +268,7 @@ fn component(
         for (n, s) in sketches.iter().enumerate() {
             let label = feature_name(env, s.0).unwrap_or_else(|| format!("Sketch{}", n + 1));
             let node = BrowserNode::new(NodeKey::owned(format!("sketch/{}{sfx}", s.0.0)), label)
+                .icon(crate::icons::ids::SKETCH)
                 .visible(!c.hidden.contains(&visibility::sketch_key(*s)))
                 .renamable()
                 .badge(badge(eval.node(s.0).map(|n| &n.health)));
@@ -258,6 +286,7 @@ fn component(
                 NodeKey::owned(format!("constructions/{}{sfx}", comp.0)),
                 "Construction",
             )
+            .icon(crate::icons::ids::FOLDER)
             .visible(any),
             0,
             depth,
@@ -275,6 +304,7 @@ fn component(
                 NodeKey::owned(format!("construction/{}{sfx}", k.0.0)),
                 label,
             )
+            .icon(crate::icons::ids::ORIGIN)
             .visible(!c.hidden.contains(&visibility::construction_key(*k)))
             .renamable()
             .badge(badge(eval.node(k.0).map(|n| &n.health)))
@@ -318,6 +348,7 @@ fn component(
         let start = b.len();
         let o = b.open(
             BrowserNode::new(NodeKey::owned(format!("occ/{}{sfx}", occ_id.0)), name)
+                .icon(crate::icons::ids::COMPONENT)
                 .visible(occ.visible)
                 .renamable()
                 .target(target),

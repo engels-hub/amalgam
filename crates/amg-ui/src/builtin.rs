@@ -12,6 +12,7 @@ inventory::submit! { UiModule { id: "app", register } }
 
 /// Registers the framework commands.
 pub fn register(r: &mut Registrar<'_>) {
+    crate::icons::register_builtin(r);
     r.tessellator(crate::scene::MeshTessellator);
     r.command(
         CommandDef::new(
@@ -19,17 +20,20 @@ pub fn register(r: &mut Registrar<'_>) {
             "Search commands",
             CmdAction::Run(|cx| cx.open_search()),
         )
+        .with_icon(crate::icons::ids::SEARCH)
         .with_tooltip("Find a command by name")
         .with_shortcut("S")
         .with_keywords(&["find", "command palette", "action"]),
     );
     r.command(
         CommandDef::new("edit.undo", "Undo", CmdAction::Run(|cx| cx.undo()))
+            .with_icon(crate::icons::ids::UNDO)
             .with_shortcut("Ctrl+Z")
             .with_keywords(&["revert"]),
     );
     r.command(
         CommandDef::new("edit.redo", "Redo", CmdAction::Run(|cx| cx.redo()))
+            .with_icon(crate::icons::ids::REDO)
             .with_shortcut("Ctrl+Y")
             .with_alt_shortcut("Ctrl+Shift+Z"),
     );
@@ -49,6 +53,7 @@ fn register_select(r: &mut Registrar<'_>) {
                 crate::select::sets::save_selection(cx, None);
             }),
         )
+        .with_icon(crate::icons::ids::BOOKMARK)
         .with_tooltip("Keep the current selection as a named set in the design")
         .with_keywords(&["selection set", "group", "remember"])
         .with_enabler(Enabler::When(|env| {
@@ -65,6 +70,7 @@ fn register_select(r: &mut Registrar<'_>) {
             "Clear selection",
             CmdAction::Run(|cx| cx.selection_mut().clear()),
         )
+        .with_icon(crate::icons::ids::CLEAR_SELECTION)
         .with_keywords(&["deselect", "none"]),
     );
 }
@@ -78,6 +84,7 @@ fn register_file(r: &mut Registrar<'_>) {
             "New document",
             CmdAction::Run(|cx| cx.file(FileOp::New)),
         )
+        .with_icon(crate::icons::ids::FILE_NEW)
         .with_shortcut("Ctrl+N")
         .with_keywords(&["create", "design"])
         .in_menu("File", 10),
@@ -88,6 +95,7 @@ fn register_file(r: &mut Registrar<'_>) {
             "Open…",
             CmdAction::Run(|cx| cx.file(FileOp::Open)),
         )
+        .with_icon(crate::icons::ids::FOLDER_OPEN)
         .with_tooltip("Open an Amalgam design (.amg)")
         .with_shortcut("Ctrl+O")
         .with_keywords(&["load", "file"])
@@ -99,6 +107,7 @@ fn register_file(r: &mut Registrar<'_>) {
             "Save document",
             CmdAction::Run(|cx| cx.file(FileOp::Save)),
         )
+        .with_icon(crate::icons::ids::SAVE)
         .with_tooltip("Save to the document's file")
         .with_shortcut("Ctrl+S")
         .with_keywords(&["save", "write"])
@@ -110,6 +119,7 @@ fn register_file(r: &mut Registrar<'_>) {
             "Save As…",
             CmdAction::Run(|cx| cx.file(FileOp::SaveAs)),
         )
+        .with_icon(crate::icons::ids::SAVE_AS)
         .with_tooltip("Save to a new file")
         .with_shortcut("Ctrl+Shift+S")
         .in_menu("File", 40),
@@ -120,6 +130,7 @@ fn register_file(r: &mut Registrar<'_>) {
             "Save Compact",
             CmdAction::Run(|cx| cx.file(FileOp::SaveCompact)),
         )
+        .with_icon(crate::icons::ids::SAVE_COMPACT)
         .with_tooltip("Save without the geometry cache (smaller file, recomputes on open)")
         .with_keywords(&["small", "no cache"])
         .in_menu("File", 50),
@@ -130,6 +141,7 @@ fn register_file(r: &mut Registrar<'_>) {
             "Close document",
             CmdAction::Run(|cx| cx.file(FileOp::Close)),
         )
+        .with_icon(crate::icons::ids::CLOSE)
         .with_shortcut("Ctrl+W")
         .in_menu("File", 60),
     );

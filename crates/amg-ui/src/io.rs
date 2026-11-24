@@ -59,6 +59,7 @@ pub fn register(r: &mut Registrar<'_>) {
                 cx.open_dialog(Box::new(dialog));
             }),
         )
+        .with_icon(crate::icons::ids::IMPORT)
         .with_tooltip("Insert an STL, 3MF, OBJ or PLY file as a mesh body")
         .with_keywords(&["import", "stl", "3mf", "obj", "ply", "open mesh", "load"])
         .in_menu("File/Import", 0),
@@ -72,6 +73,7 @@ pub fn register(r: &mut Registrar<'_>) {
                 cx.open_dialog(Box::new(dialog));
             }),
         )
+        .with_icon(crate::icons::ids::EXPORT)
         .with_tooltip("Export the bodies as STL, 3MF, OBJ or PLY")
         .with_keywords(&[
             "save", "stl", "3mf", "obj", "ply", "slicer", "orca", "print",

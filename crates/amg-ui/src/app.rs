@@ -652,6 +652,7 @@ impl AmalgamApp {
             let _ = self.repaint.set(ctx.clone());
             self.ctx = Some(ctx.clone());
         }
+        crate::icons::install(ctx, &self.registry);
         if let Some(tokens) = self.theme_state.apply(ctx, self.theme) {
             self.tokens = tokens;
         }

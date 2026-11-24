@@ -713,6 +713,7 @@ impl BrowserProvider for AnalysisNodes {
             .into_iter()
             .map(|(k, r)| match r {
                 Ok(a) => BrowserNode::new(row_key(&k), a.name)
+                    .icon(crate::icons::ids::SECTION)
                     .visible(a.visible)
                     .renamable(),
                 Err(_) => BrowserNode::new(row_key(&k), format!("Section {} (unreadable)", k.id))
@@ -722,7 +723,11 @@ impl BrowserProvider for AnalysisNodes {
         if rows.is_empty() {
             return;
         }
-        out.push(BrowserNode::new(ANALYSIS_FOLDER, "Analysis").children(rows));
+        out.push(
+            BrowserNode::new(ANALYSIS_FOLDER, "Analysis")
+                .icon(crate::icons::ids::ANALYSIS_FOLDER)
+                .children(rows),
+        );
     }
 
     fn set_visible(&self, node: &NodeKey, visible: bool, cx: &mut AppCx<'_>) {

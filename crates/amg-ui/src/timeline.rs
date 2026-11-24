@@ -47,7 +47,7 @@ pub struct FeatureUiInfo {
     pub kind: &'static str,
     /// Display name ("Extrude"); default node labels are `<display_name><n>`.
     pub display_name: &'static str,
-    /// Icon (drawn as the display name's initials until the icon atlas exists, UI-21).
+    /// Icon (UI-23; a node without a drawable icon shows the display name's initials).
     pub icon: IconId,
     /// What "Edit Feature" / double-click does.
     pub edit: EditAction,
@@ -218,6 +218,8 @@ struct Renaming {
 #[derive(Debug, Default)]
 pub struct TimelineState {
     items: Vec<Item>,
+    /// Icon of each item (parallel to `items`; missing entries draw the text icon), UI-23.
+    icon_ids: Vec<IconId>,
     slots: Vec<Slot>,
     /// Node index → slot index.
     slot_of: Vec<usize>,
@@ -338,6 +340,7 @@ impl TimelineState {
         let _span = tracing::debug_span!("amg_ui.timeline.rebuild").entered();
         let tl = design.timeline();
         self.items.clear();
+        self.icon_ids.clear();
         let mut ordinals: std::collections::HashMap<String, u32> = Default::default();
         for node in tl.nodes() {
             let info = registry.feature_ui(node.feature.kind());
@@ -349,6 +352,10 @@ impl TimelineState {
             let n = ordinals.entry(base.clone()).or_insert(0);
             *n += 1;
             let label = node.name.clone().unwrap_or_else(|| format!("{base}{n}"));
+            self.icon_ids.push(match info {
+                Some(i) if known => i.icon,
+                _ => crate::icons::ids::GENERIC,
+            });
             let icon = if known {
                 initials(&base)
             } else {
@@ -737,13 +744,23 @@ impl TimelineState {
                     if rolled || item.suppressed {
                         text_color = text_color.gamma_multiply(0.45);
                     }
-                    painter.text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        &item.icon,
-                        egui::FontId::proportional(11.0),
+                    let icon_id = self.icon_ids.get(i).copied().unwrap_or(IconId::NONE);
+                    let drawn = crate::icons::paint(
+                        ui.ctx(),
+                        &painter,
+                        rect.shrink(4.0),
+                        icon_id,
                         text_color,
                     );
+                    if !drawn {
+                        painter.text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            &item.icon,
+                            egui::FontId::proportional(11.0),
+                            text_color,
+                        );
+                    }
                     if item.suppressed {
                         painter.line_segment(
                             [rect.left_bottom(), rect.right_top()],

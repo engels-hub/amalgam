@@ -50,6 +50,7 @@ pub mod design;
 pub mod dialog;
 pub mod dock;
 pub mod file;
+pub mod icons;
 pub mod input;
 mod jobs;
 pub mod layer;

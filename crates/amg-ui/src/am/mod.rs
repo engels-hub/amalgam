@@ -456,6 +456,7 @@ fn open_panel(cx: &mut AppCx<'_>) {
 /// One command of the module.
 struct Cmd {
     id: CmdId,
+    icon: crate::module::IconId,
     label: &'static str,
     tooltip: &'static str,
     keywords: &'static [&'static str],
@@ -469,6 +470,7 @@ fn commands() -> Vec<Cmd> {
     vec![
         Cmd {
             id: NEW_SETUP,
+            icon: crate::icons::ids::PLUS,
             label: "New Setup…",
             tooltip: "Create a print setup on a machine from the library or your machine folder",
             keywords: &[
@@ -486,6 +488,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: ADD_BODIES,
+            icon: crate::icons::ids::CUBE_PLUS,
             label: "Add Bodies",
             tooltip: "Add the selected mesh bodies to the active plate (no selection: choose them)",
             keywords: &["plate", "item", "print", "add"],
@@ -496,6 +499,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: REMOVE_ITEMS,
+            icon: crate::icons::ids::DELETE,
             label: "Remove from Plate",
             tooltip: "Remove the selected items from the active plate (the bodies stay in the design)",
             keywords: &["plate", "item", "delete", "remove"],
@@ -506,6 +510,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: PLACE_FACE_DOWN,
+            icon: crate::icons::ids::FACE_DOWN,
             label: "Place on Plate",
             tooltip: "Pick a face of an item; it is turned to lie face down on the plate",
             keywords: &["face down", "lay flat", "orient", "plate", "place"],
@@ -516,6 +521,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: DROP,
+            icon: crate::icons::ids::DROP,
             label: "Drop to Plate",
             tooltip: "Lower the selected items (or all) onto the plate",
             keywords: &["plate", "z", "lower", "drop"],
@@ -526,6 +532,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: MOVE_ROTATE,
+            icon: crate::icons::ids::MOVE_ROTATE,
             label: "Move/Rotate…",
             tooltip: "Move and rotate an item numerically (x, y, elevation, rotate Z, tilt)",
             keywords: &["move", "rotate", "translate", "position", "tilt", "angle"],
@@ -536,6 +543,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: CENTRE,
+            icon: crate::icons::ids::CENTRE,
             label: "Centre on Plate",
             tooltip: "Move the selected items (or all) to the centre of the bed",
             keywords: &["center", "centre", "middle", "plate"],
@@ -546,6 +554,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: OVERHANG_TOGGLE,
+            icon: crate::icons::ids::OVERHANG,
             label: "Overhang Analysis",
             tooltip: "Colour overhangs on the plate and show support estimates and islands",
             keywords: &["overhang", "support", "analysis", "islands"],
@@ -559,6 +568,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: OVERHANG_SETTINGS,
+            icon: crate::icons::ids::ADJUSTMENTS,
             label: "Overhang Settings…",
             tooltip: "Critical angle, contact tolerance and support-estimate resolution of the setup",
             keywords: &[
@@ -574,6 +584,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: AUTO_ORIENT,
+            icon: crate::icons::ids::AUTO_ORIENT,
             label: "Auto-Orient…",
             tooltip: "Find good build orientations (arrives with AM-04)",
             keywords: &["orientation", "optimise", "optimize", "orient"],
@@ -584,6 +595,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: ARRANGE,
+            icon: crate::icons::ids::ARRANGE,
             label: "Arrange…",
             tooltip: "Pack the items on the plates (arrives with AM-05)",
             keywords: &["arrange", "pack", "nest", "layout"],
@@ -594,6 +606,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: SEND_TO_SLICER,
+            icon: crate::icons::ids::PRINTER,
             label: "Send to Slicer",
             tooltip: "Write the active plate as 3MF and open it in the slicer (OrcaSlicer, Chitubox, …)",
             keywords: &[
@@ -606,6 +619,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: EXPORT_3MF,
+            icon: crate::icons::ids::EXPORT_PLATE,
             label: "Export Plate 3MF…",
             tooltip: "Write the active plate to a 3MF file",
             keywords: &["3mf", "export", "save", "plate"],
@@ -616,6 +630,7 @@ fn commands() -> Vec<Cmd> {
         },
         Cmd {
             id: SETTINGS,
+            icon: crate::icons::ids::SETTINGS,
             label: "Manufacture Settings…",
             tooltip: "Slicer path, hand-off folder and user machine folder",
             keywords: &[
@@ -665,6 +680,7 @@ pub fn register(r: &mut Registrar<'_>) {
     for (order, c) in (0i32..).zip(commands()) {
         r.command(
             CommandDef::new(c.id.0, c.label, c.action)
+                .with_icon(c.icon)
                 .with_tooltip(c.tooltip)
                 .with_keywords(c.keywords)
                 .with_enabler(c.enabler)

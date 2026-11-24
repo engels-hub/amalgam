@@ -24,6 +24,8 @@ amg-render.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
 egui_dock.workspace = true
+# UI-23: `svg` feature only (resvg rasterises the vendored icons).
+egui_extras.workspace = true
 inventory.workspace = true
 serde.workspace = true
 serde_json.workspace = true

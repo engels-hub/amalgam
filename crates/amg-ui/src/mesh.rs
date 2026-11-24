@@ -121,6 +121,7 @@ pub fn register(r: &mut Registrar<'_>) {
     for (order, op) in (0i32..).zip(MeshOp::ALL) {
         r.command(
             CommandDef::new(op.cmd().0, op.label(), CmdAction::StartTool(starter(op)))
+                .with_icon(op.icon())
                 .with_tooltip(op.tooltip())
                 .with_keywords(op.keywords())
                 .with_enabler(Enabler::When(has_mesh_body))
@@ -137,6 +138,7 @@ pub fn register(r: &mut Registrar<'_>) {
             "Mesh Analysis",
             CmdAction::Run(|cx| cx.open_panel(ANALYSIS_PANEL)),
         )
+        .with_icon(crate::icons::ids::ANALYSIS)
         .with_tooltip("Report and highlight holes, non-manifold, flipped and intersecting faces")
         .with_keywords(&["inspect", "defects", "check", "watertight", "manifold"])
         .placed(Placement::Toolbar {
