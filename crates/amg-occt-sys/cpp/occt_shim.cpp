@@ -72,7 +72,10 @@ namespace {
 
 // Pinned by FND-13 (vcpkg baseline 2026.10.16). Changing OCCT must be a deliberate edit here.
 constexpr char PINNED_VERSION[] = "8.0.1";
-constexpr char SHIM_VERSION[] = "3";
+// 4: BREP-05 (shared history recorder; complete histories of tapered and both-way infinite
+// prisms; new unify_op, sub_geoms, sub_index_map). Part of kernel_version, so cached results with
+// the old histories are invalidated.
+constexpr char SHIM_VERSION[] = "4";
 
 // Marks an edge end that has no vertex (infinite edges).
 constexpr std::uint32_t NO_VERTEX = 0xFFFFFFFFu;

@@ -188,6 +188,34 @@ pub(crate) fn section_roles(result: &Shape) -> Vec<(SubShape, OpRole)> {
         .collect()
 }
 
+/// `SplitPiece { index }` on every face of a split result: `index` is the position of the
+/// face's solid in the result's solid order ([`Shape::solids`], the order of
+/// [`crate::OpResult::per_solid`]). A face shared by two pieces (the cut face of a body split by
+/// a face) takes the lower index; faces outside any solid get none.
+pub(crate) fn split_roles(result: &Shape) -> KResult<Vec<(SubShape, OpRole)>> {
+    let mut piece: Vec<Option<u32>> = vec![None; result.count(SubKind::Face) as usize];
+    for (k, solid) in result.solids().iter().enumerate() {
+        let index = u32::try_from(k).unwrap_or(u32::MAX);
+        let [faces, _, _] = result.occ().sub_index_map(solid.occ())?;
+        for whole in faces.into_iter().flatten() {
+            if let Some(slot) = piece.get_mut(whole as usize) {
+                slot.get_or_insert(index);
+            }
+        }
+    }
+    Ok(piece
+        .into_iter()
+        .enumerate()
+        .filter_map(|(f, k)| {
+            let face = SubShape {
+                kind: SubKind::Face,
+                index: u32::try_from(f).ok()?,
+            };
+            Some((face, OpRole::SplitPiece { index: k? }))
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

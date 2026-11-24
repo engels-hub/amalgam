@@ -317,7 +317,11 @@ fn golden_primitives_match_the_analytic_values() {
     assert_measures("box", &block.shape, 6000.0, 2200.0);
     assert_eq!(counts(&block.shape), [6, 12, 8]);
     assert_eq!(block.shape.kind(), ShapeKind::Solid);
-    assert_eq!(block.history, Default::default());
+    // No input, so no relations; since BREP-05 every face carries a role (bottom StartCap, top
+    // EndCap, sides Lateral) for the completeness rule.
+    assert!(block.history.entries.is_empty());
+    assert_eq!(block.history.roles.len(), 6);
+    assert!(block.warnings.is_empty());
     // The corner sits at the frame origin and the far corner at size along the frame axes.
     let far =
         frame.origin + 10.0 * frame.x.get() + 20.0 * frame.y.get() + 30.0 * frame.normal.get();

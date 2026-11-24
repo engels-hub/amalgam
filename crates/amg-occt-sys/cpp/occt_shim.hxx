@@ -45,6 +45,8 @@ struct OcDistance;
 struct OcRayHit;
 struct OcSurfacePoint;
 struct OcEdgeEnds;
+struct OcSubGeom;
+struct OcSubMap;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -295,6 +297,20 @@ std::unique_ptr<OcShape> op_shape(const OcOp &op);
 
 // CATEGORY: R
 OcOpHistory op_history(const OcOp &op);
+
+// CATEGORY: C (ShapeUpgrade_UnifySameDomain, faces and edges, on a private BRepBuilderAPI_Copy;
+// the caller's TShapes are only read)
+std::unique_ptr<OcOp> unify_op(const OcShape &shape);
+
+// -- history and naming inputs (BREP-05), implemented in occt_naming.cpp --
+
+// CATEGORY: R (BRepGProp fixed-order quadrature, BRepAdaptor and BRepBndLib::AddOptimal without
+// triangulation; the sub-shapes are only read)
+rust::Vec<OcSubGeom> sub_geoms(const OcIndex &index, std::uint8_t kind,
+                               rust::Slice<const std::uint32_t> indices);
+
+// CATEGORY: R (index map lookups only)
+OcSubMap sub_index_map(const OcIndex &whole, const OcIndex &part);
 
 // -- booleans, split and section (BREP-04), implemented in occt_bool.cpp --
 

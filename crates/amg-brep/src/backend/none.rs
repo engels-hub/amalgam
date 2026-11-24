@@ -17,7 +17,7 @@ use crate::ops::{PrimitiveKind, PrismIn, RawHistory};
 use crate::query::{RawDistance, RawHit, RawMass, RawSurfacePoint};
 use crate::shape::{ShapeKind, SubKind};
 use crate::tess::{TessMesh, TessParams, TessProfile};
-use crate::{Classification, EdgeEnds};
+use crate::{Classification, EdgeEnds, SubShapeGeom};
 use amg_core::{Point2, Vec3};
 
 pub(crate) fn occt_version() -> String {
@@ -225,6 +225,18 @@ impl Occ {
 }
 
 impl Occ {
+    pub(crate) fn sub_geoms(&self, _kind: SubKind, _indices: &[u32]) -> KResult<Vec<SubShapeGeom>> {
+        match *self {}
+    }
+
+    pub(crate) fn sub_index_map(&self, _part: &Occ) -> KResult<[Vec<Option<u32>>; 3]> {
+        match *self {}
+    }
+
+    pub(crate) fn unify(&self) -> KResult<(Occ, RawHistory)> {
+        match *self {}
+    }
+
     pub(crate) fn mass_props(&self, _eps: f64) -> KResult<RawMass> {
         match *self {}
     }

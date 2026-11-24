@@ -217,6 +217,46 @@ fn single_plane(profile: &Shape) -> Option<Plane> {
     }
 }
 
+/// Roles of a primitive's faces (BREP-05 completeness: a primitive has no input, so every face
+/// needs a role). A primitive is read as a sweep along `frame.normal`: the planar face facing
+/// `-normal` is the `StartCap` (box bottom, cylinder and cone base), the one facing `+normal`
+/// the `EndCap` (box top, cylinder top, cone frustum top), every other face `Lateral` (box
+/// sides, cylinder and cone mantles and the cut faces of a partial sweep, sphere, torus).
+pub(crate) fn primitive_roles(shape: &Shape, frame: &Plane) -> Vec<(SubShape, OpRole)> {
+    const ALIGNED: f64 = 1.0 - 1e-9;
+    let axis = frame.normal.get();
+    shape
+        .faces()
+        .map(|f| {
+            let role = match shape.surface(f) {
+                Surface::Plane(p) => {
+                    // The surface normal is x × y; a reversed face points the other way.
+                    let mut n = p.x.get().cross(p.y.get());
+                    if shape.face_reversed(f) {
+                        n = -n;
+                    }
+                    let d = n.normalize_or_zero().dot(axis);
+                    if d >= ALIGNED {
+                        OpRole::EndCap
+                    } else if d <= -ALIGNED {
+                        OpRole::StartCap
+                    } else {
+                        OpRole::Lateral
+                    }
+                }
+                _ => OpRole::Lateral,
+            };
+            (
+                SubShape {
+                    kind: SubKind::Face,
+                    index: f.0,
+                },
+                role,
+            )
+        })
+        .collect()
+}
+
 /// Validates a prism and lowers it for the shim.
 pub(crate) fn lower_prism(
     profile: &Shape,

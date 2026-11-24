@@ -60,6 +60,13 @@ impl Occ {
         take(&op)
     }
 
+    /// `self` with coplanar faces and collinear edges merged (`ShapeUpgrade_UnifySameDomain`
+    /// on a copy, the options of `merge_coplanar`).
+    pub(crate) fn unify(&self) -> KResult<(Occ, RawHistory)> {
+        let op = ffi::unify_op(&self.shape).map_err(|e| to_kernel_error(&e))?;
+        take(&op)
+    }
+
     /// `self` mapped by an affine transform into new geometry.
     pub(crate) fn gtransformed(&self, t: &Transform) -> KResult<(Occ, RawHistory)> {
         let op =

@@ -6,8 +6,8 @@ use amg_brep::geom;
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, CheckOpts, CheckReport, Classification, DistanceResult, EdgeEnds,
     EdgeId, FaceBuild, FaceId, JobCtx, KResult, KernelError, Line3, MassProps, OpResult, Plane,
-    Point2, Point3, PrismExtent, PrismOpts, Ray3, RayHit, Shape, SurfacePoint, TessMesh,
-    TessQuality, Tolerance, Vec3,
+    Point2, Point3, PrismExtent, PrismOpts, Ray3, RayHit, Shape, SubShape, SubShapeGeom,
+    SurfacePoint, TessMesh, TessQuality, Tolerance, Vec3,
 };
 
 /// The injected "not done" failure.
@@ -166,5 +166,13 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
     }
     fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds> {
         self.inner.edge_ends(s, e)
+    }
+
+    fn sub_geom(&self, s: &Shape, sub: SubShape) -> KResult<SubShapeGeom> {
+        self.inner.sub_geom(s, sub)
+    }
+
+    fn sub_geom_all(&self, s: &Shape) -> KResult<[Vec<SubShapeGeom>; 3]> {
+        self.inner.sub_geom_all(s)
     }
 }

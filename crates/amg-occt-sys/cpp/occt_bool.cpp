@@ -10,6 +10,7 @@
 // from BRepAlgoAPI_BuilderAlgo's history, else `Deleted`. Failures carry the BOPAlgo alert names
 // and the operand sub-shapes the alerts name.
 
+#include "amg-occt-sys/cpp/occt_history.hxx"
 #include "amg-occt-sys/cpp/occt_shim.hxx"
 
 #include "amg-occt-sys/src/bridge.rs.h"
@@ -47,10 +48,7 @@ namespace amg::occt {
 
 namespace {
 
-constexpr std::uint8_t MODIFIED = 0;
-constexpr std::uint8_t GENERATED = 1;
-constexpr std::uint8_t DELETED = 2;
-constexpr std::uint8_t KEPT = 3;
+using namespace history;
 
 // Same bridge as SinkProgress in occt_shim.cpp (kept file-local there).
 class BoolProgress : public Message_ProgressIndicator {
@@ -66,114 +64,6 @@ public:
 private:
   const ProgressSink &sink_;
 };
-
-int kind_of(const TopoDS_Shape &s) {
-  switch (s.ShapeType()) {
-  case TopAbs_FACE:
-    return 0;
-  case TopAbs_EDGE:
-    return 1;
-  case TopAbs_VERTEX:
-    return 2;
-  default:
-    return -1;
-  }
-}
-
-// The face, edge and vertex maps of a shape, in amg-brep's index order.
-struct Maps {
-  ShapeMap m[3];
-  explicit Maps(const TopoDS_Shape &s) {
-    TopExp::MapShapes(s, TopAbs_FACE, m[0]);
-    TopExp::MapShapes(s, TopAbs_EDGE, m[1]);
-    TopExp::MapShapes(s, TopAbs_VERTEX, m[2]);
-  }
-};
-
-class Recorder {
-public:
-  Recorder(OcOp &op, const Maps &out) : op_(op), out_(out) {}
-
-  bool relation(std::uint16_t operand, int kind, int index, std::uint8_t relation,
-                const NCollection_List<TopoDS_Shape> &outputs) {
-    std::vector<std::pair<std::uint8_t, std::uint32_t>> found;
-    for (const TopoDS_Shape &o : outputs) {
-      const int k = kind_of(o);
-      if (k < 0) {
-        continue;
-      }
-      const int i = out_.m[k].FindIndex(o);
-      if (i == 0) {
-        continue;
-      }
-      const std::pair<std::uint8_t, std::uint32_t> key{static_cast<std::uint8_t>(k),
-                                                        static_cast<std::uint32_t>(i - 1)};
-      if (std::find(found.begin(), found.end(), key) == found.end()) {
-        found.push_back(key);
-      }
-    }
-    if (found.empty()) {
-      return false;
-    }
-    push(operand, kind, index, relation);
-    for (const auto &[k, i] : found) {
-      op_.out_kinds.push_back(k);
-      op_.out_indices.push_back(i);
-    }
-    close();
-    return true;
-  }
-
-  void kept(std::uint16_t operand, int kind, int index, int out_index) {
-    push(operand, kind, index, KEPT);
-    op_.out_kinds.push_back(static_cast<std::uint8_t>(kind));
-    op_.out_indices.push_back(static_cast<std::uint32_t>(out_index));
-    close();
-  }
-
-  void deleted(std::uint16_t operand, int kind, int index) {
-    push(operand, kind, index, DELETED);
-    close();
-  }
-
-private:
-  void push(std::uint16_t operand, int kind, int index, std::uint8_t relation) {
-    op_.in_operands.push_back(operand);
-    op_.in_kinds.push_back(static_cast<std::uint8_t>(kind));
-    op_.in_indices.push_back(static_cast<std::uint32_t>(index));
-    op_.relations.push_back(relation);
-  }
-
-  void close() { op_.out_starts.push_back(static_cast<std::uint32_t>(op_.out_kinds.size())); }
-
-  OcOp &op_;
-  const Maps &out_;
-};
-
-// The history of every operand through `algo` (whose result is `op.shape`).
-void record(OcOp &op, BRepAlgoAPI_BuilderAlgo &algo, const std::vector<TopoDS_Shape> &operands) {
-  const Maps out(op.shape);
-  Recorder rec(op, out);
-  for (std::size_t o = 0; o < operands.size(); ++o) {
-    const auto operand = static_cast<std::uint16_t>(o);
-    const Maps in(operands[o]);
-    for (int kind = 0; kind < 3; ++kind) {
-      for (int i = 1; i <= in.m[kind].Extent(); ++i) {
-        const TopoDS_Shape &s = in.m[kind](i);
-        const int same = out.m[kind].FindIndex(s);
-        if (same != 0) {
-          rec.kept(operand, kind, i - 1, same - 1);
-          continue;
-        }
-        const bool modified = rec.relation(operand, kind, i - 1, MODIFIED, algo.Modified(s));
-        const bool generated = rec.relation(operand, kind, i - 1, GENERATED, algo.Generated(s));
-        if (!modified && !generated) {
-          rec.deleted(operand, kind, i - 1);
-        }
-      }
-    }
-  }
-}
 
 // The operand sub-shapes (faces, edges, vertices) an alert names, at most `limit` in all.
 void offending_of(const TopoDS_Shape &shape, const std::vector<Maps> &inputs, OcOp &op,
@@ -370,7 +260,7 @@ std::unique_ptr<OcOp> boolean_op(std::uint8_t op_kind, const OcShapeList &object
     return op;
   }
   op->shape = algo->Shape();
-  record(*op, *algo, operands);
+  record_operands(*op, operands, source_of(*algo), {}, true);
   return op;
 }
 
@@ -402,7 +292,7 @@ std::unique_ptr<OcOp> section_op(const OcShape &a, const OcShape &b, bool parall
   // Faces generate the section edges that lie on them (HasAncestorFaceOn1/2); vertices and
   // edges of the operands that are in the result are kept.
   const Maps out(op->shape);
-  Recorder rec(*op, out);
+  Recorder rec(*op, out, true);
   for (std::size_t o = 0; o < operands.size(); ++o) {
     const auto operand = static_cast<std::uint16_t>(o);
     const Maps in(operands[o]);
@@ -430,7 +320,8 @@ std::unique_ptr<OcOp> section_op(const OcShape &a, const OcShape &b, bool parall
           }
           continue;
         }
-        rec.relation(operand, kind, i - 1, GENERATED, generated[static_cast<std::size_t>(i - 1)]);
+        rec.relation(operand, kind, i - 1, GENERATED,
+                     shapes_of(generated[static_cast<std::size_t>(i - 1)]));
       }
     }
   }

@@ -6,9 +6,10 @@
 //! normals, curvature signs, principal axes) in plain Rust, so they are unit-tested without
 //! OCCT.
 
-use amg_core::{Dir3, Mat3, Point2, Point3, Ray3, Tolerance, Vec3};
+use amg_core::{Aabb3, Dir3, Mat3, Point2, Point3, Ray3, Tolerance, Vec3};
 
 use crate::error::{KResult, KernelError};
+use crate::geom::GeomClass;
 use crate::shape::{EdgeId, FaceId, Shape, SubKind, SubShape};
 
 /// Relative error bound of the adaptive `BRepGProp` integration behind
@@ -538,6 +539,96 @@ pub(crate) fn edge_ends(s: &Shape, e: EdgeId) -> KResult<EdgeEnds> {
 pub(crate) fn tangent(d: Vec3) -> Option<Dir3> {
     let len = d.length();
     (len > 1e-300 && len.is_finite()).then(|| Dir3::new_unchecked(d / len))
+}
+
+/// Geometric fingerprint of one face, edge or vertex (S02 §3, BREP-05): the input of S01's
+/// `GeomFingerprint` and of the split order ([`crate::split_order_key`]).
+///
+/// Values come from one deterministic kernel build: fixed-order `BRepGProp` quadrature for
+/// `measure` and `centroid` (fast, and the same digits on every run; not the adaptive
+/// [`crate::BrepKernel::mass_props`] accuracy), and `BRepBndLib::AddOptimal` without the
+/// tolerances for `bbox`.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SubShapeGeom {
+    /// Surface class (faces), curve class (edges: `Line`, `Circle`, `Ellipse`, else `Curve`) or
+    /// `Point` (vertices); the same classes as [`crate::geom::Surface::class`].
+    pub class: GeomClass,
+    /// Face area mm², edge length mm, 0 for vertices and degenerated edges.
+    pub measure: f64,
+    /// Area- or length-weighted centre; a vertex's point; a degenerated edge's vertex.
+    pub centroid: Point3,
+    /// The outward normal of a plane face (flipped on a reversed face), the axis of a cylinder,
+    /// cone or torus face, the direction of a line edge, the normal of a circle or ellipse edge;
+    /// `None` otherwise (spheres, B-splines, other curves, vertices).
+    pub axis: Option<Vec3>,
+    /// Axis-aligned bounds, without the sub-shape's tolerance.
+    pub bbox: Aabb3,
+}
+
+/// Fingerprints of the sub-shapes `indices` of `kind`, in that order.
+pub(crate) fn sub_geoms(s: &Shape, kind: SubKind, indices: &[u32]) -> KResult<Vec<SubShapeGeom>> {
+    not_null("shape", s)?;
+    let n = s.count(kind);
+    if let Some(&bad) = indices.iter().find(|&&i| i >= n) {
+        return Err(KernelError::InvalidInput {
+            what: "sub",
+            reason: format!("{kind:?} {bad} is out of range ({n} in the shape)"),
+            offending: vec![SubShape { kind, index: bad }],
+        });
+    }
+    if indices.is_empty() {
+        return Ok(Vec::new());
+    }
+    s.occ().sub_geoms(kind, indices)
+}
+
+pub(crate) fn sub_geom(s: &Shape, sub: SubShape) -> KResult<SubShapeGeom> {
+    let mut one = sub_geoms(s, sub.kind, &[sub.index])?;
+    Ok(one.remove(0))
+}
+
+/// Sub-shapes per fingerprint call of `sub_geom_all`, per kind. A face costs 5–100 µs (its
+/// fixed-order `BRepGProp` integration grows with its edges: a cap with 1024 holes takes
+/// ~10 ms), an edge ~1.5 µs, a vertex ~0.2 µs; the FFI call itself ~1 µs.
+const GEOM_CHUNK: [usize; 3] = [4, 128, 512];
+
+/// Fingerprints of every sub-shape. The work is spread over the current rayon pool: faces in
+/// small groups, most edges first (so a face with many hole loops starts at once instead of
+/// ending a long chunk), edges and vertices in larger chunks. The values do not depend on the
+/// schedule.
+pub(crate) fn sub_geom_all(s: &Shape) -> KResult<[Vec<SubShapeGeom>; 3]> {
+    use rayon::prelude::*;
+    not_null("shape", s)?;
+    let kinds = [SubKind::Face, SubKind::Edge, SubKind::Vertex];
+    let mut faces: Vec<u32> = (0..s.count(SubKind::Face)).collect();
+    faces.sort_by_key(|&f| std::cmp::Reverse(s.face_edges(FaceId(f)).len()));
+    let lists = [
+        faces,
+        (0..s.count(SubKind::Edge)).collect(),
+        (0..s.count(SubKind::Vertex)).collect::<Vec<u32>>(),
+    ];
+    let tasks: Vec<(usize, &[u32])> = lists
+        .iter()
+        .enumerate()
+        .flat_map(|(k, list)| list.chunks(GEOM_CHUNK[k]).map(move |c| (k, c)))
+        .collect();
+    let parts: Vec<KResult<Vec<SubShapeGeom>>> = tasks
+        .par_iter()
+        .with_max_len(1)
+        .map(|(k, indices)| s.occ().sub_geoms(kinds[*k], indices))
+        .collect();
+    let mut slots: [Vec<Option<SubShapeGeom>>; 3] =
+        std::array::from_fn(|k| vec![None; lists[k].len()]);
+    for ((k, indices), part) in tasks.iter().zip(parts) {
+        for (&i, g) in indices.iter().zip(part?) {
+            slots[*k][i as usize] = Some(g);
+        }
+    }
+    let mut out: [Vec<SubShapeGeom>; 3] = Default::default();
+    for (k, slot) in slots.into_iter().enumerate() {
+        out[k] = slot.into_iter().flatten().collect();
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

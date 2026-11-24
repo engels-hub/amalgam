@@ -645,9 +645,18 @@ impl ShapeHistory {
     pub fn tag_of(&self, o: SubShape) -> Option<geom::Tag>;
     /// Compose `self` (A→B) with `next` (B→C) where B is `next`'s operand 0 (S20 request R8).
     pub fn compose(&self, next: &ShapeHistory) -> ShapeHistory;
+    /// BREP-05: sort multi-output lists into the split order of `result` (the one place it is applied).
+    pub fn order_splits(&mut self, result: &Shape) -> KResult<()>;
+    pub fn unexplained_faces(&self, face_count: u32) -> Vec<FaceId>;   // completeness check
+    pub fn range_error(&self, output_counts: [u32; 3]) -> Option<String>;
 }
+/// BREP-05 split-order key (naming note §4.3, Q5): (−q(measure), q(cx), q(cy), q(cz), index), q = round(x / 1e-6).
+pub const SPLIT_QUANTUM: f64 = 1e-6;
+pub type SplitKey = (i64, i64, i64, i64, u32);
+pub fn split_order_key(g: &SubShapeGeom, index: u32) -> SplitKey;
 #[derive(Clone, Debug)]
 pub struct OpResult { pub shape: Shape, pub history: ShapeHistory, pub warnings: Vec<KernelWarning> }
+impl OpResult { pub fn per_solid(&self) -> KResult<Vec<OpResult>>; }   // R-S04-2 (BREP-05)
 #[derive(Clone, Debug, PartialEq)]
 pub enum KernelWarning { Healed { fixes: u32 }, ToleranceGrown { max: f64 }, FuzzyUsed(f64), PartialHistory }
 
@@ -884,7 +893,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-03 | Face and wire builders: `make_planar_faces` (from `PlanarProfile` with tags + loop validation), `make_planar_polygon`, `make_face` (analytic + B-spline surfaces; `Natural`/`UvRect`/`Loops`/`Polylines` bounds), `make_wire` | BREP-12 | P0 | Done | 1. A profile with all 5 `Curve2d` kinds (line, circle hole, arc, ellipse arc, rational B-spline) gives a valid face whose area matches the analytic area within 1e-9 relative. Every edge has its input tag. 2. An open loop gives `OpenLoop` with the right loop/edge index. A hole outside the outer loop gives `InvalidInput`. 3. A 1000-vertex polygon with 10 holes builds in < 20 ms. A non-planar input gives `NotPlanar`. 4. `make_face` on cylinder/cone/sphere/torus with `Polylines` bounds taken from a tessellated reference face reproduces the face area within 0.1 %. A 5×5 B-spline patch with `Natural` bounds is valid. 5. 1000 random valid profiles (proptest) never crash and always give valid faces or a clean `Err`. |
 | BREP-14 | Primitives (box, cylinder, cone, sphere, torus) on a `Plane` frame; `prism` (vector, infinite, taper, `merge_coplanar`); `revol`; `gtransformed` | BREP-03 | P0 | Done | 1. Golden volume/area/topology counts for each primitive, for prism of 5 profile types and for revol (90°, 360°) within 1e-9 relative (`tests/golden/brep/`). 2. A tapered prism of a square at 5° matches the analytic frustum volume within 1e-9. 3. Results are BRepCheck-valid. 4. Prism and revol run in the stress test. |
 | BREP-04 | Booleans: `boolean` (fuse/cut/common, N objects × M tools), `split`, `section`; non-destructive always on; fuzzy/glue/OBB/check-inverted; progress + cancel; parallel-mode determinism test and `occt_threads` benchmark | BREP-14 | P0 | Done | 1. A 100-case boolean corpus (`testdata/brep/bool/`: primitives, coplanar, tangent, fuzzy-needed cases from OCCT/FreeCAD trackers) gives valid results, with volumes within 1e-6 relative of reference values (or the expected `Err`). 2. Proptest: 500 random primitive pairs give `Ok(valid)` or a clean `Err`, never a crash. 3. Inputs' BinTools hashes are unchanged after every op. 4. Determinism: 20 cases × 10 runs with parallel on are byte-identical, or parallel defaults off and the Refinement log says so. 5. Criterion: a cut of two 1000-face parts, timed with 1 / half / all OCCT threads; the default is set from the result. 6. Cancelling a long boolean returns `Cancelled` within 200 ms. |
-| BREP-05 | History framework: `ShapeHistory` (entries, `Kept`, roles, tags, `sources_of`, `compose`), extraction from `BRepBuilderAPI_MakeShape`/`BRepTools_History`/op accessors, composition of internal steps, deterministic split order, `sub_geom`/`sub_geom_all` fingerprints; applied to BREP-03/14/04 ops | BREP-04 | P0 | Todo | 1. Completeness test: for every op in the BREP-03/14/04 corpora, every output face is Modified/Generated/Kept from some input or has a role, and no output index is out of range. 2. Prism of a tagged profile: each lateral face's `sources_of` is the generating edge, which carries the profile tag; caps have `StartCap`/`EndCap`. 3. Box cut by a cylinder through one face: the split face has 2 `Modified` outputs, in area-desc order, stable across 10 runs. 4. `compose` of prism + unify equals the history observed end-to-end on 5 cases. 5. `ShapeHistory` serde round-trips. 6. `sub_geom_all` on a 1000-face part takes < 20 ms. Usable by DOC-06 tests (box, prism, boolean cut). |
+| BREP-05 | History framework: `ShapeHistory` (entries, `Kept`, roles, tags, `sources_of`, `compose`), extraction from `BRepBuilderAPI_MakeShape`/`BRepTools_History`/op accessors, composition of internal steps, deterministic split order, `sub_geom`/`sub_geom_all` fingerprints; applied to BREP-03/14/04 ops | BREP-04 | P0 | Review | 1. Completeness test: for every op in the BREP-03/14/04 corpora, every output face is Modified/Generated/Kept from some input or has a role, and no output index is out of range. 2. Prism of a tagged profile: each lateral face's `sources_of` is the generating edge, which carries the profile tag; caps have `StartCap`/`EndCap`. 3. Box cut by a cylinder through one face: the split face has 2 `Modified` outputs, in area-desc order, stable across 10 runs. 4. `compose` of prism + unify equals the history observed end-to-end on 5 cases. 5. `ShapeHistory` serde round-trips. 6. `sub_geom_all` on a 1000-face part takes < 20 ms. Usable by DOC-06 tests (box, prism, boolean cut). |
 | BREP-06 | Fillet (constant, variable, chord) and chamfer (equal, two-dist, dist-angle) with history (`FilletBlend`, `ChamferFace`) and `LocalOpFailed { offending }`; `fillet_max_radius` | BREP-05 | P0 | Todo | 1. Golden volumes for 20 fillet/chamfer cases (cube edge, edge chains, vertex blends of 3 edges) within 1e-6 relative. 2. A radius larger than the adjacent face fails with `offending` naming the failing edge(s), checked against the expected edge ids. 3. `fillet_max_radius` on 5 cases is within 1 % of the reference largest workable radius. 4. History: each blend face maps to its source edge. 5. 10 runs are byte-identical. 6. The op is in the stress test. |
 | BREP-07 | Shell / thick solid (removed faces, per-face thickness, join arc/intersection), `offset`, `thicken` with roles `ShellInner`/`OffsetFace` | BREP-05 | P0 | Todo | 1. Golden volumes: shelled box (1 face removed, 1 mm) equals the analytic volume within 1e-9 relative. Shelled cylinder, filleted box (arc join) and thickened B-spline face (0.5 %) pass. 2. Inward/outward offset of a sphere: radius within 1e-9. 3. A thickness exceeding the minimum radius gives `LocalOpFailed` with offending faces. 4. History roles are correct on 5 cases. |
 | BREP-16 | Draft, defeature (delete face), replace face, split faces by tool, split body (via `split`) with history | BREP-05 | P0 | Todo | 1. Draft of 4 box side faces at 3° about the bottom plane: the measured face angles are 3° ± 1e-9 rad and the volume is analytic. 2. Deleting a fillet face and a boss face gives the pre-feature volume within 1e-6. 3. Replacing a top face with an offset plane changes the height exactly. 4. Splitting a face by a sketch wire gives 2 faces with the right areas. 5. Every result is BRepCheck-valid with complete history. |
@@ -1880,6 +1889,176 @@ On the cylinder: `mass_props` 1.8 ms, closest point 82 µs, ray cast 16 µs, cyl
 - `ray_cast` intersects every face. A bbox or BVH prefilter would help large parts (34 ms on the
   plate).
 
+### 2026-11-25 - BREP-05 history framework
+**Landed.**
+- `amg-brep`, module `history`:
+  - `ShapeHistory::compose(&self, next)` (S20 R8). Relations chain per output: `Kept` then `Kept`
+    is `Kept`; `Modified` or `Kept` followed by `Modified` or `Kept` is `Modified`; anything
+    involving `Generated` is `Generated`. An input with no image left becomes one `Deleted`
+    entry, and a B sub-shape with no entry in `next` counts as deleted. `next`'s operands 1..
+    are appended after `self`'s, and so are their `operand_counts`. Roles and tags of `self`
+    carry through `Modified`/`Kept` (not `Generated`), and `next`'s win. Output lists come out in
+    index order.
+  - `ShapeHistory::order_splits(&mut self, &Shape)`: the one place the split order is applied.
+    It sorts every `Modified`/`Generated` list that has several outputs of one kind, by kind
+    and then by `split_order_key`. The key is `(−q(measure), q(cx), q(cy), q(cz), index)` with
+    `q(x) = round(x / 1e-6)` (naming note §4.3 and request Q5; `SPLIT_QUANTUM`, `SplitKey`
+    exported for DOC-06's `Bound` order). Fingerprints are computed only for the outputs it
+    sorts.
+  - `ShapeHistory::unexplained_faces(face_count)` and `range_error(output_counts)` for the
+    contract checks.
+  - `OpResult::per_solid()` (R-S04-2, naming note Q3): one result per solid in `Shape::solids`
+    order. Each history is restricted and reindexed by composing with a `Kept` map of the solid
+    (`sub_index_map`), and the split order is applied again.
+  - Crate-internal `finish`, run on every op result: the split order, then the completeness
+    rule. A face with no source and no role gets `OpRole::Unexplained`, and the result gets
+    `KernelWarning::PartialHistory` (naming note Q4).
+- Applied to the BREP-03/14/04 ops:
+  - Primitives now carry roles, read as sweeps along `frame.normal` (`ops::primitive_roles`):
+    the planar face facing −normal is `StartCap`, the one facing +normal is `EndCap`, every
+    other face is `Lateral`. Before, they had an empty history.
+  - prism, revol, `gtransformed`/`mirrored`, boolean, split and section go through `finish`.
+    `split` labels every face `SplitPiece { index }`, where `index` is the face's solid in
+    `Shape::solids` order; a face shared by two pieces takes the lower index.
+  - `make_wire` keeps tags only (a wire has no faces and no input).
+  - Hidden `OcctKernel::unify_coplanar(s)`: the `merge_coplanar` step as an op of its own, with
+    history from `s`, for Done-when 4. BREP-10 owns the public `unify_same_domain` with options.
+- `amg-brep`, module `query`: `SubShapeGeom { class, measure, centroid, axis, bbox }` and
+  `BrepKernel::{sub_geom, sub_geom_all}`. Forwarding arms were added to `RecordingKernel`,
+  `api_contract.rs` and `tests/common/fault.rs`. `axis` is the outward normal of a plane face
+  (flipped on a reversed face), the axis of a cylinder, cone or torus, the direction of a line,
+  or the normal of a circle or ellipse; it is `None` otherwise. `sub_geom_all` spreads the work
+  over the current rayon pool: faces in groups of 4, those with the most edges first; edges in
+  chunks of 128; vertices in chunks of 512.
+- `amg-occt-sys`:
+  - New `cpp/occt_history.hxx`, the shared extraction framework:
+    - `Recorder` (operand-aware, `Kept`, roles, optional vertex match for revol's canonised
+      faces), `Maps`, `Step`, `through`;
+    - `history_step` (a `BRepTools_History` step) and `modified_step` (a
+      `BRepBuilderAPI_MakeShape` step);
+    - `Source` / `source_of(MakeShape | BRepTools_History)`;
+    - `record_operands`: `Kept`, else `Modified`/`Generated` through the internal steps, else
+      `Deleted`.
+
+    `occt_ops.cpp` and `occt_bool.cpp` use it; their two copies of the recorder are gone.
+  - `unify_op` (**C**: `ShapeUpgrade_UnifySameDomain` on a private `BRepBuilderAPI_Copy`,
+    whose map is the first step).
+  - New `cpp/occt_naming.cpp` with `sub_geoms` and `sub_index_map` (R), and the bridge structs
+    `OcSubGeom` and `OcSubMap`.
+  - `SHIM_VERSION` 3 → 4, because the op histories changed (it is part of `kernel_version`, so
+    cached results are invalidated).
+- Tests:
+  - `tests/history.rs`: 12 tests.
+  - `tests/common/history.rs`: `completeness_error`. Later op WPs add their op to
+    `every_output_face_has_a_source_or_a_role` with it.
+  - `tests/common/bool_corpus.rs`: the BREP-04 corpus loader, moved out of `tests/boolean.rs`,
+    which now uses it.
+  - 6 new unit tests in `src/history.rs` (`compose` rules, identity, split key, ranges, serde).
+- Bench: `benches/history.rs` (`budget/brep-sub-geom-all-1000`, plus `sub-geom-one-face`,
+  `compose-prism-unify`, `order-splits-cut` and `per-solid-cut`).
+
+**Done-when status.** With `--features occt`, `cargo nextest run -p amg-occt-sys -p amg-brep`
+passes 267 tests (1 skipped: BREP-04's ignored timing run). Without the feature, 94 pass.
+`cargo clippy -p amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is clean,
+also without `--all-features`. `cargo build -p amg-brep --no-default-features` builds, and so do
+the dependents of `amg-brep` (`amg-doc`, `amg-features`, `amg-subd`, `amg-io/brep`).
+1. Met (`every_output_face_has_a_source_or_a_role`). The corpus has 31 BREP-03/14 results and
+   131 BREP-04 results, with 1054 output faces in all:
+   - BREP-03/14: wires; 9 primitives; prisms of a square, a disc, a holed square, an ellipse
+     (tilted), a wire, a slot, an oblique vector, `merge_coplanar`, three tapers, semi-infinite
+     and infinite both ways; 4 revols; 2 `gtransformed`; `mirrored`.
+   - BREP-04: every non-error case of the 136-case corpus.
+
+   Every face is `Modified`/`Generated`/`Kept` from an input or has a role. Every index is in
+   range, operand counts match, and no result has `Unexplained` or `PartialHistory`. Face-build
+   tags are in range.
+   **Finding, fixed in the shim:** BREP-14 left side faces without a source in two cases:
+   - Tapered prisms (4 side faces of a square, the cone face of a disc):
+     `BRepOffsetAPI_DraftAngle::Modified` does not list the tilted faces. The step now falls back
+     to `ModifiedShape`.
+   - Prisms infinite both ways (4 side faces): `BRepPrimAPI_MakePrism::Generated` is empty when
+     the generating shape is not used. The record now falls back to `BRepSweep_Prism::Shape`.
+2. Met (`prism_laterals_come_from_tagged_profile_edges`). The profile is an L-shape with a
+   two-arc hole on a tilted plane: 8 tagged edges. Each of the 8 lateral faces has exactly one
+   source, `Generated` from one profile edge of operand 0. Their tags are the 8 profile tags,
+   each once. There is one `StartCap` (`Modified` from the face) and one `EndCap` (`Generated`
+   from it).
+3. Met (`a_split_face_lists_its_pieces_by_area_descending_every_run`). A 10 mm cube is cut by a
+   cylinder (r 1) along X at y = 3 on its top face. The top face is `Modified` into
+   [60 mm², 20 mm²] (within 1e-9), and it also `Generates` the section edges on it. Over 10 runs
+   in one process, the BinTools bytes, the whole history (`Debug`) and the piece order are
+   identical.
+4. Met (`compose_of_prism_and_unify_equals_the_end_to_end_history`). For each of 5 profiles:
+   prism, then `unify_coplanar`, composed and `order_splits`, equals the history of a prism with
+   `merge_coplanar` exactly (`PartialEq`). The profiles and their merges:
+   - a square with a split side: 7 → 6 faces;
+   - an L-shape with two splits: 10 → 8;
+   - a rectangle with every side split: 10 → 6;
+   - a split side plus a two-arc hole: 9 → 7;
+   - a slot with a split arc: 7 → 6.
+
+   The two result shapes have equal `sub_geom_all` in index order. Their BinTools bytes differ,
+   since the stand-alone unify runs on a copy.
+5. Met (`histories_round_trip_through_serde`, plus unit tests). 33 histories (every corpus op,
+   the cut, a tagged wire) round-trip through compact and pretty JSON, including multi-operand
+   histories and histories with tags.
+6. Met. `budget/brep-sub-geom-all-1000` (release, criterion) on the perforated plate
+   (1030 faces, 3084 edges, 2056 vertices) takes **4.16 ms** median. An earlier run at 83 %
+   machine load took 5.86 ms, and with `RAYON_NUM_THREADS=1` it takes **14.4 ms**. The test
+   profile takes 22 ms; the assertion runs only with `AMG_STRICT_TIMING=1`. One hole-wall face
+   takes 9.3 µs.
+
+**Findings and deviations.**
+- **Fingerprints do not use `BRepGProp`'s fixed-order integration on analytic faces.**
+  - It cost 85 µs per hole-wall face (110 ms of CPU for the plate). `AddOptimal` boxes cost
+    another 39 ms for a cap with 1024 holes. The first version took 24.6 ms in release.
+  - `sub_geom` now integrates area and centroid itself on plane, cylinder, cone, sphere and
+    torus faces. It uses Green's theorem in (u, v) with 8-point Gauss–Legendre along each
+    pcurve (one rule per line, per quarter circle or ellipse, per eighth of a span otherwise)
+    and along v off planes; iso-u lines are skipped. B-spline and other surfaces fall back to
+    fixed-order `BRepGProp`.
+  - Boxes come from `BRepBndLib::Add` without the tolerance gap. They are exact on lines,
+    circles, planar and analytic faces; B-splines get the pole hull.
+  - Checked against the adaptive `mass_props` of each face over 1445 faces of 76 shapes
+    (`face_fingerprints_match_adaptive_integration`):
+    - Analytic faces: area within **1.0e-6** relative and centroid within 3.5e-7 of the face
+      size. The worst case is a fuzzy-glued fuse face whose pcurves sit within its 1e-5 mm gap.
+    - B-spline fallback: 3.5e-3 / 9.2e-5 on the `gtransformed` ellipsoid. This is the same
+      fixed-order misread as `Shape::face_area` (BREP-14), but deterministic, which is what
+      fingerprints need.
+- The split order applies to `Generated` lists as well as `Modified` ones (the spec named
+  `Modified`), whenever one list has several outputs of one kind: the section edges on a face,
+  or one edge sweeping several faces. Mixed-kind lists are sorted by kind first.
+- **Primitive histories are no longer empty** (they carry roles). BREP-14's
+  `golden_primitives_match_the_analytic_values` asserted `history == default`; it now asserts
+  no entries, 6 roles and no warnings. This is the one changed assertion in an existing test.
+- `per_solid`: an input whose outputs are all in other solids is `Deleted` in that piece, so
+  DOC-06 should not record a tombstone from a piece view alone. `SplitPiece` indices follow
+  `Shape::solids`, not the naming note's `PieceSlot`.
+- `compose` gives output lists in index order. The kernel's own histories are always in split
+  order, because `finish` runs on each of them.
+- `capture::SubShapeGeom` (KH-01's own fingerprint: bbox centre, no axis) is unchanged.
+  Replacing it with this type would change the failure-dump format, so S20 decides.
+- `cargo check --workspace` fails in this worktree in `amg-manifold-sys`: Manifold is not
+  installed here, and `amg-app` enables it by default since 44a7852. This is unrelated to
+  BREP-05, so the dependents of `amg-brep` were checked instead.
+
+**For DOC-06.** Fixtures to build on, all in `tests/history.rs`:
+- `make_box`: roles only;
+- the tagged L-shape prism (lateral → edge → tag);
+- `grooved_cube` (a cut with a split face in area order);
+- the bar cut into two lumps (`per_solid`);
+- the cube split by a face (`SplitPiece`).
+
+The key helpers are `split_order_key`, `ShapeHistory::compose` and `order_splits`, and
+`sub_geom`/`sub_geom_all`.
+
+**Leftovers.**
+- A Gauss–Green path for B-spline faces (split at knot spans) to remove the 3.5e-3 fallback
+  error.
+- S20: move `capture::SubShapeGeom` to the S02 type.
+- Every later op WP adds its op to the completeness test (`completeness_error`).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2062,3 +2241,29 @@ All additive:
   type like `Line3`.
 - New criterion bench `benches/query.rs` (`[[bench]]` in `amg-brep/Cargo.toml`). No new
   dependency, no goldens.
+
+### 2026-11-25: additions and changed contracts from BREP-05 (lane A)
+Every change is inside lane A's crates. No other lane's files changed.
+- `amg-brep`, additive:
+  - `SubShapeGeom`, `SplitKey`, `SPLIT_QUANTUM` and `split_order_key`;
+  - `ShapeHistory::{compose, order_splits, unexplained_faces, range_error}` and
+    `OpResult::per_solid` (R-S04-2);
+  - `BrepKernel::{sub_geom, sub_geom_all}`, which every `BrepKernel` implementor must add (the
+    in-crate decorators forward them);
+  - the hidden `OcctKernel::unify_coplanar`.
+- `amg-brep`, changed contracts:
+  - Primitive results carry face roles (`StartCap`/`EndCap`/`Lateral`).
+  - Every op history is in split order, and a face without a source or role gets `Unexplained`
+    plus `KernelWarning::PartialHistory`.
+  - `split` labels faces `SplitPiece { index }`.
+  - `kernel_version()` changes (shim 3 → 4).
+- `amg-occt-sys`: new `cpp/occt_history.hxx` and `cpp/occt_naming.cpp` (in `build.rs`);
+  `unify_op`, `sub_geoms` and `sub_index_map`; `OcSubGeom` and `OcSubMap`. The prism history
+  is complete for tapered and both-way infinite prisms.
+- **For S01 (DOC-06):** `NamingBuilder` can rely on the completeness rule and on the split order
+  (Q4, Q5). `per_solid` is the per-body view for multi-lump results (Q3). The fixtures are listed
+  in the BREP-05 Refinement-log entry. The several-operand `from_history` request (§6) stays
+  S01's.
+- **For S20:** `compose` is available (R8). `capture::SubShapeGeom` may move to the S02
+  `SubShapeGeom`; that would change the dump format.
+- No new dependency. New bench `benches/history.rs` (`[[bench]]` in `amg-brep/Cargo.toml`).

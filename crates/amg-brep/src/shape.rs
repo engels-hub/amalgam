@@ -396,11 +396,12 @@ impl Shape {
     pub fn gtransformed(&self, t: &Transform) -> KResult<crate::OpResult> {
         crate::ops::check_affine(t)?;
         let (occ, raw) = self.occ().gtransformed(t)?;
-        Ok(crate::OpResult {
-            history: crate::ops::history(&raw, crate::ops::counts(self)),
-            shape: Shape::from_occ(occ),
-            warnings: Vec::new(),
-        })
+        let history = crate::ops::history(&raw, crate::ops::counts(self));
+        Ok(crate::kernel::finished(
+            Shape::from_occ(occ),
+            history,
+            Vec::new(),
+        ))
     }
 
     /// Writes the binary form: `AMGB`, [`FORMAT_VERSION`], then `BinTools` data. Bit-exact, and
