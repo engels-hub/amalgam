@@ -245,6 +245,31 @@ pub mod ffi {
         roles: Vec<u8>,
     }
 
+    /// One sub-shape's fingerprint (BREP-05). `geom_class` is amg-brep's `GeomClass` in
+    /// declaration order (0 plane … 11 point). `measure`: face area, edge length, 0 for a vertex;
+    /// `centroid` area/length weighted (fixed-order `BRepGProp`); `axis` (when `has_axis`): the
+    /// outward normal of a plane face, the axis of a cylinder, cone or torus, the direction of a
+    /// line, the normal of a circle or ellipse; `bmin`/`bmax`: `BRepBndLib::AddOptimal` box.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcSubGeom {
+        geom_class: u8,
+        measure: f64,
+        centroid: V3,
+        has_axis: bool,
+        axis: V3,
+        bmin: V3,
+        bmax: V3,
+    }
+
+    /// For each face, edge and vertex of a part (in its own index order), its index in the whole
+    /// shape, `u32::MAX` when it is not there (BREP-05 `OpResult::per_solid`).
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    struct OcSubMap {
+        faces: Vec<u32>,
+        edges: Vec<u32>,
+        vertices: Vec<u32>,
+    }
+
     /// Boolean options (BREP-04). `glue`: 0 off, 1 shift, 2 full. Non-destructive is always on.
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
     struct OcBoolOpts {
@@ -521,6 +546,18 @@ pub mod ffi {
         fn shape_gtransformed(shape: &OcShape, m: &OcMat34) -> Result<UniquePtr<OcOp>>;
         fn op_shape(op: &OcOp) -> Result<UniquePtr<OcShape>>;
         fn op_history(op: &OcOp) -> Result<OcOpHistory>;
+        /// `ShapeUpgrade_UnifySameDomain` (faces and edges, no B-spline concatenation: the
+        /// options of `prism`'s `merge_coplanar`) on a private copy of `shape`, with the history
+        /// from `shape`.
+        fn unify_op(shape: &OcShape) -> Result<UniquePtr<OcOp>>;
+
+        // -- history and naming inputs (BREP-05), implemented in occt_naming.cpp --
+
+        /// Fingerprints of the sub-shapes `indices` of `kind` (0 face, 1 edge, 2 vertex).
+        fn sub_geoms(index: &OcIndex, kind: u8, indices: &[u32]) -> Result<Vec<OcSubGeom>>;
+        /// Where each sub-shape of `part` (a sub-shape of `whole`, e.g. one of its solids) is in
+        /// `whole`'s index.
+        fn sub_index_map(whole: &OcIndex, part: &OcIndex) -> Result<OcSubMap>;
 
         // -- booleans, split and section (BREP-04), implemented in occt_bool.cpp --
 

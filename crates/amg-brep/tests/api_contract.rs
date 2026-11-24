@@ -19,8 +19,8 @@ use amg_brep::{
     DistanceResult, DraftOpts, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletShape,
     FilletSpec, Glue, HealOpts, HelixSpec, JobCtx, KResult, KernelConfig, LoftSection, MassProps,
     OcctKernel, OffsetJoin, OpResult, PipeMode, PipeOpts, PrismExtent, PrismOpts, RayHit, SewOpts,
-    Shape, ShapeHistory, ShapeKind, ShellOpts, SubKind, SubShape, SurfacePoint, TessMesh,
-    TessQuality, ThruSectionsOpts, Tolerance, Transition, UnifyOpts, VertexId,
+    Shape, ShapeHistory, ShapeKind, ShellOpts, SubKind, SubShape, SubShapeGeom, SurfacePoint,
+    TessMesh, TessQuality, ThruSectionsOpts, Tolerance, Transition, UnifyOpts, VertexId,
 };
 use amg_core::{Dir3, Line3, Plane, Point2, Point3, Ray3, Transform, Vec2, Vec3};
 use serde::Serialize;
@@ -502,6 +502,16 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
     fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.edge_ends(s, e)
+    }
+
+    fn sub_geom(&self, s: &Shape, sub: SubShape) -> KResult<SubShapeGeom> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.sub_geom(s, sub)
+    }
+
+    fn sub_geom_all(&self, s: &Shape) -> KResult<[Vec<SubShapeGeom>; 3]> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.sub_geom_all(s)
     }
 }
 

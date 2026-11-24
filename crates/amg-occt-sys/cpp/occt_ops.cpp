@@ -8,6 +8,7 @@
 // a private BRepBuilderAPI_Copy of the profile (category C), because BRepSweep stores pcurves of
 // the lateral faces on the base edges it sweeps; the copy's history is composed in.
 
+#include "amg-occt-sys/cpp/occt_history.hxx"
 #include "amg-occt-sys/cpp/occt_shim.hxx"
 
 #include "amg-occt-sys/src/bridge.rs.h"
@@ -32,6 +33,7 @@
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
+#include <BRepSweep_Prism.hxx>
 #include <BRepSweep_Revol.hxx>
 #include <BRepTools_History.hxx>
 #include <GeomAbs_SurfaceType.hxx>
@@ -56,22 +58,12 @@ namespace amg::occt {
 
 namespace {
 
-constexpr std::uint8_t MODIFIED = 0;
-constexpr std::uint8_t GENERATED = 1;
-constexpr std::uint8_t DELETED = 2;
-
-constexpr std::uint8_t START_CAP = 0;
-constexpr std::uint8_t END_CAP = 1;
-constexpr std::uint8_t LATERAL = 2;
+using namespace history;
 
 // `BRepOffsetAPI_DraftAngle` tilts a face by +angle towards the pull direction's side of its
 // outward normal; amg-brep's positive taper grows the profile along the sweep, which leans the
 // side faces outward, so the draft angle is the negated taper.
 constexpr double DRAFT_SIGN = -1.0;
-
-using Shapes = std::vector<TopoDS_Shape>;
-// One step of an op: where a shape of the previous step's result went.
-using Step = std::function<Shapes(const TopoDS_Shape &)>;
 
 [[noreturn]] void fail(const std::string &message) {
   throw Standard_ConstructionError(message.c_str());
@@ -81,14 +73,6 @@ gp_Pnt pnt(const V3 &v) { return gp_Pnt(v.x, v.y, v.z); }
 gp_Dir dir(const V3 &v) { return gp_Dir(v.x, v.y, v.z); }
 gp_Vec vec(const V3 &v) { return gp_Vec(v.x, v.y, v.z); }
 gp_Ax2 ax2(const OcFrame &f) { return gp_Ax2(pnt(f.origin), dir(f.normal), dir(f.x)); }
-
-Shapes shapes_of(const NCollection_List<TopoDS_Shape> &list) {
-  Shapes out;
-  for (const TopoDS_Shape &s : list) {
-    out.push_back(s);
-  }
-  return out;
-}
 
 // A sweep accessor that may raise or return null for a sub-shape without that image (a
 // semi-infinite prism has no last shape).
@@ -103,163 +87,6 @@ template <typename F> Shapes guarded(F &&f) {
   return {};
 }
 
-// 0 face, 1 edge, 2 vertex; -1 for every other kind.
-int kind_of(const TopoDS_Shape &s) {
-  switch (s.ShapeType()) {
-  case TopAbs_FACE:
-    return 0;
-  case TopAbs_EDGE:
-    return 1;
-  case TopAbs_VERTEX:
-    return 2;
-  default:
-    return -1;
-  }
-}
-
-// The face, edge and vertex maps of a shape, in amg-brep's index order.
-struct Maps {
-  ShapeMap m[3];
-  explicit Maps(const TopoDS_Shape &s) {
-    TopExp::MapShapes(s, TopAbs_FACE, m[0]);
-    TopExp::MapShapes(s, TopAbs_EDGE, m[1]);
-    TopExp::MapShapes(s, TopAbs_VERTEX, m[2]);
-  }
-};
-
-// Shapes after the later steps of an op (draft, unify), in order.
-Shapes through(const std::vector<Step> &steps, Shapes shapes) {
-  for (const Step &step : steps) {
-    Shapes next;
-    for (const TopoDS_Shape &s : shapes) {
-      for (TopoDS_Shape &image : step(s)) {
-        next.push_back(std::move(image));
-      }
-    }
-    shapes = std::move(next);
-  }
-  return shapes;
-}
-
-// Collects the op history in index terms of the final result.
-class Recorder {
-public:
-  Recorder(OcOp &op, const Maps &out)
-      : op_(op), out_(out), has_role_(static_cast<std::size_t>(out.m[0].Extent()), false) {}
-
-  // Records one relation; returns whether any output survived into the result.
-  bool relation(int kind, int index, std::uint8_t relation, const Shapes &outputs) {
-    std::vector<std::pair<std::uint8_t, std::uint32_t>> found;
-    for (const TopoDS_Shape &o : outputs) {
-      const int k = kind_of(o);
-      if (k < 0) {
-        continue;
-      }
-      int i = out_.m[k].FindIndex(o);
-      if (i == 0) {
-        i = by_vertices(o, k);
-      }
-      if (i == 0) {
-        continue;
-      }
-      const std::pair<std::uint8_t, std::uint32_t> key{static_cast<std::uint8_t>(k),
-                                                        static_cast<std::uint32_t>(i - 1)};
-      if (std::find(found.begin(), found.end(), key) == found.end()) {
-        found.push_back(key);
-      }
-    }
-    if (found.empty()) {
-      return false;
-    }
-    push(kind, index, relation);
-    for (const auto &[k, i] : found) {
-      op_.out_kinds.push_back(k);
-      op_.out_indices.push_back(i);
-    }
-    op_.out_starts.push_back(static_cast<std::uint32_t>(op_.out_kinds.size()));
-    return true;
-  }
-
-  void deleted(int kind, int index) {
-    push(kind, index, DELETED);
-    op_.out_starts.push_back(static_cast<std::uint32_t>(op_.out_kinds.size()));
-  }
-
-  // Labels the result faces among `faces` that have no role yet.
-  void role(const Shapes &faces, std::uint8_t role) {
-    for (const TopoDS_Shape &f : faces) {
-      if (kind_of(f) != 0) {
-        continue;
-      }
-      int i = out_.m[0].FindIndex(f);
-      if (i == 0) {
-        i = by_vertices(f, 0);
-      }
-      if (i == 0 || has_role_[static_cast<std::size_t>(i - 1)]) {
-        continue;
-      }
-      has_role_[static_cast<std::size_t>(i - 1)] = true;
-      op_.role_faces.push_back(static_cast<std::uint32_t>(i - 1));
-      op_.roles.push_back(role);
-    }
-  }
-
-private:
-  // The sorted vertex indices of `s` in the result, and its edge count; empty when a vertex is
-  // not in the result.
-  std::pair<std::vector<int>, int> signature(const TopoDS_Shape &s) const {
-    ShapeMap vertices;
-    TopExp::MapShapes(s, TopAbs_VERTEX, vertices);
-    ShapeMap edges;
-    TopExp::MapShapes(s, TopAbs_EDGE, edges);
-    std::vector<int> out;
-    for (int v = 1; v <= vertices.Extent(); ++v) {
-      const int i = out_.m[2].FindIndex(vertices(v));
-      if (i == 0) {
-        return {};
-      }
-      out.push_back(i);
-    }
-    std::sort(out.begin(), out.end());
-    return {out, edges.Extent()};
-  }
-
-  // BRepPrimAPI_MakeRevol replaces some swept faces and edges after the sweep (surfaces of
-  // revolution canonised into planes, cones, ...) and `Generated` still returns the sweep's
-  // originals. The vertices survive, so an image missing from the result is matched to the
-  // one result face or edge (1-based; 0 when none or ambiguous) with the same vertices and
-  // edge count.
-  int by_vertices(const TopoDS_Shape &image, int kind) const {
-    if (kind > 1) {
-      return 0;
-    }
-    const auto want = signature(image);
-    if (want.first.empty()) {
-      return 0;
-    }
-    int found = 0;
-    for (int i = 1; i <= out_.m[kind].Extent(); ++i) {
-      if (signature(out_.m[kind](i)) == want) {
-        if (found != 0) {
-          return 0;
-        }
-        found = i;
-      }
-    }
-    return found;
-  }
-
-  void push(int kind, int index, std::uint8_t relation) {
-    op_.in_kinds.push_back(static_cast<std::uint8_t>(kind));
-    op_.in_indices.push_back(static_cast<std::uint32_t>(index));
-    op_.relations.push_back(relation);
-  }
-
-  OcOp &op_;
-  const Maps &out_;
-  std::vector<bool> has_role_;
-};
-
 // Where the copy put input sub-shape `s`.
 TopoDS_Shape copied(BRepBuilderAPI_Copy &copier, const TopoDS_Shape &s) {
   const NCollection_List<TopoDS_Shape> &images = copier.Modified(s);
@@ -272,8 +99,16 @@ TopoDS_Shape copied(BRepBuilderAPI_Copy &copier, const TopoDS_Shape &s) {
 // What the sweep itself made from `c`, where the API's `Generated` has nothing:
 // BRepPrimAPI_MakeRevol canonises some swept faces after the sweep (a revolved radial line
 // becomes a plane) and then reports their generating edges as deleted. The raw face is
-// matched to its replacement by `Recorder::by_vertices`.
-Shapes raw_swept(BRepPrimAPI_MakePrism &, const TopoDS_Shape &) { return {}; }
+// matched to its replacement by the `Recorder`'s vertex match (occt_history.hxx).
+// A prism unbounded both ways reports nothing from `Generated` for its profile edges (the
+// generating shapes are not used in the result, `GenIsUsed`); the sweep's own shape is the
+// side face.
+Shapes raw_swept(BRepPrimAPI_MakePrism &sweep, const TopoDS_Shape &c) {
+  if (c.ShapeType() != TopAbs_EDGE && c.ShapeType() != TopAbs_VERTEX) {
+    return {};
+  }
+  return guarded([&] { return const_cast<BRepSweep_Prism &>(sweep.Prism()).Shape(c); });
+}
 
 Shapes raw_swept(BRepPrimAPI_MakeRevol &sweep, const TopoDS_Shape &c) {
   if (c.ShapeType() != TopAbs_EDGE && c.ShapeType() != TopAbs_VERTEX) {
@@ -289,7 +124,7 @@ void record_sweep(OcOp &op, const TopoDS_Shape &input, BRepBuilderAPI_Copy &copi
                   Sweep &sweep, const std::vector<Step> &steps) {
   const Maps in(input);
   const Maps out(op.shape);
-  Recorder rec(op, out);
+  Recorder rec(op, out, false, true);
   for (int kind = 0; kind < 3; ++kind) {
     for (int i = 1; i <= in.m[kind].Extent(); ++i) {
       const TopoDS_Shape c = copied(copier, in.m[kind](i));
@@ -302,10 +137,10 @@ void record_sweep(OcOp &op, const TopoDS_Shape &input, BRepBuilderAPI_Copy &copi
       Shapes swept = through(steps, std::move(images));
       const Shapes lateral = swept;
       swept.insert(swept.end(), last.begin(), last.end());
-      const bool modified = rec.relation(kind, i - 1, MODIFIED, first);
-      const bool generated = rec.relation(kind, i - 1, GENERATED, swept);
+      const bool modified = rec.relation(0, kind, i - 1, MODIFIED, first);
+      const bool generated = rec.relation(0, kind, i - 1, GENERATED, swept);
       if (!modified && !generated) {
-        rec.deleted(kind, i - 1);
+        rec.deleted(0, kind, i - 1);
       }
       if (kind == 0) {
         rec.role(first, START_CAP);
@@ -318,26 +153,13 @@ void record_sweep(OcOp &op, const TopoDS_Shape &input, BRepBuilderAPI_Copy &copi
 }
 
 // Unifies coplanar faces and collinear edges of `shape` (a new result; category N), and returns
-// the step that maps `shape`'s sub-shapes into it.
+// the step that maps `shape`'s sub-shapes into it. The options are the ones `prism`'s
+// `merge_coplanar` and `unify_op` share: faces and edges, no B-spline concatenation.
 Step unify(std::unique_ptr<ShapeUpgrade_UnifySameDomain> &holder, TopoDS_Shape &shape) {
   holder = std::make_unique<ShapeUpgrade_UnifySameDomain>(shape, true, true, false);
   holder->Build();
   shape = holder->Shape();
-  ShapeUpgrade_UnifySameDomain *u = holder.get();
-  return [u](const TopoDS_Shape &s) -> Shapes {
-    const occ::handle<BRepTools_History> &history = u->History();
-    if (history.IsNull()) {
-      return {s};
-    }
-    if (history->IsRemoved(s)) {
-      return {};
-    }
-    const NCollection_List<TopoDS_Shape> &modified = history->Modified(s);
-    if (!modified.IsEmpty()) {
-      return shapes_of(modified);
-    }
-    return {s};
-  };
+  return history_step(holder->History());
 }
 
 } // namespace
@@ -440,10 +262,17 @@ std::unique_ptr<OcOp> prism(const OcShape &profile, const V3 &v, std::uint8_t mo
     }
     shape = draft->Shape();
     BRepOffsetAPI_DraftAngle *d = draft.get();
+    // `Modified` lists only the faces whose geometry the draft changed through new history
+    // entries; the tilted side faces themselves come back through `ModifiedShape` (BREP-05:
+    // without it the side faces of a tapered prism had no source).
     steps.push_back([d](const TopoDS_Shape &s) -> Shapes {
       const NCollection_List<TopoDS_Shape> &modified = d->Modified(s);
       if (!modified.IsEmpty()) {
         return shapes_of(modified);
+      }
+      Shapes image = guarded([&] { return d->ModifiedShape(s); });
+      if (!image.empty()) {
+        return image;
       }
       return {s};
     });
@@ -516,16 +345,25 @@ std::unique_ptr<OcOp> shape_gtransformed(const OcShape &shape, const OcMat34 &m)
   }
   op->shape = builder->Shape();
 
-  const Maps in(input);
-  const Maps out(op->shape);
-  Recorder rec(*op, out);
-  for (int kind = 0; kind < 3; ++kind) {
-    for (int i = 1; i <= in.m[kind].Extent(); ++i) {
-      if (!rec.relation(kind, i - 1, MODIFIED, shapes_of(builder->Modified(in.m[kind](i))))) {
-        rec.deleted(kind, i - 1);
-      }
-    }
+  // Every sub-shape is copied into new geometry, so each is `Modified` 1:1.
+  record_operands(*op, {input}, source_of(*builder), {}, false);
+  return op;
+}
+
+std::unique_ptr<OcOp> unify_op(const OcShape &shape) {
+  const TopoDS_Shape &input = shape.get();
+  if (input.IsNull()) {
+    fail("unify: the shape is null");
   }
+  // UnifySameDomain rebuilds the faces and edges it merges through a BRepTools_ReShape of its
+  // input; it runs on a private copy (category C), whose map is the first step of the history.
+  BRepBuilderAPI_Copy copier(input, false, false);
+  TopoDS_Shape result = copier.Shape();
+  std::unique_ptr<ShapeUpgrade_UnifySameDomain> unifier;
+  const std::vector<Step> steps{unify(unifier, result)};
+  auto op = std::make_unique<OcOp>();
+  op->shape = result;
+  record_operands(*op, {input}, source_of(copier), steps, false);
   return op;
 }
 

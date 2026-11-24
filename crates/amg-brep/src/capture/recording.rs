@@ -16,8 +16,10 @@ use crate::geom;
 use crate::history::{FaceBuild, OpResult};
 use crate::kernel::BrepKernel;
 use crate::opts::{BoolOp, BoolOpts, PrismExtent, PrismOpts, TessQuality};
-use crate::query::{Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SurfacePoint};
-use crate::shape::{EdgeId, FaceId, Shape};
+use crate::query::{
+    Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
+};
+use crate::shape::{EdgeId, FaceId, Shape, SubShape};
 use crate::tess::TessMesh;
 
 /// [`BrepKernel`] decorator: forwards every call to `inner` and records failed
@@ -523,5 +525,13 @@ impl<K: BrepKernel> BrepKernel for RecordingKernel<K> {
 
     fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds> {
         self.inner.edge_ends(s, e)
+    }
+
+    fn sub_geom(&self, s: &Shape, sub: SubShape) -> KResult<SubShapeGeom> {
+        self.inner.sub_geom(s, sub)
+    }
+
+    fn sub_geom_all(&self, s: &Shape) -> KResult<[Vec<SubShapeGeom>; 3]> {
+        self.inner.sub_geom_all(s)
     }
 }

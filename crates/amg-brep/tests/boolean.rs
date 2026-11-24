@@ -9,6 +9,8 @@
 #![cfg(feature = "occt")]
 #![allow(clippy::expect_used, clippy::unwrap_used, reason = "test code")]
 
+#[path = "common/bool_corpus.rs"]
+mod bool_corpus;
 mod common;
 #[path = "common/parts.rs"]
 mod parts;
@@ -20,13 +22,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use amg_brep::{
-    BoolOp, BoolOpts, BrepKernel, Dir3, Glue, InputSub, JobCtx, KernelConfig, KernelError,
-    KernelWarning, OcctKernel, OpResult, OpRole, Plane, Point3, Relation, Shape, ShapeKind,
-    SubKind, SubShape, Tolerance, Transform, Validate, Vec3,
+    BoolOp, BoolOpts, BrepKernel, InputSub, JobCtx, KernelConfig, KernelError, KernelWarning,
+    OcctKernel, OpResult, OpRole, Plane, Point3, Relation, Shape, ShapeKind, SubKind, SubShape,
+    Tolerance, Validate, Vec3,
 };
-use amg_core::{Mat3, Quat};
 use amg_jobs::CancelToken;
 use proptest::prelude::*;
+
+use bool_corpus::{Case, corpus, frame};
 
 const TOL: Tolerance = Tolerance::DEFAULT;
 
@@ -82,143 +85,6 @@ fn face(index: u32) -> SubShape {
     SubShape {
         kind: SubKind::Face,
         index,
-    }
-}
-
-/// An orthonormal right-handed frame at `origin` with `normal`, `x` along `xdir` (or a default
-/// perpendicular).
-fn frame(origin: [f64; 3], normal: Option<[f64; 3]>, xdir: Option<[f64; 3]>) -> Plane {
-    let n = Vec3::from(normal.unwrap_or([0.0, 0.0, 1.0])).normalize();
-    let x = match xdir {
-        Some(x) => Vec3::from(x),
-        None if n.x.abs() < 0.9 => Vec3::X,
-        None => Vec3::Y,
-    };
-    let x = (x - n * x.dot(n)).normalize();
-    Plane {
-        origin: Point3::from(origin),
-        x: Dir3::new_unchecked(x),
-        y: Dir3::new_unchecked(n.cross(x)),
-        normal: Dir3::new_unchecked(n),
-    }
-}
-
-fn rotation(axis: Vec3, angle: f64) -> Transform {
-    Transform::from_mat3_translation(
-        Mat3::from_quat(Quat::from_axis_angle(axis.normalize(), angle)),
-        Vec3::ZERO,
-    )
-}
-
-// ---- the corpus ---------------------------------------------------------------------------
-
-#[derive(Debug, serde::Deserialize)]
-struct Corpus {
-    case: Vec<Case>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Case {
-    name: String,
-    op: String,
-    source: String,
-    volume: Option<f64>,
-    error: Option<String>,
-    solids: Option<usize>,
-    fuzzy: Option<f64>,
-    glue: Option<String>,
-    rotate: Option<[f64; 4]>,
-    #[serde(default)]
-    determinism: bool,
-    objects: Vec<Prim>,
-    tools: Vec<Prim>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Prim {
-    kind: String,
-    origin: [f64; 3],
-    dims: Vec<f64>,
-    normal: Option<[f64; 3]>,
-    xdir: Option<[f64; 3]>,
-}
-
-fn corpus() -> Option<Vec<Case>> {
-    let path = amg_testkit::testdata("brep/bool/cases.toml")?;
-    let text = std::fs::read_to_string(path).unwrap();
-    let corpus: Corpus = toml::from_str(&text).unwrap();
-    Some(corpus.case)
-}
-
-fn build(k: &OcctKernel, p: &Prim) -> Shape {
-    use std::f64::consts::TAU;
-    let f = frame(p.origin, p.normal, p.xdir);
-    let d = &p.dims;
-    let made = match p.kind.as_str() {
-        "box" => k.make_box(&f, Vec3::new(d[0], d[1], d[2])),
-        "cylinder" => k.make_cylinder(&f, d[0], d[1], TAU),
-        "cone" => k.make_cone(&f, d[0], d[1], d[2], TAU),
-        "sphere" => k.make_sphere(&f, d[0]),
-        "torus" => k.make_torus(&f, d[0], d[1], TAU),
-        "rect" => {
-            let o = f.origin;
-            let (u, v) = (f.x.get() * d[0], f.y.get() * d[1]);
-            let pts = [o, o + u, o + u + v, o + v];
-            return k.make_planar_polygon(&pts, &[], &TOL).unwrap();
-        }
-        other => panic!("unknown primitive {other}"),
-    };
-    made.unwrap().shape
-}
-
-impl Case {
-    fn operands(&self, k: &OcctKernel) -> (Vec<Shape>, Vec<Shape>) {
-        let place = |p: &Prim| {
-            let s = build(k, p);
-            match self.rotate {
-                Some([x, y, z, angle]) => {
-                    s.transformed(&rotation(Vec3::new(x, y, z), angle)).unwrap()
-                }
-                None => s,
-            }
-        };
-        (
-            self.objects.iter().map(place).collect(),
-            self.tools.iter().map(place).collect(),
-        )
-    }
-
-    fn opts(&self, parallel: Option<bool>) -> BoolOpts {
-        BoolOpts {
-            fuzzy: self.fuzzy.unwrap_or(0.0),
-            glue: match self.glue.as_deref() {
-                None | Some("off") => Glue::Off,
-                Some("shift") => Glue::Shift,
-                Some("full") => Glue::Full,
-                Some(other) => panic!("unknown glue {other}"),
-            },
-            parallel,
-            ..BoolOpts::default()
-        }
-    }
-
-    fn run(
-        &self,
-        k: &OcctKernel,
-        objects: &[Shape],
-        tools: &[Shape],
-        parallel: Option<bool>,
-    ) -> Result<OpResult, KernelError> {
-        let opts = self.opts(parallel);
-        match self.op.as_str() {
-            "fuse" => k.boolean(BoolOp::Fuse, objects, tools, &opts, &ctx()),
-            "cut" => k.boolean(BoolOp::Cut, objects, tools, &opts, &ctx()),
-            "common" => k.boolean(BoolOp::Common, objects, tools, &opts, &ctx()),
-            "split" => k.split(objects, tools, &opts, &ctx()),
-            other => panic!("unknown op {other}"),
-        }
     }
 }
 

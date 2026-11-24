@@ -1,15 +1,16 @@
 //! The OCCT side of the measurement queries (BREP-09). All category R.
 
-use amg_core::{Point2, Point3, Vec3};
+use amg_core::{Aabb3, Point2, Point3, Vec3};
 use amg_occt_sys::ffi;
 
 use super::{Occ, point, to_kernel_error};
 use crate::KResult;
+use crate::geom::GeomClass;
 use crate::query::{
     MassBasis, RawCurvature, RawDistance, RawHit, RawMass, RawSurfacePoint, tangent,
 };
 use crate::shape::{SubKind, SubShape};
-use crate::{Classification, EdgeEnds};
+use crate::{Classification, EdgeEnds, SubShapeGeom};
 
 fn v3(p: Point3) -> ffi::V3 {
     ffi::V3 {
@@ -29,6 +30,24 @@ fn support(kind: u8, index: u32) -> Option<SubShape> {
     Some(SubShape { kind, index })
 }
 
+/// `GeomClass` from the shim's code (`OcSubGeom::geom_class`, declaration order).
+fn geom_class(code: u8) -> GeomClass {
+    match code {
+        0 => GeomClass::Plane,
+        1 => GeomClass::Cylinder,
+        2 => GeomClass::Cone,
+        3 => GeomClass::Sphere,
+        4 => GeomClass::Torus,
+        5 => GeomClass::BSpline,
+        7 => GeomClass::Line,
+        8 => GeomClass::Circle,
+        9 => GeomClass::Ellipse,
+        10 => GeomClass::Curve,
+        11 => GeomClass::Point,
+        _ => GeomClass::Other,
+    }
+}
+
 fn distance_from(raw: &ffi::OcDistance) -> RawDistance {
     RawDistance {
         distance: raw.distance,
@@ -41,6 +60,34 @@ fn distance_from(raw: &ffi::OcDistance) -> RawDistance {
 }
 
 impl Occ {
+    /// Fingerprints of `indices` (in range) of `kind`.
+    pub(crate) fn sub_geoms(&self, kind: SubKind, indices: &[u32]) -> KResult<Vec<SubShapeGeom>> {
+        let raw = ffi::sub_geoms(self.index(), super::sub_kind(kind), indices)
+            .map_err(|e| to_kernel_error(&e))?;
+        Ok(raw
+            .into_iter()
+            .map(|g| SubShapeGeom {
+                class: geom_class(g.geom_class),
+                measure: g.measure,
+                centroid: point(g.centroid),
+                axis: g.has_axis.then(|| Vec3::new(g.axis.x, g.axis.y, g.axis.z)),
+                bbox: Aabb3::new(point(g.bmin), point(g.bmax)),
+            })
+            .collect())
+    }
+
+    /// For each face, edge and vertex of `part` (a sub-shape of `self`), its index in `self`.
+    pub(crate) fn sub_index_map(&self, part: &Occ) -> KResult<[Vec<Option<u32>>; 3]> {
+        let raw =
+            ffi::sub_index_map(self.index(), part.index()).map_err(|e| to_kernel_error(&e))?;
+        let opt = |v: Vec<u32>| {
+            v.into_iter()
+                .map(|i| (i != u32::MAX).then_some(i))
+                .collect()
+        };
+        Ok([opt(raw.faces), opt(raw.edges), opt(raw.vertices)])
+    }
+
     pub(crate) fn mass_props(&self, eps: f64) -> KResult<RawMass> {
         let raw =
             ffi::mass_props(&self.shape, self.index(), eps).map_err(|e| to_kernel_error(&e))?;

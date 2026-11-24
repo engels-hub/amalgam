@@ -29,7 +29,10 @@ pub use amg_jobs::JobCtx;
 pub use check::{CheckOpts, CheckReport};
 pub use config::{ENV_OCCT_THREADS, ENV_VALIDATE, KernelConfig, Validate};
 pub use error::{KResult, KernelError};
-pub use history::{FaceBuild, InputSub, KernelWarning, OpResult, OpRole, Relation, ShapeHistory};
+pub use history::{
+    FaceBuild, InputSub, KernelWarning, OpResult, OpRole, Relation, SPLIT_QUANTUM, ShapeHistory,
+    SplitKey, split_order_key,
+};
 pub use kernel::{BrepKernel, OcctKernel, POLICY_VERSION, init, kernel_version};
 pub use opts::{
     BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletShape, FilletSpec, Glue, HealOpts,
@@ -37,7 +40,8 @@ pub use opts::{
     ShellOpts, TessQuality, ThruSectionsOpts, Transition, UnifyOpts,
 };
 pub use query::{
-    Classification, DistanceResult, EdgeEnds, MASS_PROPS_EPS, MassProps, RayHit, SurfacePoint,
+    Classification, DistanceResult, EdgeEnds, MASS_PROPS_EPS, MassProps, RayHit, SubShapeGeom,
+    SurfacePoint,
 };
 pub use shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, ShapeKind, SubKind, SubShape, VertexId};
 pub use tess::{EdgePolyline, TessMesh, TessProfile};

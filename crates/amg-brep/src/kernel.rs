@@ -21,7 +21,7 @@ use crate::history::{FaceBuild, OpResult, ShapeHistory};
 use crate::ops::{self, PrimitiveKind};
 use crate::opts::{BoolOp, BoolOpts, PrismExtent, PrismOpts, TessQuality};
 use crate::query::{
-    self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SurfacePoint,
+    self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
 };
 use crate::shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, SubKind, SubShape};
 use crate::tess::{self, TessMesh, TessProfile};
@@ -152,7 +152,9 @@ pub trait BrepKernel: Send + Sync {
     // -- primitives, sweeps and transforms (BREP-14) --
 
     /// A box with one corner at `frame.origin`, `size` along `frame.x`, `frame.y` and
-    /// `frame.normal` (S02 §5). No history (a primitive has no input).
+    /// `frame.normal` (S02 §5). The history has no relations (a primitive has no input) but a
+    /// role on every face (BREP-05): the bottom `StartCap`, the top `EndCap`, the sides
+    /// `Lateral`; the other primitives likewise (`ops::primitive_roles`).
     ///
     /// # Errors
     /// `InvalidInput` for a frame that is not orthonormal and right-handed or a size not larger
@@ -457,6 +459,21 @@ pub trait BrepKernel: Send + Sync {
     /// `InvalidInput { what: "edge" }` for an out-of-range or degenerated edge, or one whose
     /// tangent vanishes at an end; `Occt`; `BackendUnavailable`.
     fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds>;
+
+    /// The fingerprint of one face, edge or vertex (S02 §3, BREP-05): class, measure, centroid,
+    /// axis and bounding box, the input of S01's `GeomFingerprint`.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "sub" }` for an out-of-range sub-shape; `Occt`;
+    /// `BackendUnavailable`.
+    fn sub_geom(&self, s: &Shape, sub: SubShape) -> KResult<SubShapeGeom>;
+
+    /// The fingerprints of every face, edge and vertex of `s`, each list in index order
+    /// (`[faces, edges, vertices]`). Spread over the current rayon pool in chunks.
+    ///
+    /// # Errors
+    /// `InvalidInput` for a null shape; `Occt`; `BackendUnavailable`.
+    fn sub_geom_all(&self, s: &Shape) -> KResult<[Vec<SubShapeGeom>; 3]>;
 }
 
 /// The OCCT backend. Cheap to clone; `Send + Sync`. Without the `occt` feature every op returns
@@ -539,11 +556,37 @@ impl OcctKernel {
     ) -> KResult<OpResult> {
         let shape = Shape::from_occ(Occ::primitive(kind, frame, params)?);
         self.validate_result(op, &shape)?;
-        Ok(OpResult {
-            shape,
-            history: ShapeHistory::default(),
-            warnings: Vec::new(),
-        })
+        let history = ShapeHistory {
+            roles: ops::primitive_roles(&shape, frame),
+            ..ShapeHistory::default()
+        };
+        Ok(finished(shape, history, Vec::new()))
+    }
+
+    /// Merges coplanar faces and collinear edges of `s` (`ShapeUpgrade_UnifySameDomain` on a
+    /// copy, with the options of [`PrismOpts::merge_coplanar`]), with history from `s`. The
+    /// internal step of `prism`'s `merge_coplanar` as an op of its own, so the composition of
+    /// the two can be checked against the end-to-end history (BREP-05 Done-when 4). The public
+    /// `unify_same_domain` with options is BREP-10's.
+    ///
+    /// # Errors
+    /// `InvalidInput` for a null shape; `InvalidResult` under the validation policy; `Occt`;
+    /// `BackendUnavailable`.
+    #[doc(hidden)]
+    pub fn unify_coplanar(&self, s: &Shape) -> KResult<OpResult> {
+        backend::require()?;
+        if s.is_null() {
+            return Err(KernelError::InvalidInput {
+                what: "shape",
+                reason: "the shape is null".into(),
+                offending: Vec::new(),
+            });
+        }
+        let (occ, raw) = s.occ().unify()?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result("unify_coplanar", &shape)?;
+        let history = ops::history(&raw, ops::counts(s));
+        Ok(finished(shape, history, Vec::new()))
     }
 
     /// The `OpResult` of a boolean, split or section run over `operands`.
@@ -575,13 +618,11 @@ impl OcctKernel {
         let mut history = ops::history_n(&raw, counts);
         if op == "section" {
             history.roles = boolean::section_roles(&shape);
+        } else if op == "split" {
+            history.roles = boolean::split_roles(&shape)?;
         }
         let warnings = boolean::warnings(fuzzy, operands, &shape, self.cfg.tolerance.linear);
-        Ok(OpResult {
-            shape,
-            history,
-            warnings,
-        })
+        Ok(finished(shape, history, warnings))
     }
 
     /// `KernelConfig::bool_parallel`, unless the OCCT pool has one thread (BREP-04 bench: parallel
@@ -619,11 +660,22 @@ impl OcctKernel {
     ) -> KResult<OpResult> {
         let shape = Shape::from_occ(occ);
         self.validate_result(op, &shape)?;
-        Ok(OpResult {
-            history: ops::history(&raw, ops::counts(profile)),
-            shape,
-            warnings: Vec::new(),
-        })
+        let history = ops::history(&raw, ops::counts(profile));
+        Ok(finished(shape, history, Vec::new()))
+    }
+}
+
+/// An op result whose history went through the BREP-05 finish (split order, completeness).
+pub(crate) fn finished(
+    shape: Shape,
+    mut history: ShapeHistory,
+    mut warnings: Vec<crate::KernelWarning>,
+) -> OpResult {
+    crate::history::finish(&mut history, &shape, &mut warnings);
+    OpResult {
+        shape,
+        history,
+        warnings,
     }
 }
 
@@ -785,11 +837,8 @@ impl BrepKernel for OcctKernel {
             // A prism unbounded both ways has no cap to close its shell, so BRepCheck always
             // rejects it (`UnorientableShape`, `NotConnected`); S04 only splits with it.
             let (occ, raw) = built;
-            return Ok(OpResult {
-                history: ops::history(&raw, ops::counts(profile)),
-                shape: Shape::from_occ(occ),
-                warnings: Vec::new(),
-            });
+            let history = ops::history(&raw, ops::counts(profile));
+            return Ok(finished(Shape::from_occ(occ), history, Vec::new()));
         }
         self.swept("prism", profile, built)
     }
@@ -954,6 +1003,16 @@ impl BrepKernel for OcctKernel {
     fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds> {
         backend::require()?;
         query::edge_ends(s, e)
+    }
+
+    fn sub_geom(&self, s: &Shape, sub: SubShape) -> KResult<SubShapeGeom> {
+        backend::require()?;
+        query::sub_geom(s, sub)
+    }
+
+    fn sub_geom_all(&self, s: &Shape) -> KResult<[Vec<SubShapeGeom>; 3]> {
+        backend::require()?;
+        query::sub_geom_all(s)
     }
 }
 
