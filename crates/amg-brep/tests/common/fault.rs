@@ -6,9 +6,10 @@ use amg_brep::geom;
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, Classification,
     DistanceResult, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletSpec, HealOpts, JobCtx,
-    KResult, KernelError, Line3, MassProps, OffsetJoin, OpResult, Plane, Point2, Point3,
-    PrismExtent, PrismOpts, Ray3, RayHit, SewOpts, Shape, ShellOpts, SubShape, SubShapeGeom,
-    SurfacePoint, TessMesh, TessQuality, Tolerance, UnifyOpts, Vec3,
+    KResult, KernelError, Line3, LoftSection, MassProps, OffsetJoin, OpResult, PipeOpts, Plane,
+    Point2, Point3, PrismExtent, PrismOpts, Ray3, RayHit, SewOpts, Shape, ShellOpts, SubShape,
+    SubShapeGeom, SurfacePoint, TessMesh, TessQuality, ThruSectionsOpts, Tolerance, UnifyOpts,
+    Vec3,
 };
 
 /// The injected "not done" failure.
@@ -91,6 +92,26 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
     fn revol(&self, profile: &Shape, axis: &Line3, angle: f64, ctx: &JobCtx) -> KResult<OpResult> {
         self.inner.revol(profile, axis, angle, ctx)
     }
+    fn pipe(
+        &self,
+        operands: &[Shape],
+        profiles: usize,
+        opts: &PipeOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.pipe(operands, profiles, opts, ctx)
+    }
+
+    fn thru_sections(
+        &self,
+        wires: &[Shape],
+        sections: &[LoftSection],
+        opts: &ThruSectionsOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.thru_sections(wires, sections, opts, ctx)
+    }
+
     fn mirrored(&self, _s: &Shape, _plane: &Plane) -> KResult<OpResult> {
         Err(not_done("mirrored"))
     }

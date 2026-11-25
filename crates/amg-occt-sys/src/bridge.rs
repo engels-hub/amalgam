@@ -313,6 +313,39 @@ pub mod ffi {
         make_solid: bool,
     }
 
+    /// Pipe-shell options (BREP-15). Operands are `[profiles..., spine, aux?]`; `profiles` is
+    /// the profile count, `aux` the operand of the guide (`mode` 4) or support shell (`mode` 5).
+    /// `mode`: 0 corrected Frenet, 1 Frenet, 2 fixed, 3 constant binormal `binormal`, 4 guide
+    /// wire (`contact`: keep the section in contact with it), 5 spine support. `transition`:
+    /// 0 transformed, 1 right corner, 2 round corner. `solid` closes the result with caps.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcPipeParams {
+        profiles: u32,
+        mode: u8,
+        binormal: V3,
+        aux: u32,
+        contact: bool,
+        transition: u8,
+        solid: bool,
+    }
+
+    /// Raw `BRepOffsetAPI_ThruSections` options (BREP-15); `max_degree` 0 keeps OCCT's.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcLoftParams {
+        solid: bool,
+        ruled: bool,
+        check_compatibility: bool,
+        smoothing: bool,
+        max_degree: u8,
+    }
+
+    /// One loft section: wire operand `wire`, or the point `point` when `wire` is `u32::MAX`.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcLoftSection {
+        wire: u32,
+        point: V3,
+    }
+
     /// One sub-shape's fingerprint (BREP-05). `geom_class` is amg-brep's `GeomClass` in
     /// declaration order (0 plane … 11 point). `measure`: face area, edge length, 0 for a vertex;
     /// `centroid` area/length weighted (fixed-order `BRepGProp`); `axis` (when `has_axis`): the
@@ -696,6 +729,33 @@ pub mod ffi {
             remove: &[u32],
             faces: &[u32],
             offsets: &[f64],
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+
+        // -- pipe-shell sweeps and the raw loft (BREP-15), implemented in occt_sweep.cpp --
+
+        /// `BRepOffsetAPI_MakePipeShell` of `operands` (see `OcPipeParams`) on private copies.
+        /// `twist` and `scale` are flat `(t, value)` pairs, `t` in [0, 1] along the spine (empty
+        /// for none): the scale law is OCCT's homothetic law of the one profile; the twist (rad,
+        /// about the tangent, relative to the base mode) is realised by an auxiliary spine built
+        /// here. History per operand: copies `Modified`, `Generated` images; roles start cap, end
+        /// cap and lateral. A failure (`invalid: ` for a bad input) or cancellation is reported by
+        /// `op_bool_status`, and the op then has no shape. Progress and cancel through `sink`.
+        fn pipe_op(
+            operands: &OcShapeList,
+            params: &OcPipeParams,
+            twist: &[f64],
+            scale: &[f64],
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// `BRepOffsetAPI_ThruSections` through `sections` (wires of `wires` by index, or points)
+        /// on private copies, with the history of every wire (edges `Generated` into their
+        /// lateral faces) and roles: caps loft section (role 8, `role_args` the section index),
+        /// every other face lateral. Failures as for `pipe_op`.
+        fn thru_sections_op(
+            wires: &OcShapeList,
+            sections: &[OcLoftSection],
+            params: &OcLoftParams,
             sink: &ProgressSink,
         ) -> Result<UniquePtr<OcOp>>;
 

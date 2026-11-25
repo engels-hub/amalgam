@@ -1,0 +1,12 @@
+# B-rep metrics of brep/pipe_square_corner_right (S02 BREP-15). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 80.0
+area = 168.0
+faces = 10
+edges = 20
+vertices = 12
+classes = "PPPPPPPPPP"

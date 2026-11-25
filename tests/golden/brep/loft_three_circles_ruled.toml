@@ -1,0 +1,12 @@
+# B-rep metrics of brep/loft_three_circles_ruled (S02 BREP-15). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 97.38937226128358
+area = 125.25548032167627
+faces = 4
+edges = 5
+vertices = 3
+classes = "CCPP"

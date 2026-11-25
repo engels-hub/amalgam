@@ -22,6 +22,7 @@ mod ops;
 pub mod opts;
 mod query;
 mod shape;
+mod sweep;
 mod tess;
 
 pub use amg_core::{

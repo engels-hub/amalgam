@@ -1,4 +1,5 @@
-//! BREP-05: the history framework applied to the BREP-03, BREP-14 and BREP-04 ops.
+//! BREP-05: the history framework applied to the BREP-03, BREP-14 and BREP-04 ops (and the
+//! later op corpora: BREP-06, BREP-07, BREP-10, BREP-15).
 //!
 //! Done-when 1 (completeness over the op corpora), 2 (prism of a tagged profile), 3 (a box cut
 //! by a cylinder: split order, 10 runs), 4 (`compose` of prism + unify equals the end-to-end
@@ -21,6 +22,8 @@ mod history_check;
 mod offset_corpus;
 #[path = "common/parts.rs"]
 mod parts;
+#[path = "common/sweep_corpus.rs"]
+mod sweep_corpus;
 
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
@@ -530,12 +533,24 @@ fn every_output_face_has_a_source_or_a_role() {
         heal_ok += 1;
     }
     assert!(heal_ok >= 60, "{heal_ok} BREP-10 results");
+    // BREP-15: every pipe and thru_sections of its corpus.
+    let sweeps = sweep_corpus::corpus(&k);
+    for case in &sweeps {
+        let r = case.run(&k).unwrap();
+        let operands: Vec<&Shape> = case.operands.iter().collect();
+        if let Some(e) = completeness_error(&r, &operands) {
+            failures.push(format!("{}: {e}", case.name));
+        }
+        faces += r.shape.count(SubKind::Face);
+    }
     eprintln!(
         "completeness: {} BREP-03/14 results, {bool_ok} BREP-04 results, {} BREP-06 results, \
-         {} BREP-07 results, {heal_ok} BREP-10 results, {faces} output faces",
+         {} BREP-07 results, {heal_ok} BREP-10 results, {} BREP-15 results, {faces} output \
+         faces",
         corpus.len(),
         blends.len(),
-        offsets.len()
+        offsets.len(),
+        sweeps.len()
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

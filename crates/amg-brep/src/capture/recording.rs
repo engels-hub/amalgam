@@ -16,8 +16,8 @@ use crate::geom;
 use crate::history::{FaceBuild, OpResult};
 use crate::kernel::BrepKernel;
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, OffsetJoin, PrismExtent,
-    PrismOpts, SewOpts, ShellOpts, TessQuality, UnifyOpts,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, LoftSection, OffsetJoin,
+    PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality, ThruSectionsOpts, UnifyOpts,
 };
 use crate::query::{
     Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
@@ -349,6 +349,42 @@ impl<K: BrepKernel> BrepKernel for RecordingKernel<K> {
             },
             || vec![profile],
             || self.inner.revol(profile, axis, angle, ctx),
+        )
+    }
+
+    fn pipe(
+        &self,
+        operands: &[Shape],
+        profiles: usize,
+        opts: &PipeOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Pipe {
+                operands: refs(0..operands.len()),
+                profiles,
+                opts: opts.clone(),
+            },
+            || operands.iter().collect(),
+            || self.inner.pipe(operands, profiles, opts, ctx),
+        )
+    }
+
+    fn thru_sections(
+        &self,
+        wires: &[Shape],
+        sections: &[LoftSection],
+        opts: &ThruSectionsOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::ThruSections {
+                wires: refs(0..wires.len()),
+                sections: sections.to_vec(),
+                opts: opts.clone(),
+            },
+            || wires.iter().collect(),
+            || self.inner.thru_sections(wires, sections, opts, ctx),
         )
     }
 

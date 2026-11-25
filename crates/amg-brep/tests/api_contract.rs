@@ -396,6 +396,28 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
         self.inner.revol(profile, axis, angle, ctx)
     }
 
+    fn pipe(
+        &self,
+        operands: &[Shape],
+        profiles: usize,
+        opts: &PipeOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.pipe(operands, profiles, opts, ctx)
+    }
+
+    fn thru_sections(
+        &self,
+        wires: &[Shape],
+        sections: &[LoftSection],
+        opts: &ThruSectionsOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.thru_sections(wires, sections, opts, ctx)
+    }
+
     fn mirrored(&self, s: &Shape, plane: &Plane) -> KResult<OpResult> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.mirrored(s, plane)

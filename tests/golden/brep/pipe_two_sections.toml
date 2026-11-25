@@ -1,0 +1,12 @@
+# B-rep metrics of brep/pipe_two_sections (S02 BREP-15). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 397.93506945470705
+area = 355.39242380673693
+faces = 3
+edges = 3
+vertices = 2
+classes = "CPP"

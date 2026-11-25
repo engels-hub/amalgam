@@ -423,6 +423,9 @@ pub(crate) fn history_n(raw: &RawHistory, operand_counts: Vec<[u32; 3]>) -> Shap
                 5 => OpRole::CornerPatch,
                 6 => OpRole::ShellInner,
                 7 => OpRole::OffsetFace,
+                8 => OpRole::LoftSection {
+                    index: raw.role_args.get(j).copied().unwrap_or(0),
+                },
                 _ => OpRole::Lateral,
             };
             (sub(0, f), role)
@@ -608,6 +611,25 @@ mod tests {
                 (sub(0, 0), OpRole::OffsetFace),
                 (sub(0, 1), OpRole::Lateral),
                 (sub(0, 3), OpRole::ShellInner),
+            ]
+        );
+    }
+
+    #[test]
+    fn loft_section_roles_carry_their_index() {
+        let raw = RawHistory {
+            role_faces: vec![2, 0, 1],
+            roles: vec![8, 8, 2],
+            role_args: vec![4, 0, 0],
+            ..RawHistory::default()
+        };
+        let h = history(&raw, [0, 4, 4]);
+        assert_eq!(
+            h.roles,
+            vec![
+                (sub(0, 0), OpRole::LoftSection { index: 0 }),
+                (sub(0, 1), OpRole::Lateral),
+                (sub(0, 2), OpRole::LoftSection { index: 4 }),
             ]
         );
     }

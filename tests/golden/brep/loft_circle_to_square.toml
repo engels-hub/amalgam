@@ -1,0 +1,12 @@
+# B-rep metrics of brep/loft_circle_to_square (S02 BREP-15). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 175.68513458898758
+area = 181.94231306649937
+faces = 7
+edges = 15
+vertices = 10
+classes = "BBBBBPP"

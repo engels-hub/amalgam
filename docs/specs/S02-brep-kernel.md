@@ -674,7 +674,8 @@ pub enum PrismExtent { Vector(Vec3), Infinite { dir: Dir3, both: bool } }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PrismOpts { pub taper: f64 /* rad, 0 = none */, pub merge_coplanar: bool /* UnifySameDomain */ }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum PipeMode { CorrectedFrenet, Frenet, Fixed { binormal: Dir3 }, Binormal(Dir3), Guide { wire: usize /* operand */, contact: bool } }
+pub enum PipeMode { CorrectedFrenet, Frenet, Fixed { binormal: Dir3 }, Binormal(Dir3), Guide { wire: usize /* operand */, contact: bool },
+                   Support { shell: usize /* operand; R-S04-7, BREP-15 */ } }   // aux operand = the one after the spine
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PipeOpts { pub mode: PipeMode, pub twist: Option<Vec<(f64, f64)>> /* (param 0..1, rad) */,
                       pub scale: Option<Vec<(f64, f64)>>, pub solid: bool, pub transition: Transition }
@@ -685,6 +686,8 @@ pub struct ThruSectionsOpts { pub solid: bool, pub ruled: bool, pub check_compat
                               pub smoothing: bool, pub max_degree: u8 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum LoftSection { Wire(usize /* operand */), Point(Point3) }
+impl Default for PipeOpts { fn default() -> Self; }          // BREP-15: CorrectedFrenet, no laws, solid, Transformed
+impl Default for ThruSectionsOpts { fn default() -> Self; }  // BREP-15: solid, smooth, check_compatibility, no smoothing, max_degree 0 (OCCT's 8)
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FilletSpec {
     Constant(f64),
@@ -908,7 +911,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-17 | Geometry extraction for sketches and drawings: `plane_section` and `project_edges` to `CurveSeg` (lines/circles/ellipses recognised, others B-spline), `tessellate_edge` reuse | BREP-12 | P0 | Done | 1. A plane section of a cylinder (perpendicular) gives one `Curve3::Circle` with exact radius. An oblique section gives an `Ellipse` with analytic axes within 1e-9. 2. Projecting the edges of a filleted box top onto the XY plane gives lines and circle arcs with the correct radii and endpoints. 3. Section of a B-spline surface returns B-spline segments within 1e-6 mm of the true intersection (sampled). |
 | BREP-10 | Healing and assembly: `heal` (`ShapeFix_Shape`, `ShapeFix_Wireframe` on a copy), `unify_same_domain`, `sew` (+ `make_solid`, orientation fix), `make_compound`, `check` (BRepCheck + ArgumentAnalyzer) | BREP-05 | P0 | Review | 1. Sewing the 6 planar polygon faces of a cube (with 1e-4 mm gaps) gives a valid closed solid with volume within 1e-6. 2. Sewing the faces of 20 fixture parts exploded via `sub_shape` gives back solids with the same volume and face count. 3. `heal` fixes 10 corpus shapes with known defects (BRepCheck invalid → valid). 4. `unify_same_domain` after a fuse of two coplanar boxes yields 6 faces, and history maps the merged faces. 5. `check` lists the expected problem kinds on 5 broken fixtures. |
 | BREP-13 | STEP (AP203/214/242) and IGES read/write via XCAF into `ForeignModel` (names, colours incl. per-face, assembly tree with shared prototypes, units → mm), heal on import, progress + cancel; IGES under the global lock | BREP-10 | P0 | Todo | 1. Round-trip of 10 STEP fixtures (≥ 1 assembly with reused parts, ≥ 1 coloured, ≥ 1 in inches): write then read again gives the same tree, names, colours, solid count, and per-solid volume within 1e-9 relative. Inch input is scaled to mm. 2. Reading the same STEP file on 4 threads in parallel gives identical results (on 8.0.0 the reads serialise through the global lock; after a bump to 8.0.1 the lock is removed and the test still passes). 3. IGES round-trip of 3 fixtures. 4. A 50 MB STEP read reports progress and cancels within 500 ms. 5. The owner's Fusion STEP exports (if present under `$AMG_TESTDATA_DIR/fusion/`) import as valid solids. |
-| BREP-15 | Sweeps and raw loft: `pipe` (pipe-shell: Frenet/corrected/fixed/binormal/guide, twist/scale laws, transition, solid/shell), `thru_sections` (ruled/smooth, point sections, compatibility check) with roles `LoftSection`/`Lateral` | BREP-05 | P0 | Todo | 1. Golden volumes: a circle swept along a straight line and along an arc (torus segment) are analytic within 1e-6. A square along a helix is within 0.1 %. 2. A twisted sweep (90°) and a scaled sweep (1→2) match reference volumes. 3. ThruSections of 3 circles of different radii (smooth) is within 1e-4 relative of the analytic volume. Point-section cones work. 4. History: lateral faces map to the section edges. 5. Failures (incompatible sections) return `OpFailed` and never crash. KH-05 can call it as the baseline. |
+| BREP-15 | Sweeps and raw loft: `pipe` (pipe-shell: Frenet/corrected/fixed/binormal/guide, twist/scale laws, transition, solid/shell), `thru_sections` (ruled/smooth, point sections, compatibility check) with roles `LoftSection`/`Lateral` | BREP-05 | P0 | Review | 1. Golden volumes: a circle swept along a straight line and along an arc (torus segment) are analytic within 1e-6. A square along a helix is within 0.1 %. 2. A twisted sweep (90°) and a scaled sweep (1→2) match reference volumes. 3. ThruSections of 3 circles of different radii (smooth) is within 1e-4 relative of the analytic volume. Point-section cones work. 4. History: lateral faces map to the section edges. 5. Failures (incompatible sections) return `OpFailed` and never crash. KH-05 can call it as the baseline. |
 | BREP-11 | Thread geometry: `helix`, thread profile swept in binormal mode, cut/fuse onto a cylinder (`amg-brep` helper used by SOL-12) | BREP-15, BREP-04 | P1 | Todo | 1. ISO metric M3, M6, M10 and M20 external and internal threads (coarse pitch) build valid solids. 2. Pitch, measured as the axial distance between crests, is within 1e-6 mm. 3. The major/minor diameters measured by sections are within 1e-4 mm of ISO 68-1. 4. An M6×20 thread builds in < 200 ms. |
 | BREP-18 | Planar-face mesher for `tessellate`: planes with many hole loops bypass OCCT's `BRepMesh_Delaun` (a custom `IMeshTools_MeshAlgo` for planar faces over a real constrained Delaunay triangulation, or a Rust CDT fed from OCCT's edge discretisation), keeping the exact weld through `Poly_PolygonOnTriangulation` | BREP-08 | P0 | Todo | 1. The 1030-face `plate_with_holes` meets the BREP-08 display budget: `budget/brep-tess-1000` < 100 ms median, topology copy included. 2. All BREP-08 tests stay green (watertight `to_indexed_parts`, volume bound, layout, determinism, the Done-when 4 stress test) and the `tests/golden/brep/` goldens pass or are re-blessed with the reason recorded. 3. The chosen CDT passes the ADR-012 licence check and has a `THIRD_PARTY.md` row. |
 
@@ -2614,6 +2617,192 @@ its indices are `TopExp::MapShapes` over the parts in order.
 - `heal` cannot fix a gap wider than `tol` in a wire, or close an open solid; S20's heal levels
   choose `tol`/`max_tol`.
 
+### 2026-11-25 - BREP-15 pipe-shell sweeps and the raw ThruSections loft
+**Landed.**
+- `amg-brep`, trait `BrepKernel` (with the forwarding arms in `RecordingKernel`,
+  `tests/api_contract.rs` and `tests/common/fault.rs`):
+  - `pipe(operands, profiles, &PipeOpts, ctx)` and `thru_sections(wires, sections,
+    &ThruSectionsOpts, ctx)`, with the Interfaces signatures.
+  - S20's `KernelOp::{Pipe, ThruSections}` (the S20 field names).
+  - `PipeMode::Support { shell }` (R-S04-7); `impl Default` for `PipeOpts` and
+    `ThruSectionsOpts`.
+- New module `sweep` (plain Rust, unit-tested without OCCT): validation, lowering and the
+  failure mapping.
+  - `pipe` operands are `[profiles..., spine, aux?]`. Profiles are wires or edges; the first and
+    last may be vertices. The spine is a wire or an edge. The guide or support is the operand
+    right after the spine (`Guide { wire }` / `Support { shell }` must name it).
+  - Laws: at least 2 samples, `t` strictly increasing from 0 to 1, values finite; scale factors
+    ≥ 1e-6.
+  - A twist needs the corrected Frenet, Frenet or binormal mode. A scale needs exactly one wire
+    profile, and no guide, support or twist (OCCT: an auxiliary spine and a homothetic law do
+    not combine).
+  - `thru_sections`: at least 2 sections; points only first or last; at least one wire; each
+    wire used once, except the first repeated last (a closed loft); `max_degree` 0..=25.
+  - Shim errors map to `Cancelled`, `InvalidInput` (prefix `invalid: `) or `OpFailed`.
+- `amg-occt-sys`, new `cpp/occt_sweep.cpp` with `pipe_op` and `thru_sections_op` (both **C**).
+  - Every operand runs on a private `BRepBuilderAPI_Copy`. An edge operand becomes a one-edge
+    wire of its copy, never of the caller's edge (`TopoDS_Builder::Add` flags, BREP-10).
+  - Bridge structs `OcPipeParams`, `OcLoftParams`, `OcLoftSection`. Role code 8 is
+    `LoftSection`, its `role_args` entry the section index. `Recorder::role` takes that argument
+    (default 0; `occt_history.hxx`).
+  - Progress and cancellation go through the BREP-12 `ProgressSink` into `Build`.
+- **Pipe modes.**
+  - `SetMode(false/true)` for corrected Frenet / Frenet, and `SetMode(gp_Dir)` for binormal.
+  - Fixed: `SetMode(gp_Ax2)` on the binormal. A constant trihedron only translates the sections,
+    so its axes do not matter.
+  - Guide: `SetMode(wire, false, Contact | NoContact)`. This is the plane mode: the guide point
+    is where the spine's normal plane cuts the guide.
+  - Support: `SetMode(shape)`. OCCT only uses the spine edges' pcurves on the support faces,
+    which only the support's own edges carry. The shim builds the spine from the support's copy
+    when every spine edge is a support edge, and refuses anything else (`InvalidInput`).
+    Otherwise OCCT silently ignored the support, or used planes' projected pcurves.
+- **Twist law.** OCCT's pipe shell has no twist law. The shim samples the base mode's trihedron
+  law (`GeomFill_CorrectedFrenet` / `_Frenet` / `_ConstantBiNormal` on a
+  `BRepAdaptor_CompCurve`), with ≥ 64 samples (32 per spine edge). At each sample it puts a
+  point at `cos θ N + sin θ B` (θ linear between the law samples), at half the profiles' box
+  diagonal from the spine. A cubic interpolation of the points is the auxiliary spine of a
+  plane-mode guide sweep. So the section turns by `twist(t) − twist(0)` about the tangent,
+  counter-clockwise for positive angles.
+- **Scale law.** `SetLaw(profile, Law_Linear | Law_Interpol)`. The law's `t` is mapped onto the
+  spine's `BRepAdaptor_CompCurve` (edge-parameter) range; measured right on 1- and 2-edge spines.
+- **Solid.** `MakeSolid` after the build; it fails (`OpFailed`) on open profiles. Otherwise the
+  result is the swept shell.
+- **History** (one `operand_counts` entry per operand):
+  - A copied sub-shape that is in the result is `Modified` into it (the first section's edges).
+    OCCT's `Generated` images are `Generated`.
+  - Pipe: profile edges give their lateral faces along the whole spine, profile vertices the
+    lateral edges. **`Generated` also covers the spine**: each spine edge gives the faces along
+    it, and each spine vertex the section edges there.
+  - Loft: `Generated` ∪ `GeneratedFace`. OCCT reports a section edge's whole column of faces.
+    The shim narrows that to the faces the edge bounds, when the edge is itself in the result
+    (ruled lofts, and the end sections of smooth ones). A middle section of a smooth loft
+    keeps its column, which is one face per edge column.
+  - Roles: a cap is a face whose edges all belong to `FirstShape`/`LastShape`. Pipe caps are
+    `StartCap`/`EndCap`, loft caps `LoftSection { 0 | n−1 }`. Every other face is `Lateral`.
+- Failures:
+  - `pipe`: the `BRepBuilderAPI_PipeError` name (`PlaneNotIntersectGuide`, ...), a caught
+    exception, or a failed `MakeSolid`.
+  - `thru_sections`: `NotDone` (closed and open sections mixed, coincident sections) or a caught
+    exception.
+  - Without the compatibility check, OCCT built an open, invalid shape from sections of
+    different edge counts. The shim now refuses that before the build ("incompatible
+    sections").
+- Tests:
+  - `tests/sweep.rs`: 10 tests.
+  - `tests/common/sweep_corpus.rs`: 25 cases, 17 pipes and 8 lofts, 20 with a closed form.
+  - 25 goldens `tests/golden/brep/{pipe,loft}_*.toml` (adaptive volume and area, topology,
+    face classes, rel 1e-6).
+  - The corpus joins `every_output_face_has_a_source_or_a_role`.
+  - Unit tests: 2 in `src/sweep.rs`, 1 in `src/ops.rs` (role 8). The `KernelOp` round trip has
+    the 2 new variants.
+- Bench: `benches/sweep.rs` (`brep-sweep/*`).
+
+**Done-when status.** With `--features occt`, `cargo nextest run -p amg-occt-sys -p amg-brep`
+passes 333 tests (1 skipped: BREP-04's ignored timing run). Without the feature, 108 pass.
+`cargo clippy -p amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is clean,
+also without features. `cargo build -p amg-brep --no-default-features` builds.
+1. Met (`golden_sweeps_and_lofts_match_the_reference_volumes`). Every case is valid: one solid,
+   or a shell for the two shell cases.
+   - Circle r 2 along a 30 mm line: π r² L exactly (0.0).
+   - Along a quarter arc of R 20 (torus segment): 2.9e-16.
+   - Square 2 × 2 along a 2-turn helix (R 10, pitch 8; a C1 cubic B-spline, one Bézier per
+     quarter turn), against area × the spline's Gauss length: 1.4e-6 (corrected Frenet) and
+     9.5e-6 (Frenet). The bound is 1e-3.
+2. Met.
+   - The 90° twist of a 4 × 4 square over 20 mm is within 3.9e-7 of A·L. A 3-sample law to π of
+     a 6 × 2 rectangle is within 1.3e-6.
+   - The linear scale 1 → 2 of a circle (π r² L · 7/3) is within 1.9e-16, on 1 and 2 spine
+     edges alike.
+   - `twist_and_scale_laws_shape_the_end_section`: a law ending at π/2 puts the rectangle's long
+     side along y, and π puts it back along x. +π/4 puts the corner (3, 1) at 45° further
+     counter-clockwise, within 1e-3. The scaled end cap has area 16π within 1e-4.
+3. Met.
+   - The smooth loft through circles r = 2, 4, 3 at z = 0, 2, 3 is within 1.9e-9 of π∫r(z)² dz.
+     r(z) is the quadratic through the three sections. Both spans rise as much as the radius
+     changes, so OCCT's chord-length parameters (0, 2/3, 1) are the same for every pole, and the
+     smooth surface is exactly that revolution.
+   - The ruled version matches two frusta exactly. Point-section cones: circle → apex 0.0, and
+     apex → circle → apex 1.3e-16.
+   - Also matched: ruled squares (two square frusta, 1.1e-16); right-corner mitre (A × centre
+     line, exact); fixed mode (prism, exact); binormal mode along the arc (5.7e-16); the guide
+     (0.0); the support (torus on a cylinder rim, 8.0e-7); two sections (frustum, 2.9e-16); and a
+     point section to a circle (2.4e-9).
+4. Met (`lateral_faces_come_from_the_section_edges`), on all 25 cases.
+   - Every lateral face is `Generated` from an edge of a section operand, and every edge of the
+     first section sweeps a face.
+   - Caps carry `StartCap`/`EndCap` or `LoftSection { 0 | n−1 }`. Point sections and the support
+     case's closed spine have none.
+   - Ruled squares: each lateral face comes from exactly the two sections it joins.
+   - The recorded coverage (naming note Q2) is lateral faces per section operand, all sections
+     covered. For example: `pipe_two_sections` [1, 1], `pipe_square_corner_right` [8] (4 edges ×
+     2 spine edges), `pipe_point_to_circle` [0, 1] (the point has no edge), `loft_squares_ruled`
+     [8, 8, 8], `loft_three_circles_smooth` [1, 1, 1].
+5. Met (`incompatible_sections_fail_cleanly`).
+   - These all return `OpFailed`, with no crash: closed and open sections (smooth and ruled),
+     different edge counts without the check, coincident sections, a solid pipe of an open
+     profile, and a guide out of reach (`PlaneNotIntersectGuide`).
+   - A support that does not carry the spine is `InvalidInput`.
+   - `bad_inputs_are_invalid_input`: 30 refusals.
+   - KH-05: the loft runs through `&dyn BrepKernel` and behind `RecordingKernel`
+     (`the_raw_loft_runs_behind_the_recording_kernel`).
+
+Also tested:
+- `ten_runs_are_byte_identical`: every case, 10 runs, identical BinTools bytes and history, and
+  the inputs' bytes unchanged. Pipe shell and ThruSections are deterministic, so no canonical
+  rebuild was needed.
+- `shared_shapes_survive_concurrent_sweeps`: 8 threads run the corpus on shared inputs.
+- `cancelled_jobs_do_not_run`.
+- `cancel_stops_a_running_loft`: a cancel 100 ms into the ruled 40-section loft of 48-gons
+  returns `Cancelled` after 0.51 s, against 2.0 s for the full run (debug-opt). The bound is
+  asserted only under `AMG_STRICT_TIMING=1`.
+
+The history completeness test now covers 25 BREP-15 results as well, with no `Unexplained`
+face.
+
+**Bench** (release, criterion, validation off; S02 has no sweep or loft budget):
+
+| Bench | Median |
+|---|---|
+| `pipe_circle_line` | 0.40 ms |
+| `pipe_circle_scale` | 0.80 ms |
+| `pipe_square_corner_right` | 2.52 ms |
+| `pipe_square_twist` (with the auxiliary spine) | 3.60 ms |
+| `pipe_square_helix` | 24.0 ms |
+| `loft_three_circles_smooth` | 1.16 ms |
+| `loft_squares_ruled` | 2.68 ms |
+| the 25-case corpus | 103 ms |
+| `loft-40x48-smooth` (50 faces) | 199 ms |
+| `loft-40x48-ruled` (1874 faces) | 1.48 s |
+
+**Findings and deviations.**
+- **No twist law in OCCT** (see above). The twist is realised as a guide sweep, so it cannot be
+  combined with a scale law, a guide or a support.
+- **Support mode needs the support's own edges, and curved ones.** On a straight spine edge
+  OCCT raises `Standard_NotImplemented` (`Adaptor3d_CurveOnSurface::EvalDN`); that is
+  `OpFailed`. The corpus case sweeps along a cylinder's rim.
+- **`BRep_Tool::CurveOnSurface` projects onto planes.** A "carries the spine" check must ask for
+  stored pcurves (`theIsStored`).
+- **ThruSections without the compatibility check** builds invalid shapes from different edge
+  counts. It is refused before the build.
+- **Spine history.** OCCT's `Generated` on the spine gives the laterals per spine edge. DOC-06
+  can tag pipe laterals with their spine edge's tag through that relation. The spine is an
+  operand, so `pipe` itself takes no tags (naming note Q2).
+- **Ruled-loft history** is narrowed to the faces an edge bounds (above), with an edge→faces
+  ancestor map. Matching face edges per image was 3× slower on the 1874-face loft.
+- `SHIM_VERSION` stays 4: no existing op's history changed. Role code 8 is new data.
+
+**For DOC-06.**
+- Pipe and loft histories are multi-operand: one entry per profile, spine and aux, or per wire.
+- Laterals are `Generated` from the section edges (and, for pipes, from the spine edges). The
+  first section's edges are `Modified` into the start cap's boundary.
+- Caps are role-only, with no face source. The fixtures are in `tests/common/sweep_corpus.rs`.
+
+**Leftovers.**
+- `PipeMode::Support` on straight spine edges (an OCCT limit; S04 SOL-10 might use a guide
+  instead).
+- Twist combined with scale, for example by sweeping scaled copies as several sections.
+- A real helix spine comes with BREP-11 (`helix`); the corpus approximates it with a C1 cubic.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2898,4 +3087,27 @@ Every change is inside lane A's crates. No other lane's files changed.
 - **For S07 / S12:** `sew` with `make_solid` fails (`LocalOpFailed`, `partial` = the sewn shape)
   when anything stays open; ask for `make_solid: false` to get open shells. Sewing does not move
   face boundaries, so a gap costs the area it leaves out.
+- No new dependency; `THIRD_PARTY.md` unchanged.
+
+### 2026-11-25: additions and changed contracts from BREP-15 (lane A)
+Every change is inside lane A's crates. No other lane's files changed.
+- `amg-brep`, additive:
+  - `BrepKernel::{pipe, thru_sections}` with the Interfaces signatures. Every `BrepKernel`
+    implementor must add them; the in-crate decorators forward them.
+  - `KernelOp::{Pipe, ThruSections}` (S20 dump format, S20's field names).
+  - `PipeMode::Support { shell }` (R-S04-7).
+  - `impl Default` for `PipeOpts` and `ThruSectionsOpts`.
+  - New module `sweep` and new bench `benches/sweep.rs` (`[[bench]]` in `amg-brep/Cargo.toml`).
+  - `OpRole::LoftSection { index }` is now produced (role code 8).
+- `amg-occt-sys`: new `cpp/occt_sweep.cpp` (in `build.rs`) with `pipe_op` and `thru_sections_op`
+  (both C), and structs `OcPipeParams`, `OcLoftParams`, `OcLoftSection`. In `occt_history.hxx`,
+  `Recorder::role` gains a default `arg` parameter and there is a new `LOFT_SECTION` code.
+  `SHIM_VERSION` stays 4.
+- **For S04 (SOL-03 sweep, SOL-10, SOL-11):**
+  - Pipe operands are `[profiles..., spine, guide | support]`.
+  - Twist and scale laws take `t` from 0 to 1 along the spine.
+  - A support's spine must be curved edges of the support itself.
+  - A twist cannot be combined with a scale (OCCT).
+- **For S20 (KH-05, KH-08):** `thru_sections` is the raw baseline. Incompatible sections fail
+  with `OpFailed`.
 - No new dependency; `THIRD_PARTY.md` unchanged.
