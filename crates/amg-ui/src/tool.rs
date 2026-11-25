@@ -768,6 +768,11 @@ impl AmalgamApp {
                     };
                 if handled {
                     crate::shortcut::consume_press(ctx, key, mods);
+                    // egui turned a Tab into a focus move when the frame began: a Tab the
+                    // tool used (heads-up fields) must not focus a widget (additive, UI-13).
+                    if key == egui::Key::Tab {
+                        ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+                    }
                     ctx.request_repaint();
                 }
             }
