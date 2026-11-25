@@ -11,10 +11,12 @@ mod check;
 mod config;
 mod error;
 mod extract;
+mod foreign;
 pub mod geom;
 mod heal;
 mod history;
 mod index;
+pub mod io;
 mod kernel;
 mod local;
 mod lock;
@@ -34,6 +36,7 @@ pub use amg_jobs::JobCtx;
 pub use check::{CheckOpts, CheckReport};
 pub use config::{ENV_OCCT_THREADS, ENV_VALIDATE, KernelConfig, Validate};
 pub use error::{KResult, KernelError};
+pub use foreign::{ForeignModel, ForeignNode, ForeignPrototype, ImportOpts, StepSchema};
 pub use history::{
     FaceBuild, InputSub, KernelWarning, OpResult, OpRole, Relation, SPLIT_QUANTUM, ShapeHistory,
     SplitKey, split_order_key,

@@ -478,7 +478,7 @@ impl fmt::Debug for Shape {
     }
 }
 
-fn is_rigid(t: &Transform) -> bool {
+pub(crate) fn is_rigid(t: &Transform) -> bool {
     let m = t.matrix3;
     let error = m.transpose() * m - Mat3::IDENTITY;
     let orthonormal = error

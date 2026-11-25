@@ -51,6 +51,12 @@ name = "gen_brep_defects"
 path = "tests/gen/defects.rs"
 required-features = ["fixture-gen"]
 
+# BREP-13: regenerates testdata/brep/step/ and testdata/brep/iges/, the STEP and IGES fixtures.
+[[example]]
+name = "gen_brep_io"
+path = "tests/gen/io.rs"
+required-features = ["occt"]
+
 # S20 KH-01: replay, list, recover and promote kernel failure dumps (until `amg-cli kernel`).
 [[example]]
 name = "kernel-replay"

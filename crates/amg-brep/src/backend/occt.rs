@@ -10,6 +10,7 @@ mod offset;
 mod ops;
 mod query;
 mod sweep;
+pub(crate) mod xde;
 
 use std::num::NonZeroUsize;
 use std::sync::OnceLock;

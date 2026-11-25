@@ -21,6 +21,8 @@ mod occt {
     /// install fails in `link_toolkits`.
     const TOOLKITS: &[&str] = &[
         "TKXCAF",
+        // XCAFDoc_VisMaterial (pulled in by the XCAF colour tool) references Graphic3d materials.
+        "TKService",
         "TKDESTEP",
         "TKDEIGES",
         "TKDE",
@@ -85,6 +87,7 @@ mod occt {
         println!("cargo:rerun-if-changed=cpp/occt_heal.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_sweep.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_local.cpp");
+        println!("cargo:rerun-if-changed=cpp/occt_xde.cpp");
 
         let fixtures = cfg!(feature = "fixture-gen");
         let mut bridges = vec!["src/bridge.rs"];
@@ -108,6 +111,7 @@ mod occt {
             .file("cpp/occt_heal.cpp")
             .file("cpp/occt_sweep.cpp")
             .file("cpp/occt_local.cpp")
+            .file("cpp/occt_xde.cpp")
             .include(&include)
             .std("c++17");
         if fixtures {

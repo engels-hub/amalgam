@@ -913,7 +913,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-09 | Mass properties (volume, area, centroid, inertia, principal axes), `classify`, `distance`, `closest_point`, `ray_cast`, `eval_surface` (curvatures), `project_point_on_face`, `interference` | BREP-04 | P0 | Done | 1. Box, cylinder, sphere and torus mass props match analytic values within 1e-9 relative. Inertia tensors match within 1e-9. 2. Distance between two spheres and between a point and a face matches analytic values within 1e-9. 3. `ray_cast` hits the expected face with the correct normal on 1000 random rays at a cylinder (vs analytic). 4. Curvatures of a torus at 10 points match analytic values within 1e-9. 5. `interference` volume of two overlapping boxes is analytic. |
 | BREP-17 | Geometry extraction for sketches and drawings: `plane_section` and `project_edges` to `CurveSeg` (lines/circles/ellipses recognised, others B-spline), `tessellate_edge` reuse | BREP-12 | P0 | Done | 1. A plane section of a cylinder (perpendicular) gives one `Curve3::Circle` with exact radius. An oblique section gives an `Ellipse` with analytic axes within 1e-9. 2. Projecting the edges of a filleted box top onto the XY plane gives lines and circle arcs with the correct radii and endpoints. 3. Section of a B-spline surface returns B-spline segments within 1e-6 mm of the true intersection (sampled). |
 | BREP-10 | Healing and assembly: `heal` (`ShapeFix_Shape`, `ShapeFix_Wireframe` on a copy), `unify_same_domain`, `sew` (+ `make_solid`, orientation fix), `make_compound`, `check` (BRepCheck + ArgumentAnalyzer) | BREP-05 | P0 | Done | 1. Sewing the 6 planar polygon faces of a cube (with 1e-4 mm gaps) gives a valid closed solid with volume within 1e-6. 2. Sewing the faces of 20 fixture parts exploded via `sub_shape` gives back solids with the same volume and face count. 3. `heal` fixes 10 corpus shapes with known defects (BRepCheck invalid → valid). 4. `unify_same_domain` after a fuse of two coplanar boxes yields 6 faces, and history maps the merged faces. 5. `check` lists the expected problem kinds on 5 broken fixtures. |
-| BREP-13 | STEP (AP203/214/242) and IGES read/write via XCAF into `ForeignModel` (names, colours incl. per-face, assembly tree with shared prototypes, units → mm), heal on import, progress + cancel; IGES under the global lock | BREP-10 | P0 | Todo | 1. Round-trip of 10 STEP fixtures (≥ 1 assembly with reused parts, ≥ 1 coloured, ≥ 1 in inches): write then read again gives the same tree, names, colours, solid count, and per-solid volume within 1e-9 relative. Inch input is scaled to mm. 2. Reading the same STEP file on 4 threads in parallel gives identical results (on 8.0.0 the reads serialise through the global lock; after a bump to 8.0.1 the lock is removed and the test still passes). 3. IGES round-trip of 3 fixtures. 4. A 50 MB STEP read reports progress and cancels within 500 ms. 5. The owner's Fusion STEP exports (if present under `$AMG_TESTDATA_DIR/fusion/`) import as valid solids. |
+| BREP-13 | STEP (AP203/214/242) and IGES read/write via XCAF into `ForeignModel` (names, colours incl. per-face, assembly tree with shared prototypes, units → mm), heal on import, progress + cancel; IGES under the global lock | BREP-10 | P0 | Review | 1. Round-trip of 10 STEP fixtures (≥ 1 assembly with reused parts, ≥ 1 coloured, ≥ 1 in inches): write then read again gives the same tree, names, colours, solid count, and per-solid volume within 1e-9 relative. Inch input is scaled to mm. 2. Reading the same STEP file on 4 threads in parallel gives identical results (on 8.0.0 the reads serialise through the global lock; after a bump to 8.0.1 the lock is removed and the test still passes). 3. IGES round-trip of 3 fixtures. 4. A 50 MB STEP read reports progress and cancels within 500 ms. 5. The owner's Fusion STEP exports (if present under `$AMG_TESTDATA_DIR/fusion/`) import as valid solids. |
 | BREP-15 | Sweeps and raw loft: `pipe` (pipe-shell: Frenet/corrected/fixed/binormal/guide, twist/scale laws, transition, solid/shell), `thru_sections` (ruled/smooth, point sections, compatibility check) with roles `LoftSection`/`Lateral` | BREP-05 | P0 | Done | 1. Golden volumes: a circle swept along a straight line and along an arc (torus segment) are analytic within 1e-6. A square along a helix is within 0.1 %. 2. A twisted sweep (90°) and a scaled sweep (1→2) match reference volumes. 3. ThruSections of 3 circles of different radii (smooth) is within 1e-4 relative of the analytic volume. Point-section cones work. 4. History: lateral faces map to the section edges. 5. Failures (incompatible sections) return `OpFailed` and never crash. KH-05 can call it as the baseline. |
 | BREP-11 | Thread geometry: `helix`, thread profile swept in binormal mode, cut/fuse onto a cylinder (`amg-brep` helper used by SOL-12) | BREP-15, BREP-04 | P1 | Todo | 1. ISO metric M3, M6, M10 and M20 external and internal threads (coarse pitch) build valid solids. 2. Pitch, measured as the axial distance between crests, is within 1e-6 mm. 3. The major/minor diameters measured by sections are within 1e-4 mm of ISO 68-1. 4. An M6×20 thread builds in < 200 ms. |
 | BREP-18 | Planar-face mesher for `tessellate`: planes with many hole loops bypass OCCT's `BRepMesh_Delaun` (a custom `IMeshTools_MeshAlgo` for planar faces over a real constrained Delaunay triangulation, or a Rust CDT fed from OCCT's edge discretisation), keeping the exact weld through `Poly_PolygonOnTriangulation` | BREP-08 | P0 | Todo | 1. The 1030-face `plate_with_holes` meets the BREP-08 display budget: `budget/brep-tess-1000` < 100 ms median, topology copy included. 2. All BREP-08 tests stay green (watertight `to_indexed_parts`, volume bound, layout, determinism, the Done-when 4 stress test) and the `tests/golden/brep/` goldens pass or are re-blessed with the reason recorded. 3. The chosen CDT passes the ADR-012 licence check and has a `THIRD_PARTY.md` row. |
@@ -3002,6 +3002,192 @@ Offset faces sends every face 1:1 and gives `OffsetFace` to the moved ones. The 
   cylinder) relies on `face_reach`'s 5 × 5 samples. A surface that misses all of them is
   refused.
 
+### 2026-11-25 - BREP-13 STEP and IGES through XCAF into ForeignModel
+**Landed.**
+- `amg-brep`:
+  - `ForeignModel`, `ForeignNode`, `ImportOpts` and `StepSchema` with the Interfaces fields,
+    and the functions `io::{read_step, write_step, read_iges, write_iges}` with the Interfaces
+    signatures.
+  - **New:** `ForeignModel::prototypes: Vec<ForeignPrototype>`. It is the shared-prototype
+    table that `instance_of` indexes; the Interfaces named that table but had no field for it.
+    `ForeignPrototype` has `{ name, shape, color, face_colors }`.
+  - Helpers: `ForeignModel::{new, nodes}`, `Default` (mm, empty), `ForeignNode::{part,
+    assembly}`, `ImportOpts: Default + Eq` (heal, colours, names all on), and
+    `StepSchema: Default` (AP242, the S12 default).
+  - New modules `foreign` (plain Rust, unit-tested without OCCT) and `io`, and
+    `backend/occt/xde.rs`. The `foreign` module holds the tree ↔ flat-node conversion, the
+    validation and the unit tables.
+- `amg-occt-sys`: new `cpp/occt_xde.cpp` (in `build.rs`):
+  - `xde_read_step` (**R**) and `xde_read_iges` (**G**). Each read uses one reader and one
+    private XCAF document (`TDocStd_Document` with no application, length unit mm). The XCAF
+    free shapes and components are walked into plain nodes in pre-order (name, location,
+    linear RGBA, prototype index), one shape per simple-shape label, and the face colours of
+    each prototype (`FindSubShape` per face, in `TopExp::MapShapes` order).
+  - `xde_write_step` (**C**) and `xde_write_iges` (**G**). They rebuild an XCAF document from
+    the nodes, with prototype labels, assemblies (`NewShape` + `AddComponent`), names, part,
+    instance and face colours, over private copies of the shapes.
+  - `xde_status`, `xde_nodes`, `xde_protos`, `xde_face_colors`, `xde_proto_shape` (**R**) and
+    `xde_guard_probe` (**C**, test support).
+  - Bridge structs `OcXdeNode`, `OcXdeProto`, `OcXdeFaceColor`, `OcXdeStatus` and
+    `OcXdeWriteParams`, and the opaque `OcXde` (`Send`). `SHIM_VERSION` stays 4 (no existing
+    function changed).
+  - `build.rs` links **TKService** as well: XCAF's colour tool pulls in `XCAFDoc_VisMaterial`,
+    which references Graphic3d materials. It is part of the installed OCCT, so there is no
+    new dependency.
+- Units. The read document is in mm, so OCCT scales the geometry. `source_unit_mm` is the
+  file's declared unit: for STEP, `STEPControl_Reader::FileUnits` names mapped in Rust (MM,
+  INCH, METRE, FOOT, …; an unknown name or mixed units give a warning); for IGES, the global
+  section's unit flag. A write uses `source_unit_mm` as the file's unit when it is mm, cm, m,
+  inch, foot or micron, and mm otherwise (`DESTEP_Parameters::WriteUnit`; IGES
+  `write.iges.unit`).
+- Heal on import (`ImportOpts::heal`). `BrepKernel::heal` (default `HealOpts`, validation off)
+  runs on every prototype, and its history carries the face colours to the healed faces. A
+  prototype that fails to heal is kept as read, with a warning.
+- **BREP-10 leftover (edges without a 3D curve).** Both readers give every non-degenerated
+  edge that has no 3D curve one (`ShapeFix_Edge::FixAddCurve3d`) before anything indexes or
+  checks the shape. That is in place, on shapes the reader just made. A warning counts the
+  repaired edges and any that could not be repaired.
+- Progress and cancel.
+  - A STEP file is parsed from a `std::streambuf` that reports bytes read: 0–20 % of the read,
+    0–16 % of the job. A cancel ends the stream, which stops the parser.
+  - The transfer reports through a `Message_ProgressRange` (to 80 %), and healing reports the
+    rest.
+  - A cancelled STEP read hands its reader and parsed model back. Rust frees them on a
+    background thread, because tearing down a 50 MB model takes about 0.5 s.
+  - IGES reads and writes hold the global I/O lock. STEP reads and writes run unlocked on
+    8.0.1, one reader or writer per call.
+- Anonymised output. OCCT's AP203 `PERSON` and `ORGANIZATION` carry the OS user name and the
+  host's IP address, and the IGES header author is the OS user. Both are now `unknown`, set
+  on the model before the write.
+- Fixtures: `testdata/brep/step/` (10 files with a README) and `testdata/brep/iges/` (3 files),
+  written by the new example `gen_brep_io` from `tests/common/io_models.rs`.
+- Tests: `tests/io.rs` (18 tests), 8 unit tests in `src/foreign.rs`, and 2 in `src/io.rs`
+  (the missing-curve repair on each of a box's 12 edges, and `BackendUnavailable` without
+  OCCT).
+
+**Done-when status.** `cargo nextest run -p amg-occt-sys -p amg-brep --features occt` passes
+373 tests (1 skipped: BREP-04's ignored timing run). Without the feature, 118 pass.
+`cargo clippy -p amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is
+clean, and so is clippy without the feature. `cargo build -p amg-brep --no-default-features`
+builds.
+1. Met (`step_fixtures_round_trip`, `step_fixture_set_covers_assemblies_colours_and_inches`,
+   `schemas_write_their_headers`).
+   - Each of the 10 fixtures is read twice: from the checked-in file, and from the same
+     model written fresh to a temporary file. Each read equals the model built in code: tree,
+     names, transforms within 1e-9 mm, colours, solid and face counts, per-solid volume and
+     area within 1e-9 relative.
+   - Writing what was read in the fixture's schema and reading it again gives the same tree,
+     names, colours, face colours, prototype sharing (a consistent bijection of
+     `instance_of`), solid count and per-solid volume within 1e-9 relative. Every read shape
+     passes BRepCheck.
+   - `bolt_pattern` has 2 prototypes: the bolt is instanced 4 times, and all 4 nodes share one
+     `Shape`. One bolt has its own instance colour.
+   - `nested_assembly` has two placed sub-assemblies (one turned 90° about z) sharing 2 parts.
+   - `coloured_box_ap214` keeps its part colour and its 2 face colours on faces 0 and 3.
+   - `inch_block` is written in inches (`INCH` in the file) and reads back with
+     `source_unit_mm` 25.4 and a 25.4 × 50.8 × 76.2 mm bbox within 1e-9.
+   - FILE_SCHEMA is `CONFIG_CONTROL_DESIGN`, `AUTOMOTIVE_DESIGN` or `AP242_MANAGED_MODEL_…`,
+     and the colours survive in all three schemas.
+2. Met (`parallel_step_reads_are_identical`). `bolt_pattern` and `filleted_box` are each read
+   by 4 threads × 3 reads at once, with no lock (8.0.1). All 12 reads equal the
+   single-threaded one: the tree with every f64/f32 bit, and the BinTools bytes of every
+   prototype. `parallel_step_writes_of_one_model` writes one model with shared shapes from
+   4 threads × 3: every file reads back the same, and the inputs keep their bytes.
+3. Met (`iges_fixtures_round_trip`). For `box_iges`, `coloured_cylinder` and
+   `filleted_box_iges`, each read from the file and from a fresh write equals the built model.
+   Each is one valid solid with the same volume and area within 1e-9, and has the name and the
+   part colour. A write-read round trip is identical to 1e-9, face colours included. IGES puts
+   the part colour on every face as well, so the face colours appear after the first read.
+   `iges_flattens_assemblies` writes `bolt_pattern` and gets 5 solids back.
+4. Met (`large_step_read_reports_progress_and_cancels`,
+   `large_step_read_completes_with_monotone_progress`).
+   - The test file is 13 separate copies of the 1030-face plate: **55.8 MB**, written in
+     28.5 s.
+   - Cancel latencies (from `cancel()` to `read_step` returning `Cancelled`):
+
+     | Cancelled during | Latency |
+     |---|---|
+     | parsing (at 4 %) | **4.2 ms** |
+     | the start of the transfer (16.5 %) | **8.0 ms** |
+     | the transfer (32 %) | **10.6 ms** |
+
+     The 500 ms bound is asserted under `AMG_STRICT_TIMING=1`.
+   - A full read without healing takes **72.3 s** in the test profile (OCCT is a release
+     build). It gives 13 207 monotone progress samples: 257 while parsing, 11 175 during the
+     transfer.
+5. Conditional, not exercised here. `fusion_exports_import_as_valid_solids` reads every
+   `*.step`/`*.stp` under `$AMG_TESTDATA_DIR/fusion/` and checks each solid with BRepCheck
+   and for a positive volume. `AMG_TESTDATA_DIR` is not set on this machine, so it skips;
+   with `AMG_REQUIRE_TESTDATA=1` an unset directory fails.
+
+Also tested:
+- `writing_leaves_the_inputs_unchanged`: the BinTools bytes of every input of 3 models are
+  unchanged after a STEP and an IGES write.
+- `healing_keeps_face_colours_on_their_faces`: the coloured fillet face of `filleted_box` has
+  the same class, area and colour with and without healing.
+- `names_and_colours_can_be_skipped`.
+- `placed_and_shared_roots_are_written`.
+- `files_do_not_name_the_user`, `non_ascii_names_round_trip`.
+- `bad_inputs_fail_cleanly`: `Io`, `Format`, `InvalidInput { what: "model" }`.
+- `cancelled_jobs_do_not_run`.
+
+**Findings and deviations.**
+- **OCCT checks `UserBreak` only between top-level products in a STEP transfer.** The first
+  measurement, a cancel just after parsing, returned 4.4 s later. Most of a cancel's
+  remaining cost was the teardown of the parsed model, which is now deferred (see above).
+- **Throwing from `Show` is not an option.** OCCT calls `Show` from the destructors of progress
+  scopes and ranges (`Close` → `Increment` → `Show`), so an exception there would terminate
+  the process.
+- **XCAF splits a located shape into an assembly that refers to the unlocated one.** The
+  writer therefore bakes a root's placement into a private copy
+  (`BRepBuilderAPI_Transform`). A root that is also an assembly component, or that is placed,
+  becomes a part of its own, so its `instance_of` link is lost.
+- **Unnamed STEP instances read back as the NAUO's id** ("1", "6"). The writer therefore names
+  each component after its node, or after its part when the node has no name. On read, a node's
+  name is the instance's own name when it has one, else the part's or the assembly's.
+- **Sub-assemblies are expanded.** A sub-assembly used twice reads as two subtrees, but their
+  parts keep one prototype each. The writer writes one assembly label per node.
+- **The IGES writer's `(session, unit)` constructor forces faces mode** (loose trimmed
+  surfaces, which read back as faces) and leaves the global section blank (unit flag 0,
+  resolution `inf`). The writer instead uses the default constructor, with `write.iges.unit`
+  and `write.iges.brep.mode = 1` set under the global lock. Solids are written as MSBO B-rep
+  entities and read back as solids.
+- **AP203 keeps colours.** OCCT 8 adds `SHAPE_APPEARANCE_LAYER_MIM` to the AP203 schema.
+- **Healing changes face indices.** Face colours are carried through the heal history
+  (`Modified`/`Generated`/`Kept`).
+- The read does not set `DESTEP_Parameters` from `Interface_Static`: it uses the struct's
+  defaults, with names and colours as asked and layers, properties and metadata off.
+- No `KernelOp` variants were added: the `io` functions are not `BrepKernel` methods, and S20's
+  dumps take shapes, not files.
+
+**For S12 (IO-06, IO-07) and DOC-06.**
+- `instance_of` indexes `ForeignModel::prototypes`.
+- Part nodes carry a clone of their prototype's `Shape` (the same TShapes), and its face
+  colours keyed by `FaceId`.
+- `source_unit_mm` is the declared unit.
+- Progress and cancel go through `JobCtx`.
+- For a write, a node with `instance_of` uses its prototype's shape and face colours; a node
+  with a shape and no `instance_of` becomes a prototype of its own.
+- Transforms must be rigid. A node cannot have both a shape and children.
+- Prototype face indices are those of the healed shapes, so DOC-06 can name faces from them
+  directly.
+
+**Leftovers.**
+- Done-when 5 needs the owner's Fusion exports under `$AMG_TESTDATA_DIR/fusion/`.
+- `*.step` is LFS-tracked by the root `.gitattributes`, so the 10 fixtures (4.2 MB, 4.07 MB of
+  it `plate_with_holes.step`) become LFS objects. The tests also round-trip the same models
+  through temporary files, so they do not need LFS. A `-filter` exception for
+  `testdata/brep/step/` (like `crates/amg-doc/tests/fixtures`) would make the checked-in
+  files testable in CI. That is a shared root file, so it is not changed here.
+- `docs/notes/occt-integration.md` §2 lists the toolkits without TKService.
+- STEP reads of large files are slow in OCCT itself: 72 s for 55.8 MB without healing.
+  Healing adds more: `step_fixtures_round_trip`, which reads and heals the 1030-face plate 4
+  times, takes 61 s (not broken down). A parallel per-prototype heal (rayon) is possible.
+- Instance colours read from SHUO-style overrides of foreign files are only taken where XCAF
+  puts them on the component label.
+- A sub-assembly that is used twice is not written back as one shared assembly.
+- Layers, validation properties, GD&T and materials are not read.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -3345,3 +3531,29 @@ Every change is inside lane A's crates. No other lane's files changed.
 - **For DOC-06:** the five histories are one-operand. Replace face is two steps composed into
   one history, and the replaced face is `Modified` into the new face.
 - No new dependency; `THIRD_PARTY.md` unchanged.
+
+### 2026-11-25: additions and changed contracts from BREP-13 (lane A)
+Every change is inside lane A's crates, plus the new fixture directories `testdata/brep/step/`
+and `testdata/brep/iges/`. No other lane's files changed.
+- `amg-brep`, additive:
+  - `ForeignModel`, `ForeignNode`, `ImportOpts`, `StepSchema` and
+    `io::{read_step, write_step, read_iges, write_iges}` as in the Interfaces.
+  - **New field `ForeignModel::prototypes: Vec<ForeignPrototype>`** (the shared-prototype
+    table that `instance_of` indexes; the Interfaces had no field for it) and the new type
+    `ForeignPrototype { name, shape, color, face_colors }`.
+  - Helpers `ForeignModel::{new, nodes}`, `impl Default for ForeignModel` (mm),
+    `ForeignNode::{part, assembly}`, `ImportOpts: Eq + Default`, `StepSchema: Default`
+    (`Ap242`).
+  - New example `gen_brep_io` (`[[example]]` in `amg-brep/Cargo.toml`).
+- `amg-occt-sys`, additive:
+  - New `cpp/occt_xde.cpp` (in `build.rs`) with `xde_read_step`, `xde_read_iges`,
+    `xde_write_step`, `xde_write_iges`, the `xde_*` accessors and `xde_guard_probe`.
+  - Bridge structs `OcXdeNode`, `OcXdeProto`, `OcXdeFaceColor`, `OcXdeStatus` and
+    `OcXdeWriteParams`, and the opaque type `OcXde`.
+  - `build.rs` also links the OCCT toolkit TKService (needed by XCAF colours). It is part of
+    the installed OCCT, so there is no new dependency.
+  - `SHIM_VERSION` stays 4.
+- **Proposed for S12** (IO-06, IO-07; no S12 file changed): read `ForeignModel::prototypes`
+  for the shared bodies, and note that part nodes already carry their prototype's `Shape` and
+  face colours.
+- No new dependency; `THIRD_PARTY.md` unchanged (OCCT's row covers TKService).

@@ -399,3 +399,50 @@ impl Occ {
         match *self {}
     }
 }
+
+/// STEP and IGES without OCCT: every call is `BackendUnavailable` (BREP-13).
+pub(crate) mod xde {
+    use std::path::Path;
+
+    use amg_jobs::JobCtx;
+
+    use crate::KResult;
+    use crate::error::KernelError;
+    use crate::foreign::FlatModel;
+
+    /// The file format of one read or write.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub(crate) enum Format {
+        Step,
+        Iges,
+    }
+
+    /// What a read gave before healing.
+    pub(crate) struct RawRead {
+        pub flat: FlatModel,
+        pub warnings: Vec<String>,
+        pub unit_names: Vec<String>,
+        pub iges_unit_flag: i32,
+    }
+
+    pub(crate) fn read(
+        _format: Format,
+        _path: &Path,
+        _names: bool,
+        _colors: bool,
+        _ctx: &JobCtx,
+    ) -> KResult<RawRead> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn write(
+        _format: Format,
+        _path: &Path,
+        _flat: &FlatModel,
+        _schema: u8,
+        _unit_mm: f64,
+        _ctx: &JobCtx,
+    ) -> KResult<()> {
+        Err(KernelError::BackendUnavailable)
+    }
+}
