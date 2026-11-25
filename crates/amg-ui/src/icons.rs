@@ -133,6 +133,10 @@ icon_set! {
     SETTINGS = "settings",
     /// Sketch.
     SKETCH = "pencil",
+    /// Sketch line (UI-09).
+    LINE = "line",
+    /// Finish Sketch (UI-09).
+    SKETCH_FINISH = "circle-check",
     /// Select tool.
     SELECT = "pointer",
     /// Folder node.

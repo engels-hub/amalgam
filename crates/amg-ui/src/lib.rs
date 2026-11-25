@@ -37,6 +37,9 @@
 //! hold) with `MarkingMenuProvider`s and `ContextMenuProvider`s for the browser and timeline
 //! menus.
 //!
+//! UI-09 adds [`sketch`] mode: the sketch session (working copy, solver worker, DOF), the Sketch
+//! Palette, inference, overlays, select & drag and the Line tool.
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
@@ -67,6 +70,7 @@ pub mod search;
 pub mod select;
 mod shell;
 pub mod shortcut;
+pub mod sketch;
 pub mod theme;
 pub mod timeline;
 pub mod tool;
@@ -99,7 +103,7 @@ pub use tool::{FinishReason, InputResult, Tool, ToolCx, ToolInit};
 /// Keeps every module's `inventory::submit!` in the final binary (the S01 linker caveat: an
 /// object file nothing references may be dropped). [`UiRegistry::build`] calls it.
 pub fn link() {
-    let registers: [fn(&mut module::Registrar<'_>); 10] = [
+    let registers: [fn(&mut module::Registrar<'_>); 11] = [
         builtin::register,
         design::register,
         am::register,
@@ -110,6 +114,7 @@ pub fn link() {
         materials::register,
         mesh::register,
         sim::register,
+        sketch::register,
     ];
     std::hint::black_box(registers);
 }
