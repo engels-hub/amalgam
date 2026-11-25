@@ -83,6 +83,7 @@ mod occt {
         println!("cargo:rerun-if-changed=cpp/occt_blend.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_offset.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_heal.cpp");
+        println!("cargo:rerun-if-changed=cpp/occt_sweep.cpp");
 
         let fixtures = cfg!(feature = "fixture-gen");
         let mut bridges = vec!["src/bridge.rs"];
@@ -104,6 +105,7 @@ mod occt {
             .file("cpp/occt_blend.cpp")
             .file("cpp/occt_offset.cpp")
             .file("cpp/occt_heal.cpp")
+            .file("cpp/occt_sweep.cpp")
             .include(&include)
             .std("c++17");
         if fixtures {

@@ -1,0 +1,12 @@
+# B-rep metrics of brep/pipe_circle_scale (S02 BREP-15). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 586.4306286700948
+area = 441.7032381214503
+faces = 3
+edges = 3
+vertices = 2
+classes = "BPP"

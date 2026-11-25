@@ -54,6 +54,9 @@ struct OcHealParams;
 struct OcUnifyParams;
 struct OcSewParams;
 struct OcCheckProblem;
+struct OcPipeParams;
+struct OcLoftParams;
+struct OcLoftSection;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -400,6 +403,20 @@ rust::Vec<OcCheckProblem> analyze_shape(const OcShape &shape, const OcIndex &ind
 
 // CATEGORY: R
 std::uint32_t op_fix_count(const OcOp &op);
+
+// -- pipe-shell sweeps and the raw loft (BREP-15), implemented in occt_sweep.cpp --
+
+// CATEGORY: C (BRepOffsetAPI_MakePipeShell builds its faces on the section edges and adds pcurves
+// to them, so it sweeps private BRepBuilderAPI_Copy copies of every operand made here; the
+// operands are only read)
+std::unique_ptr<OcOp> pipe_op(const OcShapeList &operands, const OcPipeParams &params,
+                              rust::Slice<const double> twist, rust::Slice<const double> scale,
+                              const ProgressSink &sink);
+
+// CATEGORY: C (as pipe_op: BRepOffsetAPI_ThruSections lofts private copies of the wires made here)
+std::unique_ptr<OcOp> thru_sections_op(const OcShapeList &wires,
+                                       rust::Slice<const OcLoftSection> sections,
+                                       const OcLoftParams &params, const ProgressSink &sink);
 
 // -- measurement queries (BREP-09), implemented in occt_query.cpp --
 

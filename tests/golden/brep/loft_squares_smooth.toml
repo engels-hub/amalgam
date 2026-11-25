@@ -1,0 +1,12 @@
+# B-rep metrics of brep/loft_squares_smooth (S02 BREP-15). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 288.00000000000006
+area = 250.34235069889766
+faces = 6
+edges = 12
+vertices = 8
+classes = "BBBBPP"

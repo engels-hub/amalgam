@@ -8,6 +8,7 @@ mod heal;
 mod offset;
 mod ops;
 mod query;
+mod sweep;
 
 use std::num::NonZeroUsize;
 use std::sync::OnceLock;

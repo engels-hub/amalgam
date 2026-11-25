@@ -23,13 +23,14 @@ use crate::history::{FaceBuild, OpResult, ShapeHistory};
 use crate::offset::{self, OffsetIn};
 use crate::ops::{self, PrimitiveKind};
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, OffsetJoin, PrismExtent,
-    PrismOpts, SewOpts, ShellOpts, TessQuality, UnifyOpts,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, LoftSection, OffsetJoin,
+    PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality, ThruSectionsOpts, UnifyOpts,
 };
 use crate::query::{
     self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
 };
 use crate::shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, SubKind, SubShape};
+use crate::sweep;
 use crate::tess::{self, TessMesh, TessProfile};
 
 /// Version of the robustness policy, the third part of [`kernel_version`]. S20's
@@ -254,6 +255,71 @@ pub trait BrepKernel: Send + Sync {
     /// `InvalidInput { what: "profile" | "axis" | "angle" }`; `Occt`; `InvalidResult`;
     /// `Cancelled`.
     fn revol(&self, profile: &Shape, axis: &Line3, angle: f64, ctx: &JobCtx) -> KResult<OpResult>;
+
+    /// Profiles swept along a spine (`BRepOffsetAPI_MakePipeShell`), on private copies of the
+    /// operands. `operands` are `[profiles..., spine, aux?]`: `profiles` leading profiles (wires
+    /// or edges; the first and last may be vertices, punctual sections), the spine (a wire or
+    /// an edge), and for [`crate::PipeMode::Guide`] / [`crate::PipeMode::Support`] the guide
+    /// wire or support shell, whose operand index is the one after the spine.
+    ///
+    /// - `opts.mode`: corrected Frenet, Frenet, fixed (sections stay parallel: they are only
+    ///   translated), constant binormal, a guide wire (plane mode; `contact` keeps the section
+    ///   on the guide), or a support shell whose own (curved) edges the spine is (S04 R-S04-7).
+    /// - `opts.twist` turns the section about the tangent by `twist(t) − twist(0)` rad relative
+    ///   to the mode's trihedron (`t` in 0..1 along the spine). OCCT has no twist law: the shim
+    ///   builds an auxiliary spine around the spine at the twist angles (64+ samples, cubic
+    ///   interpolation) and sweeps in guide mode. Corrected Frenet, Frenet and binormal only.
+    /// - `opts.scale` scales the one profile about the spine point (OCCT's homothetic law).
+    ///   OCCT cannot combine it with a guide, a support or a twist.
+    /// - `opts.solid` closes a sweep of closed profiles with planar caps (`MakeSolid`);
+    ///   otherwise the result is the swept shell.
+    /// - `opts.transition`: how sections turn at spine corners.
+    ///
+    /// History, one entry of `operand_counts` per operand: profile edges `Generated` into the
+    /// lateral faces they sweep, profile vertices into the lateral edges; a profile edge that is
+    /// a boundary of the result (the first section) is `Modified` into it. Roles: the cap faces
+    /// `StartCap` / `EndCap`, every other face `Lateral`. Cancellation reaches inside the build.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "profiles" | "operands" | "spine" | "guide" | "support" | "mode" |
+    /// "twist" | "scale" }`; `OpFailed { op: "pipe" }` when OCCT fails (with the
+    /// `BRepBuilderAPI_PipeError` name or the exception), also when `MakeSolid` fails on open
+    /// profiles; `InvalidResult` under the validation policy; `Cancelled`.
+    fn pipe(
+        &self,
+        operands: &[Shape],
+        profiles: usize,
+        opts: &PipeOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// The raw loft through `sections` (`BRepOffsetAPI_ThruSections`) on private copies of
+    /// `wires`: each [`LoftSection::Wire`] names a wire operand (a wire or an edge), each
+    /// [`LoftSection::Point`] a punctual first or last section (a cone tip). A wire is used once,
+    /// except that the first one may be repeated as the last section to close the loft.
+    /// `opts.ruled` builds ruled faces between neighbours, else one smooth B-spline face per
+    /// edge column; `check_compatibility` lets OCCT orient the wires alike and split edges to
+    /// match their counts; `max_degree` 0 keeps OCCT's 8. This is the baseline that S20's KH-05
+    /// measures and the fallback of KH-08's loft chain.
+    ///
+    /// History, one entry of `operand_counts` per wire: each section edge `Generated` into the
+    /// lateral face(s) it bounds, section vertices into the lateral edges; first and last
+    /// section edges that stay boundaries are `Modified` into them. Roles: the cap faces
+    /// `LoftSection { index: 0 }` and `LoftSection { index: n − 1 }`, every other face `Lateral`.
+    /// Cancellation reaches inside the build.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "sections" | "wires" | "opts" }`; `OpFailed { op: "thru_sections" }`
+    /// when OCCT fails or raises (incompatible sections: open and closed wires mixed, different
+    /// edge counts without the compatibility check, ...); `InvalidResult` under the validation
+    /// policy; `Cancelled`.
+    fn thru_sections(
+        &self,
+        wires: &[Shape],
+        sections: &[LoftSection],
+        opts: &ThruSectionsOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
 
     /// `s` reflected about `plane` into new geometry (S04 R-S04-6), faces still facing out of
     /// the material; history `Modified` 1:1 ([`Shape::gtransformed`]). [`Shape::transformed`]
@@ -974,6 +1040,20 @@ impl OcctKernel {
         }
     }
 
+    /// The result of a sweep over several operands (pipe, thru_sections).
+    fn swept_n(
+        &self,
+        op: &'static str,
+        operands: &[Shape],
+        occ: Occ,
+        raw: &ops::RawHistory,
+    ) -> KResult<OpResult> {
+        let shape = Shape::from_occ(occ);
+        self.validate_result(op, &shape)?;
+        let history = ops::history_n(raw, operands.iter().map(ops::counts).collect());
+        Ok(finished(shape, history, Vec::new()))
+    }
+
     fn swept(
         &self,
         op: &'static str,
@@ -1187,6 +1267,41 @@ impl BrepKernel for OcctKernel {
         let built = profile.occ().revol(origin, dir, angle)?;
         ctx.checkpoint()?;
         self.swept("revol", profile, built)
+    }
+
+    fn pipe(
+        &self,
+        operands: &[Shape],
+        profiles: usize,
+        opts: &PipeOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let input = sweep::lower_pipe(operands, profiles, opts)?;
+        ctx.checkpoint()?;
+        let occs: Vec<&Occ> = operands.iter().map(Shape::occ).collect();
+        let outcome = Occ::pipe(&occs, &input, ctx)?;
+        ctx.checkpoint()?;
+        let (occ, raw) = outcome.map_err(|status| sweep::failure("pipe", "operands", &status))?;
+        self.swept_n("pipe", operands, occ, &raw)
+    }
+
+    fn thru_sections(
+        &self,
+        wires: &[Shape],
+        sections: &[LoftSection],
+        opts: &ThruSectionsOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let input = sweep::lower_thru_sections(wires, sections, opts)?;
+        ctx.checkpoint()?;
+        let occs: Vec<&Occ> = wires.iter().map(Shape::occ).collect();
+        let outcome = Occ::thru_sections(&occs, &input, ctx)?;
+        ctx.checkpoint()?;
+        let (occ, raw) =
+            outcome.map_err(|status| sweep::failure("thru_sections", "sections", &status))?;
+        self.swept_n("thru_sections", wires, occ, &raw)
     }
 
     fn mirrored(&self, s: &Shape, plane: &Plane) -> KResult<OpResult> {

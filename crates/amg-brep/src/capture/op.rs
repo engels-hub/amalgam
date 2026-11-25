@@ -8,8 +8,8 @@ use crate::error::KResult;
 use crate::geom::{self, Curve3, GeomClass};
 use crate::kernel::BrepKernel;
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, OffsetJoin, PrismExtent,
-    PrismOpts, SewOpts, ShellOpts, TessQuality, UnifyOpts,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, LoftSection, OffsetJoin,
+    PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality, ThruSectionsOpts, UnifyOpts,
 };
 use crate::shape::{EdgeId, FaceId, Shape, SubKind, SubShape};
 
@@ -256,6 +256,24 @@ pub enum KernelOp {
         /// Angle.
         angle: f64,
     },
+    /// `pipe`.
+    Pipe {
+        /// Profiles, spine and guide or support, in order.
+        operands: Vec<InputRef>,
+        /// Number of leading profiles.
+        profiles: usize,
+        /// Options.
+        opts: PipeOpts,
+    },
+    /// `thru_sections`.
+    ThruSections {
+        /// The section wires.
+        wires: Vec<InputRef>,
+        /// The sections (wires by index into `wires`, or points).
+        sections: Vec<LoftSection>,
+        /// Options.
+        opts: ThruSectionsOpts,
+    },
     /// `mirrored`.
     Mirrored {
         /// Shape.
@@ -431,6 +449,8 @@ impl KernelOp {
             KernelOp::MakeTorus { .. } => "make_torus",
             KernelOp::Prism { .. } => "prism",
             KernelOp::Revol { .. } => "revol",
+            KernelOp::Pipe { .. } => "pipe",
+            KernelOp::ThruSections { .. } => "thru_sections",
             KernelOp::Mirrored { .. } => "mirrored",
             KernelOp::Boolean { .. } => "boolean",
             KernelOp::Split { .. } => "split",
@@ -470,9 +490,12 @@ impl KernelOp {
             | KernelOp::Heal { shape, .. }
             | KernelOp::UnifySameDomain { shape, .. } => vec![*shape],
             KernelOp::MakeSolid { shell } => vec![*shell],
-            KernelOp::Sew { faces: shapes, .. } | KernelOp::MakeCompound { parts: shapes } => {
-                shapes.clone()
+            KernelOp::Sew { faces: shapes, .. }
+            | KernelOp::MakeCompound { parts: shapes }
+            | KernelOp::Pipe {
+                operands: shapes, ..
             }
+            | KernelOp::ThruSections { wires: shapes, .. } => shapes.clone(),
             KernelOp::Boolean { objects, tools, .. } | KernelOp::Split { objects, tools, .. } => {
                 objects.iter().chain(tools).copied().collect()
             }
@@ -601,6 +624,16 @@ impl KernelOp {
                 axis,
                 angle,
             } => shape(k.revol(one(profile)?, axis, *angle, ctx)),
+            KernelOp::Pipe {
+                operands,
+                profiles,
+                opts,
+            } => shape(k.pipe(&many(operands)?, *profiles, opts, ctx)),
+            KernelOp::ThruSections {
+                wires,
+                sections,
+                opts,
+            } => shape(k.thru_sections(&many(wires)?, sections, opts, ctx)),
             KernelOp::Mirrored { shape: s, plane } => shape(k.mirrored(one(s)?, plane)),
             KernelOp::Boolean {
                 kind,
@@ -787,6 +820,29 @@ mod tests {
                 },
                 angle: 1.0,
             },
+            KernelOp::Pipe {
+                operands: refs(0..3),
+                profiles: 1,
+                opts: PipeOpts {
+                    mode: crate::opts::PipeMode::Guide {
+                        wire: 2,
+                        contact: true,
+                    },
+                    twist: Some(vec![(0.0, 0.0), (1.0, 1.5)]),
+                    scale: None,
+                    solid: false,
+                    transition: crate::opts::Transition::RightCorner,
+                },
+            },
+            KernelOp::ThruSections {
+                wires: refs(0..2),
+                sections: vec![
+                    LoftSection::Point(p),
+                    LoftSection::Wire(0),
+                    LoftSection::Wire(1),
+                ],
+                opts: ThruSectionsOpts::default(),
+            },
             KernelOp::Mirrored {
                 shape: InputRef(0),
                 plane: frame,
@@ -911,8 +967,10 @@ mod tests {
         for op in &ops {
             round_trip(op);
         }
-        let boolean = &ops[12];
-        assert_eq!(boolean.inputs(), refs(0..3));
+        let by_kind = |kind: &str| ops.iter().find(|op| op.kind() == kind).unwrap();
+        assert_eq!(by_kind("boolean").inputs(), refs(0..3));
+        assert_eq!(by_kind("pipe").inputs(), refs(0..3));
+        assert_eq!(by_kind("thru_sections").inputs(), refs(0..2));
         assert!(ops[4].inputs().is_empty());
     }
 }

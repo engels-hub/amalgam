@@ -96,12 +96,21 @@ pub enum PipeMode {
     },
     /// Constant binormal direction.
     Binormal(Dir3),
-    /// Guided by an auxiliary wire.
+    /// Guided by an auxiliary wire: the section's normal points at it (OCCT's plane mode: the
+    /// guide point is where the spine's normal plane cuts the guide).
     Guide {
-        /// Operand index of the guide wire.
+        /// Operand index of the guide wire: the operand after the spine.
         wire: usize,
-        /// Keep contact with the guide.
+        /// Keep the section in contact with the guide (`BRepFill_Contact`).
         contact: bool,
+    },
+    /// The binormal follows the normals of a support shell whose faces carry the spine's edges
+    /// (`SetMode(SpineSupport)`, S04 R-S04-7). The spine's edges must be edges of the support
+    /// (sub-shapes of it, as `Shape::sub_shape` gives), and curved: OCCT raises
+    /// `Standard_NotImplemented` on straight spine edges in this mode.
+    Support {
+        /// Operand index of the support: the operand after the spine.
+        shell: usize,
     },
 }
 
@@ -121,14 +130,32 @@ pub enum Transition {
 pub struct PipeOpts {
     /// Trihedron mode.
     pub mode: PipeMode,
-    /// Twist law: `(param 0..1, rad)` samples.
+    /// Twist law: `(param 0..1, rad)` samples, parameters strictly increasing from 0 to 1 along
+    /// the spine, angles about the spine tangent relative to the mode's trihedron (the section
+    /// turns by `twist(t) − twist(0)`), linear between samples. Needs the corrected Frenet,
+    /// Frenet or binormal mode.
     pub twist: Option<Vec<(f64, f64)>>,
-    /// Scale law: `(param 0..1, factor)` samples.
+    /// Scale law: `(param 0..1, factor)` samples as for `twist`, factors ≥ 1e-6, about the spine
+    /// point (OCCT's homothetic law: linear for two samples, interpolated for more). Needs
+    /// exactly one profile, and no guide, support or twist.
     pub scale: Option<Vec<(f64, f64)>>,
     /// Make a solid rather than a shell.
     pub solid: bool,
     /// Corner treatment.
     pub transition: Transition,
+}
+
+impl Default for PipeOpts {
+    /// Corrected Frenet, no laws, a solid, transformed corners.
+    fn default() -> Self {
+        PipeOpts {
+            mode: PipeMode::CorrectedFrenet,
+            twist: None,
+            scale: None,
+            solid: true,
+            transition: Transition::Transformed,
+        }
+    }
 }
 
 /// Raw `BRepOffsetAPI_ThruSections` options.
@@ -142,8 +169,21 @@ pub struct ThruSectionsOpts {
     pub check_compatibility: bool,
     /// Smoothing.
     pub smoothing: bool,
-    /// Maximum surface degree.
+    /// Maximum surface degree; 0 keeps OCCT's (8).
     pub max_degree: u8,
+}
+
+impl Default for ThruSectionsOpts {
+    /// A smooth solid with the compatibility check, no smoothing, OCCT's maximum degree.
+    fn default() -> Self {
+        ThruSectionsOpts {
+            solid: true,
+            ruled: false,
+            check_compatibility: true,
+            smoothing: false,
+            max_degree: 0,
+        }
+    }
 }
 
 /// One loft section.

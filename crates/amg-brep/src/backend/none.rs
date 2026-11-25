@@ -33,6 +33,9 @@ pub(crate) fn progress_probe(_steps: u32, _step_micros: u32, _ctx: &JobCtx) -> K
     Err(KernelError::BackendUnavailable)
 }
 
+/// The shape and history of a finished sweep, or its status (BREP-15).
+pub(crate) type SweepOutcome = Result<(Occ, RawHistory), crate::boolean::BoolStatus>;
+
 /// The builders' backend check: no OCCT in this build.
 pub(crate) fn require() -> KResult<()> {
     Err(KernelError::BackendUnavailable)
@@ -257,6 +260,22 @@ impl Occ {
         _p: &SewIn,
         _ctx: &JobCtx,
     ) -> KResult<HealOutcome<(Occ, RawHistory)>> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn pipe(
+        _operands: &[&Occ],
+        _p: &crate::sweep::PipeIn,
+        _ctx: &JobCtx,
+    ) -> KResult<SweepOutcome> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn thru_sections(
+        _wires: &[&Occ],
+        _p: &crate::sweep::LoftIn,
+        _ctx: &JobCtx,
+    ) -> KResult<SweepOutcome> {
         Err(KernelError::BackendUnavailable)
     }
 

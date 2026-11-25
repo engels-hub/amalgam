@@ -40,6 +40,8 @@ constexpr std::uint8_t KEPT = 3;
 constexpr std::uint8_t START_CAP = 0;
 constexpr std::uint8_t END_CAP = 1;
 constexpr std::uint8_t LATERAL = 2;
+// BREP-15: a loft cap; its `role_args` entry is the section index.
+constexpr std::uint8_t LOFT_SECTION = 8;
 
 using Shapes = std::vector<TopoDS_Shape>;
 // One internal step of an op: where a shape of the previous stage went.
@@ -201,8 +203,9 @@ public:
     close();
   }
 
-  // Labels the result faces among `faces` that have no role yet.
-  void role(const Shapes &faces, std::uint8_t role) {
+  // Labels the result faces among `faces` that have no role yet; `arg` is the role's
+  // `role_args` entry (a loft cap's section index, else 0).
+  void role(const Shapes &faces, std::uint8_t role, std::uint32_t arg = 0) {
     for (const TopoDS_Shape &f : faces) {
       if (kind_of(f) != 0) {
         continue;
@@ -214,7 +217,7 @@ public:
       has_role_[static_cast<std::size_t>(i - 1)] = true;
       op_.role_faces.push_back(static_cast<std::uint32_t>(i - 1));
       op_.roles.push_back(role);
-      op_.role_args.push_back(0);
+      op_.role_args.push_back(arg);
     }
   }
 

@@ -92,6 +92,11 @@ harness = false
 required-features = ["occt"]
 
 [[bench]]
+name = "sweep"
+harness = false
+required-features = ["occt"]
+
+[[bench]]
 name = "ops"
 harness = false
 required-features = ["occt"]
