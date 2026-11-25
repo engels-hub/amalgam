@@ -64,6 +64,9 @@ using namespace history;
 constexpr std::uint8_t MODE_SHELL = 0;
 constexpr std::uint8_t MODE_OFFSET = 1;
 constexpr std::uint8_t MODE_THICKEN = 2;
+// R-S04-5 (BREP-16): offset_faces, only the listed faces move (the base offset is 0) and their
+// neighbours are extended or trimmed to meet them.
+constexpr std::uint8_t MODE_FACES = 3;
 
 // Role codes of OcOp::roles beyond the blend ones (amg-brep `ops::history_n`).
 constexpr std::uint8_t SHELL_INNER = 6;
@@ -396,7 +399,8 @@ TopoDS_Shape only_shell(const TopoDS_Shape &s) {
 // its copy, `Modified` 1:1) and all images are `Generated`. New faces that are no image of
 // anything (the side walls of a thickened face) are `Generated` from the input edges on them.
 void record(OcOp &op, BRepOffset_MakeOffset &maker, Copied &c, const TopoDS_Shape &input,
-            std::uint8_t mode, const std::vector<bool> &removed) {
+            std::uint8_t mode, const std::vector<bool> &removed,
+            const std::vector<double> &per_face) {
   const Maps out(op.shape);
   const Maps in(input);
   const auto in_result = [&](const TopoDS_Shape &s) {
@@ -439,8 +443,12 @@ void record(OcOp &op, BRepOffset_MakeOffset &maker, Copied &c, const TopoDS_Shap
   for (int kind = 0; kind < 3; ++kind) {
     for (int i = 1; i <= in.m[kind].Extent(); ++i) {
       const TopoDS_Shape copy = c.image(in.m[kind](i));
+      // offset_faces: only the images of the moved faces are skin; their neighbours, extended
+      // to meet them, are images of faces that stay where they were.
       const bool off_skin =
-          kind == 0 ? removed[static_cast<std::size_t>(i - 1)] : on_removed.Contains(copy);
+          mode == MODE_FACES
+              ? kind != 0 || per_face[static_cast<std::size_t>(i - 1)] == 0.0
+              : (kind == 0 ? removed[static_cast<std::size_t>(i - 1)] : on_removed.Contains(copy));
       for (const TopoDS_Shape &image : images(copy)) {
         if (kind_of(image) != 0 || copies.Contains(image)) {
           continue;
@@ -475,7 +483,7 @@ void record(OcOp &op, BRepOffset_MakeOffset &maker, Copied &c, const TopoDS_Shap
   };
 
   Source source;
-  if (mode == MODE_OFFSET) {
+  if (mode == MODE_OFFSET || mode == MODE_FACES) {
     source.modified = [&](const TopoDS_Shape &s) -> Shapes {
       const TopoDS_Shape copy = c.image(s);
       if (in_result(copy)) {
@@ -523,7 +531,7 @@ void record(OcOp &op, BRepOffset_MakeOffset &maker, Copied &c, const TopoDS_Shap
   const std::uint8_t skin_role = mode == MODE_SHELL ? SHELL_INNER : OFFSET_FACE;
   for (int i = 1; i <= out.m[0].Extent(); ++i) {
     const TopoDS_Shape &face = out.m[0](i);
-    if (copies.Contains(face)) {
+    if (copies.Contains(face) || (mode == MODE_FACES && !skin.Contains(face) && derived.Contains(face))) {
       continue;
     }
     op.role_faces.push_back(static_cast<std::uint32_t>(i - 1));
@@ -543,7 +551,7 @@ std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
   if (input.IsNull()) {
     fail("offset: the shape is null");
   }
-  if (params.mode > MODE_THICKEN) {
+  if (params.mode > MODE_FACES) {
     fail("offset: unknown mode");
   }
   if (faces.size() != offsets.size()) {
@@ -628,7 +636,8 @@ std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
     }
   }
   if (op->errors.empty()) {
-    const bool needs_solid = params.mode != MODE_OFFSET || solid_count(c.base) > 0;
+    const bool needs_solid = params.mode == MODE_SHELL || params.mode == MODE_THICKEN ||
+                             solid_count(c.base) > 0;
     if (result.IsNull()) {
       op->errors.emplace_back("the result is empty");
     } else if (needs_solid && solid_count(result) == 0) {
@@ -656,7 +665,7 @@ std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
   }
   op->shape = canonical(result);
   canonical_regularity(op->shape);
-  record(*op, maker, c, input, params.mode, removed);
+  record(*op, maker, c, input, params.mode, removed, per_face);
   return op;
 }
 

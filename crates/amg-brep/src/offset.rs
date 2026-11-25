@@ -17,6 +17,8 @@ pub(crate) enum OffsetMode {
     Shell = 0,
     Offset = 1,
     Thicken = 2,
+    /// R-S04-5 (BREP-16): only the listed faces move.
+    Faces = 3,
 }
 
 /// One lowered call (`OcOffsetParams` plus the face lists).

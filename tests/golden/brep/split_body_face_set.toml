@@ -1,0 +1,12 @@
+# B-rep metrics of brep/split_body_face_set (S02 BREP-16). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 3840.0
+area = 2272.0
+faces = 16
+edges = 28
+vertices = 16
+classes = "PPPPPPPPPPPPPPPP"

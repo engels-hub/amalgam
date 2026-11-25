@@ -1,0 +1,12 @@
+# B-rep metrics of brep/replace_top_cylinder (S02 BREP-16). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 4345.387885569082
+area = 1593.9588830643693
+faces = 7
+edges = 15
+vertices = 10
+classes = "PPPPPYY"

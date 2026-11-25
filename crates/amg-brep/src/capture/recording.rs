@@ -16,8 +16,9 @@ use crate::geom;
 use crate::history::{FaceBuild, OpResult};
 use crate::kernel::BrepKernel;
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, LoftSection, OffsetJoin,
-    PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality, ThruSectionsOpts, UnifyOpts,
+    BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletSpec, HealOpts, LoftSection,
+    OffsetJoin, PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality,
+    ThruSectionsOpts, UnifyOpts,
 };
 use crate::query::{
     Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
@@ -563,6 +564,82 @@ impl<K: BrepKernel> BrepKernel for RecordingKernel<K> {
             },
             || vec![s],
             || self.inner.thicken(s, thickness, join, ctx),
+        )
+    }
+
+    fn draft(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        opts: &DraftOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Draft {
+                shape: one(0),
+                faces: faces.to_vec(),
+                opts: opts.clone(),
+            },
+            || vec![s],
+            || self.inner.draft(s, faces, opts, ctx),
+        )
+    }
+
+    fn defeature(&self, s: &Shape, faces: &[FaceId], ctx: &JobCtx) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Defeature {
+                shape: one(0),
+                faces: faces.to_vec(),
+            },
+            || vec![s],
+            || self.inner.defeature(s, faces, ctx),
+        )
+    }
+
+    fn replace_face(
+        &self,
+        s: &Shape,
+        face: FaceId,
+        with: &geom::Surface,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::ReplaceFace {
+                shape: one(0),
+                face,
+                with: with.clone(),
+            },
+            || vec![s],
+            || self.inner.replace_face(s, face, with, ctx),
+        )
+    }
+
+    fn split_faces(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        tool: &Shape,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::SplitFaces {
+                shape: one(0),
+                faces: faces.to_vec(),
+                tool: one(1),
+            },
+            || vec![s, tool],
+            || self.inner.split_faces(s, faces, tool, ctx),
+        )
+    }
+
+    fn offset_faces(&self, s: &Shape, faces: &[(FaceId, f64)], ctx: &JobCtx) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::OffsetFaces {
+                shape: one(0),
+                faces: faces.to_vec(),
+            },
+            || vec![s],
+            || self.inner.offset_faces(s, faces, ctx),
         )
     }
 

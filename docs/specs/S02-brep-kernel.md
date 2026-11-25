@@ -248,8 +248,9 @@ take `&self` and inputs by `&Shape`.
   - Roles: `ShellInner`, `OffsetFace`.
 - **Draft / replace / split / defeature (BREP-16):**
   - `BRepOffsetAPI_DraftAngle` (neutral plane, pull direction, faces).
-  - Replace face: `BRepAlgoAPI_Defeaturing`, then a boolean against the target surface's
-    half-space, or `BRepTools_ReShape` with `ShapeFix`.
+  - Replace face: `offset_faces` pushes the face past the new surface (when it lies beyond),
+    then a `BRepAlgoAPI_Splitter` by a face on the surface drops the pieces past it (BREP-16 log;
+    the planned defeature + half-space route cannot add material).
   - Split face by curves or by a tool (`BRepFeat_SplitShape`, `BRepAlgoAPI_Splitter`).
   - Split body by a plane or a face set.
   - Delete face / defeature: `BRepAlgoAPI_Defeaturing`.
@@ -765,6 +766,8 @@ pub trait BrepKernel: Send + Sync {
     fn defeature(&self, s: &Shape, faces: &[FaceId], ctx: &JobCtx) -> KResult<OpResult>;     // delete face
     fn replace_face(&self, s: &Shape, face: FaceId, with: &geom::Surface, ctx: &JobCtx) -> KResult<OpResult>;
     fn split_faces(&self, s: &Shape, faces: &[FaceId], tool: &Shape, ctx: &JobCtx) -> KResult<OpResult>;
+    /// R-S04-5 (BREP-16): the listed faces moved along their normals, the others extended/trimmed.
+    fn offset_faces(&self, s: &Shape, faces: &[(FaceId, f64)], ctx: &JobCtx) -> KResult<OpResult>;
     // -- healing, assembly (BREP-10) --
     fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult>;
     fn unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult>;
@@ -905,7 +908,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-05 | History framework: `ShapeHistory` (entries, `Kept`, roles, tags, `sources_of`, `compose`), extraction from `BRepBuilderAPI_MakeShape`/`BRepTools_History`/op accessors, composition of internal steps, deterministic split order, `sub_geom`/`sub_geom_all` fingerprints; applied to BREP-03/14/04 ops | BREP-04 | P0 | Done | 1. Completeness test: for every op in the BREP-03/14/04 corpora, every output face is Modified/Generated/Kept from some input or has a role, and no output index is out of range. 2. Prism of a tagged profile: each lateral face's `sources_of` is the generating edge, which carries the profile tag; caps have `StartCap`/`EndCap`. 3. Box cut by a cylinder through one face: the split face has 2 `Modified` outputs, in area-desc order, stable across 10 runs. 4. `compose` of prism + unify equals the history observed end-to-end on 5 cases. 5. `ShapeHistory` serde round-trips. 6. `sub_geom_all` on a 1000-face part takes < 20 ms. Usable by DOC-06 tests (box, prism, boolean cut). |
 | BREP-06 | Fillet (constant, variable, chord) and chamfer (equal, two-dist, dist-angle) with history (`FilletBlend`, `ChamferFace`) and `LocalOpFailed { offending }`; `fillet_max_radius` | BREP-05 | P0 | Done | 1. Golden volumes for 20 fillet/chamfer cases (cube edge, edge chains, vertex blends of 3 edges) within 1e-6 relative. 2. A radius larger than the adjacent face fails with `offending` naming the failing edge(s), checked against the expected edge ids. 3. `fillet_max_radius` on 5 cases is within 1 % of the reference largest workable radius. 4. History: each blend face maps to its source edge. 5. 10 runs are byte-identical. 6. The op is in the stress test. |
 | BREP-07 | Shell / thick solid (removed faces, per-face thickness, join arc/intersection), `offset`, `thicken` with roles `ShellInner`/`OffsetFace` | BREP-05 | P0 | Done | 1. Golden volumes: shelled box (1 face removed, 1 mm) equals the analytic volume within 1e-9 relative. Shelled cylinder, filleted box (arc join) and thickened B-spline face (0.5 %) pass. 2. Inward/outward offset of a sphere: radius within 1e-9. 3. A thickness exceeding the minimum radius gives `LocalOpFailed` with offending faces. 4. History roles are correct on 5 cases. |
-| BREP-16 | Draft, defeature (delete face), replace face, split faces by tool, split body (via `split`) with history | BREP-05 | P0 | Todo | 1. Draft of 4 box side faces at 3° about the bottom plane: the measured face angles are 3° ± 1e-9 rad and the volume is analytic. 2. Deleting a fillet face and a boss face gives the pre-feature volume within 1e-6. 3. Replacing a top face with an offset plane changes the height exactly. 4. Splitting a face by a sketch wire gives 2 faces with the right areas. 5. Every result is BRepCheck-valid with complete history. |
+| BREP-16 | Draft, defeature (delete face), replace face, split faces by tool, split body (via `split`) with history | BREP-05 | P0 | Review | 1. Draft of 4 box side faces at 3° about the bottom plane: the measured face angles are 3° ± 1e-9 rad and the volume is analytic. 2. Deleting a fillet face and a boss face gives the pre-feature volume within 1e-6. 3. Replacing a top face with an offset plane changes the height exactly. 4. Splitting a face by a sketch wire gives 2 faces with the right areas. 5. Every result is BRepCheck-valid with complete history. |
 | BREP-08 | Tessellation: `tessellate` on a private topology copy (category C), `TessMesh` (per-face vertices, normals, `face_ranges`, exact `weld`, edge polylines), `to_indexed_parts`, `tessellate_many` (rayon, `InParallel` off), `tessellate_edge`, quality presets | BREP-12 | P0 | Done (owner-accepted 2026-11-19; Done-when 1 moved to BREP-18) | 1. A 1000-face fixture part tessellates (display preset) in < 100 ms median, including the topology copy (criterion `budget/brep-tess-1000`); the copy share is recorded. 2. `to_indexed_parts` of every closed fixture is watertight (`amg_testkit::metrics`: 0 boundary and 0 non-manifold edges), and its volume matches `mass_props` within the deflection bound. 3. Sphere r=10 tessellations converge to the exact area as deflection shrinks. 4. Tessellating one shared `Shape` from 8 threads while another thread runs booleans on it: no crash, identical meshes, input hash unchanged. 5. `face_of_triangle` is consistent with `face_ranges` for all triangles. |
 | BREP-09 | Mass properties (volume, area, centroid, inertia, principal axes), `classify`, `distance`, `closest_point`, `ray_cast`, `eval_surface` (curvatures), `project_point_on_face`, `interference` | BREP-04 | P0 | Done | 1. Box, cylinder, sphere and torus mass props match analytic values within 1e-9 relative. Inertia tensors match within 1e-9. 2. Distance between two spheres and between a point and a face matches analytic values within 1e-9. 3. `ray_cast` hits the expected face with the correct normal on 1000 random rays at a cylinder (vs analytic). 4. Curvatures of a torus at 10 points match analytic values within 1e-9. 5. `interference` volume of two overlapping boxes is analytic. |
 | BREP-17 | Geometry extraction for sketches and drawings: `plane_section` and `project_edges` to `CurveSeg` (lines/circles/ellipses recognised, others B-spline), `tessellate_edge` reuse | BREP-12 | P0 | Done | 1. A plane section of a cylinder (perpendicular) gives one `Curve3::Circle` with exact radius. An oblique section gives an `Ellipse` with analytic axes within 1e-9. 2. Projecting the edges of a filleted box top onto the XY plane gives lines and circle arcs with the correct radii and endpoints. 3. Section of a B-spline surface returns B-spline segments within 1e-6 mm of the true intersection (sampled). |
@@ -2803,6 +2806,202 @@ face.
 - Twist combined with scale, for example by sweeping scaled copies as several sections.
 - A real helix spine comes with BREP-11 (`helix`); the corpus approximates it with a C1 cubic.
 
+### 2026-11-25 - BREP-16 draft, defeature, replace face, split faces, split body and offset faces
+**Landed.**
+- `amg-brep`, trait `BrepKernel` (with the forwarding arms in `RecordingKernel`,
+  `tests/api_contract.rs` and `tests/common/fault.rs`):
+  - `draft`, `defeature`, `replace_face` and `split_faces`, with the Interfaces signatures.
+  - **New:** `offset_faces(s, &[(FaceId, f64)], ctx) -> KResult<OpResult>` (R-S04-5, left to this
+    WP by BREP-07). It is also the first step of `replace_face`.
+  - S20's `KernelOp::{Draft, Defeature, ReplaceFace, SplitFaces, OffsetFaces}`, with replay arms
+    and the round-trip test. Faces stay plain `FaceId`s, as for BREP-07's shell faces.
+- New module `local` (plain Rust, unit-tested without OCCT): validation and lowering.
+  - Face lists must be non-empty, distinct and in range.
+  - `draft`: the angle must be finite and in (−π/2, π/2), the neutral frame orthonormal, and
+    `pull` not in the neutral plane.
+  - `defeature` and `replace_face` need a solid. `defeature` must not remove every face.
+  - `replace_face` refuses `Surface::Other`.
+  - `offset_faces`: each distance finite and longer than the linear tolerance.
+  - `tool_bounds`: the parameter box of replace face's tool face.
+  - `overshoot`: how far past the new surface the face is pushed.
+  - Shim failures map through BREP-07's `offset::failure`.
+- `amg-occt-sys`, new `cpp/occt_local.cpp` (all **C**, each on a private `BRepBuilderAPI_Copy`,
+  history through the copy):
+  - `draft_op`: `BRepOffsetAPI_DraftAngle`. Each face's `Add` result is checked (`AddDone`,
+    `ProblematicShape`). Faces that are not planar, cylindrical or conical are `invalid: `. The
+    images come from `Modified`, else `ModifiedShape`, as BREP-05 found for the taper prism.
+  - `defeature_op`: `BRepAlgoAPI_Defeaturing` with history and a progress range. OCCT *skips*
+    a feature it cannot remove and only warns (`BOPAlgo_AlertUnableToRemoveTheFeature`). The
+    shim treats that warning as a failure naming the feature's faces.
+  - `trim_face_op`: `BRepAlgoAPI_Splitter` (non-destructive) of the body by the tool face. A
+    piece is kept when its face on the new surface faces away from the material: its outward
+    normal agrees with the surface normal, turned to point along the old face's outward
+    normal. A piece the surface does not bound is placed by a vertex off the surface.
+  - `face_reach` (**R**): the largest signed distance from the face's samples (vertices, and a
+    5 × 5 grid of cell centres inside the face) to the new surface along their outward normals
+    (`GeomAPI_IntCS`). It is NaN when no normal line meets the surface.
+  - `split_faces_op`: first find the tool's curves on the chosen faces. A tool with faces gives
+    its `BRepAlgoAPI_Section` with a compound of the chosen faces. A wire or edge tool is cut
+    at the faces' boundaries by a Splitter, and the pieces whose midpoint lies within 1e-5 mm of
+    a chosen face are kept. Then `BRepAlgoAPI_Splitter` of the body by those edges. Edges do not
+    split solids, so the solid stays one.
+  - Bridge struct `OcDraftParams`. Bridge functions `draft_op`, `defeature_op`, `face_reach`,
+    `trim_face_op` and `split_faces_op`.
+- `cpp/occt_offset.cpp`: `offset_op` mode 3 (`offset_faces`).
+  - Base offset 0, one `SetOffsetOnFace` per listed face, intersection join, `MakeOffsetShape`.
+  - The collapse check, the canonical face order and the regularity rewrite are BREP-07's.
+  - Only the moved faces' images get `OffsetFace`. Neighbours that were extended or trimmed are
+    `Modified` with no role.
+  - Mode 1's `needs_solid` rule is unchanged.
+- **Replace face** (`replace_face` in `kernel.rs`):
+  1. `make_face(with, tool_bounds)` gives a face 4 box diagonals wide. Closed surfaces and
+     B-splines use their natural domain. A cone stops short of its apex.
+  2. `face_reach` measures how far the surface lies beyond the face.
+  3. When the reach is positive, `offset_faces` pushes the face `reach + 5 % + 1 %` of the body
+     size past the surface, so the neighbours extend.
+  4. `trim_face_op` cuts the body back to the surface.
+
+  The two histories are composed (`ShapeHistory::compose`). The offset's roles are dropped
+  first: the moved face becomes the new face, and `OffsetFace` would mislabel it. The replaced
+  face is `Modified` into the faces on the new surface. Its edges that are gone are `Modified`
+  into the result edges between those faces and the images of the edge's other face.
+- Split body is BREP-04's `split` with a face or a face set as the tool. No new op was needed.
+  The corpus covers a box split by a plane face (2 solids) and by a compound of two faces
+  (3 solids), with `SplitPiece` roles 0..2.
+- Tests:
+  - `tests/local.rs`: 12 tests.
+  - `tests/common/local_corpus.rs`: 27 cases, every one with a closed-form volume. 5 drafts,
+    5 defeatures, 6 replace faces, 5 split faces, 2 body splits, 4 offset faces.
+  - 27 goldens `tests/golden/brep/{draft,defeature,replace,split,offset_faces}_*.toml`. Each
+    holds the adaptive volume and area, the topology counts and the face classes (rel 1e-6).
+  - The corpus joins `every_output_face_has_a_source_or_a_role`.
+  - 2 unit tests in `src/local.rs`. The `KernelOp` round trip has the 5 new variants.
+- Bench: `benches/local.rs` (`brep-local/*`).
+
+**Done-when status.** With `--features occt`, `cargo nextest run -p amg-occt-sys -p amg-brep`
+passes 347 tests (1 skipped: BREP-04's ignored timing run). Without the feature, 109 pass.
+`cargo clippy -p amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is clean,
+also without features. `cargo build -p amg-brep --no-default-features` builds, and `cargo check
+-p amg-doc -p amg-features` passes.
+1. Met (`a_three_degree_draft_tilts_the_sides_by_three_degrees`). The 4 sides of the
+   20 × 16 × 12 box are drafted 3° with pull +z about z = 0.
+   - Each tilted face's outward normal · pull is sin 3°. The worst angle error is
+     **1.5e-16 rad** (bound 1e-9).
+   - The volume is within 1e-12 of the prismatoid `C/6 (A₀ + 4 A_m + A₁)` (3574.646 mm³).
+   - The top shrinks to `(A − 2C tan 3°)(B − 2C tan 3°)` within 1e-9.
+   - In the corpus goldens: a negative angle (the part grows), a neutral plane at mid-height,
+     one side at 5°, and a cylinder wall at 4° into a frustum. All match their closed forms
+     within 4.4e-16. A sphere face is refused (`InvalidInput` naming face 0).
+2. Met (`deleting_a_fillet_and_a_boss_restores_the_volume`). Each case gives a 6-face box of
+   volume A·B·C with error **0.0**, and every removed face is `Deleted`:
+   - fillet r 3: 3801.37 → 3840 mm³;
+   - boss r 3 × 5: 3981.37 → 3840;
+   - chamfer 2: 3800 → 3840;
+   - through hole r 2: 3689.20 → 3840;
+   - blind hole 4 deep: 3789.73 → 3840.
+
+   Removing a box's whole top is refused with `LocalOpFailed { op: "defeature" }` naming that
+   face (the alert above).
+3. Met (`replacing_the_top_by_an_offset_plane_changes_the_height_exactly`). Planes at
+   z = C + 3, C − 4, C + 0.5 and C + 25:
+   - every vertex of the new top is at that z within 1e-9 (measured exact);
+   - the volume `A B (C + dz)` is within 1e-12;
+   - the top is `Modified` into the one new face, centred within 1e-9;
+   - each of its 4 edges is `Modified` into an edge of the new top.
+
+   Corpus goldens, all matching their closed forms within 4.2e-16:
+   - a plane tilted 10° about the top's centre line (half extends, half trims; the volume
+     stays A·B·C);
+   - a side pushed out 5 mm;
+   - a cylindrical crown (R 40, axis along y), against `B (z_c A + a/2 √(R² − a²/4) +
+     R² asin(a/2R))`;
+   - a cylinder top raised 2 mm.
+4. Met (`splitting_a_face_by_a_sketch_wire_gives_two_faces_of_the_right_areas`). The top is
+   split by:
+   - a sketch line at x = 5 reaching 2 mm past both sides: 240 and 80 mm², within 2.4e-16;
+   - a sketch circle r 3: 291.73 and 28.27 mm², within 1.4e-15;
+   - a plane face at x = 12: 192 and 128 mm².
+
+   Each result is one solid of 7 faces of unchanged volume, and every other face maps 1:1. A
+   line 5 mm above the top is refused (`InvalidInput`). The corpus also splits the top and
+   bottom by one plane (8 faces) and the cylinder wall at z = 4.
+5. Met.
+   - `golden_local_ops_match_the_reference_volumes`: all 27 results are BRepCheck-valid with the
+     expected solid count.
+   - `every_result_has_a_complete_history`: every result passes `completeness_error` with no
+     warning.
+   - The history completeness test now covers 27 BREP-16 results (2194 output faces in all),
+     with no `Unexplained` face.
+   - `roles_follow_the_ops`: `offset_faces` labels only the 2 moved faces `OffsetFace`. The face
+     set split gives `SplitPiece` 0, 1 and 2. Draft, defeature, replace and split faces carry no
+     role: every face has a source.
+
+Also tested:
+- `ten_runs_are_byte_identical`: every case, 10 runs, identical BinTools bytes and history; the
+  inputs' bytes are unchanged.
+- `shared_shapes_survive_concurrent_local_ops`: 8 threads run the whole corpus on the shared
+  inputs. Every result has the single-thread bytes, and the inputs are unchanged.
+- `bad_inputs_are_invalid_input`: 17 refusals.
+- `cancelled_jobs_do_not_run`.
+- `local_ops_run_behind_the_recording_kernel`: the corpus through `&dyn BrepKernel` behind S20's
+  `RecordingKernel` (capture on failure).
+
+**Bench** (release, criterion, validation off; S02 has no budget for these ops):
+
+| Bench | Median |
+|---|---|
+| `draft-box-sides` | 0.42 ms |
+| `defeature-fillet` | 9.53 ms |
+| `defeature-boss` | 2.43 ms |
+| `replace-top-up` (offset + trim) | 4.65 ms |
+| `replace-top-down` (trim only) | 2.65 ms |
+| `split-faces-top-line` | 1.13 ms |
+| `offset-faces-top` | 1.77 ms |
+| the 27-case corpus | 71.3 ms |
+| `defeature-plate-1030-one-hole` | 8.40 s |
+| `offset-faces-plate-1030-top` | 11.6 s |
+| `split-faces-plate-1030-top` | 250 ms |
+
+**Findings and deviations.**
+- **`BRepAlgoAPI_Defeaturing` skips what it cannot remove.** It reports success with a warning
+  and returns the shape with the feature still in it. The shim makes this a `LocalOpFailed` that
+  names the feature's faces. Other warnings are dropped.
+- **Replace face is offset, then trim**, not "defeature, then a half-space boolean" (S02 §5).
+  Defeaturing the face to be replaced fails whenever the neighbours cannot close the gap without
+  it (a box's top), and a half-space boolean cannot add material. Pushing the face past the new
+  surface with `offset_faces` and trimming back covers both directions. A surface that crosses
+  the face (the tilted plane) also works. The tool face is a bounded face, so the new surface
+  must cross the whole body inside 4 box diagonals; a half-space solid is not needed.
+- **`offset_faces` and defeature cost grows with the whole shape.** On the 1030-face plate they
+  take 11.6 s (BRepOffset processes every face, as for BREP-07's 12.2 s offset) and 8.4 s
+  (BOPAlgo rebuilds every face), against a few ms on the box. S04's press-pull and delete-face
+  on large parts (SOL-09) need a local path; see Leftovers.
+- **Split faces imprints curves, not a tool's faces.** A tool with faces gives its section with
+  the chosen faces, so only they are split; the solid is not split (that is `split`). A curve
+  that runs along an edge shared with a face that is not chosen splits that face too; the docs
+  say so.
+- `draft` keeps every face and only re-intersects the neighbours, so the history is 1:1
+  `Modified` with no role. `ModifiedShape` is needed for the tilted faces (BREP-05).
+- `SHIM_VERSION` stays 4: no existing op's history changed. Mode 3 of `offset_op` is new.
+
+**For DOC-06.** All five ops have one operand. Draft is 1:1 `Modified`. Defeature has
+`Deleted` removed faces and `Modified` extended neighbours. Replace face sends the replaced
+face (and its edges) to the new face. Split faces sends a face to its pieces in split order.
+Offset faces sends every face 1:1 and gives `OffsetFace` to the moved ones. The fixtures are in
+`tests/common/local_corpus.rs`.
+
+**Leftovers.**
+- A local press-pull path for large parts (a prism of the face, fused or cut, when the
+  neighbours are perpendicular planes), and the same for removing a hole. Both are 8–12 s on the
+  1030-face plate today.
+- Mid-op cancellation of `draft` was not measured: `Build` gets the progress range, and
+  cancellation is checked before and after it.
+- A face-fingerprint `reindex` for the faces of `KernelOp::{Draft, Defeature, ReplaceFace,
+  SplitFaces, OffsetFaces}`, as for BREP-06's and BREP-07's face arguments.
+- `replace_face` with a surface that crosses the face's normal lines only partly (a small
+  cylinder) relies on `face_reach`'s 5 × 5 samples. A surface that misses all of them is
+  refused.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -3121,4 +3320,28 @@ Every change is inside lane A's crates. No other lane's files changed.
   - A twist cannot be combined with a scale (OCCT).
 - **For S20 (KH-05, KH-08):** `thru_sections` is the raw baseline. Incompatible sections fail
   with `OpFailed`.
+- No new dependency; `THIRD_PARTY.md` unchanged.
+
+### 2026-11-25: additions and changed contracts from BREP-16 (lane A)
+Every change is inside lane A's crates. No other lane's files changed.
+- `amg-brep`, additive:
+  - `BrepKernel::{draft, defeature, replace_face, split_faces}` with the Interfaces signatures,
+    and the new `BrepKernel::offset_faces(s, &[(FaceId, f64)], ctx) -> KResult<OpResult>`
+    (R-S04-5). Every `BrepKernel` implementor must add them; the in-crate decorators forward
+    them.
+  - `KernelOp::{Draft, Defeature, ReplaceFace, SplitFaces, OffsetFaces}` (S20 dump format).
+  - New module `local`, new bench `benches/local.rs` (`[[bench]]` in `amg-brep/Cargo.toml`).
+- `amg-occt-sys`: new `cpp/occt_local.cpp` (in `build.rs`) with `draft_op`, `defeature_op`,
+  `trim_face_op`, `split_faces_op` (C) and `face_reach` (R), and the struct `OcDraftParams`.
+  `offset_op` gains mode 3 (offset faces). `SHIM_VERSION` stays 4.
+- **For S04:**
+  - SOL-09 (offset face, press-pull): use `offset_faces`.
+  - Delete face: use `defeature`.
+  - Replace face: use `replace_face`.
+  - Split face: use `split_faces`.
+  - Split body: use BREP-04's `split` with a face or face set as the tool.
+  - A positive draft angle removes material on the `pull` side of the neutral plane.
+  - `offset_faces` and `defeature` take seconds on parts of about 1000 faces (BREP-16 bench).
+- **For DOC-06:** the five histories are one-operand. Replace face is two steps composed into
+  one history, and the replaced face is `Modified` into the new face.
 - No new dependency; `THIRD_PARTY.md` unchanged.

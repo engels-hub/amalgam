@@ -1,0 +1,12 @@
+# B-rep metrics of brep/split_body_plane (S02 BREP-16). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 3840.000000000001
+area = 2144.0
+faces = 11
+edges = 20
+vertices = 12
+classes = "PPPPPPPPPPP"

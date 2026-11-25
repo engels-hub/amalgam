@@ -5,11 +5,11 @@
 use amg_brep::geom;
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, Classification,
-    DistanceResult, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletSpec, HealOpts, JobCtx,
-    KResult, KernelError, Line3, LoftSection, MassProps, OffsetJoin, OpResult, PipeOpts, Plane,
-    Point2, Point3, PrismExtent, PrismOpts, Ray3, RayHit, SewOpts, Shape, ShellOpts, SubShape,
-    SubShapeGeom, SurfacePoint, TessMesh, TessQuality, ThruSectionsOpts, Tolerance, UnifyOpts,
-    Vec3,
+    DistanceResult, DraftOpts, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletSpec,
+    HealOpts, JobCtx, KResult, KernelError, Line3, LoftSection, MassProps, OffsetJoin, OpResult,
+    PipeOpts, Plane, Point2, Point3, PrismExtent, PrismOpts, Ray3, RayHit, SewOpts, Shape,
+    ShellOpts, SubShape, SubShapeGeom, SurfacePoint, TessMesh, TessQuality, ThruSectionsOpts,
+    Tolerance, UnifyOpts, Vec3,
 };
 
 /// The injected "not done" failure.
@@ -191,6 +191,39 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
         ctx: &JobCtx,
     ) -> KResult<OpResult> {
         self.inner.thicken(s, thickness, join, ctx)
+    }
+    fn draft(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        opts: &DraftOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.draft(s, faces, opts, ctx)
+    }
+    fn defeature(&self, s: &Shape, faces: &[FaceId], ctx: &JobCtx) -> KResult<OpResult> {
+        self.inner.defeature(s, faces, ctx)
+    }
+    fn replace_face(
+        &self,
+        s: &Shape,
+        face: FaceId,
+        with: &geom::Surface,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.replace_face(s, face, with, ctx)
+    }
+    fn split_faces(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        tool: &Shape,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.split_faces(s, faces, tool, ctx)
+    }
+    fn offset_faces(&self, s: &Shape, faces: &[(FaceId, f64)], ctx: &JobCtx) -> KResult<OpResult> {
+        self.inner.offset_faces(s, faces, ctx)
     }
     fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult> {
         self.inner.heal(s, opts, ctx)

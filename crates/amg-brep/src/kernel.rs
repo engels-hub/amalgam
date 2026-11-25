@@ -20,11 +20,13 @@ use crate::extract;
 use crate::geom::{self, Tag};
 use crate::heal;
 use crate::history::{FaceBuild, OpResult, ShapeHistory};
+use crate::local;
 use crate::offset::{self, OffsetIn};
 use crate::ops::{self, PrimitiveKind};
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, LoftSection, OffsetJoin,
-    PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality, ThruSectionsOpts, UnifyOpts,
+    BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletSpec, HealOpts, LoftSection,
+    OffsetJoin, PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality,
+    ThruSectionsOpts, UnifyOpts,
 };
 use crate::query::{
     self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
@@ -549,6 +551,116 @@ pub trait BrepKernel: Send + Sync {
         ctx: &JobCtx,
     ) -> KResult<OpResult>;
 
+    // -- draft, defeature, replace face, split faces, offset faces (BREP-16) --
+
+    /// `s` with `faces` (planar, cylindrical or conical) tilted by `opts.angle` about their
+    /// intersection with `opts.neutral` (`BRepOffsetAPI_DraftAngle` on a private copy, category
+    /// C). A positive angle removes material on the `opts.pull` side of the neutral plane (the
+    /// part narrows along `pull`, as a moulded part pulled out along `pull`); a negative one adds
+    /// material there. A drafted planar face makes the angle `opts.angle` with `pull` (its
+    /// outward normal · pull = sin angle for a face parallel to `pull`); a cylinder becomes a
+    /// cone. OCCT propagates the draft along faces tangent to a given one. The neighbours are
+    /// re-intersected with the tilted faces. Cancellation is checked before and after the build.
+    ///
+    /// History (operand 0 = `s`): every face, edge and vertex is `Modified` 1:1 (through the
+    /// copy; a drafted face into its tilted face). No roles.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "faces" | "opts" }` (no face, a face twice or out of
+    /// range, an angle outside (−π/2, π/2), a bad neutral frame, `pull` in the neutral plane, a
+    /// face that is not planar, cylindrical or conical); `LocalOpFailed { op: "draft" }` naming
+    /// the faces OCCT cannot tilt (`Draft_FaceRecomputation`, ...); `InvalidResult` under the
+    /// validation policy; `Cancelled`; `Occt`.
+    fn draft(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        opts: &DraftOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// `s` (solids) with `faces` removed and the gap closed by extending the faces around them
+    /// (`BRepAlgoAPI_Defeaturing` on a private copy, category C): holes, bosses, fillets,
+    /// chamfers. Give every face of a feature (a boss's wall and top). Progress and cancellation
+    /// reach inside the build.
+    ///
+    /// History (operand 0 = `s`): the removed faces, and edges and vertices that vanish with
+    /// them, are `Deleted`; the extended neighbours are `Modified` (1:1 when untouched, through
+    /// the copy).
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "faces" }` (no solid, no face, a face twice or out of
+    /// range, every face); `LocalOpFailed { op: "defeature" }` naming the faces of a feature OCCT
+    /// cannot remove (`BOPAlgo_AlertUnableToRemoveTheFeature`), whose neighbours cannot be
+    /// extended to close the gap; `InvalidResult`; `Cancelled`; `Occt`.
+    fn defeature(&self, s: &Shape, faces: &[FaceId], ctx: &JobCtx) -> KResult<OpResult>;
+
+    /// `s` (solids) with `face` replaced by a face on the surface `with`: its neighbours are
+    /// extended or trimmed to meet the new surface. Two steps: when `with` lies beyond the face
+    /// (along its outward normals), the face is first pushed past it with
+    /// [`BrepKernel::offset_faces`] so the neighbours extend; then the body is split by a large
+    /// face on `with` (`BRepAlgoAPI_Splitter`) and the pieces beyond it are dropped. The material
+    /// stays on the side of `with` opposite to the face's outward normal. `with` must cross the
+    /// lines along the face's normals (a plane through the body, a cylinder around it, ...).
+    ///
+    /// History (operand 0 = `s`, the two steps composed): `face` is `Modified` into the faces
+    /// on the new surface, its edges into the edges where those meet the face's neighbours'
+    /// images; the neighbours are `Modified` (trimmed or extended); whatever the trim drops is
+    /// `Deleted`.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "face" | "with" }` (no solid, a face out of range,
+    /// `Surface::Other`, a surface the face's normals do not meet); `LocalOpFailed { op:
+    /// "offset_faces" | "replace_face" }` when the extension or the trim fails (nothing left on
+    /// the material side); `InvalidResult`; `Cancelled`; `Occt`.
+    fn replace_face(
+        &self,
+        s: &Shape,
+        face: FaceId,
+        with: &geom::Surface,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// `s` with each of `faces` split by the curves of `tool` on it (on private copies,
+    /// category C): the edges of an edge or wire `tool` that lie on the faces (a sketch curve on
+    /// a face; edges reaching past a face's boundary are cut there), or, for a `tool` with faces,
+    /// its section with the faces (`BRepAlgoAPI_Section`). The curves are imprinted with
+    /// `BRepAlgoAPI_Splitter`; a solid stays one solid. A curve must cross a face from boundary
+    /// to boundary or close on itself to split it. A neighbour on which the same curves lie (a
+    /// curve along a shared edge) is split as well.
+    ///
+    /// History (operand 0 = `s`): a split face is `Modified` into its pieces (split order:
+    /// area descending), boundary edges cut by a curve into their parts; everything else
+    /// `Modified` 1:1 through the copy.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "faces" | "tool" }` (no face, a face twice or out of
+    /// range, a null tool or one without edges) and `InvalidInput { what: "faces" }` when the
+    /// tool does not meet or does not split the faces; `LocalOpFailed { op: "split_faces" }`
+    /// with the BOPAlgo alert names; `InvalidResult`; `Cancelled`; `Occt`.
+    fn split_faces(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        tool: &Shape,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// `s` with each listed face moved by its own distance along its outward normal (negative:
+    /// inward), the other faces extended or trimmed to meet the moved ones (S04 R-S04-5: offset
+    /// face and press-pull). `BRepOffset_MakeOffset` with offset 0 and per-face offsets,
+    /// intersection join, on a private copy (category C); the collapse check, progress,
+    /// cancellation and canonical face order as for [`BrepKernel::shell`].
+    ///
+    /// History (operand 0 = `s`): every face is `Modified` into its image (moved, extended or
+    /// trimmed); the moved faces have `OpRole::OffsetFace`.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "faces" }` (no face, a face twice or out of range, a zero
+    /// or non-finite distance); `LocalOpFailed { op: "offset_faces" }` as for `shell`;
+    /// `InvalidResult`; `Cancelled`; `Occt`.
+    fn offset_faces(&self, s: &Shape, faces: &[(FaceId, f64)], ctx: &JobCtx) -> KResult<OpResult>;
+
     // -- healing and assembly (BREP-10) --
 
     /// `s` healed (S02 §9): `ShapeFix_Shape` (missing or bad pcurves and 3D curves,
@@ -1017,6 +1129,23 @@ impl OcctKernel {
         Ok(finished(shape, history, Vec::new()))
     }
 
+    /// The result of a one-operand BREP-16 op (draft, defeature, split faces).
+    fn local_result(
+        &self,
+        op: &'static str,
+        s: &Shape,
+        outcome: offset::OffsetOutcome<(Occ, ops::RawHistory)>,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        ctx.checkpoint()?;
+        let (occ, raw) =
+            outcome.map_err(|(status, partial)| offset::failure(op, status, partial))?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result(op, &shape)?;
+        let history = ops::history(&raw, ops::counts(s));
+        Ok(finished(shape, history, Vec::new()))
+    }
+
     /// Whether a constant-radius fillet of `edges` (lowered) at `r` gives a valid shape: `None`
     /// when it does, else why not.
     fn fillet_fails(&self, s: &Shape, edges: &[BlendEdge], r: f64) -> KResult<Option<KernelError>> {
@@ -1476,6 +1605,130 @@ impl BrepKernel for OcctKernel {
         backend::require()?;
         let input = offset::lower_thicken(s, thickness, join, &self.cfg.tolerance)?;
         self.offset_result("thicken", s, &input, ctx)
+    }
+
+    fn draft(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        opts: &DraftOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let input = local::lower_draft(s, faces, opts)?;
+        ctx.checkpoint()?;
+        let outcome = s.occ().draft(&input, ctx)?;
+        self.local_result("draft", s, outcome, ctx)
+    }
+
+    fn defeature(&self, s: &Shape, faces: &[FaceId], ctx: &JobCtx) -> KResult<OpResult> {
+        backend::require()?;
+        let faces = local::lower_defeature(s, faces)?;
+        ctx.checkpoint()?;
+        let outcome = s.occ().defeature(&faces, self.default_parallel(), ctx)?;
+        self.local_result("defeature", s, outcome, ctx)
+    }
+
+    fn replace_face(
+        &self,
+        s: &Shape,
+        face: FaceId,
+        with: &geom::Surface,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        local::check_replace(s, face, with)?;
+        ctx.checkpoint()?;
+        let bbox = s.bbox();
+        let bounds = local::tool_bounds(with, &bbox)?;
+        let tool = self
+            .make_face(with, &bounds, self.cfg.tolerance.linear)
+            .map_err(|e| match e {
+                KernelError::InvalidInput { reason, .. } => KernelError::InvalidInput {
+                    what: "with",
+                    reason,
+                    offending: Vec::new(),
+                },
+                other => other,
+            })?
+            .face;
+        let reach = s.occ().face_reach(face.0, tool.occ())?;
+        if reach.is_nan() {
+            return Err(KernelError::InvalidInput {
+                what: "with",
+                reason: "the new surface does not meet the lines along the face's normals".into(),
+                offending: vec![offset::face_sub(face)],
+            });
+        }
+        // Push the face past the new surface first, so its neighbours extend to reach it.
+        let (base, first, base_face) = if reach > self.cfg.tolerance.linear {
+            let d = local::overshoot(reach, &bbox, &self.cfg.tolerance);
+            let r = self.offset_faces(s, &[(face, d)], ctx)?;
+            let first_image = r
+                .history
+                .of_input(crate::history::InputSub {
+                    operand: 0,
+                    sub: offset::face_sub(face),
+                })
+                .next()
+                .cloned();
+            let moved = match first_image {
+                Some(crate::history::Relation::Modified(out)) if out.len() == 1 => out[0].index,
+                _ => {
+                    return Err(KernelError::OpFailed {
+                        op: "replace_face",
+                        message: "the extended face has no single image".into(),
+                        offending: vec![offset::face_sub(face)],
+                    });
+                }
+            };
+            let mut h = r.history;
+            // The offset is internal: its roles do not describe the final faces.
+            h.roles.clear();
+            (r.shape, Some(h), moved)
+        } else {
+            (s.clone(), None, face.0)
+        };
+        ctx.checkpoint()?;
+        let outcome = base.occ().trim_face(base_face, tool.occ(), ctx)?;
+        ctx.checkpoint()?;
+        let (occ, raw) = outcome
+            .map_err(|(status, partial)| offset::failure("replace_face", status, partial))?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result("replace_face", &shape)?;
+        let second = ops::history(&raw, ops::counts(&base));
+        let history = match first {
+            Some(h) => h.compose(&second),
+            None => second,
+        };
+        Ok(finished(shape, history, Vec::new()))
+    }
+
+    fn split_faces(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        tool: &Shape,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let list = local::face_list("faces", s, faces)?;
+        if tool.is_null() || tool.count(SubKind::Edge) == 0 {
+            return Err(KernelError::InvalidInput {
+                what: "tool",
+                reason: "the tool has no edges".into(),
+                offending: Vec::new(),
+            });
+        }
+        ctx.checkpoint()?;
+        let outcome = s.occ().split_faces(&list, tool.occ(), ctx)?;
+        self.local_result("split_faces", s, outcome, ctx)
+    }
+
+    fn offset_faces(&self, s: &Shape, faces: &[(FaceId, f64)], ctx: &JobCtx) -> KResult<OpResult> {
+        backend::require()?;
+        let input = local::lower_offset_faces(s, faces, &self.cfg.tolerance)?;
+        self.offset_result("offset_faces", s, &input, ctx)
     }
 
     fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult> {
