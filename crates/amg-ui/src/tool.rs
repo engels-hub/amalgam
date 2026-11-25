@@ -402,6 +402,7 @@ fn run_doc_layers(
     overlays: &mut amg_render::OverlayList,
     sections: &mut crate::layer::ViewSections,
     body_views: &mut Option<std::sync::Arc<crate::scene::BodyViews>>,
+    body_tints: &mut Option<std::sync::Arc<crate::scene::BodyTints>>,
 ) {
     let active = app.active;
     app.docs[active].layers.ensure(app.registry.doc_layers());
@@ -415,6 +416,7 @@ fn run_doc_layers(
                 overlays: &mut *overlays,
                 sections: &mut *sections,
                 body_views: &mut *body_views,
+                body_tints: &mut *body_tints,
             };
             layer.update(&mut cx, &mut out);
         }
@@ -552,6 +554,9 @@ impl AmalgamApp {
             view: view.as_ref(),
         });
         self.docs[active].bounds = self.scene.bounds();
+        if *self.docs[active].instance_paths != *self.scene.occurrence_paths() {
+            self.docs[active].instance_paths = self.scene.occurrence_paths().to_vec();
+        }
         with_state(self, |app, ts| {
             // Hover: the newest answer wins.
             let mut newest: Option<(Vec<PickHitUi>, egui::Pos2)> = None;
@@ -598,7 +603,23 @@ impl AmalgamApp {
             // Document layers (INS-09): overlays and the view's section planes.
             let mut sections = crate::layer::ViewSections::default();
             let mut body_views = None;
-            run_doc_layers(app, &mut overlay, &mut sections, &mut body_views);
+            let mut body_tints = None;
+            run_doc_layers(
+                app,
+                &mut overlay,
+                &mut sections,
+                &mut body_views,
+                &mut body_tints,
+            );
+            // Body colours (INS-10): compared with what the scene shows, like the views.
+            let same_tints = match (&body_tints, app.scene.body_tints()) {
+                (None, None) => true,
+                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b) || a == b,
+                _ => false,
+            };
+            if !same_tints {
+                app.scene.set_body_tints(body_tints);
+            }
             if sections.style != ts.sections.style {
                 app.scene.set_section_style(&sections.style);
             }

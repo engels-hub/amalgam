@@ -2611,3 +2611,21 @@ dependency. Existing tests pass unchanged.
 - Used by the Manufacture workspace's Overhang Analysis: each plate item's view carries
   `Shading::Analysis(Analysis::Overhang { .. })` built from AM-02 `shader_params` at the item's
   drawn transform.
+
+### 2026-11-25: INS-10 (lane A, S05 properties and component colours) - additive framework hooks
+Flagged for lane D review. All in `amg-ui`; no change to `amg-render` (component colours replace
+the base colour of RND-03 instance materials in the scene adapter), `amg-doc`, `amg-core` or
+`amg-jobs`; no new dependency. Existing tests pass unchanged.
+- **`CmdEnv::view_flags: &BTreeSet<&'static str>`** and **`AppCx::set_view_flag(flag, on)`**:
+  per-document view state that is neither saved nor undoable. Needed because a
+  `CmdAction::Toggle` getter only sees the `CmdEnv`, which cannot read a document layer.
+- **`CmdEnv::instance_paths: &[OccPath]`**: the scene adapter's occurrence-path table
+  (`SceneAdapter::occurrence_paths`, new), copied to the document tab each frame, so a panel can
+  tell through which occurrence a `PickTarget::Body::instance` was picked.
+- **`scene::BodyTints`** (`BTreeMap<BodyId, [f32; 3]>`, linear RGB),
+  **`SceneAdapter::{set_body_tints, body_tints}`**: per-body base colours of the committed bodies,
+  opacity kept, instances rewritten only (no upload). A `BodyView::tint` (AM-11) wins over them.
+- **`layer::LayerOut::body_tints`**: how a `DocLayer` sets them (`None` each frame, the last
+  layer that sets it wins), applied like `body_views`.
+- Used by S05 INS-10: "Display Component Colours" and the Properties panel. Solid bodies show the
+  colours once UI-22 displays them.

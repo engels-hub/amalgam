@@ -1,10 +1,13 @@
-//! The Properties panel (S05 §4, INS-03): volume, area, mass, centre of mass, inertia and
-//! principal axes of the selected mesh bodies (all mesh bodies when none is selected), with
-//! the density of each body's material (the design's default material, marked
-//! "(default material)", when it has none).
+//! The Properties panel (S05 §4, INS-03, INS-10): volume, area, mass, centre of mass, inertia
+//! and principal axes of the selected mesh and solid body instances and occurrences (every
+//! instance of the design when none is selected), with the density of each body's material
+//! (the design's default material, marked "(default material)", when it has none). Designs
+//! with occurrences also get totals per occurrence and per component.
 //!
 //! - Results come from `amg_features::inspect::props` as one cancellable background job
 //!   ("Mass properties"); a changed selection, body, placement or material supersedes it.
+//! - A body that cannot be measured (a solid in a build without the B-rep kernel) is listed
+//!   with the reason and left out of the totals.
 //! - The panel is opened by [`PROPERTIES_CMD`] (INSPECT ▸ Inspect, SOLID ▸ Inspect, S-key
 //!   search) and by the "Properties" entry of the viewport context menu on a mesh body.
 //! - The centre-of-mass glyph is drawn through the additive `Panel::overlay` hook (RND-07
@@ -14,20 +17,28 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use amg_core::{Density, Dir3, Mat3, Point3, Transform};
-use amg_doc::{BodyGeom, BodyId, Evaluated};
+use amg_doc::{BodyGeom, BodyId, Design, OccPath};
 use amg_features::inspect::InspectError;
-use amg_features::inspect::props::{MassProps, combine, mesh_mass_props};
+use amg_features::inspect::doc::assembly::{
+    PropsPick, PropsScope, is_measurable, occurrence_name, scopes_of, selected_instances,
+};
+use amg_features::inspect::props::{
+    MassProps, PropsGeom, PropsItem, combine, group_totals, items_mass_props,
+};
 use amg_jobs::{JobCtx, JobError, JobHandle, SpawnOptions};
 use amg_materials::{LibrarySet, MaterialPrefs};
-use amg_mesh::{IndexedMesh, MeshBody};
+use amg_mesh::MeshBody;
 use amg_render::{DepthMode, LabelStyle, LineStyle, OverlayList, PointStyle};
 
 use crate::app::{AppCx, CmdEnv};
-use crate::command::CmdId;
+use crate::command::{CmdId, Enablement};
 use crate::design::DESIGN;
 use crate::marking::{ContextMenuProvider, ContextTarget};
 use crate::module::PanelId;
 use crate::panel::{DockSlot, Panel, PanelDef};
+use crate::pick::PickTarget;
+
+use super::colors::COMPONENT_COLORS_FLAG;
 
 /// The panel id.
 pub const PROPERTIES_PANEL: PanelId = PanelId("inspect.properties");
@@ -41,80 +52,155 @@ const GLYPH: [f32; 4] = [0.95, 0.55, 0.05, 1.0];
 /// Radius of the glyph rings, physical pixels.
 const GLYPH_RING_PX: f32 = 9.0;
 
-/// One body to measure.
+/// One body instance to measure.
 #[derive(Clone, Debug)]
 struct Input {
     body: BodyId,
-    mesh: Arc<IndexedMesh>,
+    path: OccPath,
+    geom: BodyGeom,
     world: Transform,
     density: Density,
     material: String,
     defaulted: bool,
+    /// The totals this instance counts into.
+    scopes: Vec<PropsScope>,
 }
 
-/// What a result depends on; a change restarts the job.
-type Key = Vec<(BodyId, usize, [u64; 12], u64, bool)>;
-
 impl Input {
-    fn key(&self) -> (BodyId, usize, [u64; 12], u64, bool) {
-        let c = self.world.matrix3.to_cols_array().map(f64::to_bits);
-        let t = self.world.translation.to_array().map(f64::to_bits);
-        let w = [
-            c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], t[0], t[1], t[2],
-        ];
-        (
-            self.body,
-            Arc::as_ptr(&self.mesh) as usize,
-            w,
-            self.density.get().to_bits(),
-            self.defaulted,
-        )
+    /// Whether a result computed for `other` also holds for `self`.
+    fn same(&self, other: &Input) -> bool {
+        let bits = |t: &Transform| t.to_cols_array().map(f64::to_bits);
+        self.body == other.body
+            && self.path == other.path
+            && self.geom.same_as(&other.geom)
+            && bits(&self.world) == bits(&other.world)
+            && self.density.get().to_bits() == other.density.get().to_bits()
+            && self.material == other.material
+            && self.defaulted == other.defaulted
+            && self.scopes == other.scopes
+    }
+
+    fn item(&self) -> PropsItem {
+        PropsItem {
+            geom: match &self.geom {
+                BodyGeom::Mesh(m) => PropsGeom::Mesh(MeshBody::from_arc(Arc::clone(m))),
+                BodyGeom::Solid(s) => PropsGeom::solid(s.brep().cloned()),
+                BodyGeom::Implicit(_) | BodyGeom::Form(_) => PropsGeom::MissingSolid,
+            },
+            to_world: self.world,
+            density: self.density,
+        }
     }
 }
 
-/// The result for one body.
+/// The result for one body instance.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BodyEntry {
     /// The body.
     pub body: BodyId,
+    /// The occurrence path of this instance (empty in the root component).
+    pub path: OccPath,
     /// Its properties in world space.
     pub props: MassProps,
     /// Name of the material whose density was used.
     pub material: String,
     /// The material is the design's default (the body has none).
     pub defaulted: bool,
+    /// The body is a mesh body.
+    pub mesh: bool,
 }
 
-/// The result of one run: per body and the totals.
+/// A body instance that could not be measured.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FailedBody {
+    /// The body.
+    pub body: BodyId,
+    /// The occurrence path of this instance.
+    pub path: OccPath,
+    /// Why.
+    pub error: String,
+}
+
+/// The total of one occurrence or component.
 #[derive(Clone, Debug, PartialEq)]
-pub struct PropsResult {
-    /// Per body, in id order.
-    pub bodies: Vec<BodyEntry>,
-    /// The selection total ([`combine`]; equals the body for one body).
+pub struct ScopeTotal {
+    /// Which.
+    pub scope: PropsScope,
+    /// Body instances in the total.
+    pub instances: usize,
+    /// Body instances left out because they could not be measured.
+    pub skipped: usize,
+    /// Some of them use the design's default material.
+    pub defaulted: bool,
+    /// [`combine`] of the measured instances.
     pub total: MassProps,
 }
 
+/// The result of one run: per body instance and the totals.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PropsResult {
+    /// Per measured instance, ordered by body then path.
+    pub bodies: Vec<BodyEntry>,
+    /// The instances that could not be measured.
+    pub failed: Vec<FailedBody>,
+    /// The total of the measured instances ([`combine`]; equals the body for one); `None`
+    /// if there are none.
+    pub total: Option<MassProps>,
+    /// Occurrence totals, then component totals; empty in a design without occurrences.
+    pub scopes: Vec<ScopeTotal>,
+}
+
 fn compute(inputs: &[Input], ctx: &JobCtx) -> Result<Arc<PropsResult>, InspectError> {
-    let mut bodies = Vec::with_capacity(inputs.len());
-    for (i, inp) in inputs.iter().enumerate() {
-        ctx.checkpoint()?;
-        let sub = ctx.sub(
-            i as f32 / inputs.len() as f32,
-            (i + 1) as f32 / inputs.len() as f32,
-        );
-        let body = MeshBody::from_arc(Arc::clone(&inp.mesh));
-        let props = mesh_mass_props(&body, &inp.world, inp.density, &sub)?;
-        bodies.push(BodyEntry {
-            body: inp.body,
-            props,
-            material: inp.material.clone(),
-            defaulted: inp.defaulted,
-        });
+    let items: Vec<PropsItem> = inputs.iter().map(Input::item).collect();
+    let measured = items_mass_props(&items, ctx)?;
+    let mut bodies = Vec::new();
+    let mut failed = Vec::new();
+    for (inp, r) in inputs.iter().zip(&measured) {
+        match r {
+            Ok(props) => bodies.push(BodyEntry {
+                body: inp.body,
+                path: inp.path.clone(),
+                props: props.clone(),
+                material: inp.material.clone(),
+                defaulted: inp.defaulted,
+                mesh: matches!(inp.geom, BodyGeom::Mesh(_)),
+            }),
+            Err(e) => failed.push(FailedBody {
+                body: inp.body,
+                path: inp.path.clone(),
+                error: e.to_string(),
+            }),
+        }
     }
     let parts: Vec<MassProps> = bodies.iter().map(|b| b.props.clone()).collect();
+    let total = (!parts.is_empty()).then(|| combine(&parts));
+    // Totals per occurrence and component, once the design has any occurrence to speak of.
+    let scopes = if inputs.iter().all(|i| i.path.is_empty()) {
+        Vec::new()
+    } else {
+        let keyed: Vec<(Vec<PropsScope>, Option<&MassProps>)> = inputs
+            .iter()
+            .zip(&measured)
+            .map(|(i, r)| (i.scopes.clone(), r.as_ref().ok()))
+            .collect();
+        group_totals(&keyed)
+            .into_iter()
+            .filter_map(|g| {
+                Some(ScopeTotal {
+                    defaulted: g.members.iter().any(|&i| inputs[i].defaulted),
+                    instances: g.members.len(),
+                    skipped: g.skipped,
+                    total: g.total?,
+                    scope: g.key,
+                })
+            })
+            .collect()
+    };
     Ok(Arc::new(PropsResult {
-        total: combine(&parts),
         bodies,
+        failed,
+        total,
+        scopes,
     }))
 }
 
@@ -237,29 +323,20 @@ pub fn rows(p: &MassProps, note: &str) -> Vec<PropRow> {
 
 // ---- gathering --------------------------------------------------------------------------------
 
-fn is_mesh(ev: &Evaluated, body: BodyId) -> bool {
-    ev.body(body)
-        .is_some_and(|b| matches!(b.geom, BodyGeom::Mesh(_)))
-}
-
-/// The panel's bodies: the selected mesh bodies, else every mesh body, in id order.
-fn target_bodies(env: &CmdEnv<'_>) -> Vec<BodyId> {
-    let ev = env.evaluated;
-    let selected: BTreeSet<BodyId> = env
-        .selection
+/// What the selection asks for (an empty list means the whole design).
+fn picks(env: &CmdEnv<'_>) -> Vec<PropsPick> {
+    env.selection
         .items()
         .iter()
-        .filter_map(|i| i.target.body())
-        .filter(|b| is_mesh(ev, *b))
-        .collect();
-    if selected.is_empty() {
-        ev.bodies()
-            .filter(|(_, b)| matches!(b.geom, BodyGeom::Mesh(_)))
-            .map(|(id, _)| id)
-            .collect()
-    } else {
-        selected.into_iter().collect()
-    }
+        .filter_map(|i| match i.target {
+            PickTarget::Body { body, instance, .. } => Some(PropsPick::Body {
+                body,
+                path: env.instance_paths.get(instance as usize).cloned(),
+            }),
+            PickTarget::Occurrence(o) => Some(PropsPick::Occurrence(o)),
+            PickTarget::Sketch(_) | PickTarget::Construction(_) => None,
+        })
+        .collect()
 }
 
 fn gather(
@@ -268,28 +345,25 @@ fn gather(
     libs: &LibrarySet,
 ) -> Result<Vec<Input>, String> {
     let mut out = Vec::new();
-    for body in target_bodies(env) {
-        let Some(eb) = env.evaluated.body(body) else {
+    for placed in selected_instances(env.evaluated, &picks(env)) {
+        let Some(eb) = env.evaluated.body(placed.body) else {
             continue;
         };
-        let BodyGeom::Mesh(mesh) = &eb.geom else {
-            continue;
-        };
-        let m = env.design.mass_material(body, prefs, libs).ok_or_else(|| {
-            format!(
-                "The default material {} is not available",
-                prefs.default_material
-            )
-        })?;
-        let world = env
-            .evaluated
-            .instances(body)
-            .first()
-            .map_or(Transform::IDENTITY, |i| i.world);
+        let m = env
+            .design
+            .mass_material(placed.body, prefs, libs)
+            .ok_or_else(|| {
+                format!(
+                    "The default material {} is not available",
+                    prefs.default_material
+                )
+            })?;
         out.push(Input {
-            body,
-            mesh: Arc::clone(mesh),
-            world,
+            body: placed.body,
+            scopes: scopes_of(env.design, &placed.path),
+            path: placed.path,
+            geom: eb.geom.clone(),
+            world: placed.world,
             density: m.material.density,
             material: m.material.name.clone(),
             defaulted: m.defaulted,
@@ -303,6 +377,44 @@ fn body_label(body: BodyId) -> String {
     format!("{}.{}", body.origin.0, body.slot)
 }
 
+fn path_label(design: &Design, path: &[amg_doc::OccurrenceId]) -> String {
+    let names: Vec<String> = path.iter().map(|o| occurrence_name(design, *o)).collect();
+    names.join(" / ")
+}
+
+/// `"Body 3.0"`, with the occurrence path for a placed instance.
+fn instance_label(design: &Design, body: BodyId, path: &[amg_doc::OccurrenceId]) -> String {
+    if path.is_empty() {
+        format!("Body {}", body_label(body))
+    } else {
+        format!("Body {} in {}", body_label(body), path_label(design, path))
+    }
+}
+
+/// `"1 body"`, `"2 bodies"`, `"3 body instances"`.
+fn count(n: usize, one: &str) -> String {
+    match one.strip_suffix('y') {
+        _ if n == 1 => format!("1 {one}"),
+        Some(stem) => format!("{n} {stem}ies"),
+        None => format!("{n} {one}s"),
+    }
+}
+
+fn scope_label(design: &Design, s: &ScopeTotal) -> String {
+    let n = count(s.instances, "body instance");
+    match &s.scope {
+        PropsScope::Occurrence(path) => {
+            format!("Occurrence {} ({n})", path_label(design, path))
+        }
+        PropsScope::Component(c) => {
+            let name = design
+                .component(*c)
+                .map_or_else(|| c.0.to_string(), |k| k.name.clone());
+            format!("Component {name} ({n})")
+        }
+    }
+}
+
 // ---- the panel --------------------------------------------------------------------------------
 
 type PropsJob = JobHandle<Arc<PropsResult>, InspectError>;
@@ -311,14 +423,14 @@ type PropsJob = JobHandle<Arc<PropsResult>, InspectError>;
 pub struct PropertiesPanel {
     libs: LibrarySet,
     prefs: MaterialPrefs,
-    key: Option<Key>,
+    inputs: Option<Vec<Input>>,
     job: Option<PropsJob>,
     result: Option<Arc<PropsResult>>,
     error: Option<String>,
     /// Draw the centre of mass of the selection total.
     show_total: bool,
-    /// Draw the centre of mass of these bodies (several bodies).
-    show_bodies: BTreeSet<BodyId>,
+    /// Draw the centre of mass of these body instances (several instances).
+    show_bodies: BTreeSet<(BodyId, OccPath)>,
 }
 
 impl std::fmt::Debug for PropertiesPanel {
@@ -335,7 +447,7 @@ pub fn create_panel() -> Box<dyn Panel> {
     Box::new(PropertiesPanel {
         libs: LibrarySet::builtin_only(),
         prefs: MaterialPrefs::default(),
-        key: None,
+        inputs: None,
         job: None,
         result: None,
         error: None,
@@ -353,17 +465,19 @@ impl PropertiesPanel {
                 if let Some(j) = self.job.take() {
                     j.cancel();
                 }
-                self.key = None;
+                self.inputs = None;
                 self.result = None;
                 self.error = Some(e);
             }
             Ok(inputs) => {
-                let key: Key = inputs.iter().map(Input::key).collect();
-                if self.key.as_ref() != Some(&key) {
+                let unchanged = self.inputs.as_ref().is_some_and(|old| {
+                    old.len() == inputs.len() && old.iter().zip(&inputs).all(|(a, b)| a.same(b))
+                });
+                if !unchanged {
                     if let Some(j) = self.job.take() {
                         j.cancel();
                     }
-                    self.key = Some(key);
+                    self.inputs = Some(inputs.clone());
                     self.error = None;
                     self.result = None;
                     if !inputs.is_empty() {
@@ -390,6 +504,103 @@ impl PropertiesPanel {
             cx.request_repaint_after(std::time::Duration::from_millis(50));
         }
     }
+
+    /// The material line, the warnings and the rows of the total.
+    fn total_ui(&mut self, ui: &mut egui::Ui, r: &PropsResult, total: &MassProps) {
+        let defaulted_all = r.bodies.iter().all(|b| b.defaulted);
+        let mut names: Vec<&str> = r.bodies.iter().map(|b| b.material.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        let any_default = r.bodies.iter().any(|b| b.defaulted);
+        let note = if defaulted_all {
+            " (default material)"
+        } else if any_default {
+            " (default material for some bodies)"
+        } else {
+            ""
+        };
+        ui.label(format!("Material: {}{note}", names.join(", ")));
+        if let Some(reason) = &total.not_watertight {
+            let open_mesh = r
+                .bodies
+                .iter()
+                .any(|b| b.mesh && b.props.not_watertight.is_some());
+            let (needs, hint) = if open_mesh {
+                ("mesh", " Repair the mesh first (Mesh ▸ Repair).")
+            } else {
+                ("solid", "")
+            };
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                format!(
+                    "Volume, mass, centre of mass and inertia need a closed {needs}: \
+                     {reason}.{hint}"
+                ),
+            );
+        }
+        show_rows(ui, "props_total", &rows(total, note));
+        ui.checkbox(&mut self.show_total, "Show centre of mass");
+    }
+
+    /// One collapsing section per body instance.
+    fn bodies_ui(&mut self, ui: &mut egui::Ui, design: &Design, r: &PropsResult) {
+        for b in &r.bodies {
+            let note = if b.defaulted {
+                " (default material)"
+            } else {
+                ""
+            };
+            let id = (b.body, b.path.clone());
+            egui::CollapsingHeader::new(instance_label(design, b.body, &b.path))
+                .id_salt(("props_body", &id))
+                .show(ui, |ui| {
+                    ui.label(format!("Material: {}{note}", b.material));
+                    ui.push_id(("props_rows", &id), |ui| {
+                        show_rows(ui, "props_body_rows", &rows(&b.props, note));
+                    });
+                    let mut on = self.show_bodies.contains(&id);
+                    if ui
+                        .checkbox(&mut on, "Show centre of mass of this body")
+                        .changed()
+                    {
+                        if on {
+                            self.show_bodies.insert(id.clone());
+                        } else {
+                            self.show_bodies.remove(&id);
+                        }
+                    }
+                });
+        }
+    }
+}
+
+/// One collapsing section per occurrence and component total.
+fn scopes_ui(ui: &mut egui::Ui, design: &Design, scopes: &[ScopeTotal]) {
+    ui.separator();
+    ui.strong("Occurrence and component totals");
+    for s in scopes {
+        let note = if s.defaulted {
+            " (default material for some bodies)"
+        } else {
+            ""
+        };
+        egui::CollapsingHeader::new(scope_label(design, s))
+            .id_salt(("props_scope", &s.scope))
+            .show(ui, |ui| {
+                if s.skipped > 0 {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        format!(
+                            "Leaves out {} that could not be measured.",
+                            count(s.skipped, "body instance")
+                        ),
+                    );
+                }
+                ui.push_id(("props_scope_rows", &s.scope), |ui| {
+                    show_rows(ui, "props_scope", &rows(&s.total, note));
+                });
+            });
+    }
 }
 
 fn show_rows(ui: &mut egui::Ui, id: &str, rows: &[PropRow]) {
@@ -407,6 +618,13 @@ fn show_rows(ui: &mut egui::Ui, id: &str, rows: &[PropRow]) {
 impl Panel for PropertiesPanel {
     fn ui(&mut self, ui: &mut egui::Ui, cx: &mut AppCx<'_>) {
         self.sync(cx);
+        let mut colors = cx.env().view_flags.contains(COMPONENT_COLORS_FLAG);
+        if ui
+            .checkbox(&mut colors, "Display component colours")
+            .changed()
+        {
+            cx.set_view_flag(COMPONENT_COLORS_FLAG, colors);
+        }
         if self.job.is_some() {
             ui.horizontal(|ui| {
                 ui.spinner();
@@ -423,70 +641,49 @@ impl Panel for PropertiesPanel {
         }
         let Some(r) = self.result.clone() else {
             if self.job.is_none() && self.error.is_none() {
-                ui.label("No mesh body in the design.");
+                ui.label("No mesh or solid body to measure.");
             }
             return;
         };
+        let env = cx.env();
+        let design = env.design;
+        let distinct: BTreeSet<BodyId> = r.bodies.iter().map(|b| b.body).collect();
         let many = r.bodies.len() > 1;
-        if many {
-            ui.heading(format!("{} bodies", r.bodies.len()));
+        if many && distinct.len() == r.bodies.len() {
+            ui.heading(count(r.bodies.len(), "body"));
+        } else if many {
+            ui.heading(format!(
+                "{}, {}",
+                count(distinct.len(), "body"),
+                count(r.bodies.len(), "body instance")
+            ));
         } else if let Some(b) = r.bodies.first() {
-            ui.heading(format!("Body {}", body_label(b.body)));
+            ui.heading(instance_label(design, b.body, &b.path));
         }
-        // Material line(s).
-        let defaulted_all = r.bodies.iter().all(|b| b.defaulted);
-        let mut names: Vec<&str> = r.bodies.iter().map(|b| b.material.as_str()).collect();
-        names.dedup();
-        let any_default = r.bodies.iter().any(|b| b.defaulted);
-        let note = if defaulted_all {
-            " (default material)"
-        } else if any_default {
-            " (default material for some bodies)"
-        } else {
-            ""
-        };
-        ui.label(format!("Material: {}{note}", names.join(", ")));
-        if let Some(reason) = &r.total.not_watertight {
+        for f in &r.failed {
             ui.colored_label(
                 ui.visuals().warn_fg_color,
-                format!(
-                    "Volume, mass, centre of mass and inertia need a closed mesh: {reason}. \
-                     Repair the mesh first (Mesh ▸ Repair)."
-                ),
+                format!("{}: {}", instance_label(design, f.body, &f.path), f.error),
             );
         }
-        show_rows(ui, "props_total", &rows(&r.total, note));
-        ui.checkbox(&mut self.show_total, "Show centre of mass");
+        if let Some(total) = &r.total {
+            if !r.failed.is_empty() {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!(
+                        "The totals leave out {}.",
+                        count(r.failed.len(), "body instance")
+                    ),
+                );
+            }
+            self.total_ui(ui, &r, total);
+        }
         if many {
             ui.separator();
-            for b in &r.bodies {
-                let note = if b.defaulted {
-                    " (default material)"
-                } else {
-                    ""
-                };
-                egui::CollapsingHeader::new(format!("Body {}", body_label(b.body)))
-                    .id_salt(("props_body", b.body.origin.0, b.body.slot))
-                    .show(ui, |ui| {
-                        ui.label(format!("Material: {}{note}", b.material));
-                        show_rows(
-                            ui,
-                            &format!("props_{}_{}", b.body.origin.0, b.body.slot),
-                            &rows(&b.props, note),
-                        );
-                        let mut on = self.show_bodies.contains(&b.body);
-                        if ui
-                            .checkbox(&mut on, "Show centre of mass of this body")
-                            .changed()
-                        {
-                            if on {
-                                self.show_bodies.insert(b.body);
-                            } else {
-                                self.show_bodies.remove(&b.body);
-                            }
-                        }
-                    });
-            }
+            self.bodies_ui(ui, design, &r);
+        }
+        if !r.scopes.is_empty() {
+            scopes_ui(ui, design, &r.scopes);
         }
     }
 
@@ -496,7 +693,7 @@ impl Panel for PropertiesPanel {
         };
         let mut at: Vec<(Point3, &'static str)> = Vec::new();
         if self.show_total
-            && let Some(c) = r.total.center_of_mass
+            && let Some(c) = r.total.as_ref().and_then(|t| t.center_of_mass)
         {
             at.push((c, "CoM"));
         }
@@ -504,7 +701,7 @@ impl Panel for PropertiesPanel {
             for b in r
                 .bodies
                 .iter()
-                .filter(|b| self.show_bodies.contains(&b.body))
+                .filter(|b| self.show_bodies.contains(&(b.body, b.path.clone())))
             {
                 if let Some(c) = b.props.center_of_mass {
                     at.push((c, "CoM"));
@@ -549,16 +746,35 @@ pub fn glyph(out: &mut OverlayList, c: Point3, text: &str) {
     );
 }
 
-/// "Properties" in the viewport context menu of a mesh body.
+/// Whether the design has anything to measure (the command's enabler).
+pub(crate) fn enabled(env: &CmdEnv<'_>) -> Enablement {
+    if env
+        .evaluated
+        .bodies()
+        .any(|(id, _)| is_measurable(env.evaluated, id))
+    {
+        Enablement::Enabled
+    } else {
+        Enablement::disabled("The design has no mesh or solid body")
+    }
+}
+
+/// "Properties" in the viewport context menu of a mesh or solid body, or of a component.
 #[derive(Debug)]
 struct PropertiesMenu;
 
 impl ContextMenuProvider for PropertiesMenu {
     fn fill(&self, env: &CmdEnv<'_>, target: &ContextTarget<'_>, out: &mut Vec<CmdId>) {
-        if let ContextTarget::Viewport(Some(item)) = target
-            && let Some(b) = item.target.body()
-            && is_mesh(env.evaluated, b)
-        {
+        let ContextTarget::Viewport(Some(item)) = target else {
+            return;
+        };
+        let measurable = match item.target {
+            PickTarget::Occurrence(_) => true,
+            other => other
+                .body()
+                .is_some_and(|b| is_measurable(env.evaluated, b)),
+        };
+        if measurable {
             out.push(PROPERTIES_CMD);
         }
     }

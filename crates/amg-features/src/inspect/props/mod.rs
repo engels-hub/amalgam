@@ -6,13 +6,22 @@
 //!   theorem over signed tetrahedra relative to the AABB centre (Tonon 2004, Eberly), so the
 //!   result is exact for the polyhedron up to rounding.
 //! - [`combine`]: the totals of several bodies by the parallel-axis rule.
+//! - INS-10: [`solid_mass_props`] (B-rep bodies through S02 `mass_props`),
+//!   [`transform_mass_props`] (an occurrence placement), [`items_mass_props`] (mixed selections
+//!   of mesh and solid body instances) and [`group_totals`] (totals per component /
+//!   occurrence).
 //!
 //! The reduction is deterministic: faces are cut into fixed chunks of [`CHUNK`] by index,
 //! each chunk is summed sequentially with compensated (Neumaier) summation, and the chunk sums
 //! are combined in chunk order. The result is therefore bit-identical for any thread count.
 
+mod assembly;
+mod solid;
 #[cfg(test)]
 mod tests;
+
+pub use assembly::{GroupTotal, PropsGeom, PropsItem, group_totals, items_mass_props};
+pub use solid::{solid_mass_props, transform_mass_props};
 
 use amg_core::{Area, Density, Dir3, Mass, Mat3, Point3, Tolerance, Transform, Vec3, Volume};
 use amg_jobs::JobCtx;

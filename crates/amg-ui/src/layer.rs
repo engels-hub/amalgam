@@ -30,6 +30,9 @@ pub struct LayerOut<'a> {
     /// Per-body view overrides of the committed bodies (additive, AM-11): `None` (the
     /// default each frame) shows the design placements; the last layer that sets it wins.
     pub body_views: &'a mut Option<std::sync::Arc<crate::scene::BodyViews>>,
+    /// Per-body base colours of the committed bodies (additive, INS-10): `None` (the default
+    /// each frame) keeps the materials; the last layer that sets it wins.
+    pub body_tints: &'a mut Option<std::sync::Arc<crate::scene::BodyTints>>,
 }
 
 /// The section planes of the view (RND-06) and which bodies they clip.
