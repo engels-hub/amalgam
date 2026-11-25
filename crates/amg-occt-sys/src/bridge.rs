@@ -283,6 +283,36 @@ pub mod ffi {
         join: u8,
     }
 
+    /// Heal options (BREP-10): `tol` the ShapeFix precision and `max_tol` the largest tolerance
+    /// a fix may set (mm); `fix_small_edges` runs `ShapeFix_Wireframe::FixSmallEdges`;
+    /// `fix_orientation` false turns off the face, shell and solid orientation fixes.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcHealParams {
+        tol: f64,
+        max_tol: f64,
+        fix_small_edges: bool,
+        fix_orientation: bool,
+    }
+
+    /// `ShapeUpgrade_UnifySameDomain` options (BREP-10).
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcUnifyParams {
+        faces: bool,
+        edges: bool,
+        concat_bsplines: bool,
+        lin_tol: f64,
+        ang_tol: f64,
+    }
+
+    /// `BRepBuilderAPI_Sewing` options (BREP-10); `make_solid` turns every closed shell into a
+    /// solid and fails when one is open.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcSewParams {
+        tol: f64,
+        non_manifold: bool,
+        make_solid: bool,
+    }
+
     /// One sub-shape's fingerprint (BREP-05). `geom_class` is amg-brep's `GeomClass` in
     /// declaration order (0 plane … 11 point). `measure`: face area, edge length, 0 for a vertex;
     /// `centroid` area/length weighted (fixed-order `BRepGProp`); `axis` (when `has_axis`): the
@@ -668,6 +698,40 @@ pub mod ffi {
             offsets: &[f64],
             sink: &ProgressSink,
         ) -> Result<UniquePtr<OcOp>>;
+
+        // -- healing and assembly (BREP-10), implemented in occt_heal.cpp --
+
+        /// `ShapeFix_Shape` then `ShapeFix_Wireframe` (wire gaps, small edges) on a private copy
+        /// of `shape`, with the history from `shape`; `op_fix_count` gives the number of fixes.
+        /// Progress and cancellation (inside `ShapeFix_Shape`) go through `sink`; a failure is
+        /// reported by `op_bool_status`.
+        fn heal_op(
+            shape: &OcShape,
+            params: &OcHealParams,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// `ShapeUpgrade_UnifySameDomain` on a private copy, with the history from `shape`.
+        fn unify_same_domain_op(shape: &OcShape, params: &OcUnifyParams)
+        -> Result<UniquePtr<OcOp>>;
+        /// `BRepBuilderAPI_Sewing` of all `shapes` (one operand each) on a private copy, then
+        /// with `make_solid` a solid per closed shell. A failure (an open result with
+        /// `make_solid`, an OCCT exception) is reported by `op_bool_status`; the op then holds
+        /// the sewn shape, or a null shape.
+        fn sew_op(
+            shapes: &OcShapeList,
+            params: &OcSewParams,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// A solid per closed shell of `shape`, on a private copy. Open shells are an error
+        /// starting with `invalid: ` (`op_bool_status`).
+        fn make_solid_op(shape: &OcShape) -> Result<UniquePtr<OcOp>>;
+        /// A compound of `shapes` (sharing their TShapes).
+        fn make_compound_of(shapes: &OcShapeList) -> Result<UniquePtr<OcShape>>;
+        /// `BOPAlgo_ArgumentAnalyzer` problems (self-interference, too small edges, curves off
+        /// their surfaces), per sub-shape of `index` (kind 3 for anything else).
+        fn analyze_shape(shape: &OcShape, index: &OcIndex) -> Result<Vec<OcCheckProblem>>;
+        /// The number of fixes a `heal_op` applied.
+        fn op_fix_count(op: &OcOp) -> Result<u32>;
 
         // -- measurement queries (BREP-09), implemented in occt_query.cpp --
 

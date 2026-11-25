@@ -13,11 +13,12 @@ use crate::check::CheckReport;
 use crate::error::KernelError;
 use crate::extract::RawSeg;
 use crate::geom::{Curve3, Surface};
+use crate::heal::{HealIn, HealOutcome, SewIn, UnifyIn};
 use crate::index::RawTopology;
 use crate::offset::{OffsetIn, OffsetOutcome};
 use crate::ops::{PrimitiveKind, PrismIn, RawHistory};
 use crate::query::{RawDistance, RawHit, RawMass, RawSurfacePoint};
-use crate::shape::{ShapeKind, SubKind};
+use crate::shape::{ShapeKind, SubKind, SubShape};
 use crate::tess::{TessMesh, TessParams, TessProfile};
 use crate::{Classification, EdgeEnds, SubShapeGeom};
 use amg_core::{Point2, Vec3};
@@ -236,6 +237,38 @@ impl Occ {
     }
 
     pub(crate) fn unify(&self) -> KResult<(Occ, RawHistory)> {
+        match *self {}
+    }
+
+    pub(crate) fn heal(
+        &self,
+        _p: &HealIn,
+        _ctx: &JobCtx,
+    ) -> KResult<HealOutcome<(Occ, RawHistory, u32)>> {
+        match *self {}
+    }
+
+    pub(crate) fn unify_same_domain(&self, _p: &UnifyIn) -> KResult<(Occ, RawHistory)> {
+        match *self {}
+    }
+
+    pub(crate) fn sew(
+        _shapes: &[&Occ],
+        _p: &SewIn,
+        _ctx: &JobCtx,
+    ) -> KResult<HealOutcome<(Occ, RawHistory)>> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn make_solid(&self) -> KResult<HealOutcome<(Occ, RawHistory)>> {
+        match *self {}
+    }
+
+    pub(crate) fn compound(_parts: &[&Occ]) -> KResult<Occ> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn analyze(&self) -> KResult<Vec<(Option<SubShape>, String)>> {
         match *self {}
     }
 

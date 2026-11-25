@@ -1,0 +1,12 @@
+# B-rep metrics of brep/heal_missing_pcurve (S02 BREP-10). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 1570.796326794897
+area = 785.398163397448
+faces = 3
+edges = 3
+vertices = 2
+classes = "YPP"

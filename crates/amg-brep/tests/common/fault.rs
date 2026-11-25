@@ -5,10 +5,10 @@
 use amg_brep::geom;
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, Classification,
-    DistanceResult, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletSpec, JobCtx, KResult,
-    KernelError, Line3, MassProps, OffsetJoin, OpResult, Plane, Point2, Point3, PrismExtent,
-    PrismOpts, Ray3, RayHit, Shape, ShellOpts, SubShape, SubShapeGeom, SurfacePoint, TessMesh,
-    TessQuality, Tolerance, Vec3,
+    DistanceResult, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletSpec, HealOpts, JobCtx,
+    KResult, KernelError, Line3, MassProps, OffsetJoin, OpResult, Plane, Point2, Point3,
+    PrismExtent, PrismOpts, Ray3, RayHit, SewOpts, Shape, ShellOpts, SubShape, SubShapeGeom,
+    SurfacePoint, TessMesh, TessQuality, Tolerance, UnifyOpts, Vec3,
 };
 
 /// The injected "not done" failure.
@@ -171,6 +171,26 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
     ) -> KResult<OpResult> {
         self.inner.thicken(s, thickness, join, ctx)
     }
+    fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult> {
+        self.inner.heal(s, opts, ctx)
+    }
+
+    fn unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult> {
+        self.inner.unify_same_domain(s, opts)
+    }
+
+    fn sew(&self, faces: &[Shape], opts: &SewOpts, ctx: &JobCtx) -> KResult<OpResult> {
+        self.inner.sew(faces, opts, ctx)
+    }
+
+    fn make_solid(&self, shell: &Shape) -> KResult<OpResult> {
+        self.inner.make_solid(shell)
+    }
+
+    fn make_compound(&self, parts: &[Shape]) -> KResult<Shape> {
+        self.inner.make_compound(parts)
+    }
+
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {
         self.inner.plane_section(s, plane)
     }

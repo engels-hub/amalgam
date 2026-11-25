@@ -247,17 +247,31 @@ pub struct DraftOpts {
     pub neutral: Plane,
 }
 
-/// Healing options.
+/// Healing options ([`crate::BrepKernel::heal`]).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HealOpts {
-    /// Working tolerance, mm.
+    /// Working tolerance (the `ShapeFix` precision), mm: gaps and deviations up to it are
+    /// closed.
     pub tol: f64,
-    /// Remove small edges.
+    /// Merge or drop edges shorter than `tol` (`ShapeFix_Wireframe::FixSmallEdges`).
     pub fix_small_edges: bool,
-    /// Fix face/shell orientation.
+    /// Fix wire, face, shell and solid orientation.
     pub fix_orientation: bool,
     /// Largest tolerance healing may set, mm.
     pub max_tol: f64,
+}
+
+impl Default for HealOpts {
+    /// `tol` 1e-6 mm (the kernel's linear tolerance), small edges and orientation fixed,
+    /// `max_tol` 1e-3 mm (S20's tolerance cap).
+    fn default() -> Self {
+        HealOpts {
+            tol: 1e-6,
+            fix_small_edges: true,
+            fix_orientation: true,
+            max_tol: 1e-3,
+        }
+    }
 }
 
 /// `UnifySameDomain` options.
@@ -275,6 +289,20 @@ pub struct UnifyOpts {
     pub ang_tol: f64,
 }
 
+impl Default for UnifyOpts {
+    /// Faces and edges, no B-spline concatenation, OCCT's default tolerances (1e-7 mm,
+    /// 1e-12 rad): the options of [`PrismOpts::merge_coplanar`].
+    fn default() -> Self {
+        UnifyOpts {
+            faces: true,
+            edges: true,
+            concat_bsplines: false,
+            lin_tol: 1e-7,
+            ang_tol: 1e-12,
+        }
+    }
+}
+
 /// Sewing options.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SewOpts {
@@ -284,6 +312,17 @@ pub struct SewOpts {
     pub non_manifold: bool,
     /// Make a solid from a closed result.
     pub make_solid: bool,
+}
+
+impl Default for SewOpts {
+    /// 1e-6 mm (OCCT's default), manifold, with solids.
+    fn default() -> Self {
+        SewOpts {
+            tol: 1e-6,
+            non_manifold: false,
+            make_solid: true,
+        }
+    }
 }
 
 /// A helix.

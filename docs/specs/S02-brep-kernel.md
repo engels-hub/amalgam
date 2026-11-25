@@ -710,6 +710,11 @@ pub struct HealOpts { pub tol: f64, pub fix_small_edges: bool, pub fix_orientati
 pub struct UnifyOpts { pub faces: bool, pub edges: bool, pub concat_bsplines: bool, pub lin_tol: f64, pub ang_tol: f64 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SewOpts { pub tol: f64, pub non_manifold: bool, pub make_solid: bool }
+// BREP-10 defaults: HealOpts { 1e-6, true, true, 1e-3 }, UnifyOpts = merge_coplanar's
+// (faces, edges, no concat, 1e-7 mm, 1e-12 rad), SewOpts { 1e-6, false, true }.
+impl Default for HealOpts { fn default() -> Self; }
+impl Default for UnifyOpts { fn default() -> Self; }
+impl Default for SewOpts { fn default() -> Self; }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HelixSpec { pub axis: Plane, pub radius: f64, pub pitch: f64, pub height: f64,
                        pub taper: f64 /* rad */, pub left_handed: bool }
@@ -761,6 +766,7 @@ pub trait BrepKernel: Send + Sync {
     fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult>;
     fn unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult>;
     fn sew(&self, faces: &[Shape], opts: &SewOpts, ctx: &JobCtx) -> KResult<OpResult>;
+    fn make_solid(&self, shell: &Shape) -> KResult<OpResult>;      // BREP-10: closed shells → outward solids
     fn make_compound(&self, parts: &[Shape]) -> KResult<Shape>;
     fn check(&self, s: &Shape, opts: &CheckOpts) -> CheckReport;
     // -- queries (BREP-05, BREP-09, BREP-17) --
@@ -900,7 +906,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-08 | Tessellation: `tessellate` on a private topology copy (category C), `TessMesh` (per-face vertices, normals, `face_ranges`, exact `weld`, edge polylines), `to_indexed_parts`, `tessellate_many` (rayon, `InParallel` off), `tessellate_edge`, quality presets | BREP-12 | P0 | Done (owner-accepted 2026-11-19; Done-when 1 moved to BREP-18) | 1. A 1000-face fixture part tessellates (display preset) in < 100 ms median, including the topology copy (criterion `budget/brep-tess-1000`); the copy share is recorded. 2. `to_indexed_parts` of every closed fixture is watertight (`amg_testkit::metrics`: 0 boundary and 0 non-manifold edges), and its volume matches `mass_props` within the deflection bound. 3. Sphere r=10 tessellations converge to the exact area as deflection shrinks. 4. Tessellating one shared `Shape` from 8 threads while another thread runs booleans on it: no crash, identical meshes, input hash unchanged. 5. `face_of_triangle` is consistent with `face_ranges` for all triangles. |
 | BREP-09 | Mass properties (volume, area, centroid, inertia, principal axes), `classify`, `distance`, `closest_point`, `ray_cast`, `eval_surface` (curvatures), `project_point_on_face`, `interference` | BREP-04 | P0 | Done | 1. Box, cylinder, sphere and torus mass props match analytic values within 1e-9 relative. Inertia tensors match within 1e-9. 2. Distance between two spheres and between a point and a face matches analytic values within 1e-9. 3. `ray_cast` hits the expected face with the correct normal on 1000 random rays at a cylinder (vs analytic). 4. Curvatures of a torus at 10 points match analytic values within 1e-9. 5. `interference` volume of two overlapping boxes is analytic. |
 | BREP-17 | Geometry extraction for sketches and drawings: `plane_section` and `project_edges` to `CurveSeg` (lines/circles/ellipses recognised, others B-spline), `tessellate_edge` reuse | BREP-12 | P0 | Done | 1. A plane section of a cylinder (perpendicular) gives one `Curve3::Circle` with exact radius. An oblique section gives an `Ellipse` with analytic axes within 1e-9. 2. Projecting the edges of a filleted box top onto the XY plane gives lines and circle arcs with the correct radii and endpoints. 3. Section of a B-spline surface returns B-spline segments within 1e-6 mm of the true intersection (sampled). |
-| BREP-10 | Healing and assembly: `heal` (`ShapeFix_Shape`, `ShapeFix_Wireframe` on a copy), `unify_same_domain`, `sew` (+ `make_solid`, orientation fix), `make_compound`, `check` (BRepCheck + ArgumentAnalyzer) | BREP-05 | P0 | Todo | 1. Sewing the 6 planar polygon faces of a cube (with 1e-4 mm gaps) gives a valid closed solid with volume within 1e-6. 2. Sewing the faces of 20 fixture parts exploded via `sub_shape` gives back solids with the same volume and face count. 3. `heal` fixes 10 corpus shapes with known defects (BRepCheck invalid → valid). 4. `unify_same_domain` after a fuse of two coplanar boxes yields 6 faces, and history maps the merged faces. 5. `check` lists the expected problem kinds on 5 broken fixtures. |
+| BREP-10 | Healing and assembly: `heal` (`ShapeFix_Shape`, `ShapeFix_Wireframe` on a copy), `unify_same_domain`, `sew` (+ `make_solid`, orientation fix), `make_compound`, `check` (BRepCheck + ArgumentAnalyzer) | BREP-05 | P0 | Review | 1. Sewing the 6 planar polygon faces of a cube (with 1e-4 mm gaps) gives a valid closed solid with volume within 1e-6. 2. Sewing the faces of 20 fixture parts exploded via `sub_shape` gives back solids with the same volume and face count. 3. `heal` fixes 10 corpus shapes with known defects (BRepCheck invalid → valid). 4. `unify_same_domain` after a fuse of two coplanar boxes yields 6 faces, and history maps the merged faces. 5. `check` lists the expected problem kinds on 5 broken fixtures. |
 | BREP-13 | STEP (AP203/214/242) and IGES read/write via XCAF into `ForeignModel` (names, colours incl. per-face, assembly tree with shared prototypes, units → mm), heal on import, progress + cancel; IGES under the global lock | BREP-10 | P0 | Todo | 1. Round-trip of 10 STEP fixtures (≥ 1 assembly with reused parts, ≥ 1 coloured, ≥ 1 in inches): write then read again gives the same tree, names, colours, solid count, and per-solid volume within 1e-9 relative. Inch input is scaled to mm. 2. Reading the same STEP file on 4 threads in parallel gives identical results (on 8.0.0 the reads serialise through the global lock; after a bump to 8.0.1 the lock is removed and the test still passes). 3. IGES round-trip of 3 fixtures. 4. A 50 MB STEP read reports progress and cancels within 500 ms. 5. The owner's Fusion STEP exports (if present under `$AMG_TESTDATA_DIR/fusion/`) import as valid solids. |
 | BREP-15 | Sweeps and raw loft: `pipe` (pipe-shell: Frenet/corrected/fixed/binormal/guide, twist/scale laws, transition, solid/shell), `thru_sections` (ruled/smooth, point sections, compatibility check) with roles `LoftSection`/`Lateral` | BREP-05 | P0 | Todo | 1. Golden volumes: a circle swept along a straight line and along an arc (torus segment) are analytic within 1e-6. A square along a helix is within 0.1 %. 2. A twisted sweep (90°) and a scaled sweep (1→2) match reference volumes. 3. ThruSections of 3 circles of different radii (smooth) is within 1e-4 relative of the analytic volume. Point-section cones work. 4. History: lateral faces map to the section edges. 5. Failures (incompatible sections) return `OpFailed` and never crash. KH-05 can call it as the baseline. |
 | BREP-11 | Thread geometry: `helix`, thread profile swept in binormal mode, cut/fuse onto a cylinder (`amg-brep` helper used by SOL-12) | BREP-15, BREP-04 | P1 | Todo | 1. ISO metric M3, M6, M10 and M20 external and internal threads (coarse pitch) build valid solids. 2. Pitch, measured as the axial distance between crests, is within 1e-6 mm. 3. The major/minor diameters measured by sections are within 1e-4 mm of ISO 68-1. 4. An M6×20 thread builds in < 200 ms. |
@@ -2423,6 +2429,191 @@ faces, which are `Modified` 1:1. The fixtures are in `tests/common/offset_corpus
 - Offsetting disconnected compounds part by part, if a feature needs it.
 - `offset_faces` (R-S04-5) stays with BREP-16.
 
+### 2026-11-25 - BREP-10 healing, unify, sewing, make solid, compounds and the full check
+**Landed.**
+- `amg-brep`, trait `BrepKernel` (with the forwarding arms in `RecordingKernel`,
+  `tests/api_contract.rs` and `tests/common/fault.rs`):
+  - `heal(s, &HealOpts, ctx)`, `unify_same_domain(s, &UnifyOpts)`, `sew(faces, &SewOpts, ctx)`
+    and `make_compound(parts)` with the Interfaces signatures.
+  - **New:** `make_solid(shell) -> KResult<OpResult>` (§4 names it; it was not in the trait).
+    `sew` with `make_solid` uses the same step.
+  - `check(s, &CheckOpts)` now honours `self_interference` (below).
+  - S20's `KernelOp::{Heal, UnifySameDomain, Sew, MakeSolid, MakeCompound}` with replay arms and
+    the round-trip test.
+  - `impl Default` for `HealOpts` (tol 1e-6, small edges and orientation fixed, `max_tol`
+    1e-3), `UnifyOpts` (exactly `merge_coplanar`'s options: faces, edges, no B-spline
+    concatenation, 1e-7 mm, 1e-12 rad) and `SewOpts` (1e-6, manifold, with solids).
+- New module `heal` (plain Rust, unit-tested without OCCT): validation, lowering and the
+  failure mapping (`invalid: ` → `InvalidInput`, otherwise `LocalOpFailed` with `partial`).
+- `amg-occt-sys`, new `cpp/occt_heal.cpp`:
+  - `heal_op` (**C**): `BRepBuilderAPI_Copy` with geometry (S02 §9 `copyGeom`), then
+    `ShapeFix_Shape` (precision `tol`, max tolerance `max_tol`, min tolerance
+    `min(tol, 1e-7)`, orientation modes off with `fix_orientation: false`) with a progress range,
+    then `ShapeFix_Wireframe` (`FixWireGaps`, `FixSmallEdges` with `ModeDropSmallEdges`). Each
+    has its own `ShapeBuild_ReShape`, and their `BRepTools_History` are the two history steps
+    after the copy.
+  - `unify_same_domain_op` (**C**): as BREP-05's `unify_op`, with the options.
+  - `sew_op` (**C**): `BRepBuilderAPI_Sewing` (sewing, degenerated-face analysis, cutting,
+    `non_manifold`) on one copy per input (geometry copied too), progress and cancel inside
+    `Perform`. The history step is the sewing's `ModifiedSubShape` / `Modified`, an image
+    exploded to the input's kind (an edge cut into sections maps to each).
+  - `make_solid_op` (**C**): on a copy, every closed shell (and every face that closes on
+    itself, a sphere or a torus) becomes a solid through `ShapeFix_Solid::SolidFromShell`
+    (`MakeSolid`, reversed when the infinite point classifies inside).
+  - `make_compound_of` (**N**), `analyze_shape` (**C**, `BOPAlgo_ArgumentAnalyzer` on a copy:
+    self-interference, small edges, curve on surface; findings mapped back to the caller's
+    indices), `op_fix_count` (**R**); bridge structs `OcHealParams`, `OcUnifyParams`,
+    `OcSewParams`; `OcOp::fixes`. `SHIM_VERSION` stays 4 (no existing op changed).
+- `check` with `self_interference`: the BRepCheck report plus the analyzer's findings under
+  their full names (`BOPAlgo_SelfIntersect` on each interfering sub-shape,
+  `BOPAlgo_TooSmallEdge`, `BOPAlgo_InvalidCurveOnSurface`, ...); any finding makes it invalid.
+  Without the flag `check` is BRepCheck only, as before, and so is the validation policy.
+- Warnings: `heal` gives `Healed { fixes }` (copied sub-shapes that the fixes replaced, removed
+  or split, or whose tolerance grew, whose `SameParameter`/`SameRange` flag changed or whose
+  face orientation flipped) and `ToleranceGrown`; `sew` gives `ToleranceGrown`.
+- Defect corpus `testdata/brep/defects/*.brep` (17 text files, plain git, not LFS), made by the
+  new `gen_brep_defects` example (`fixture-gen`; builders `defect_*` in
+  `cpp/occt_fixtures.cpp`). Each is a box, cylinder or square face with one defect made by
+  construction: a vertex moved off its edges, an edge's 3D line moved off its faces, a missing
+  pcurve, a pcurve moved off its edge, a reversed lateral face, a reversed box face, the
+  SameParameter / SameRange flags cleared, wire gaps, a wire out of order, a reversed wire, an
+  inside-out solid, an edge tolerance above its vertices', a 3e-7 mm edge, a bow-tie, an open
+  solid, two overlapping boxes. The generator checks that every defect survives the text
+  round trip.
+- Tests: `tests/heal.rs` (14 tests), `tests/common/heal_corpus.rs` (the corpus, 20 parts, the
+  gapped cube, the coplanar fuse), `tests/common/defects.rs`; 12 goldens
+  `tests/golden/brep/{heal,sew,unify}_*.toml`; the corpus joins
+  `every_output_face_has_a_source_or_a_role` (79 BREP-10 results); 3 stress tests
+  (`shared_{box,filleted_box,cylinder}_survives_concurrent_healing`: heal, unify, sew of the
+  shared shape's own faces, make_compound, the full check, 8 threads); 3 unit tests in
+  `src/heal.rs`.
+- Bench `benches/heal.rs` (`brep-heal/*`).
+
+**Done-when status.** With `--features occt`, `cargo nextest run -p amg-occt-sys -p amg-brep`
+passes 320 tests (1 skipped: BREP-04's ignored timing run). Without the feature, 105 pass.
+`cargo clippy -p amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is clean,
+also without `--all-features`. `cargo build -p amg-brep --no-default-features` builds, and
+`cargo check` of the dependents (`amg-doc`, `amg-features`, `amg-io`, `amg-nurbs`, `amg-subd`,
+`amg-ui`) passes.
+1. Met (`sewing_a_gapped_cube_gives_a_closed_solid`). Six planar polygons of the 10 mm cube,
+   each moved 1e-4/√2 mm along its own axis, so neighbouring edges are 1e-4 mm apart and no
+   vertex is shared (checked: nearest corners 1e-4 apart). Sewing at 1e-3 mm gives one valid
+   solid with 6 faces, 12 edges and 8 vertices, volume 1000 within **2.3e-16** relative, max
+   tolerance 1.05e-4 and a `ToleranceGrown` warning. Each face is `Modified` 1:1, each output
+   edge has two input edges. At 1e-5 mm the sewing stays open and `LocalOpFailed` names the free
+   edges, with the shell as `partial`.
+2. Met (`sewing_exploded_parts_gives_them_back`). 20 parts: 8 closed fixtures (box, cylinder,
+   cone, sphere, torus, filleted box, located compound, mirrored cylinder) and 12 built ones
+   (tilted box, half cylinder, full cone, quarter torus, sphere, L prism, holed prism on a tilted
+   plane, quarter and full revol, a grooved cube (cut), a cube with a bar (fuse), a box with one
+   fillet). Each is exploded twice: `sub_shape` faces (still sharing edges) and each face copied
+   apart into new geometry. All 40 sews give valid shapes with the part's solid count and face
+   count, volume within **2.2e-16** relative, and every face operand `Modified` into exactly one
+   distinct face.
+3. Met (`heal_fixes_the_defect_corpus`). 10 defect fixtures, each BRepCheck-invalid before and
+   valid after `heal` (tol 1e-4, max_tol 1e-3), same kind, solids within 1e-6 of the part they
+   were made from, complete history, a `Healed` warning:
+
+   | Fixture | BRepCheck before | Fixes | Max tolerance after |
+   |---|---|---|---|
+   | `vertex_off_edges` | InvalidPointOnCurve | 11 | 5.2e-5 |
+   | `edge_off_faces` | InvalidCurveOnSurface, InvalidPointOnCurve, InvalidSameParameterFlag, UnorientableShape | 3 | 3.5e-5 |
+   | `missing_pcurve` | NoCurveOnSurface, SelfIntersectingWire, UnorientableShape | 1 | 1e-7 |
+   | `pcurve_off_edge` | InvalidCurveOnSurface, InvalidSameParameterFlag, UnorientableShape | 2 | 4.0e-5 |
+   | `reversed_lateral` | BadOrientationOfSubshape | 1 | 1e-7 |
+   | `reversed_face` | BadOrientationOfSubshape | 1 | 1e-7 |
+   | `same_parameter_off` | InvalidSameParameterFlag | 2 | 1e-7 |
+   | `same_range_off` | InvalidSameParameterFlag, InvalidSameRangeFlag | 1 | 1e-7 |
+   | `wire_gaps` | NotConnected, SelfIntersectingWire, UnorientableShape | 13 | 1.5e-5 |
+   | `reversed_wire` | BadOrientationOfSubshape | 1 | 1e-7 |
+
+   Also `heal` makes `bow_tie` valid (it splits the face) and `open_solid` valid (it gives up
+   the solid and returns the open shell); neither is counted.
+4. Met (`unify_after_fusing_coplanar_boxes_gives_six_faces`). Boxes `[0,10]` and `[10,20]` along
+   x fuse into 10 faces; `unify_same_domain` gives 6 faces, 12 edges, 8 vertices and volume 2000.
+   Its history maps the 8 side pieces 2:1 into the 4 merged faces and the 2 ends 1:1. Composed
+   with the fuse (`ShapeHistory::compose`), each box reaches 5 block faces; each merged face has
+   one source in each box. With the default options the result and history equal
+   `unify_coplanar`'s exactly. With `edges: false` the faces merge and the collinear edges stay
+   split.
+5. Met (`check_lists_the_expected_problem_kinds`), on 8 broken fixtures, the exact kind list
+   and the defect's own sub-shape:
+   - BRepCheck: `open_solid` [NotClosed]; `reversed_face` [BadOrientationOfSubshape];
+     `same_range_off` [InvalidSameParameterFlag, InvalidSameRangeFlag] on edge 0;
+     `vertex_off_edges` [InvalidPointOnCurve] on vertex 0; `missing_pcurve` [NoCurveOnSurface
+     on edge 0, SelfIntersectingWire, UnorientableShape]; `bow_tie` [SelfIntersectingWire on
+     face 0, UnorientableShape].
+   - With `self_interference`: `bow_tie` adds `BOPAlgo_SelfIntersect` on edges 0 and 2;
+     `overlapping_boxes` (BRepCheck-valid) gives `BOPAlgo_SelfIntersect` on faces of both boxes;
+     `small_edge` (BRepCheck-valid) gives `BOPAlgo_TooSmallEdge` on edge 0 and
+     `BOPAlgo_SelfIntersect` on its two vertices.
+   - Six valid fixtures stay valid with the analyzer on.
+
+Also tested: `ten_runs_are_byte_identical` (every corpus op, 10 runs, identical BinTools bytes
+and history, inputs unchanged); `sewn_and_made_solids_face_outwards` (the faces of an inside-out
+box, volume −6000, sew and make solid into +6000; two shells give a compound of two solids);
+`healing_a_valid_shape_changes_nothing`; `heal_options_switch_their_fixes`
+(`fix_orientation: false` leaves the reversed face invalid; the 3e-7 mm edge merges only with
+`fix_small_edges`); `bad_inputs_are_invalid_input`; `make_compound_shares_its_parts`;
+`cancelled_jobs_do_not_run`; `cancel_stops_a_running_sew` (the 1030 plate faces apart: 2.3 s in
+the test profile, a cancel 100 ms in returns `Cancelled` 4.6 ms after the cancel; the 500 ms
+bound only under `AMG_STRICT_TIMING=1`); `sew_takes_faces_of_one_shape_and_its_copy`.
+
+**Bench** (release, criterion, validation off; S02 has no healing budget):
+
+| Bench | Median |
+|---|---|
+| `heal-wire-gaps` | 0.43 ms |
+| `heal-filleted-box` | 7.99 ms |
+| `check-full-filleted-box` (analyzer on) | 84.2 ms |
+| `unify-coplanar-fuse` | 1.24 ms |
+| `sew-gapped-cube` | 2.12 ms |
+| `sew-plate-1030-apart` | 259 ms |
+| `make-solid-plate-1030` | 47.5 ms |
+| `make-compound-two-plates` | 0.78 µs |
+
+**Findings and deviations.**
+- **`TopoDS_Builder::Add` freezes the component** (clears its TShape's `Free` flag, which BinTools
+  writes). A compound holding the caller's shapes therefore changes their bytes. `sew` copies
+  each input on its own instead of copying one compound of them (shared sub-shapes become
+  coincident copies, which the sewing merges again). `make_compound` adds each part under a new
+  top-level TShape of its type that holds the same children (the same geometry for a face, edge
+  or vertex part), so everything below the top level is shared and the parts stay as they were.
+  `two.sub_shape(f).is_same(part.sub_shape(f))` holds for every face of a solid part; a part
+  given twice is indexed once below its top level.
+- **Sewing copies geometry too**: with shared curves (`copyGeom` false) the sewing updated the
+  input's curves and the input's bytes changed.
+- **Sewing keeps each face's own boundary**: it merges edges by tolerance but does not move a
+  face's pcurves. A gap made by shrinking faces leaves the shrunk area out (2.8e-5 relative
+  volume loss on the cube), so Done-when 1's gaps keep every face's full square and move
+  opposite faces together, which keeps the enclosed volume exact.
+- **ShapeFix builds faces it does not record** (`ShapeFix_Face` splitting the bow-tie): such a
+  result face is `Modified` from the input face whose copy has its surface. Without it the
+  bow-tie heal left an unexplained face (`PartialHistory`).
+- **ShapeFix changes valid shapes a little**: it rebuilds faces around seams and degenerated
+  edges (1 sub-shape on the torus, 18 on the filleted box) without moving geometry, so `heal` of
+  a valid shape may still report fixes. A box reports none.
+- **A box edge without a 3D curve crashes the existing `check`** (access violation in the index
+  build or `BRepCheck_Analyzer`, before any BREP-10 code). The defect was dropped from the
+  corpus; see Leftovers.
+- `inside_out`, `wire_order`, `vertex_tolerance` and `small_edge` are BRepCheck-valid, so they
+  are in the corpus for `check` and the orientation test, not for Done-when 3.
+- `check`'s analyzer pass is opt-in (`self_interference`), and it also runs the small-edge and
+  curve-on-surface tests: running it by default would change `check` for every existing caller
+  and cost 84 ms on the filleted box.
+
+**For DOC-06 and S20.** `heal`, `unify_same_domain`, `sew` and `make_solid` histories are 1:1
+`Modified` through their copy, so `compose` chains them (S20 R8; Done-when 4 checks fuse +
+unify). `sew` is multi-operand (one operand per input shape). `make_compound` has no history:
+its indices are `TopExp::MapShapes` over the parts in order.
+
+**Leftovers.**
+- Shapes with an edge without a 3D curve (possible from IGES) crash the index build or
+  `BRepCheck_Analyzer`: guard them before BREP-13's IGES import (heal could add the curve with
+  `ShapeFix_Edge::FixAddCurve3d`, but only once the shape can be indexed).
+- `heal` cannot fix a gap wider than `tol` in a wire, or close an open solid; S20's heal levels
+  choose `tol`/`max_tol`.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2682,4 +2873,29 @@ Every change is inside lane A's crates. No other lane's files changed.
 - **For S20:** a thickness that reaches a face's centre of curvature is refused up front, with
   `LocalOpFailed` naming the faces. It is found by sampling, so a strategy's validation gate
   still needs the R5 self-interference check for B-spline faces.
+- No new dependency; `THIRD_PARTY.md` unchanged.
+
+### 2026-11-25: additions and changed contracts from BREP-10 (lane A)
+Every change is inside lane A's crates. No other lane's files changed.
+- `amg-brep`, additive:
+  - `BrepKernel::{heal, unify_same_domain, sew, make_compound}` with the Interfaces signatures,
+    and the new `BrepKernel::make_solid(shell) -> KResult<OpResult>`. Every `BrepKernel`
+    implementor must add them; the in-crate decorators forward them.
+  - `KernelOp::{Heal, UnifySameDomain, Sew, MakeSolid, MakeCompound}` (S20 dump format).
+  - `impl Default` for `HealOpts`, `UnifyOpts` and `SewOpts`.
+  - New module `heal`, new bench `benches/heal.rs` and example `gen_brep_defects`
+    (`[[bench]]`/`[[example]]` in `amg-brep/Cargo.toml`).
+- `amg-brep`, changed contract: `check` with `CheckOpts::self_interference` runs
+  `BOPAlgo_ArgumentAnalyzer` (it was ignored); without the flag nothing changes.
+- `amg-occt-sys`: new `cpp/occt_heal.cpp` (in `build.rs`) with `heal_op`, `unify_same_domain_op`,
+  `sew_op`, `make_solid_op` (C), `make_compound_of` (N), `analyze_shape` (C), `op_fix_count` (R);
+  structs `OcHealParams`, `OcUnifyParams`, `OcSewParams`; field `OcOp::fixes`. The `fixture-gen`
+  builders gain the `defect_*` shapes. `SHIM_VERSION` stays 4.
+- New test data: `testdata/brep/defects/*.brep` (17 small text files, not LFS).
+- **For S20 (KH-17, R5, R8):** `check(.., &CheckOpts { self_interference: true })` is the R5
+  check; its findings are named `BOPAlgo_*`. `heal`, `unify_same_domain`, `sew` and `make_solid`
+  return composable histories.
+- **For S07 / S12:** `sew` with `make_solid` fails (`LocalOpFailed`, `partial` = the sewn shape)
+  when anything stays open; ask for `make_solid: false` to get open shells. Sewing does not move
+  face boundaries, so a gap costs the area it leaves out.
 - No new dependency; `THIRD_PARTY.md` unchanged.

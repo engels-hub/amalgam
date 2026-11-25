@@ -13,6 +13,8 @@
 mod blend_corpus;
 #[path = "common/bool_corpus.rs"]
 mod bool_corpus;
+#[path = "common/heal_corpus.rs"]
+mod heal_corpus;
 #[path = "common/history.rs"]
 mod history_check;
 #[path = "common/offset_corpus.rs"]
@@ -513,9 +515,24 @@ fn every_output_face_has_a_source_or_a_role() {
         }
         faces += r.shape.count(SubKind::Face);
     }
+    // BREP-10: heal (the defect corpus), unify_same_domain, sew and make_solid.
+    let heals = heal_corpus::corpus(&k);
+    let mut heal_ok = 0;
+    for case in &heals {
+        let Ok(r) = case.run(&k) else {
+            continue;
+        };
+        let operands: Vec<&Shape> = case.inputs.iter().collect();
+        if let Some(e) = completeness_error(&r, &operands) {
+            failures.push(format!("{}: {e}", case.name));
+        }
+        faces += r.shape.count(SubKind::Face);
+        heal_ok += 1;
+    }
+    assert!(heal_ok >= 60, "{heal_ok} BREP-10 results");
     eprintln!(
         "completeness: {} BREP-03/14 results, {bool_ok} BREP-04 results, {} BREP-06 results, \
-         {} BREP-07 results, {faces} output faces",
+         {} BREP-07 results, {heal_ok} BREP-10 results, {faces} output faces",
         corpus.len(),
         blends.len(),
         offsets.len()

@@ -69,6 +69,27 @@ pub enum StressOp {
     Fillet(EdgeId, u32),
     /// `chamfer` of one edge of the shared shape, distance in µm (category C), BREP-06.
     Chamfer(EdgeId, u32),
+    /// `heal` of the shared shape (category C: fixes a private copy), BREP-10.
+    Heal,
+    /// `unify_same_domain` of the shared shape (category C), BREP-10.
+    Unify,
+    /// `sew` of the shared shape's faces (`sub_shape`s sharing its TShapes; category C), BREP-10.
+    SewFaces,
+    /// `make_compound` of the shared shape and a moved copy (shares its sub-shapes), BREP-10.
+    Compound,
+    /// `check` with the `BOPAlgo_ArgumentAnalyzer` pass (category C: a private copy), BREP-10.
+    CheckFull,
+}
+
+/// The BREP-10 healing and assembly ops on the shared shape.
+pub fn heal_queries() -> Vec<StressOp> {
+    vec![
+        StressOp::Heal,
+        StressOp::Unify,
+        StressOp::SewFaces,
+        StressOp::Compound,
+        StressOp::CheckFull,
+    ]
 }
 
 /// The BREP-06 blend ops: a fillet and a chamfer of up to `limit` edges between two faces, spread
@@ -326,6 +347,52 @@ pub fn eval(kernel: &OcctKernel, shape: &Shape, op: StressOp) -> String {
                 &JobCtx::detached(),
             ))
         }
+        StressOp::Heal => {
+            sweep_digest(kernel.heal(shape, &amg_brep::HealOpts::default(), &JobCtx::detached()))
+        }
+        StressOp::Unify => {
+            sweep_digest(kernel.unify_same_domain(shape, &amg_brep::UnifyOpts::default()))
+        }
+        StressOp::SewFaces => {
+            let faces: Vec<Shape> = shape
+                .faces()
+                .map(|f| {
+                    shape
+                        .sub_shape(SubShape {
+                            kind: SubKind::Face,
+                            index: f.0,
+                        })
+                        .expect("sub_shape")
+                })
+                .collect();
+            sweep_digest(kernel.sew(&faces, &amg_brep::SewOpts::default(), &JobCtx::detached()))
+        }
+        StressOp::Compound => {
+            let moved = shape
+                .transformed(&amg_brep::Transform::from_translation(Vec3::new(
+                    1e3, 0.0, 0.0,
+                )))
+                .expect("transformed");
+            match kernel.make_compound(&[shape.clone(), moved]) {
+                Ok(c) => format!(
+                    "{} {} {} {:?}",
+                    c.count(SubKind::Face),
+                    c.count(SubKind::Edge),
+                    c.count(SubKind::Vertex),
+                    c.bbox()
+                ),
+                Err(e) => format!("Err {e:?}"),
+            }
+        }
+        StressOp::CheckFull => format!(
+            "{:?}",
+            kernel.check(
+                shape,
+                &CheckOpts {
+                    self_interference: true
+                }
+            )
+        ),
         StressOp::MassProps => format!("{:?}", kernel.mass_props(shape)),
         StressOp::Classify(p) => format!("{:?}", kernel.classify(shape, p, 1e-7)),
         StressOp::ClosestPoint(p) => format!("{:?}", kernel.closest_point(shape, p)),
