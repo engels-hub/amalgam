@@ -57,6 +57,8 @@ pub(crate) struct RawHistory {
     pub out_indices: Vec<u32>,
     pub role_faces: Vec<u32>,
     pub roles: Vec<u8>,
+    /// One per role (or empty): the contour of a `FilletBlend` face.
+    pub role_args: Vec<u32>,
 }
 
 fn invalid(what: &'static str, reason: impl Into<String>) -> KernelError {
@@ -409,10 +411,16 @@ pub(crate) fn history_n(raw: &RawHistory, operand_counts: Vec<[u32; 3]>) -> Shap
         .role_faces
         .iter()
         .zip(&raw.roles)
-        .map(|(&f, &r)| {
+        .enumerate()
+        .map(|(j, (&f, &r))| {
             let role = match r {
                 0 => OpRole::StartCap,
                 1 => OpRole::EndCap,
+                3 => OpRole::FilletBlend {
+                    contour: raw.role_args.get(j).copied().unwrap_or(0),
+                },
+                4 => OpRole::ChamferFace,
+                5 => OpRole::CornerPatch,
                 _ => OpRole::Lateral,
             };
             (sub(0, f), role)
@@ -530,6 +538,7 @@ mod tests {
             out_indices: vec![2, 0, 5, 1],
             role_faces: vec![1, 0, 2],
             roles: vec![1, 0, 2],
+            role_args: Vec::new(),
         };
         let h = history(&raw, [1, 4, 4]);
         let face0 = InputSub {
@@ -561,6 +570,25 @@ mod tests {
         assert_eq!(h.role_of(sub(0, 2)), Some(&OpRole::Lateral));
         assert_eq!(h.operand_counts, vec![[1, 4, 4]]);
         assert_eq!(h.sources_of(sub(0, 5)).len(), 1);
+    }
+
+    #[test]
+    fn blend_roles_carry_their_contour() {
+        let raw = RawHistory {
+            role_faces: vec![4, 1, 2],
+            roles: vec![3, 4, 5],
+            role_args: vec![2, 0, 0],
+            ..RawHistory::default()
+        };
+        let h = history(&raw, [6, 12, 8]);
+        assert_eq!(
+            h.roles,
+            vec![
+                (sub(0, 1), OpRole::ChamferFace),
+                (sub(0, 2), OpRole::CornerPatch),
+                (sub(0, 4), OpRole::FilletBlend { contour: 2 }),
+            ]
+        );
     }
 
     #[test]

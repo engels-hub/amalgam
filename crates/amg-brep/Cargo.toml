@@ -71,6 +71,11 @@ harness = false
 required-features = ["occt"]
 
 [[bench]]
+name = "blend"
+harness = false
+required-features = ["occt"]
+
+[[bench]]
 name = "ops"
 harness = false
 required-features = ["occt"]

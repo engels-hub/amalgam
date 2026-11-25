@@ -15,7 +15,9 @@ use crate::error::{KResult, KernelError};
 use crate::geom;
 use crate::history::{FaceBuild, OpResult};
 use crate::kernel::BrepKernel;
-use crate::opts::{BoolOp, BoolOpts, PrismExtent, PrismOpts, TessQuality};
+use crate::opts::{
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, PrismExtent, PrismOpts, TessQuality,
+};
 use crate::query::{
     Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
 };
@@ -408,6 +410,66 @@ impl<K: BrepKernel> BrepKernel for RecordingKernel<K> {
             },
             || vec![a, b],
             || self.inner.section(a, b, ctx),
+        )
+    }
+
+    fn fillet(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, FilletSpec)],
+        opts: &FilletOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Fillet {
+                shape: one(0),
+                edges: edges
+                    .iter()
+                    .map(|(e, f)| (EdgeRecord::of(s, *e), f.clone()))
+                    .collect(),
+                opts: opts.clone(),
+            },
+            || vec![s],
+            || self.inner.fillet(s, edges, opts, ctx),
+        )
+    }
+
+    fn chamfer(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, ChamferSpec)],
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Chamfer {
+                shape: one(0),
+                edges: edges
+                    .iter()
+                    .map(|(e, c)| (EdgeRecord::of(s, *e), c.clone()))
+                    .collect(),
+            },
+            || vec![s],
+            || self.inner.chamfer(s, edges, ctx),
+        )
+    }
+
+    fn fillet_max_radius(
+        &self,
+        s: &Shape,
+        edges: &[EdgeId],
+        hi: f64,
+        iterations: u32,
+        ctx: &JobCtx,
+    ) -> KResult<f64> {
+        self.guarded(
+            || KernelOp::FilletMaxRadius {
+                shape: one(0),
+                edges: edges.iter().map(|e| EdgeRecord::of(s, *e)).collect(),
+                hi,
+                iterations,
+            },
+            || vec![s],
+            || self.inner.fillet_max_radius(s, edges, hi, iterations, ctx),
         )
     }
 

@@ -1,0 +1,12 @@
+# B-rep metrics of brep/blend_fillet_concave_edge (S02 BREP-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 385.2876110196153
+area = 365.8539816339745
+faces = 9
+edges = 21
+vertices = 14
+classes = "PPYPPPPPP"

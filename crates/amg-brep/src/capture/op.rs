@@ -7,7 +7,9 @@ use crate::capture::CaptureError;
 use crate::error::KResult;
 use crate::geom::{self, Curve3, GeomClass};
 use crate::kernel::BrepKernel;
-use crate::opts::{BoolOp, BoolOpts, PrismExtent, PrismOpts, TessQuality};
+use crate::opts::{
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, PrismExtent, PrismOpts, TessQuality,
+};
 use crate::shape::{EdgeId, Shape, SubKind, SubShape};
 
 /// A shape argument: index `n` is `inputs/<n>.brep` of the dump.
@@ -287,6 +289,33 @@ pub enum KernelOp {
         /// Second shape.
         b: InputRef,
     },
+    /// `fillet`.
+    Fillet {
+        /// Shape.
+        shape: InputRef,
+        /// Edges, with fingerprints, and their specs.
+        edges: Vec<(EdgeRecord, FilletSpec)>,
+        /// Options.
+        opts: FilletOpts,
+    },
+    /// `chamfer`.
+    Chamfer {
+        /// Shape.
+        shape: InputRef,
+        /// Edges, with fingerprints, and their specs (reference faces by index).
+        edges: Vec<(EdgeRecord, ChamferSpec)>,
+    },
+    /// `fillet_max_radius`.
+    FilletMaxRadius {
+        /// Shape.
+        shape: InputRef,
+        /// Edges, with fingerprints.
+        edges: Vec<EdgeRecord>,
+        /// Upper radius.
+        hi: f64,
+        /// Bisection steps.
+        iterations: u32,
+    },
     /// `interference`.
     Interference {
         /// First shape.
@@ -345,6 +374,9 @@ impl KernelOp {
             KernelOp::Boolean { .. } => "boolean",
             KernelOp::Split { .. } => "split",
             KernelOp::Section { .. } => "section",
+            KernelOp::Fillet { .. } => "fillet",
+            KernelOp::Chamfer { .. } => "chamfer",
+            KernelOp::FilletMaxRadius { .. } => "fillet_max_radius",
             KernelOp::Interference { .. } => "interference",
             KernelOp::PlaneSection { .. } => "plane_section",
             KernelOp::ProjectEdges { .. } => "project_edges",
@@ -359,7 +391,10 @@ impl KernelOp {
             KernelOp::Mirrored { shape, .. }
             | KernelOp::PlaneSection { shape, .. }
             | KernelOp::ProjectEdges { shape, .. }
-            | KernelOp::Tessellate { shape, .. } => vec![*shape],
+            | KernelOp::Tessellate { shape, .. }
+            | KernelOp::Fillet { shape, .. }
+            | KernelOp::Chamfer { shape, .. }
+            | KernelOp::FilletMaxRadius { shape, .. } => vec![*shape],
             KernelOp::Boolean { objects, tools, .. } | KernelOp::Split { objects, tools, .. } => {
                 objects.iter().chain(tools).copied().collect()
             }
@@ -375,8 +410,16 @@ impl KernelOp {
     /// # Errors
     /// `Unmatched` when an edge without a matching fingerprint has no unique match.
     pub fn reindex(&mut self, inputs: &[Shape]) -> Result<bool, CaptureError> {
-        let KernelOp::ProjectEdges { shape, edges, .. } = self else {
-            return Ok(false);
+        let (shape, edges): (&InputRef, Vec<&mut EdgeRecord>) = match self {
+            KernelOp::ProjectEdges { shape, edges, .. }
+            | KernelOp::FilletMaxRadius { shape, edges, .. } => (shape, edges.iter_mut().collect()),
+            KernelOp::Fillet { shape, edges, .. } => {
+                (shape, edges.iter_mut().map(|(e, _)| e).collect())
+            }
+            KernelOp::Chamfer { shape, edges } => {
+                (shape, edges.iter_mut().map(|(e, _)| e).collect())
+            }
+            _ => return Ok(false),
         };
         let Some(s) = inputs.get(shape.0 as usize) else {
             return Ok(false);
@@ -384,7 +427,7 @@ impl KernelOp {
         let eps = 1e-7 * s.bbox().size().length().max(1.0);
         let mut changed = false;
         let mut all: Option<Vec<Option<SubShapeGeom>>> = None;
-        for rec in edges.iter_mut() {
+        for rec in edges {
             let Some(want) = &rec.geom else { continue };
             let here = SubShapeGeom::of(s, edge_sub(rec.id.0));
             if here.is_some_and(|g| g.matches(want, eps)) {
@@ -493,6 +536,30 @@ impl KernelOp {
                 opts,
             } => shape(k.split(&many(objects)?, &many(tools)?, opts, ctx)),
             KernelOp::Section { a, b } => shape(k.section(one(a)?, one(b)?, ctx)),
+            KernelOp::Fillet {
+                shape: s,
+                edges,
+                opts,
+            } => {
+                let edges: Vec<(EdgeId, FilletSpec)> =
+                    edges.iter().map(|(e, f)| (e.id, f.clone())).collect();
+                shape(k.fillet(one(s)?, &edges, opts, ctx))
+            }
+            KernelOp::Chamfer { shape: s, edges } => {
+                let edges: Vec<(EdgeId, ChamferSpec)> =
+                    edges.iter().map(|(e, c)| (e.id, c.clone())).collect();
+                shape(k.chamfer(one(s)?, &edges, ctx))
+            }
+            KernelOp::FilletMaxRadius {
+                shape: s,
+                edges,
+                hi,
+                iterations,
+            } => {
+                let ids: Vec<EdgeId> = edges.iter().map(|e| e.id).collect();
+                k.fillet_max_radius(one(s)?, &ids, *hi, *iterations, ctx)
+                    .map(|_| Vec::new())
+            }
             KernelOp::Interference { a, b } => k
                 .interference(one(a)?, one(b)?, ctx)
                 .map(|r| r.map(|r| r.shape).into_iter().collect()),
@@ -641,6 +708,37 @@ mod tests {
             KernelOp::Interference {
                 a: InputRef(0),
                 b: InputRef(1),
+            },
+            KernelOp::Fillet {
+                shape: InputRef(0),
+                edges: vec![
+                    (edge.clone(), FilletSpec::Constant(1.0)),
+                    (
+                        EdgeRecord {
+                            id: EdgeId(4),
+                            geom: None,
+                        },
+                        FilletSpec::Variable(vec![(0.0, 1.0), (1.0, 2.0)]),
+                    ),
+                ],
+                opts: FilletOpts::default(),
+            },
+            KernelOp::Chamfer {
+                shape: InputRef(0),
+                edges: vec![(
+                    edge.clone(),
+                    ChamferSpec::DistanceAngle {
+                        d: 1.0,
+                        angle: 0.5,
+                        face: crate::FaceId(2),
+                    },
+                )],
+            },
+            KernelOp::FilletMaxRadius {
+                shape: InputRef(0),
+                edges: vec![edge.clone()],
+                hi: 5.0,
+                iterations: 12,
             },
             KernelOp::PlaneSection {
                 shape: InputRef(0),

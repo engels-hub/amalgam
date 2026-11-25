@@ -1,0 +1,12 @@
+# B-rep metrics of brep/blend_chamfer_top_loop (S02 BREP-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 930.6666666666666
+area = 546.509667991878
+faces = 10
+edges = 20
+vertices = 12
+classes = "PPPPPPPPPP"

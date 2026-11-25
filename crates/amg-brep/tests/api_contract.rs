@@ -429,6 +429,39 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
         self.inner.section(a, b, ctx)
     }
 
+    fn fillet(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, FilletSpec)],
+        opts: &FilletOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.fillet(s, edges, opts, ctx)
+    }
+
+    fn chamfer(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, ChamferSpec)],
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.chamfer(s, edges, ctx)
+    }
+
+    fn fillet_max_radius(
+        &self,
+        s: &Shape,
+        edges: &[EdgeId],
+        hi: f64,
+        iterations: u32,
+        ctx: &JobCtx,
+    ) -> KResult<f64> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.fillet_max_radius(s, edges, hi, iterations, ctx)
+    }
+
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<CurveSeg>> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.plane_section(s, plane)

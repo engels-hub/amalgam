@@ -47,6 +47,8 @@ struct OcSurfacePoint;
 struct OcEdgeEnds;
 struct OcSubGeom;
 struct OcSubMap;
+struct OcBlendEdge;
+struct OcFilletParams;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -99,6 +101,8 @@ public:
   std::vector<std::uint32_t> out_indices;
   std::vector<std::uint32_t> role_faces;
   std::vector<std::uint8_t> roles;
+  // One per role: the contour of a fillet/chamfer face (BREP-06), 0 for every other role.
+  std::vector<std::uint32_t> role_args;
   bool cancelled = false;
   std::vector<std::string> errors;
   std::vector<std::string> warnings;
@@ -336,6 +340,18 @@ OcBoolStatus op_bool_status(const OcOp &op);
 
 // CATEGORY: R (BRepGProp with an adaptive relative error bound `eps`, without triangulation)
 double volume_adaptive(const OcShape &shape, double eps);
+
+// -- fillets and chamfers (BREP-06), implemented in occt_blend.cpp --
+
+// CATEGORY: C (ChFi3d writes tolerances and pcurves into the faces and edges it blends, so
+// BRepFilletAPI_MakeFillet / _MakeChamfer run on a private BRepBuilderAPI_Copy of `shape` made
+// here; `shape` and `index` are only read)
+std::unique_ptr<OcOp> blend_op(const OcShape &shape, const OcIndex &index, bool chamfer,
+                               rust::Slice<const OcBlendEdge> edges, rust::Slice<const double> laws,
+                               const OcFilletParams &params, bool with_history);
+
+// CATEGORY: R (BRep_Tool::CurveOnSurface and BRepAdaptor_Surface::D1; the faces are only read)
+double edge_face_angle(const OcIndex &index, std::uint32_t e, std::uint32_t f1, std::uint32_t f2);
 
 // -- measurement queries (BREP-09), implemented in occt_query.cpp --
 

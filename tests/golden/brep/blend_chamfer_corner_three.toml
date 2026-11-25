@@ -1,0 +1,12 @@
+# B-rep metrics of brep/blend_chamfer_corner_three (S02 BREP-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 945.3333333333333
+area = 557.3463526090463
+faces = 10
+edges = 21
+vertices = 13
+classes = "PPPPPPPPPP"

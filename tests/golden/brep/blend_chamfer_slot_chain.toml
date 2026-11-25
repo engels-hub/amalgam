@@ -1,0 +1,12 @@
+# B-rep metrics of brep/blend_chamfer_slot_chain (S02 BREP-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 422.99408900196795
+area = 346.7376141210761
+faces = 10
+edges = 20
+vertices = 12
+classes = "PYPPYPCPCP"

@@ -894,7 +894,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-14 | Primitives (box, cylinder, cone, sphere, torus) on a `Plane` frame; `prism` (vector, infinite, taper, `merge_coplanar`); `revol`; `gtransformed` | BREP-03 | P0 | Done | 1. Golden volume/area/topology counts for each primitive, for prism of 5 profile types and for revol (90°, 360°) within 1e-9 relative (`tests/golden/brep/`). 2. A tapered prism of a square at 5° matches the analytic frustum volume within 1e-9. 3. Results are BRepCheck-valid. 4. Prism and revol run in the stress test. |
 | BREP-04 | Booleans: `boolean` (fuse/cut/common, N objects × M tools), `split`, `section`; non-destructive always on; fuzzy/glue/OBB/check-inverted; progress + cancel; parallel-mode determinism test and `occt_threads` benchmark | BREP-14 | P0 | Done | 1. A 100-case boolean corpus (`testdata/brep/bool/`: primitives, coplanar, tangent, fuzzy-needed cases from OCCT/FreeCAD trackers) gives valid results, with volumes within 1e-6 relative of reference values (or the expected `Err`). 2. Proptest: 500 random primitive pairs give `Ok(valid)` or a clean `Err`, never a crash. 3. Inputs' BinTools hashes are unchanged after every op. 4. Determinism: 20 cases × 10 runs with parallel on are byte-identical, or parallel defaults off and the Refinement log says so. 5. Criterion: a cut of two 1000-face parts, timed with 1 / half / all OCCT threads; the default is set from the result. 6. Cancelling a long boolean returns `Cancelled` within 200 ms. |
 | BREP-05 | History framework: `ShapeHistory` (entries, `Kept`, roles, tags, `sources_of`, `compose`), extraction from `BRepBuilderAPI_MakeShape`/`BRepTools_History`/op accessors, composition of internal steps, deterministic split order, `sub_geom`/`sub_geom_all` fingerprints; applied to BREP-03/14/04 ops | BREP-04 | P0 | Done | 1. Completeness test: for every op in the BREP-03/14/04 corpora, every output face is Modified/Generated/Kept from some input or has a role, and no output index is out of range. 2. Prism of a tagged profile: each lateral face's `sources_of` is the generating edge, which carries the profile tag; caps have `StartCap`/`EndCap`. 3. Box cut by a cylinder through one face: the split face has 2 `Modified` outputs, in area-desc order, stable across 10 runs. 4. `compose` of prism + unify equals the history observed end-to-end on 5 cases. 5. `ShapeHistory` serde round-trips. 6. `sub_geom_all` on a 1000-face part takes < 20 ms. Usable by DOC-06 tests (box, prism, boolean cut). |
-| BREP-06 | Fillet (constant, variable, chord) and chamfer (equal, two-dist, dist-angle) with history (`FilletBlend`, `ChamferFace`) and `LocalOpFailed { offending }`; `fillet_max_radius` | BREP-05 | P0 | Todo | 1. Golden volumes for 20 fillet/chamfer cases (cube edge, edge chains, vertex blends of 3 edges) within 1e-6 relative. 2. A radius larger than the adjacent face fails with `offending` naming the failing edge(s), checked against the expected edge ids. 3. `fillet_max_radius` on 5 cases is within 1 % of the reference largest workable radius. 4. History: each blend face maps to its source edge. 5. 10 runs are byte-identical. 6. The op is in the stress test. |
+| BREP-06 | Fillet (constant, variable, chord) and chamfer (equal, two-dist, dist-angle) with history (`FilletBlend`, `ChamferFace`) and `LocalOpFailed { offending }`; `fillet_max_radius` | BREP-05 | P0 | Review | 1. Golden volumes for 20 fillet/chamfer cases (cube edge, edge chains, vertex blends of 3 edges) within 1e-6 relative. 2. A radius larger than the adjacent face fails with `offending` naming the failing edge(s), checked against the expected edge ids. 3. `fillet_max_radius` on 5 cases is within 1 % of the reference largest workable radius. 4. History: each blend face maps to its source edge. 5. 10 runs are byte-identical. 6. The op is in the stress test. |
 | BREP-07 | Shell / thick solid (removed faces, per-face thickness, join arc/intersection), `offset`, `thicken` with roles `ShellInner`/`OffsetFace` | BREP-05 | P0 | Todo | 1. Golden volumes: shelled box (1 face removed, 1 mm) equals the analytic volume within 1e-9 relative. Shelled cylinder, filleted box (arc join) and thickened B-spline face (0.5 %) pass. 2. Inward/outward offset of a sphere: radius within 1e-9. 3. A thickness exceeding the minimum radius gives `LocalOpFailed` with offending faces. 4. History roles are correct on 5 cases. |
 | BREP-16 | Draft, defeature (delete face), replace face, split faces by tool, split body (via `split`) with history | BREP-05 | P0 | Todo | 1. Draft of 4 box side faces at 3° about the bottom plane: the measured face angles are 3° ± 1e-9 rad and the volume is analytic. 2. Deleting a fillet face and a boss face gives the pre-feature volume within 1e-6. 3. Replacing a top face with an offset plane changes the height exactly. 4. Splitting a face by a sketch wire gives 2 faces with the right areas. 5. Every result is BRepCheck-valid with complete history. |
 | BREP-08 | Tessellation: `tessellate` on a private topology copy (category C), `TessMesh` (per-face vertices, normals, `face_ranges`, exact `weld`, edge polylines), `to_indexed_parts`, `tessellate_many` (rayon, `InParallel` off), `tessellate_edge`, quality presets | BREP-12 | P0 | Done (owner-accepted 2026-11-19; Done-when 1 moved to BREP-18) | 1. A 1000-face fixture part tessellates (display preset) in < 100 ms median, including the topology copy (criterion `budget/brep-tess-1000`); the copy share is recorded. 2. `to_indexed_parts` of every closed fixture is watertight (`amg_testkit::metrics`: 0 boundary and 0 non-manifold edges), and its volume matches `mass_props` within the deflection bound. 3. Sphere r=10 tessellations converge to the exact area as deflection shrinks. 4. Tessellating one shared `Shape` from 8 threads while another thread runs booleans on it: no crash, identical meshes, input hash unchanged. 5. `face_of_triangle` is consistent with `face_ranges` for all triangles. |
@@ -2059,6 +2059,184 @@ The key helpers are `split_order_key`, `ShapeHistory::compose` and `order_splits
 - S20: move `capture::SubShapeGeom` to the S02 type.
 - Every later op WP adds its op to the completeness test (`completeness_error`).
 
+### 2026-11-25 - BREP-06 fillets, chamfers and the max-radius probe
+**Landed.**
+- `amg-brep`, trait `BrepKernel` (with the forwarding arms in `RecordingKernel`,
+  `tests/api_contract.rs` and `tests/common/fault.rs`):
+  - `fillet(s, &[(EdgeId, FilletSpec)], &FilletOpts, ctx)`, `chamfer(s, &[(EdgeId, ChamferSpec)],
+    ctx)` and `fillet_max_radius(s, edges, hi, iterations, ctx)`, with the Interfaces
+    signatures.
+  - S20's `KernelOp::{Fillet, Chamfer, FilletMaxRadius}`. Edges are `EdgeRecord`s (index plus
+    fingerprint), so `reindex` covers them as it covers `ProjectEdges`. The reference faces of
+    asymmetric chamfers stay plain `FaceId`s.
+- New module `blend` (plain Rust, unit-tested without OCCT):
+  - Validation: a non-empty, duplicate-free edge list; each edge between two distinct faces;
+    finite positive radii and distances; a variable law of ≥ 2 samples, strictly increasing,
+    from t = 0 to t = 1 (ends snapped within 1e-9); a reference face that is one of the edge's
+    faces; an angle in (0, π/2); approximation overrides finite and positive.
+  - The chord conversion `r = c / (2 sin(φ/2))`. Here `φ` is the angle between the two faces'
+    outward normals at the middle of the edge (new R shim `edge_face_angle`). This is exact for
+    edges of constant dihedral angle.
+  - The mapping of the shim status to `InvalidInput` or `LocalOpFailed`.
+- `fillet_max_radius` bisects. It returns `hi` when `hi` works. Otherwise it runs `iterations`
+  halvings of (0, hi]; a radius "works" when the build succeeds and the result is
+  BRepCheck-valid, whatever the validation policy. The probes skip the history. When no tried
+  radius works, it returns `LocalOpFailed { op: "fillet_max_radius" }` with the last failure's
+  edges. Cancellation is checked between steps.
+- `amg-occt-sys`, new `cpp/occt_blend.cpp`:
+  - `blend_op` (**C**): `BRepFilletAPI_MakeFillet` / `_MakeChamfer` on a private
+    `BRepBuilderAPI_Copy`. Edges are added in the caller's order, and OCCT numbers the contours
+    in that order. An edge that tangent propagation already put in a contour is accepted when
+    its spec equals the contour's first spec, and refused (`InvalidInput`) otherwise.
+  - `FilletOpts` overrides go through `SetParams`. The other `SetParams` values are ChFi3d's
+    own defaults, read from a `ChFi3d_FilBuilder` subclass on the same shape (they are protected
+    members with no getters).
+  - Bridge structs `OcBlendEdge` (variable laws in one shared `f64` slice) and
+    `OcFilletParams`. `OcOp`/`OcOpHistory` get `role_args` (the contour of a blend face); every
+    `Recorder` role pushes 0 there.
+  - Role codes 3 `FilletBlend`, 4 `ChamferFace`, 5 `CornerPatch`.
+- History (operand 0 = the input):
+  - Every input sub-shape goes through the copy, then `Modified` (or itself when it passes
+    through).
+  - Blended edges are `Generated` into their blend faces, and vertices into the corner faces
+    OCCT attributes to them.
+  - A new face generated by an edge of contour `ic` (the propagated edges included) gets
+    `FilletBlend { contour: ic }` or `ChamferFace`. Every other face that no input face became
+    gets `CornerPatch`.
+- Failures:
+  - `offending` lists the input edges of `NbFaultyContours` contours and of the requested edges
+    at `NbFaultyVertices` vertices.
+  - When OCCT names none (always for chamfers, whose API hides its builder), each contour is
+    built on its own, and the ones that fail are offending. When none fails alone, every edge
+    is offending.
+  - `message` joins the stripe statuses (`contour 0: ChFiDS_StartsolFailure`), the corner
+    failures and the OCCT exception.
+  - `partial` is `BadShape()` when `HasResult()`, else the done-but-broken shape (see below),
+    else `None`.
+- Tests:
+  - `tests/blend.rs`: 10 tests.
+  - `tests/common/blend_corpus.rs`: 21 cases. Analytic volumes use Pappus and section
+    integrals: spandrel `(1 − π/4) r²` with its centroid at `r (10 − 3π)/(12 − 3π)` from either
+    face; the rounded cube by Steiner's formula; the top-loop band by integrating its inset
+    square section.
+  - 21 goldens `tests/golden/brep/blend_*.toml` (adaptive `mass_props` volume and area,
+    topology counts and face classes, rel 1e-6).
+  - Stress ops `Fillet`/`Chamfer` in `tests/common/stress.rs`, with 4 stress tests in
+    `tests/stress.rs`.
+  - The corpus joins `every_output_face_has_a_source_or_a_role` (`tests/history.rs`).
+  - 5 unit tests: 4 in `src/blend.rs` and 1 in `src/ops.rs` for the roles.
+- Bench: `benches/blend.rs` (`brep-blend/*`).
+
+**Done-when status.** With `--features occt`, `cargo nextest run -p amg-occt-sys -p amg-brep`
+passes 286 tests (1 skipped: BREP-04's ignored timing run). Without the feature, 99 pass.
+`cargo clippy -p amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is clean,
+also without `--all-features`. `cargo build -p amg-brep --no-default-features` builds.
+1. Met (`golden_fillets_and_chamfers_match_the_reference_volumes`). The 21 cases:
+   - cube edge, tilted box edge, long box edge;
+   - the 4-edge top loop (mitred corners), the 3-edge vertex blend (sphere corner) and all 12
+     edges;
+   - the slot's 4-edge tangent chain from one edge;
+   - variable linear and variable 3-sample laws, chord, cylinder rim, concave edge of an
+     L-block, mixed radii at one vertex, `QuasiAngular`;
+   - chamfers: equal, two distances, distance-angle, top loop, 3-edge vertex, cylinder rim and
+     slot chain.
+
+   All match their goldens within 1e-6. The 17 with closed forms match them within 6.1e-16,
+   except the fillet top loop at 7.2e-11 (its mitred corners are intersection curves). The 4
+   golden-only cases are both variable laws, the mixed radii and the 3-edge chamfer vertex. The
+   chamfer vertex removes 54.667 mm³, against 54 mm³ for three mutually trimmed wedges: OCCT
+   adds a triangular corner face.
+2. Met (`a_radius_larger_than_the_adjacent_face_fails_on_that_edge`). The plate is 20 × 20 × 4.
+   - The front top edge with r = 6 gives `offending == [that edge]`, with message
+     `contour 0: ChFiDS_StartsolFailure`.
+   - Together with two workable edges that do not touch it (r = 1), only that edge is offending
+     (`contour 1: ...`).
+   - The same holds for a chamfer (d = 6 next to d = 1, found by the per-contour probe) and for
+     a variable law of 5 → 7.
+3. Met (`fillet_max_radius_is_within_one_percent_of_the_largest_workable_radius`). 20 steps are
+   compared with a downward scan in steps of `hi`/1000:
+   - plate front top edge 3.999996 vs 3.990 (geometric limit 4);
+   - two plate top edges 3.999996 vs 3.990;
+   - 3-edge cube vertex 9.999996 vs 9.996 (limit 10);
+   - slot chain 2.999992 vs 2.992 (limit 3, the slot radius);
+   - rim of a 3 mm high cylinder 2.999992 vs 2.992 (limit 3).
+
+   The worst difference is 0.27 %, the scan's grid step. Each answer fillets successfully. A
+   workable `hi` comes back bit-exact; NaN `hi`, 0 iterations and a cancelled job are refused.
+4. Met (`every_blend_face_maps_to_its_source_edge`). Over all 21 cases (49 blend and chamfer
+   faces), every blend face has its role and is `Generated` from an input edge, and every
+   requested edge generates a blend face. In the single-edge case the edge generates exactly
+   the one `FilletBlend { contour: 0 }` face, and the result has 7 faces.
+5. Met (`ten_runs_are_byte_identical`). Each corpus case run 10 times gives identical BinTools
+   bytes and history (`Debug`), and the input's bytes are unchanged.
+6. Met (`shared_{box, filleted_box, cylinder, plate}_survives_concurrent_blends`). 8 threads
+   fillet (r 0.5) and chamfer (d 0.4) up to 12 edges of the shared shape itself:
+   - box: 120 iterations;
+   - filleted box: 40 iterations. Every op is an error, because all its edges are smooth (see
+     below);
+   - cylinder: 80 iterations;
+   - plate: 2 edges, 2 iterations.
+
+   There are 0 mismatches, and the BinTools hashes are unchanged (box `e40ca138fde6fcd8`,
+   filleted box `cad3beeac5e9c130`, cylinder `4a534faf4196f65e`, plate `42a46e2564f1eef4`).
+
+The history completeness test now covers 21 BREP-06 results as well (1235 output faces in all),
+with no `Unexplained` face. `random_radii_give_valid_results_or_clean_errors` (S02 Testing) runs
+200 random edge sets with radii and distances of 0.2–7.2 mm on a 12 × 8 × 5 box: 106 valid
+results and 94 `LocalOpFailed`, each naming only requested edges.
+
+**Bench** (release, criterion, validation off; S02 has no fillet budget):
+
+| Bench | Median |
+|---|---|
+| `fillet-cube-edge` | 1.05 ms |
+| `fillet-cube-12-edges` | 6.53 ms |
+| `chamfer-cube-edge` | 1.05 ms |
+| the 21-case corpus | 55.1 ms |
+| `max-radius-cube-edge-20` | 29.8 ms |
+| `fillet-plate-1030-one-edge` | 110.7 ms |
+
+The plate's cost grows with the face count of the whole shape, not with the blend (one edge
+costs 106 times the cube's). The share of the private copy was not measured.
+
+**Findings and deviations.**
+- **The blend runs on a private copy (category C)** as a precaution, as the sweeps do; a
+  copy-free run (which could report untouched sub-shapes as `Kept`) was not tried. Untouched
+  faces and edges therefore come back `Modified` 1:1 (new TShapes), not `Kept`.
+- **`IsDeleted` is not used.** `BRepFilletAPI_MakeFillet::IsDeleted` reports every sub-shape
+  outside its own map as deleted, including vertices that pass through unchanged. A copy that
+  is not in the result simply has no relation.
+- **ChFi3d can report done on a bad blend.** A variable law that outgrows the face only near
+  one end (1 → 7 mm on the 4 mm face) is reported done. The result has the topology of an
+  ordinary fillet, and BRepCheck accepts it. But its volume is 1517.6 mm³, below the 1531.3 mm³
+  that a blend lying within the face can reach (an r = 4 fillet along the whole edge), so the
+  blend self-intersects. The test logs this case and does not assert it. S20's
+  self-interference check (R5) is the guard for it. The shim also treats a done result with a
+  different solid count from the input as a failure (in the op and in the per-contour probe);
+  no corpus or random case has hit that rule.
+- **Smooth edges are refused.** OCCT ignores `Add` on an edge between tangent faces; such an
+  edge is reported as `InvalidInput` naming the edge. This is why every edge of the filleted-box
+  fixture is refused.
+- **A plane–plane constant fillet is an exact cylinder for every `FilletShape`** (ChFiKPart).
+  `opts_reach_the_blend` therefore checks the blend shape and the approximation overrides on a
+  variable law: both change the blend surface, and the volume stays within 1e-3.
+- `Variable` law parameters are relative along the whole contour (OCCT's spine), not along the
+  one edge. They are the same for an isolated edge; the trait docs say so.
+- `TwoDistances`/`DistanceAngle` on a tangent chain use the first edge's spec and face for the
+  whole contour. Specs on later edges of the chain must have equal values; their faces are not
+  compared.
+- `SHIM_VERSION` stays 4: no existing op's history changed (`role_args` is new data only).
+
+**For DOC-06.** Fillet histories are one-operand, with roles carrying the contour index, in the
+caller's edge order. The fixtures are in `tests/common/blend_corpus.rs` (cube edge, vertex blend,
+slot chain).
+
+**Leftovers.**
+- Mid-op cancellation: ChFi3d takes no progress range, so cancellation is checked before and
+  after the call only.
+- A face-fingerprint `reindex` for the reference faces of asymmetric chamfers in `KernelOp`.
+- KH-03 (S20) can build its fillet strategy chain on `fillet_max_radius` and `FilletOpts`.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2278,3 +2456,22 @@ Every change is inside lane A's crates. No other lane's files changed.
 - OCCT's mesh can exceed the requested linear deflection: a sphere (r = 7 mm fixture) at 0.005 mm /
   10° measured 0.010 mm. IO-09 re-tessellates tighter in its adapter.
 
+### 2026-11-25: additions and changed contracts from BREP-06 (lane A)
+Every change is inside lane A's crates. No other lane's files changed.
+- `amg-brep`, additive:
+  - `BrepKernel::{fillet, chamfer, fillet_max_radius}` with the Interfaces signatures. Every
+    `BrepKernel` implementor must add them; the in-crate decorators forward them.
+  - `KernelOp::{Fillet, Chamfer, FilletMaxRadius}` (S20 dump format); `reindex` covers their
+    edges.
+  - Roles `FilletBlend { contour }`, `ChamferFace` and `CornerPatch` now appear in op histories.
+  - New bench `benches/blend.rs` (`[[bench]]` in `amg-brep/Cargo.toml`).
+- `amg-occt-sys`: new `cpp/occt_blend.cpp` (in `build.rs`), with `blend_op` (C) and
+  `edge_face_angle` (R); structs `OcBlendEdge` and `OcFilletParams`; field `role_args` on `OcOp`
+  and `OcOpHistory` (0 for every existing role, so no existing history changed; `SHIM_VERSION`
+  stays 4).
+- **For S04 / SOL-05:** contours follow the caller's edge order. An edge already on another
+  edge's tangent chain must carry the same spec. Smooth edges are `InvalidInput`.
+- **For S20 (KH-03):** `fillet_max_radius` treats "works" as a successful and BRepCheck-valid
+  build. A blend can self-intersect undetected (see the BREP-06 log), so the R5 check belongs in
+  the strategy's validation gate.
+- No new dependency; `THIRD_PARTY.md` unchanged.

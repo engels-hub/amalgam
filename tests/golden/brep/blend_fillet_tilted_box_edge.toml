@@ -1,0 +1,12 @@
+# B-rep metrics of brep/blend_fillet_tilted_box_edge (S02 BREP-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 5980.685834705774
+area = 2183.2610567450015
+faces = 7
+edges = 15
+vertices = 10
+classes = "PPYPPPP"

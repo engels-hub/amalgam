@@ -3,6 +3,7 @@
 //! Spec: S02, S20. Lane: A.
 
 mod backend;
+mod blend;
 mod boolean;
 mod builders;
 pub mod capture;

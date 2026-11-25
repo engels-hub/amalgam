@@ -1,5 +1,6 @@
 //! The OCCT backend of `Shape`. The only module that sees the bridge types.
 
+mod blend;
 mod boolean;
 mod build;
 mod extract;

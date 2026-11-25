@@ -6,6 +6,7 @@ use amg_core::{Aabb3, Plane, Point3, Transform};
 use amg_jobs::JobCtx;
 
 use crate::KResult;
+use crate::blend::{BlendEdge, BlendOutcome, FilletParams};
 use crate::boolean::{BoolCode, BoolIn, BoolOutcome};
 use crate::builders::{BoundsIn, LoopsIn, PlanarIn};
 use crate::check::CheckReport;
@@ -234,6 +235,20 @@ impl Occ {
     }
 
     pub(crate) fn unify(&self) -> KResult<(Occ, RawHistory)> {
+        match *self {}
+    }
+
+    pub(crate) fn blend(
+        &self,
+        _chamfer: bool,
+        _edges: &[BlendEdge],
+        _params: &FilletParams,
+        _with_history: bool,
+    ) -> KResult<BlendOutcome<(Occ, RawHistory)>> {
+        match *self {}
+    }
+
+    pub(crate) fn edge_face_angle(&self, _edge: u32, _f1: u32, _f2: u32) -> KResult<f64> {
         match *self {}
     }
 
