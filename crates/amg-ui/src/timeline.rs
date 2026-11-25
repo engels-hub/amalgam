@@ -345,13 +345,7 @@ impl TimelineState {
         for node in tl.nodes() {
             let info = registry.feature_ui(node.feature.kind());
             let known = info.is_some() && !node.feature.is_unknown();
-            let base = info.map_or_else(
-                || fallback_name(node.feature.kind()),
-                |i| i.display_name.to_owned(),
-            );
-            let n = ordinals.entry(base.clone()).or_insert(0);
-            *n += 1;
-            let label = node.name.clone().unwrap_or_else(|| format!("{base}{n}"));
+            let (base, label) = node_label(node, registry, &mut ordinals);
             self.icon_ids.push(match info {
                 Some(i) if known => i.icon,
                 _ => crate::icons::ids::GENERIC,
@@ -1013,6 +1007,24 @@ impl TimelineState {
             .find(|(id, _)| *id == g)
             .map(|(_, n)| n.clone())
     }
+}
+
+/// The display-name base and the label of a timeline node: its name, else
+/// `<display name><n>`, counting the nodes of that base seen so far in `ordinals` (call it for
+/// every node in timeline order). The parameters dialog (UI-12) labels its groups the same way.
+pub(crate) fn node_label(
+    node: &amg_doc::FeatureNode,
+    registry: &crate::UiRegistry,
+    ordinals: &mut std::collections::HashMap<String, u32>,
+) -> (String, String) {
+    let base = registry.feature_ui(node.feature.kind()).map_or_else(
+        || fallback_name(node.feature.kind()),
+        |i| i.display_name.to_owned(),
+    );
+    let n = ordinals.entry(base.clone()).or_insert(0);
+    *n += 1;
+    let label = node.name.clone().unwrap_or_else(|| format!("{base}{n}"));
+    (base, label)
 }
 
 /// The default label base of a kind without a [`FeatureUiInfo`]: its last dotted segment.

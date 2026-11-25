@@ -288,7 +288,6 @@ impl ExprResponse {
 }
 
 /// An expression field: text, evaluated value and errors (see the [module docs](super)).
-#[derive(Debug)]
 #[must_use = "call `show`"]
 pub struct ExprInput<'a> {
     src: &'a mut String,
@@ -300,6 +299,19 @@ pub struct ExprInput<'a> {
     label: Option<&'a str>,
     id_salt: Option<egui::Id>,
     width: f32,
+    widget_id: Option<egui::Id>,
+    show_value: bool,
+    name: Option<String>,
+    checker: Option<&'a dyn Fn(&str) -> ExprCheck>,
+}
+
+impl std::fmt::Debug for ExprInput<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExprInput")
+            .field("src", &self.src)
+            .field("expected", &self.expected)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> ExprInput<'a> {
@@ -320,6 +332,10 @@ impl<'a> ExprInput<'a> {
             label: None,
             id_salt: None,
             width: 120.0,
+            widget_id: None,
+            show_value: true,
+            name: None,
+            checker: None,
         }
     }
 
@@ -354,6 +370,36 @@ impl<'a> ExprInput<'a> {
         self
     }
 
+    /// The text field's widget id, for a field whose position in the layout changes, such as
+    /// a table cell (additive, UI-12; overrides [`id_salt`](Self::id_salt)).
+    pub fn id(mut self, id: egui::Id) -> Self {
+        self.widget_id = Some(id);
+        self
+    }
+
+    /// Whether the value or the error message is drawn next to the field (default true). A
+    /// table with its own value column turns it off; the underline and the error tooltip
+    /// stay (additive, UI-12).
+    pub fn show_value(mut self, show: bool) -> Self {
+        self.show_value = show;
+        self
+    }
+
+    /// The AccessKit name of a field without a visible [`label`](Self::label) (additive,
+    /// UI-12).
+    pub fn accessible_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Replaces [`check_expr`] for the underline, the message and the returned value: for
+    /// fields with other rules than "a value of dimension `expected`" (a parameter's own
+    /// unit, cycles). It may run several times per frame (additive, UI-12).
+    pub fn checker(mut self, checker: &'a dyn Fn(&str) -> ExprCheck) -> Self {
+        self.checker = Some(checker);
+        self
+    }
+
     /// Draws the field.
     pub fn show(self, ui: &mut egui::Ui) -> ExprResponse {
         let ExprInput {
@@ -366,9 +412,17 @@ impl<'a> ExprInput<'a> {
             label,
             id_salt,
             width,
+            widget_id,
+            show_value,
+            name,
+            checker,
         } = self;
         let salt = id_salt.unwrap_or_else(|| egui::Id::new(label.unwrap_or("expr")));
-        let text_id = ui.make_persistent_id(("amg_expr_input", salt));
+        let text_id = widget_id.unwrap_or_else(|| ui.make_persistent_id(("amg_expr_input", salt)));
+        let run_check = |s: &str| match checker {
+            Some(c) => c(s),
+            None => check_expr(s, expected, params, prefs),
+        };
         let state_id = text_id.with("state");
         let mut st: ExprState = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
         let focused = ui.memory(|m| m.has_focus(text_id));
@@ -436,7 +490,7 @@ impl<'a> ExprInput<'a> {
 
         let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap: f32| {
             let s = text.as_str();
-            let span = check_expr(s, expected, params, prefs).span;
+            let span = run_check(s).span;
             let mut job = highlight_job(ui, s, span);
             job.wrap.max_width = wrap;
             ui.fonts_mut(|f| f.layout_job(job))
@@ -481,11 +535,15 @@ impl<'a> ExprInput<'a> {
         }
         st.had_focus = now_focused;
 
-        let check = check_expr(src, expected, params, prefs);
+        if let Some(n) = name {
+            ui.ctx()
+                .accesskit_node_builder(response.id, |node| node.set_label(n));
+        }
+        let check = run_check(src);
         let bound_name = bound.and_then(|id| params.get(id)).map(|p| p.name.as_str());
         let error_color = ui.visuals().error_fg_color;
         match &check.value {
-            Ok(q) => {
+            Ok(q) if show_value => {
                 let v = format_quantity(*q, prefs);
                 let text = match bound_name {
                     Some(n) => format!("{n} = {v}"),
@@ -493,6 +551,7 @@ impl<'a> ExprInput<'a> {
                 };
                 ui.weak(text);
             }
+            Ok(_) => {}
             Err(_) => {
                 let msg = check.message.clone().unwrap_or_default();
                 let tip = match &check.hint {
@@ -500,12 +559,14 @@ impl<'a> ExprInput<'a> {
                     None => msg.clone(),
                 };
                 response = response.on_hover_text(tip);
-                if let Some(n) = bound_name {
-                    ui.weak(format!("{n} = ?"));
-                }
-                ui.colored_label(error_color, msg);
-                if let Some(h) = &check.hint {
-                    ui.small(h.as_str());
+                if show_value {
+                    if let Some(n) = bound_name {
+                        ui.weak(format!("{n} = ?"));
+                    }
+                    ui.colored_label(error_color, msg);
+                    if let Some(h) = &check.hint {
+                        ui.small(h.as_str());
+                    }
                 }
             }
         }
@@ -550,11 +611,7 @@ impl<'a> ExprInput<'a> {
         }
         ui.data_mut(|d| d.insert_temp(state_id, st));
         // A completion click changed the text after the check above.
-        let check = if changed {
-            check_expr(src, expected, params, prefs)
-        } else {
-            check
-        };
+        let check = if changed { run_check(src) } else { check };
         if changed {
             response.mark_changed();
         }
