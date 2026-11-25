@@ -2012,3 +2012,23 @@ The naming block of Interfaces is replaced by note §10, with these differences:
   `BrepKernel` (BREP-10). The lane-E test features call the hidden `OcctKernel::unify_coplanar`
   through `naming::default_kernel()` because the trait has none; S04's BodyOp rule (note §5.1)
   needs the trait method.
+
+### 2026-11-25 - SOL-01 (lane A, S04 feature framework; additive)
+Four `RecomputeCtx` methods and one engine line, needed by `amg_features::solid` (S04 §2, §7):
+- `RecomputeCtx::before(&self) -> &'a Evaluated`: the input state, for body lineage
+  (`Evaluated::successors`, followed for stale BodyOp participants), participant components
+  (`OtherComponent`) and as the `NamingView` of `naming::topo_ref_at` (kernel-failure highlight).
+- `RecomputeCtx::warn(&self, Diagnostic)`: a warning from code without a `FeatureOutput` at
+  hand (a `SolidTool` building its tool reports a profile found only by fingerprint). Stored with
+  the resolution warnings, so the engine appends it to the output like them.
+- `RecomputeCtx::highlight(&self, impl IntoIterator<Item = EntityRef>)` and
+  `highlights(&self) -> Vec<EntityRef>`: entities to highlight if the compute fails. The engine
+  (`recompute.rs`, failed-compute branch) appends them to the node's `Health::Error` diagnostic
+  `entities`; a successful compute ignores them. This is how S04's `kernel_failure` makes the
+  failing edges of a kernel error reach the viewport (SOL-01 Done-when 5), since a failed
+  compute returns no `FeatureOutput`.
+- Not done here (still leftovers of DOC-06): `RecomputeCtx::resolve_profile` and
+  `region_source`. SOL-01 resolves profiles inside `amg_features::solid::profile` (by id, else
+  `ProfileSet::match_fingerprint` with a `FingerprintOnly` warning via `warn`) and builds
+  `NameSource::Profile { sketch, outer }` itself (`solid::region_source`); the methods can move
+  here unchanged when another lane needs them.

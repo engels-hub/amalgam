@@ -324,12 +324,14 @@ dependencies = [
  "amg-topopt",
  "blake3",
  "criterion 0.8.2",
+ "inventory",
  "proptest",
  "rayon",
  "serde",
  "serde_json",
  "spade",
  "thiserror 2.0.21",
+ "toml",
 ]
 
 [[package]]

@@ -2849,3 +2849,19 @@ the base colour of RND-03 instance materials in the scene adapter), `amg-doc`, `
 - Additive `amg-ui` API: the `sketch::{constrain, dimension, glyphs}` modules, `SolverOp::Probe` / `SolverOut::Probed`, `SketchSession::{add_constraint, add_dimension, accept_driven, remove_constraints, set_dimension_expr, dimension_source, dimension_param, highlighted, serial, begin_label_drag, drag_label_to, end_label_drag, label_drag}` and its fields `hovered_constraint`, `selected_constraints`, `notice`, `driven_offer`, `last_dimension`; `DrivenOffer`; 13 `icons::ids` (constraint glyphs, `DIMENSION`).
 - Behaviour change in the session: dimension values follow their expressions every frame (see the UI-14 log). The UI-09 text glyphs in the overlay list are replaced by icon glyphs.
 - Still open for S01: R6 (`Feature::key_data`), so that moving a dimension label does not recompute downstream features.
+
+### 2026-11-25: SOL-01 (lane A, S04) - `amg_features::dialog` landed
+- `amg_features::dialog` holds Interfaces §B as specified, plus the two S04 additions
+  (`DialogRegistration::new_component`, `None` everywhere until SOL-24, and
+  `DispatchRegistration` with `dispatches()`), `registration(kind)` and `registrations()`, and a
+  few helpers (`FieldValues::{with, get, selection, expr, choice, flag}`, `FieldValue::{expr,
+  from_expr}`, `Condition::holds`, `EntityFilter::admits`, `DialogSchema::field`).
+- `EntityFilter` is a plain `u32` newtype with the §B bit layout (no `bitflags` dependency).
+  It is **not** yet the type `amg_ui::select` uses: `amg_ui::select::EntityFilter` (UI-04) has a
+  different layout (one `CONSTRUCTION` bit, `OCCURRENCE = 1 << 10`, `HANDLE = 1 << 11`), so a
+  plain `pub use` would change its bits. Left to lane D (UI-05): either re-export and add
+  `HANDLE` / a combined construction mask here, or convert between the two. No `amg-ui` code was
+  changed by SOL-01.
+- First registration: `solid.extrude` (fields `profiles`, `distance` with a distance
+  manipulator anchored at the first profile's centroid, `flip`, `operation`, `bodies` visible
+  unless the operation is "new body").

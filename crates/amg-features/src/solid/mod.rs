@@ -1,0 +1,33 @@
+//! Solid modeling features (S04, lane A): the shared framework (body operations, tools,
+//! profiles, errors) and the features built on it.
+//!
+//! - [`common`]: [`BodyOp`], [`OpTarget`], [`ToolBody`], [`SolidTool`], [`ToolRegistration`]
+//!   ([`register_tool!`](crate::register_tool)), [`apply_body_op`], [`simplify`], input helpers.
+//! - [`profile`]: profile regions → planar faces ([`profile_faces`], [`to_curve2d`]).
+//! - [`error`]: [`SolidError`] and [`kernel_failure`] (failing sub-shapes highlighted).
+//! - [`extent`]: extents and directions.
+//! - [`extrude`]: `solid.extrude` (SOL-01: one side, a distance, starting at the profile).
+//!
+//! Without the `occt` feature every kernel call fails with "geometry kernel is not available
+//! in this build", so solid features compute to a clear `Kernel` error.
+
+pub mod common;
+pub mod error;
+pub mod extent;
+pub mod extrude;
+pub mod profile;
+
+pub use common::{
+    BodyOp, OpTarget, SolidTool, ToolBody, ToolRegistration, apply_body_op, input_solid, op_kernel,
+    resolve_subs, simplify, tool_of,
+};
+pub use error::{SolidError, kernel_failure};
+pub use extent::{Direction, Extent, ExtentSide, Start, ThinSide, ThinSpec};
+pub use extrude::Extrude;
+pub use profile::{
+    ProfileFace, ProfileSource, cap_source, profile_faces, region_source, tag_of, tag_source,
+    to_curve2d,
+};
+
+/// Forces this module's feature, tool and dialog registrations to be linked.
+pub fn link() {}

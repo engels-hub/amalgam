@@ -525,6 +525,8 @@ pub struct RecomputeCtx<'a> {
 struct Resolutions {
     records: Vec<ResolutionRecord>,
     warnings: Vec<Diagnostic>,
+    /// Entities to highlight if the compute fails (S04 SOL-01, [`RecomputeCtx::highlight`]).
+    highlights: Vec<EntityRef>,
 }
 
 /// A borrowed kernel (`dyn BrepKernel` has no `Debug`).
@@ -683,6 +685,31 @@ impl<'a> RecomputeCtx<'a> {
         out
     }
 
+    /// Adds a warning to this node from code that has no `FeatureOutput` at hand (S04 SOL-01:
+    /// a profile found only by its fingerprint while building a tool). The engine appends it
+    /// to the output's warnings like a resolution warning, so it survives the cache.
+    pub fn warn(&self, d: Diagnostic) {
+        self.lock_resolutions().warnings.push(d);
+    }
+
+    /// Marks `entities` for highlighting should this compute fail (S04 SOL-01: the failing
+    /// edges of a kernel error). The engine adds them to the node's `Health::Error` diagnostic;
+    /// a successful compute ignores them (warnings carry their own entities).
+    pub fn highlight(&self, entities: impl IntoIterator<Item = EntityRef>) {
+        self.lock_resolutions().highlights.extend(entities);
+    }
+
+    /// The entities marked by [`RecomputeCtx::highlight`] so far, in call order.
+    pub fn highlights(&self) -> Vec<EntityRef> {
+        self.lock_resolutions().highlights.clone()
+    }
+
+    /// Takes the entities marked by [`RecomputeCtx::highlight`] (the engine, after a failed
+    /// `compute`).
+    pub(crate) fn take_highlights(&self) -> Vec<EntityRef> {
+        std::mem::take(&mut self.lock_resolutions().highlights)
+    }
+
     /// Takes the recorded resolutions and their warnings (the engine, after `compute`).
     pub(crate) fn take_resolutions(&self) -> (Vec<ResolutionRecord>, Vec<Diagnostic>) {
         let mut g = self.lock_resolutions();
@@ -735,6 +762,13 @@ impl<'a> RecomputeCtx<'a> {
     pub fn with_job(mut self, job: &'a JobCtx) -> RecomputeCtx<'a> {
         self.job = Some(job);
         self
+    }
+
+    /// The evaluated state just before this feature (S04 SOL-01: body lineage through
+    /// [`Evaluated::successors`], body components, and a [`NamingView`] for
+    /// [`crate::naming::topo_ref_at`]).
+    pub fn before(&self) -> &'a Evaluated {
+        self.before
     }
 
     /// The snapshot being recomputed.
