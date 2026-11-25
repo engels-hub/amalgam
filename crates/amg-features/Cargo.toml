@@ -25,6 +25,8 @@ amg-am.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
+# SOL-01: dialog and tool registrations (already a workspace dependency of amg-doc).
+inventory.workspace = true
 # IO-14: blake3 of imported source bytes (`ImportSource::from_bytes`; already a workspace dependency).
 blake3.workspace = true
 # MESH-10: parallel chunked decimation of the SDF shell (already a workspace dependency).
@@ -38,6 +40,10 @@ proptest.workspace = true
 amg-mesh = { workspace = true, features = ["corpus"] }
 amg-testkit.workspace = true
 criterion.workspace = true
+# SOL-01: the lane-E test features (`test.brep_fillet`, `test.probe`, `test.add_mesh`).
+amg-doc = { workspace = true, features = ["test-features"] }
+# SOL-01 goldens (tests/golden/solid/sol01_*.toml; already a workspace dependency).
+toml.workspace = true
 rayon.workspace = true
 
 [[bench]]
@@ -63,6 +69,12 @@ harness = false
 # IO-09: solid bodies to 3MF through the OCCT tessellation.
 [[bench]]
 name = "io_tessellate"
+harness = false
+required-features = ["occt"]
+
+# SOL-01: extrude preview budget (`budget/sol-extrude-preview`).
+[[bench]]
+name = "sol_extrude"
 harness = false
 required-features = ["occt"]
 

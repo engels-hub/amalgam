@@ -2874,3 +2874,18 @@ Flagged for lane D review. All in `amg-ui`; no new third-party dependency; no ch
 - **Icons:** the `assembly` module registers 9 more Tabler SVGs itself (`Registrar::icon`).
 - Still open from the S06 requests: the position guard (ASM-02) and the placement overlay (ASM-12).
 
+### 2026-11-25: SOL-01 (lane A, S04) - `amg_features::dialog` landed
+- `amg_features::dialog` holds Interfaces §B as specified, plus the two S04 additions
+  (`DialogRegistration::new_component`, `None` everywhere until SOL-24, and
+  `DispatchRegistration` with `dispatches()`), `registration(kind)` and `registrations()`, and a
+  few helpers (`FieldValues::{with, get, selection, expr, choice, flag}`, `FieldValue::{expr,
+  from_expr}`, `Condition::holds`, `EntityFilter::admits`, `DialogSchema::field`).
+- `EntityFilter` is a plain `u32` newtype with the §B bit layout (no `bitflags` dependency).
+  It is **not** yet the type `amg_ui::select` uses: `amg_ui::select::EntityFilter` (UI-04) has a
+  different layout (one `CONSTRUCTION` bit, `OCCURRENCE = 1 << 10`, `HANDLE = 1 << 11`), so a
+  plain `pub use` would change its bits. Left to lane D (UI-05): either re-export and add
+  `HANDLE` / a combined construction mask here, or convert between the two. No `amg-ui` code was
+  changed by SOL-01.
+- First registration: `solid.extrude` (fields `profiles`, `distance` with a distance
+  manipulator anchored at the first profile's centroid, `flip`, `operation`, `bodies` visible
+  unless the operation is "new body").

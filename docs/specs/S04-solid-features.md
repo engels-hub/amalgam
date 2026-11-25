@@ -633,7 +633,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| SOL-01 | Feature framework: `amg_features::dialog` (S11 §B + `new_component`, `DispatchRegistration`), `BodyOp`/`OpTarget`/`apply_body_op` (§3 incl. unify + compose, per-solid split, `Consumed`), `SolidTool` + `ToolRegistration`, `profile_faces`/`to_curve2d`, `SolidError` + `kernel_failure` highlight, preview behaviour; `solid.extrude` minimal (one side, distance, start at profile) end-to-end | DOC-06, BREP-03, BREP-04, BREP-05, BREP-10, SK-19 | P0 | Todo | 1. `solid.extrude` (one side, distance) on a sketch rectangle 10×20, h 30: NewBody volume 6000 within 1e-9 relative; Join onto a box, Cut through a box, Intersect with a box each give the analytic volume and the face count expected after unify (golden `sol01_*`). 2. BodyOp rules, one test each: join touching 2 participants keeps the first `BodyId` and marks the second `Consumed`; a cut that splits a bar keeps piece 0's id and creates `BodyId{self,1}` with `derived_from`; a cut touching nothing fails `NothingToCut`; a mesh participant fails `WrongBodyKind`; join touching nothing creates a body and warns. 3. Two adjacent regions of one sketch (a rectangle split by a line) extrude to one body with 6 faces. 4. DOC-11 corpus cases TNP-01, TNP-02 and TNP-03 run on `solid.extrude` (instead of `test.brep_prism`) and meet their `expect`. 5. A kernel failure with `offending` edges (injected failing kernel) gives `Diagnostic::entities` resolving to those edges. 6. Preview: an extrude-cut of a 20-edge profile into a 200-face body, `ComputeMode::Preview`, median < 100 ms (criterion `budget/sol-extrude-preview`); full mode recorded. 7. `dialog::registration("solid.extrude")` exists and its `build(defaults)` round-trips through `read`. |
+| SOL-01 | Feature framework: `amg_features::dialog` (S11 §B + `new_component`, `DispatchRegistration`), `BodyOp`/`OpTarget`/`apply_body_op` (§3 incl. unify + compose, per-solid split, `Consumed`), `SolidTool` + `ToolRegistration`, `profile_faces`/`to_curve2d`, `SolidError` + `kernel_failure` highlight, preview behaviour; `solid.extrude` minimal (one side, distance, start at profile) end-to-end | DOC-06, BREP-03, BREP-04, BREP-05, BREP-10, SK-19 | P0 | Review | 1. `solid.extrude` (one side, distance) on a sketch rectangle 10×20, h 30: NewBody volume 6000 within 1e-9 relative; Join onto a box, Cut through a box, Intersect with a box each give the analytic volume and the face count expected after unify (golden `sol01_*`). 2. BodyOp rules, one test each: join touching 2 participants keeps the first `BodyId` and marks the second `Consumed`; a cut that splits a bar keeps piece 0's id and creates `BodyId{self,1}` with `derived_from`; a cut touching nothing fails `NothingToCut`; a mesh participant fails `WrongBodyKind`; join touching nothing creates a body and warns. 3. Two adjacent regions of one sketch (a rectangle split by a line) extrude to one body with 6 faces. 4. DOC-11 corpus cases TNP-01, TNP-02 and TNP-03 run on `solid.extrude` (instead of `test.brep_prism`) and meet their `expect`. 5. A kernel failure with `offending` edges (injected failing kernel) gives `Diagnostic::entities` resolving to those edges. 6. Preview: an extrude-cut of a 20-edge profile into a 200-face body, `ComputeMode::Preview`, median < 100 ms (criterion `budget/sol-extrude-preview`); full mode recorded. 7. `dialog::registration("solid.extrude")` exists and its `build(defaults)` round-trips through `read`. |
 | SOL-02 | Extrude: all starts, directions and extents (§4; note §3): offset start, start from a plane, two sides, symmetric (half/whole), taper per side, to object (plane, face, body, vertex; offset; extend faces), all; planar-face profiles; text profiles | SOL-01, CON-03, BREP-14, SK-06 | P0 | Todo | 1. ≥ 20 golden cases cover every start × direction × extent combination the dialog allows, incl. to-object on an inclined plane, a cylinder face, a body and a vertex, with and without offset and extend; analytic volumes within 1e-9 relative, curved targets within 1e-6. 2. A face that doesn't cover the profile fails `TargetMissed` with the "Extend faces" hint; extend on fixes it; a B-spline target with extend fails `ExtendUnsupported`. 3. "All" cuts through 3 stacked bodies in one direction and through both sides in two-sided mode. 4. Text "AgB" (SK-10 `regions().solid`) extrudes to 3 solids with 4 holes in total (closes SK-10 Done-when 2). 5. Editing distance, taper or extent type keeps the lateral and cap names (`Exact` resolution of a downstream fillet ref). 6. Full-mode extrude-cut of a 100-edge profile into a 200-face body, median < 80 ms (`budget/sol-extrude-cut`). |
 | SOL-03 | Revolve: profiles, axis (sketch line, edge, construction or origin axis), angle, full, two sides, symmetric, to object; profile/axis validation | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. ≥ 8 golden cases (rectangle 90° and 360°, triangle with an edge on the axis → cone, two sides 30°/60°, symmetric 90°, each axis kind) match Pappus volumes within 1e-9 relative. 2. A profile crossing the axis fails `AxisCrossesProfile` naming the profile. 3. DOC-11 TNP-22 (edit to 360° → cap refs `NotFound`) runs on `solid.revolve` and meets its `expect`. 4. Revolve to a plane through the axis at 75° equals the 75° angle case within 1e-9. |
 | SOL-04 | Primitives: box, cylinder, sphere, torus on a `PrimitiveFrame` (origin plane, construction plane, planar face), with `OpTarget` | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. Golden volume and area for each primitive (exact within 1e-9) and for a box joined to and cut from a body. 2. A box placed on a planar face follows the face after an upstream height edit (centroid within 1e-9). 3. Editing a box size keeps `XMin#0 … ZMax#0` names (`Exact`). 4. Each kind has a dialog with a distance manipulator anchor per size field. |
@@ -788,3 +788,79 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
 
 ### 2026-11-09 - owner answers moved in
 - QUESTIONS #53 (`clearance` field on Hole/Thread, default 0; SOL-12 Done-when 6, SOL-25 Done-when 4), #54 (ISO metric + UNC/UNF, pipe threads on request; SOL-25), #55 (G2 fillets needed; SOL-05 ships G1, G2 planned in S20 KH-10). Open questions 6-8 marked resolved.
+
+### 2026-11-25 - SOL-01 implemented (lane A)
+- **Landed.** `amg_features::dialog` (S11 §B as specified plus `new_component`,
+  `DispatchRegistration`, `registration`/`registrations`/`dispatches`, small value helpers);
+  `amg_features::solid::{common, error, extent, profile, extrude}`: `BodyOp`, `OpTarget`,
+  `ToolBody`, `SolidTool`, `ToolRegistration` + `register_tool!` + `tool_of`, `apply_body_op`
+  (§3), `simplify` (`unify_same_domain` faces + edges, history composed, split order re-applied),
+  `input_solid`, `resolve_subs`, `op_kernel`, `profile_faces`, `to_curve2d`, `tag_of`,
+  `region_source`, `cap_source`, `SolidError` + `kernel_failure`, the `Extent`/`ExtentSide`/
+  `Direction`/`Start`/`ThinSpec` data, and `solid.extrude` (feature, tool, dialog registration).
+- **BodyOp rules as implemented.** Participants are followed through `Evaluated::successors`
+  (dropped with a warning when gone), deduplicated, and must be B-rep solids of the context
+  component. Join: participants the tool touches (box test, then `distance` ≤ linear
+  tolerance) are fused with the tool in one N-ary boolean; each result solid keeps the id of its
+  first contributing participant (by history), other contributors are `Consumed { into }`,
+  tool-only solids become new bodies. Cut / Intersect: one boolean per participant (box-disjoint
+  ones skipped / deleted); "untouched" = every face `Kept` and no tool output; piece 0 keeps the
+  id, further pieces are `CreatedFrom { BodyId { self, k } }` with `k` counted from 1 across
+  participants (so the first split body's piece `k` is slot `k`); an empty result is `Deleted`
+  with a warning. NewBody with several tool solids: `per_solid` of an identity history.
+- **Extrude (minimal).** One side, `Extent::Distance`, start at the profile, no taper, no thin;
+  every other option fails with `NotYet` (SOL-02/SOL-18). A negative distance or `flip` reverses
+  the direction. Regions of one sketch that share a boundary curve (source or `also`) form a
+  group; each group's prisms are fused and unified into one tool solid; disjoint groups go into
+  one compound named through an index-offset history (checked against the compound's counts).
+  Naming per note §5.2: laterals `Gen { self, Lateral#0, SketchCurve }` from the builder tags,
+  caps `StartCap#0` / `EndCap#0` from `Region(p)`.
+- **Done-when evidence** (`crates/amg-features/tests/solid_extrude.rs`, 26 tests; goldens
+  `tests/golden/solid/sol01_*.toml`):
+  1. `dw1_*`: new body 10×20×30 = 6000 mm³ (1e-9 rel), 6 faces; join onto a 40×40×10 plate
+     20000 mm³ / 11 faces; cut through 14000 / 10; intersect 2000 / 6 (goldens `new_body`,
+     `join_box`, `cut_box`, `intersect_box`).
+  2. `dw2_*`: join of 2 keeps the first id and `successors(second) == [first]`; a cut splitting a
+     bar keeps piece 0 (6000) and creates `BodyId { self, 1 }` (3000) with `derived_from`;
+     `NothingToCut`; a mesh participant fails `WrongBodyKind`; join touching nothing creates a
+     body and warns.
+  3. `dw3_*`: a rectangle split by a line gives 2 regions → 1 body, 6 faces, 6000 mm³.
+  4. `dw4_tnp01/02/03_*`: the three cases rebuilt on sketches + `solid.extrude` (B1 as a
+     100×60 extrude, height edit 40 → 80; B2 as a point/line polygon sketch, insert point 5,
+     delete point 2) with `test.brep_fillet`; each fillet ref resolves `Exact` to the expected
+     edge (centroid and length within 1e-6).
+  5. `dw5_*`: a kernel that fails `boolean` with `OpFailed { offending: [edge 0, edge 3] }`
+     (`tests/solid_common/failing.rs`); `ctx.highlights()` holds two edge `TopoRef`s that
+     resolve `Exact` to indices 0 and 3. `the_engine_puts_highlights_into_the_error_diagnostic`
+     checks the engine copies highlights into `Health::Error` entities.
+  6. `benches/sol_extrude.rs` (`budget/sol-extrude-preview`): 20-gon cut through a 198-gon prism
+     (200 faces), release profile on the shared dev machine: preview median 63.1 ms (25-run
+     sample; criterion 60.9 ms), full mode 60.1 ms (criterion 59.1 ms). `AMG_STRICT_TIMING=1`
+     asserts < 100 ms and passed.
+  7. `dw7_*` and `every_dialog_registration_round_trips`: `registration("solid.extrude")` exists,
+     `read(build(defaults)) == defaults` (also for edited values and over all registrations).
+- **Deviations.**
+  - `RecomputeCtx::resolve_profile` / `region_source` (naming note §10) still don't exist; SOL-01
+    resolves profiles in `solid::profile` (id, else `match_fingerprint` with a `FingerprintOnly`
+    warning) and builds `Region(p)` with `solid::region_source`.
+  - `kernel_failure` also marks the entities with the new `RecomputeCtx::highlight`, because a
+    failed compute returns no `FeatureOutput` (the diagnostic pushed to `out` alone would be
+    lost). S01 Interface changes 2026-11-25.
+  - Preview: the "no BRepCheck" rule is `op_kernel(ctx)`: in `ComputeMode::Preview` on the
+    default kernel, a static copy with `Validate::Off`. S20's `RetryPolicy::interactive()`
+    doesn't exist yet, so nothing else differs. In release builds validation is already off
+    (`DebugOnly`), so preview and full times are equal.
+  - `tangent_chain_edges` / `tangent_chain_faces` are not in SOL-01 (first used by SOL-05/06).
+  - `ProfileSource::Face` exists, but planar-face profiles fail `NotYet` (SOL-02 scope).
+  - Extra public items: `BodyPicks`, `op_kernel`, `region_source`, `cap_source`, `tag_source`,
+    `ExtentSide::distance`, `Extrude::distance`.
+- **Interface changes elsewhere.** S01: `RecomputeCtx::{before, warn, highlight, highlights}`
+  and the engine copying highlights into the error diagnostic (additive, recorded in S01).
+  S11: notes on `amg_features::dialog` and the `EntityFilter` bit-layout mismatch with
+  `amg_ui::select::EntityFilter` (no `amg-ui` change). `amg-features` gains `inventory` (dep) and
+  `toml` + `amg-doc/test-features` (dev-deps), all existing workspace dependencies
+  (THIRD_PARTY.md rows updated).
+- **Leftovers.** `amg_ui::select::EntityFilter` → re-export (lane D, UI-05); S20 interactive
+  retry policy in preview; `resolve_profile`/`region_source` on `RecomputeCtx` if another lane
+  needs them; SOL-02 builds on the `Extent` data (starts, two sides, symmetric, taper, to object,
+  all, planar-face profiles).

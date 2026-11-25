@@ -285,14 +285,14 @@ impl<'a> Pass<'a> {
             (o, r, std::time::Duration::ZERO, true)
         } else {
             let started = Instant::now();
-            let (result, records, warnings) = {
+            let (result, records, warnings, highlights) = {
                 let mut ctx =
                     RecomputeCtx::new(self.design, &self.out, node.id, node.context, self.mode)
                         .with_job(job)
                         .with_positions(&self.positions);
                 let result = node.feature.compute(&mut ctx);
                 let (records, warnings) = ctx.take_resolutions();
-                (result, records, warnings)
+                (result, records, warnings, ctx.take_highlights())
             };
             let duration = started.elapsed();
             let resolutions: Arc<[ResolutionRecord]> = records.into();
@@ -300,7 +300,8 @@ impl<'a> Pass<'a> {
                 Ok(o) => o,
                 Err(FeatureError::Cancelled) => return Err(Cancelled),
                 Err(e) => {
-                    let d = error_diag(&e);
+                    let mut d = error_diag(&e);
+                    d.entities.extend(highlights);
                     self.set(
                         node.id,
                         Health::Error(d),

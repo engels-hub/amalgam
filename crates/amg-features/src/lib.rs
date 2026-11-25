@@ -5,7 +5,15 @@
 pub mod am;
 pub mod assembly;
 pub mod construct;
+pub mod dialog;
 pub mod inspect;
 pub mod io;
 pub mod mesh;
 pub mod sketch;
+pub mod solid;
+
+#[doc(hidden)]
+pub mod __private {
+    pub use amg_doc;
+    pub use inventory;
+}
