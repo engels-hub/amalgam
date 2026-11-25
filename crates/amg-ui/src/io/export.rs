@@ -1,5 +1,6 @@
-//! The Export dialog (S12 §6, IO-15): format, selection, unit, 3MF flavour, the validity
-//! report with "Repair first" (MESH-04) and "Export anyway", progress and Cancel.
+//! The Export dialog (S12 §6, IO-15): format, selection, unit, 3MF flavour, the refinement
+//! preset of solid bodies (IO-09), the validity report with "Repair first" (MESH-04) and
+//! "Export anyway", progress and Cancel.
 //!
 //! Everything that touches geometry runs on a job: `scene_from_document`, the validity check
 //! and the writer ([`amg_io::export`]). A 3MF with a non-watertight body comes back as
@@ -15,8 +16,10 @@ use std::time::Duration;
 
 use amg_core::units::LengthUnit;
 use amg_doc::RecomputeStatus;
-use amg_doc::{BodyId, Command as DocCommand, Design, Evaluated, FeatureBox, FeatureId, Revision};
-use amg_features::io::{ExportPrep, ExportSelection, scene_from_document};
+use amg_doc::{
+    BodyGeom, BodyId, Command as DocCommand, Design, Evaluated, FeatureBox, FeatureId, Revision,
+};
+use amg_features::io::{ExportPrep, ExportRefinement, ExportSelection, scene_from_document};
 use amg_features::mesh::MeshRepairFeature;
 use amg_io::{
     ExportCheck, ExportOptions, ExportReport, Format, GeometryKind, IoError, Scene, Sink,
@@ -76,6 +79,7 @@ pub struct ExportDialog {
     ascii: bool,
     binary: bool,
     mtl: bool,
+    refinement: ExportRefinement,
     path: Option<PathBuf>,
     /// Repaired once already (a second block shows the report without "Repair first").
     repaired: bool,
@@ -90,6 +94,7 @@ impl std::fmt::Debug for ExportDialog {
             .field("selection_only", &self.selection_only)
             .field("unit", &self.unit)
             .field("flavor", &self.flavor)
+            .field("refinement", &self.refinement)
             .field("path", &self.path)
             .finish_non_exhaustive()
     }
@@ -140,6 +145,7 @@ impl ExportDialog {
             ascii: false,
             binary: true,
             mtl: true,
+            refinement: ExportRefinement::Medium,
             path: None,
             repaired: false,
             prepares: 0,
@@ -158,6 +164,7 @@ impl ExportDialog {
         self.ascii = p.ascii;
         self.binary = p.binary;
         self.mtl = p.mtl;
+        self.refinement = p.refinement;
     }
 
     fn remember(&self) {
@@ -168,6 +175,7 @@ impl ExportDialog {
             ascii: self.ascii,
             binary: self.binary,
             mtl: self.mtl,
+            refinement: self.refinement,
         };
         let format = self.format;
         let dir = self
@@ -212,6 +220,16 @@ impl ExportDialog {
     /// Chooses the 3MF flavour.
     pub fn set_flavor(&mut self, flavor: SlicerFlavor) {
         self.flavor = flavor;
+    }
+
+    /// The tessellation preset of solid bodies.
+    pub fn refinement(&self) -> ExportRefinement {
+        self.refinement
+    }
+
+    /// Chooses the tessellation preset of solid bodies.
+    pub fn set_refinement(&mut self, refinement: ExportRefinement) {
+        self.refinement = refinement;
     }
 
     /// Export the selected bodies only.
@@ -296,6 +314,7 @@ impl ExportDialog {
             selection: self.selection(cx),
             scene,
             opts: self.options(validity),
+            refinement: self.refinement,
             format: self.format,
             path: path.clone(),
         };
@@ -350,12 +369,25 @@ impl ExportDialog {
         v
     }
 
+    /// The defective bodies "Repair first" can work on: mesh bodies (a solid is exported
+    /// from its B-rep, which mesh repair cannot change).
+    fn repairable_bodies(cx: &AppCx<'_>, scene: &Scene, check: &ExportCheck) -> Vec<BodyId> {
+        let evaluated = cx.doc_tab().document.evaluated();
+        let mut v = Self::defective_bodies(scene, check);
+        v.retain(|id| {
+            evaluated
+                .body(*id)
+                .is_some_and(|b| matches!(b.geom, BodyGeom::Mesh(_)))
+        });
+        v
+    }
+
     /// "Repair first": one `mesh.repair` feature per defective body, as one undo entry.
     pub fn repair_first(&mut self, cx: &mut AppCx<'_>) {
         let Stage::Blocked { scene, check, .. } = &self.stage else {
             return;
         };
-        let bodies = Self::defective_bodies(scene, check);
+        let bodies = Self::repairable_bodies(cx, scene, check);
         if bodies.is_empty() {
             return;
         }
@@ -447,6 +479,8 @@ impl ExportDialog {
                         }
                         Err(e) => {
                             cx.notify_error(&e);
+                            // Back to the form: the choices can be changed and tried again.
+                            self.stage = Stage::Form;
                             return !e.is_cancelled_job();
                         }
                     }
@@ -537,6 +571,15 @@ impl ExportDialog {
             }
             _ => {}
         }
+        let has_solid = cx
+            .doc_tab()
+            .document
+            .evaluated()
+            .bodies()
+            .any(|(_, b)| matches!(b.geom, BodyGeom::Solid(_)));
+        if has_solid {
+            refinement_ui(ui, &mut self.refinement);
+        }
         if matches!(self.format, Format::ThreeMf) {
             ui.weak("A 3MF needs closed solids: a body with holes is reported before writing.");
         }
@@ -551,7 +594,7 @@ impl ExportDialog {
         else {
             return true;
         };
-        let can_repair = !*repaired && !Self::defective_bodies(scene, check).is_empty();
+        let can_repair = !*repaired && !Self::repairable_bodies(cx, scene, check).is_empty();
         let mut action = None;
         egui::Window::new("Export — validity report")
             .id(egui::Id::new("amg_io_export_report"))
@@ -640,6 +683,73 @@ impl ExportDialog {
     }
 }
 
+/// Short name of a preset.
+fn refinement_name(r: ExportRefinement) -> &'static str {
+    match r {
+        ExportRefinement::Low => "Low",
+        ExportRefinement::Medium => "Medium",
+        ExportRefinement::High => "High",
+        ExportRefinement::Custom { .. } => "Custom",
+    }
+}
+
+/// The refinement preset of solid bodies; Custom shows its two deviations.
+fn refinement_ui(ui: &mut egui::Ui, refinement: &mut ExportRefinement) {
+    // Custom starts from the values of the preset it replaces.
+    let custom = ExportRefinement::Custom {
+        surface_deviation_mm: refinement.surface_deviation_mm(),
+        normal_deviation_rad: refinement.normal_deviation_rad(),
+    };
+    ui.horizontal(|ui| {
+        ui.label("Refinement");
+        egui::ComboBox::from_id_salt("amg_io_export_refinement")
+            .selected_text(refinement_name(*refinement))
+            .show_ui(ui, |ui| {
+                for r in [
+                    ExportRefinement::Low,
+                    ExportRefinement::Medium,
+                    ExportRefinement::High,
+                    custom,
+                ] {
+                    ui.selectable_value(refinement, r, refinement_name(r));
+                }
+            });
+    });
+    if let ExportRefinement::Custom {
+        surface_deviation_mm,
+        normal_deviation_rad,
+    } = refinement
+    {
+        ui.horizontal(|ui| {
+            ui.label("Surface deviation");
+            ui.add(
+                egui::DragValue::new(surface_deviation_mm)
+                    .range(0.0005..=10.0)
+                    .speed(0.001)
+                    .max_decimals(4)
+                    .suffix(" mm"),
+            );
+            ui.label("Normal deviation");
+            let mut degrees = normal_deviation_rad.to_degrees();
+            let angle = egui::DragValue::new(&mut degrees)
+                .range(1.0..=90.0)
+                .speed(0.5)
+                .max_decimals(1)
+                .suffix("\u{b0}");
+            // Written back only on an edit, so the radians keep their exact value.
+            if ui.add(angle).changed() {
+                *normal_deviation_rad = degrees.to_radians();
+            }
+        });
+    } else {
+        ui.weak(format!(
+            "Surface deviation {} mm, normal deviation {:.0}\u{b0}",
+            refinement.surface_deviation_mm(),
+            refinement.normal_deviation_rad().to_degrees()
+        ));
+    }
+}
+
 enum BlockedAction {
     Repair,
     Anyway,
@@ -702,6 +812,7 @@ struct Input {
     selection: ExportSelection,
     scene: Option<Box<Scene>>,
     opts: ExportOptions,
+    refinement: ExportRefinement,
     format: Format,
     path: PathBuf,
 }
@@ -724,6 +835,7 @@ fn run(job: Input, ctx: &JobCtx) -> Result<Outcome, IoJobError> {
         selection,
         scene,
         opts,
+        refinement,
         format,
         path,
     } = job;
@@ -731,14 +843,21 @@ fn run(job: Input, ctx: &JobCtx) -> Result<Outcome, IoJobError> {
         Some(s) => (s, ctx.sub(0.0, 1.0)),
         None => {
             ctx.progress_msg(0.0, "Preparing the design");
-            let s = scene_from_document(
-                &design,
-                &eval,
-                &selection,
-                &ExportPrep::default(),
-                &ctx.sub(0.0, 0.15),
-            )?;
-            (Box::new(s), ctx.sub(0.15, 1.0))
+            let prep = ExportPrep {
+                refinement: Some(refinement),
+                ..ExportPrep::default()
+            };
+            // Solid bodies are tessellated here, which can take most of the export.
+            let share = if eval
+                .bodies()
+                .any(|(_, b)| matches!(b.geom, BodyGeom::Solid(_)))
+            {
+                0.7
+            } else {
+                0.15
+            };
+            let s = scene_from_document(&design, &eval, &selection, &prep, &ctx.sub(0.0, share))?;
+            (Box::new(s), ctx.sub(share, 1.0))
         }
     };
     match amg_io::export(&scene, Sink::Path(&path), format, &opts, &write_ctx) {

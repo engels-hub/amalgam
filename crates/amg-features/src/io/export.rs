@@ -3,14 +3,16 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use amg_brep::{KernelError, TessQuality};
 use amg_core::Transform;
-use amg_doc::{BodyGeom, BodyId, ComponentId, Design, Evaluated};
+use amg_doc::{BodyGeom, BodyId, ComponentId, Design, EvalBody, Evaluated};
 use amg_io::{MaterialSlot, NO_SLOT, Scene, SceneNode, SceneObject, SlotIndex};
 use amg_jobs::JobCtx;
 use amg_mesh::{IndexedMesh, Rgba8};
 
 use super::ImportPrepError;
 use super::feature::{ImportMeshFeature, face_slots};
+use super::tessellate::{DeviationEstimate, TessCache, TessFailure, tessellate_all};
 
 /// What to export.
 #[derive(Clone, Debug)]
@@ -23,14 +25,15 @@ pub enum ExportSelection {
     Component(ComponentId),
 }
 
-/// IO-09 tessellation presets (spec §9). The mapping onto S02 `TessQuality` is IO-09.
-#[derive(Copy, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+/// Tessellation presets of solid bodies for mesh export (S12 §9, IO-09).
+#[derive(Copy, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExportRefinement {
-    /// Coarse.
+    /// Coarse: 0.1 mm, 30°.
     Low,
-    /// Default.
+    /// Default: 0.025 mm, 15°.
+    #[default]
     Medium,
-    /// Fine.
+    /// Fine: 0.005 mm, 10°.
     High,
     /// Explicit deviations.
     Custom {
@@ -41,18 +44,181 @@ pub enum ExportRefinement {
     },
 }
 
+impl ExportRefinement {
+    /// Max distance between surface and facets, mm.
+    pub fn surface_deviation_mm(self) -> f64 {
+        match self {
+            ExportRefinement::Low => 0.1,
+            ExportRefinement::Medium => 0.025,
+            ExportRefinement::High => 0.005,
+            ExportRefinement::Custom {
+                surface_deviation_mm,
+                ..
+            } => surface_deviation_mm,
+        }
+    }
+
+    /// Max angle between adjacent facet normals, radians.
+    pub fn normal_deviation_rad(self) -> f64 {
+        match self {
+            ExportRefinement::Low => 30f64.to_radians(),
+            ExportRefinement::Medium => 15f64.to_radians(),
+            ExportRefinement::High => 10f64.to_radians(),
+            ExportRefinement::Custom {
+                normal_deviation_rad,
+                ..
+            } => normal_deviation_rad,
+        }
+    }
+
+    /// The kernel quality (S02 §8): both deviations as absolute deflections. The kernel
+    /// refuses a custom value that is not positive and finite.
+    pub fn to_tess(self) -> TessQuality {
+        TessQuality {
+            linear: self.surface_deviation_mm(),
+            angular: self.normal_deviation_rad(),
+            relative: false,
+            min_size: 0.0,
+            max_linear_abs: None,
+        }
+    }
+}
+
+/// One solid body of an export: what was asked and what the mesh is estimated to give.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BodyDeviation {
+    /// The body.
+    pub body: BodyId,
+    /// Its name, if it has one.
+    pub name: Option<String>,
+    /// The preset it was meshed with.
+    pub refinement: ExportRefinement,
+    /// Triangles of the exported mesh (one placement).
+    pub triangles: u64,
+    /// Estimated deviation from the exact surface.
+    pub estimate: DeviationEstimate,
+    /// The mesh came from the tessellation cache.
+    pub cached: bool,
+}
+
+impl BodyDeviation {
+    /// True if the estimated surface deviation is above the requested one.
+    pub fn exceeds_request(&self) -> bool {
+        self.estimate.surface_mm > self.refinement.surface_deviation_mm() * (1.0 + 1e-6)
+    }
+}
+
+/// The deviation report of an export: one entry per tessellated (solid) body, in body order.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DeviationReport {
+    /// The solid bodies.
+    pub bodies: Vec<BodyDeviation>,
+}
+
+impl DeviationReport {
+    /// The largest estimated surface deviation, mm (0 without solid bodies).
+    pub fn max_surface_deviation_mm(&self) -> f64 {
+        self.bodies
+            .iter()
+            .map(|b| b.estimate.surface_mm)
+            .fold(0.0, f64::max)
+    }
+}
+
 /// Export preparation: tessellation quality and slicer filaments.
 #[derive(Clone, Debug, Default)]
 pub struct ExportPrep {
-    /// IO-09; required if solids are selected.
+    /// Tessellation preset of the solid bodies; every selected solid needs one from here or
+    /// from `per_body_refinement`.
     pub refinement: Option<ExportRefinement>,
-    /// Per-body override of `refinement` (IO-09).
+    /// Per-body override of `refinement`.
     pub per_body_refinement: BTreeMap<BodyId, ExportRefinement>,
     /// Filament table from the S16 print setup (AM-01). When set it replaces the material
     /// table: object defaults and face slots are dropped and `body_filament` assigns slots.
     pub filaments: Option<Vec<MaterialSlot>>,
     /// 1-based filament per body (slot `n − 1` of `filaments`).
     pub body_filament: BTreeMap<BodyId, u8>,
+    /// Tessellation cache; `None` uses the process-wide [`TessCache::shared`].
+    pub cache: Option<Arc<TessCache>>,
+}
+
+/// A selected body with its placements and, once meshed, its export mesh.
+struct Selected {
+    id: BodyId,
+    body: Arc<EvalBody>,
+    worlds: Vec<Transform>,
+    mesh: Option<Arc<IndexedMesh>>,
+}
+
+/// Tessellates the solid bodies of `list` (filling their `mesh`) and reports their deviation.
+fn tessellate_solids(
+    design: &Design,
+    list: &mut [Selected],
+    prep: &ExportPrep,
+    ctx: &JobCtx,
+) -> Result<DeviationReport, ImportPrepError> {
+    let mut requests = Vec::new();
+    // (index into `list`, preset) per request.
+    let mut owners = Vec::new();
+    let mut missing = 0usize;
+    for (i, s) in list.iter().enumerate() {
+        let BodyGeom::Solid(shape) = &s.body.geom else {
+            continue;
+        };
+        let Some(refinement) = prep
+            .per_body_refinement
+            .get(&s.id)
+            .copied()
+            .or(prep.refinement)
+        else {
+            missing += 1;
+            continue;
+        };
+        let Some(brep) = shape.brep() else {
+            // A body without a B-rep: say that the kernel is missing, if that is why.
+            return Err(if amg_brep::OCCT_BACKEND {
+                ImportPrepError::NoFaces(s.id)
+            } else {
+                ImportPrepError::Tessellation {
+                    body: s.id,
+                    source: KernelError::BackendUnavailable,
+                }
+            });
+        };
+        requests.push((brep.clone(), refinement.to_tess()));
+        owners.push((i, refinement));
+    }
+    if missing > 0 {
+        return Err(ImportPrepError::NeedsTessellation(missing));
+    }
+    let mut report = DeviationReport::default();
+    if requests.is_empty() {
+        return Ok(report);
+    }
+    let cache = prep.cache.as_ref().unwrap_or_else(|| TessCache::shared());
+    let results = tessellate_all(cache, &requests, ctx);
+    ctx.checkpoint().map_err(amg_io::IoError::from)?;
+    for ((i, refinement), result) in owners.into_iter().zip(results) {
+        let id = list[i].id;
+        let (t, cached) = result.map_err(|e| match e {
+            TessFailure::Kernel(KernelError::Cancelled) => {
+                ImportPrepError::Io(amg_io::IoError::Cancelled)
+            }
+            TessFailure::Kernel(source) => ImportPrepError::Tessellation { body: id, source },
+            TessFailure::Mesh(e) => ImportPrepError::Io(e.into()),
+            TessFailure::NoTriangles => ImportPrepError::NoFaces(id),
+        })?;
+        report.bodies.push(BodyDeviation {
+            body: id,
+            name: design.body_props(id).name.clone(),
+            refinement,
+            triangles: t.mesh.tris.len() as u64,
+            estimate: t.deviation,
+            cached,
+        });
+        list[i].mesh = Some(Arc::clone(&t.mesh));
+    }
+    Ok(report)
 }
 
 /// Interns material slots so equal slots share one index.
@@ -154,17 +320,23 @@ fn placements(
         .collect()
 }
 
-/// Document → [`Scene`] in world space: one object per selected mesh body, one root per
-/// placement (occurrence transforms go on the roots, not into the meshes).
+/// Document → [`Scene`] in world space: one object per selected mesh or solid body, one root
+/// per placement (occurrence transforms go on the roots, not into the meshes).
 ///
+/// - A solid body is tessellated in component space with its [`ExportRefinement`] (BREP-08,
+///   welded: a closed solid gives a closed mesh) through the tessellation cache.
 /// - An imported body no feature changed is exported as its object-space mesh with the import
 ///   transform on the root, so a re-export reproduces the file's objects and build transforms.
 /// - Materials: with `prep.filaments` the filament table and `body_filament`; otherwise the
 ///   import slot table (object default and per-face slots) and, for other bodies, the body's
 ///   appearance (name and sRGB colour, S17).
 ///
+/// Tessellation can take long: call this from a job, not from the UI thread.
+///
 /// # Errors
-/// [`ImportPrepError::NeedsTessellation`] for solid bodies (IO-09),
+/// [`ImportPrepError::NeedsTessellation`] for solid bodies without a refinement,
+/// [`ImportPrepError::Tessellation`] when the kernel fails (or this build has none),
+/// [`ImportPrepError::NoFaces`] for a solid body with nothing to mesh,
 /// [`ImportPrepError::UnsupportedBody`] for implicit/form bodies,
 /// [`ImportPrepError::EmptySelection`], or a cancellation.
 pub fn scene_from_document(
@@ -174,22 +346,27 @@ pub fn scene_from_document(
     prep: &ExportPrep,
     ctx: &JobCtx,
 ) -> Result<Scene, ImportPrepError> {
-    let ids = selected(design, eval, sel);
-    let mut solids = 0usize;
-    let mut scene = Scene::default();
-    let mut slots = Slots::default();
-    if let Some(f) = &prep.filaments {
-        slots.list.clone_from(f);
-    }
-    for id in ids {
+    scene_from_document_with_report(design, eval, sel, prep, ctx).map(|(scene, _)| scene)
+}
+
+/// [`scene_from_document`] plus the [`DeviationReport`] of the tessellated solid bodies.
+///
+/// # Errors
+/// As [`scene_from_document`].
+pub fn scene_from_document_with_report(
+    design: &Design,
+    eval: &Evaluated,
+    sel: &ExportSelection,
+    prep: &ExportPrep,
+    ctx: &JobCtx,
+) -> Result<(Scene, DeviationReport), ImportPrepError> {
+    let mut list = Vec::new();
+    for id in selected(design, eval, sel) {
         ctx.checkpoint().map_err(amg_io::IoError::from)?;
         let Some(body) = eval.body(id) else { continue };
         let mesh = match &body.geom {
-            BodyGeom::Mesh(m) => Arc::clone(m),
-            BodyGeom::Solid(_) => {
-                solids += 1;
-                continue;
-            }
+            BodyGeom::Mesh(m) => Some(Arc::clone(m)),
+            BodyGeom::Solid(_) => None,
             BodyGeom::Implicit(_) | BodyGeom::Form(_) => {
                 return Err(ImportPrepError::UnsupportedBody(id));
             }
@@ -198,6 +375,25 @@ pub fn scene_from_document(
         if worlds.is_empty() {
             continue;
         }
+        list.push(Selected {
+            id,
+            body: Arc::clone(body),
+            worlds,
+            mesh,
+        });
+    }
+    let report = tessellate_solids(design, &mut list, prep, ctx)?;
+    let mut scene = Scene::default();
+    let mut slots = Slots::default();
+    if let Some(f) = &prep.filaments {
+        slots.list.clone_from(f);
+    }
+    for Selected {
+        id, worlds, mesh, ..
+    } in list
+    {
+        ctx.checkpoint().map_err(amg_io::IoError::from)?;
+        let Some(mesh) = mesh else { continue };
         let (object_mesh, local) = match unmodified_import(design, id, &mesh) {
             Some((_, m, t)) => (Arc::new(m), t),
             None => (mesh, Transform::IDENTITY),
@@ -249,9 +445,6 @@ pub fn scene_from_document(
             scene.roots.push(n);
         }
     }
-    if solids > 0 {
-        return Err(ImportPrepError::NeedsTessellation(solids));
-    }
     if scene.objects.is_empty() {
         return Err(ImportPrepError::EmptySelection);
     }
@@ -260,5 +453,5 @@ pub fn scene_from_document(
         .metadata
         .insert("Title".to_owned(), design.meta().name.clone());
     scene.validate()?;
-    Ok(scene)
+    Ok((scene, report))
 }
