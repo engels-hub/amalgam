@@ -916,7 +916,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-09 | Sketch mode core: Create/Edit/Finish Sketch, plane pick, look-at, SKETCH contextual tab + Sketch Palette (grid, snap, show profile/points/dimensions/constraints, slice), working copy + `SolverState` job (latest-wins), `analyze` → DOF colouring + status DOF, overlay rendering of curves/points/profiles, select & drag (`DragSession` → `CommitDrag`), inference engine on `query::snap_candidates` (glyphs, alignment lines, auto-constraints, Ctrl suppress), heads-up numeric input, Line tool | UI-03, UI-04, UI-15, SK-04, SK-05, SK-19, SK-20, RND-07 | P0 | Done (GUI sketch check pending owner) | 1. Kittest: create a sketch on XY, draw a closed 4-segment line chain using inference → 4 coincident + 2 horizontal + 2 vertical constraints auto-added, 1 profile detected. 2. DOF shown = 4 for that rectangle, entities coloured `Under`. 3. Dragging a corner for 1 000 frames: p95 UI-thread time < 2 ms per frame and no frame > 16 ms. Release = exactly one undo entry. 4. Undo inside the session reloads the working copy. 5. Finish Sketch leaves sketch mode and the timeline shows the sketch node with health Ok. |
 | UI-13 | Sketch creation tools: rectangles (2pt/3pt/centre), circles (centre/2pt/3pt/2-tangent), arcs (3pt/centre/tangent), polygon, slots ×4, point, ellipse, construction toggle (`X`), all with inference + heads-up dimensions | UI-09, SK-21, SK-22 | P0 | Done (visual check of each tool pending owner) | 1. One kittest per tool: the created entities and constraint set equal the SK-21 builder output for the same picks. Typed heads-up values create driving dimensions with those values. 2. Each tool is reachable via toolbar, S-key and (where Fusion has one) its shortcut. 3. Esc mid-tool leaves the sketch unchanged. |
 | UI-14 | Constraint & dimension UX: 12 constraint tools, smart sketch dimension (linear/aligned/angular/radial/diameter by pick), glyph rendering with hover-related highlight and delete, inline dimension editing (`ExprInput` at label), label drag (needs R5/R6), over-constraint "create as driven?" flow, fix/unfix | UI-09 | P0 | Done (app check pending owner; R6 label-drag recompute leftover) | 1. Kittest: dimensioning a fully constrained rectangle's side offers "driven" and creates a driven dimension on Yes. 2. Double-click a dimension → typing `w/2` (with user param `w`) sets the expression, the sketch re-solves, and DOF is unchanged. 3. Each constraint tool applies to a valid selection and refuses invalid kinds with a status hint. 4. Glyph hover highlights exactly the constrained entities. |
-| UI-16 | Sketch modify tools: trim, extend, break, fillet, chamfer, offset, mirror, rect/circ pattern, move/copy/rotate/scale; **sketch tutorial acceptance script** | UI-13, UI-14, SK-07, SK-16, SK-17, SK-18 | P0 | Todo | 1. One kittest per tool matching the S03 edit op's fixture outcome. 2. The scripted "Fusion sketch basics" scenario passes: a bracket profile with outer rectangle, filleted corners, two concentric hole pairs, a slot, mirror about a centreline and dimensions driven by 3 user parameters reaches **DOF 0**, with all entities `Full`, 3 profiles and the expected areas within 1e-9 relative. Changing a parameter keeps DOF 0. ≤ 60 scripted UI actions; script in `crates/amg-ui/tests/sketch_tutorial.rs`. |
+| UI-16 | Sketch modify tools: trim, extend, break, fillet, chamfer, offset, mirror, rect/circ pattern, move/copy/rotate/scale; **sketch tutorial acceptance script** | UI-13, UI-14, SK-07, SK-16, SK-17, SK-18 | P0 | Review (app check pending owner; 6 profiles, not 3: see log) | 1. One kittest per tool matching the S03 edit op's fixture outcome. 2. The scripted "Fusion sketch basics" scenario passes: a bracket profile with outer rectangle, filleted corners, two concentric hole pairs, a slot, mirror about a centreline and dimensions driven by 3 user parameters reaches **DOF 0**, with all entities `Full`, 3 profiles and the expected areas within 1e-9 relative. Changing a parameter keeps DOF 0. ≤ 60 scripted UI actions; script in `crates/amg-ui/tests/sketch_tutorial.rs`. |
 | UI-17 | Project / include / intersect tool: pick edges, faces or bodies → `ProjectionLink`s, locked projected entities in the "locked" colour, refresh on upstream edits | UI-09, SK-09 | P0 | Todo | 1. Kittest: project the edges of an extruded box face into a sketch, dimension to them, edit the extrude → the projected edges and dependent geometry move. 2. Projected entities cannot be dragged. |
 | UI-11 | Preferences: `prefs.toml` (versioned, unknown keys kept), pages (general, navigation presets SolidWorks/Blender/custom, shortcuts editor with conflicts, graphics), module pages | UI-02, UI-03 | P1 | Todo | 1. Every preference round-trips through `prefs.toml`, and an unknown module key survives a save. 2. Switching to the Blender preset makes middle-drag orbit and Shift+middle pan (kittest on camera deltas). 3. Assigning an in-use shortcut shows the conflict and keeps the old binding until confirmed. |
 | UI-18 | Advanced sketch tools: spline (fit/control), conic, text, insert DXF/SVG, canvas image, intersection curve, project to surface | UI-13, SK-08, SK-10, SK-11 | P1 | Todo | 1. One kittest per tool on the S03 fixtures. 2. A text block "AgB" creates 3 outer + 4 hole profiles. 3. DXF insert of a sample file shows the expected entity count. |
@@ -2467,6 +2467,64 @@ Also: `quality_presets_retessellate_solids_latest_wins` (cylinder: 100 / 212 / 6
 - In kittest a double-click must arrive within one frame (kittest advances 0.25 s per queued event, so the test pushes the four button events into one frame's raw input).
 - Glyph overlap with dense geometry is not resolved (no collision avoidance between glyph stacks).
 
+### 2026-11-25 - UI-16 sketch modify tools and the sketch tutorial script (lane D; status Review)
+
+*Landed in `amg-ui::sketch` (new `sketch/modify.rs`; small changes in `sketch.rs`, `sketch/session.rs`, `icons.rs`; no change to `amg-sketch`, `amg-features`, `amg-render`, `amg-doc` or `amg-ui::params`):*
+- **13 commands** (`ModifyKind`, one `ModifyTool`) in SKETCH ▸ Modify (pinned: Fillet, Trim, Offset; the others in the dropdown) and in S-key search: Fillet, Chamfer, Trim (`T`), Extend, Break, Offset (`O`), Mirror, Rectangular Pattern, Circular Pattern, Move/Copy (`M`), Copy, Rotate, Sketch Scale. `T`, `O` and `M` are Fusion's shortcuts, sketch-scoped; no registered shortcut is taken (`conflicts()` stays empty).
+- **`ModifyOp`**: one value per operation with everything the S03 call needs (`Trim`, `Extend`, `Break`, `Fillet`, `Chamfer`, `Offset`, `Mirror`, `RectPattern`, `CircPattern`, `Transform`). `ModifyOp::apply(&mut SketchFeature)` runs the public S03 operation (SK-07 `edit::{trim, extend, break_at}`, SK-16 `edit::{fillet, chamfer}`, SK-17 `offset::offset`, SK-18 `transform::{mirror, pattern_rect, pattern_circ, transform}`) through `SketchFeature::edit_sketch`, then gives the dimensions it created the typed expressions with `SketchEdit::SetDimension` (fillet radius; chamfer lengths in leg order, then the angle; every offset dimension). The tool commits it with `SketchSession::commit_op` (one undo entry labelled with the tool; the tool stays active) and keeps it in the new `SketchSession::last_modify`, which tests and scripts replay.
+- **Picks** (Fusion's order): trim / extend / break click a curve (break snaps to points and intersections, then onto the curve). Fillet / chamfer click a corner point (the two lines or arcs that end there, with shared or `Coincident` end points) or two curves (`near` is the midpoint of the two clicks). Offset clicks a curve (its connected chain with the same construction state is offset), then the side. Mirror, the patterns and the transforms take objects (clicks toggle them; a selection made before the tool starts is used), then Enter, then the mirror line / centre / base point and target. At the base-point stage, Enter in Move/Copy moves by the typed X / Y instead. Base points, centres and targets snap to points, centres, midpoints and intersections.
+- **Tool dialog** (`dialog_ui`): `ExprInput` fields with accessible names (`modify::field`): fillet radius; chamfer type (equal / two distances / distance and angle) and its values; offset distance; columns, rows, spacings and direction angle; quantity and total angle; X / Y distance; rotation angle; scale factor. "Constrain to source" (offset, mirror, patterns; on by default) and "Create copy" (move, rotate, scale; on for Copy). Expressions may name parameters (`r`, `w/2`), and the new dimensions keep them.
+- **Esc** steps back (the target, then the object stage, then the objects), then leaves the tool. A failed operation changes nothing, and the status bar says why ("Not applied: no fillet of this radius fits").
+- **Icons:** 11 more Tabler 3.53.0 outline SVGs (109 vendored; THIRD_PARTY.md updated). Move/Copy and Copy use the `arrows-move` and `copy` icons that the assembly module already registers.
+
+*Evidence (Done-when):*
+1. `crates/amg-ui/tests/sketch_modify.rs` has one kittest per tool (13), plus `every_modify_tool_runs_and_fusion_shortcuts_t_o_m` and `refused_picks_change_nothing_and_esc_steps_back`; there are 3 more unit tests in `sketch::modify`. Each tool test drives the tool on a small fixture with clicks, Enter and dialog fields, and checks four things:
+   - (a) there is exactly one undo entry, with the tool's label;
+   - (b) `last_modify` names the picked entities and positions (the break point snaps exactly to the intersection; the move vector snaps exactly to (20, 10));
+   - (c) replaying the op with the S03 operation on the sketch as it was gives the tool's sketch (the whole serialised sketch is equal, numbers within 1e-6, with the same driving dimensions);
+   - (d) the outcome matches the S03 fixture kind:
+     - trim leaves (0,0)-(20,0), pinned on the cutter;
+     - extend reaches x = 20;
+     - break gives two pieces at (20,0);
+     - fillet r = 5 gives one arc, 2 tangents and a 5 mm radius dimension, and keeps the rectangle's DOF (a second corner from two curves also works);
+     - chamfer 3 / 4 mm gives two length dimensions and 7 lines;
+     - offset 2 mm of the rectangle gives the inner copy with 2 mm dimensions;
+     - mirror gives the image circle at (20,10) with `Symmetric`;
+     - the rectangular pattern is 2 × 10 mm;
+     - the circular pattern makes 3 instances about a point (a copy at 120°);
+     - move goes by (20,10);
+     - copy keeps the source and copies its `Horizontal`;
+     - rotate turns 90° about (0,0);
+     - scale 2 doubles the radius and the diameter dimension (8 mm).
+2. `crates/amg-ui/tests/sketch_tutorial.rs` (`fusion_sketch_basics_bracket_reaches_dof_zero_within_sixty_actions`) builds the bracket in these steps:
+   1. User parameters `width = 80 mm`, `height = 50 mm` and `fillet = 8 mm` (Change Parameters).
+   2. Create Sketch on XY, then a 2-point rectangle.
+   3. Fillet the four corners with radius `fillet`.
+   4. Sketch Dimension: `width - 2*fillet` on the bottom side and `height - 2*fillet` on the right side.
+   5. A construction centreline between the side midpoints.
+   6. Two Ø6 holes on the left fillet centres (concentric with the fillets).
+   7. Mirror both holes about the centreline (two concentric hole pairs, `Symmetric`).
+   8. A centre point slot (half length 10, width 8) on the centreline's midpoint, made horizontal.
+   9. Fix on the bottom-left hole centre.
+
+   Result: **DOF 0**, every entity `Full`, and 4 radius dimensions bound to `fillet`. Each user parameter drives a dimension, and the 6 profile areas equal the closed-form values within 1e-9 relative. Setting `width` to 100 mm in the parameters dialog keeps DOF 0 and every entity `Full`, and the areas follow. The script uses **60 UI actions** in all: 57 to build the bracket and 3 for the parameter edit. It counts each command, key, click and typed text as one action and prints the list.
+
+`cargo nextest run -p amg-ui`: 368 passed, 2 skipped. Existing tests pass unchanged, including `sketch_mode`, `sketch_tools` and `sketch_constraints`. `cargo clippy -p amg-ui --all-targets -- -D warnings` and `cargo fmt --all --check` are clean. `amg-sketch` was not touched.
+
+*Deviations:*
+- **6 profiles, not 3.** SK-06 makes every hole and the slot a profile of its own (an island inside a hole is its own profile). A plate with four holes and a slot therefore has 6: the plate (with the holes cut out), 4 discs and the slot. No sketch with the row's features can have 3. The test checks all 6 areas. Proposed Done-when text, for the owner to confirm: "6 profiles (the plate with its holes, 4 discs, the slot)". The coordinator accepted 6 for the review.
+- The bracket is anchored with **Fix** on a hole centre, because sketches have no projected origin point to snap to (that comes with UI-17 project/include).
+- The straight sides are dimensioned after the fillets, as `width - 2*fillet` and `height - 2*fillet`. SK-07's migration rules drop a `Length` dimension of a trimmed line, so dimensions placed before the fillets would be lost.
+- The first dimension's value is committed by clicking the next side instead of pressing Enter (the editor commits on focus loss, as in Fusion). Before the first click, the look-at animation of Create Sketch runs to its end (`drive_until_idle`, no input).
+- There is no live preview of the modify result, only the hover and selection highlight. Pattern directions come from an angle field (default along x and y), not from a picked line. Move has no free drag. Copy is a separate command (Move/Copy with "Create copy" on).
+
+*Leftovers:*
+- Owner check in the app (`cargo app`); everything was tested headless only:
+  1. Run the bracket scenario by hand, following the action list that `sketch_tutorial` prints with `--no-capture`.
+  2. Try each tool of SKETCH ▸ Modify once: the dialog fields, the Enter / Esc steps, the hover highlight and the icons.
+- Filleting or chamfering several corners at once (window or chain selection) is not supported, and neither is Fusion's "one dimension plus Equal" for multi-corner fillets: each corner gets its own radius dimension.
+- Not done yet: trim / extend hover previews of the part that goes, pattern direction from a picked line, and suppressing single pattern instances.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2874,3 +2932,11 @@ Flagged for lane D review. All in `amg-ui`; no new third-party dependency; no ch
 - **Icons:** the `assembly` module registers 9 more Tabler SVGs itself (`Registrar::icon`).
 - Still open from the S06 requests: the position guard (ASM-02) and the placement overlay (ASM-12).
 
+### 2026-11-25: UI-16 (lane D)
+- No change outside `amg-ui`, and no new third-party dependency (11 more vendored Tabler icons). Nothing is requested from S03 or S10.
+- `amg-sketch` is used through its public API only: `edit::{trim, extend, break_at, fillet, chamfer}`, `offset::offset`, `transform::{mirror, pattern_rect, pattern_circ, transform, translation, rotation_about, scale_about}`, `query::{pick, snap_candidates}`, `ChamferSpec` and `EditResult`. `amg-features::sketch` is used through `SketchFeature::{edit_sketch, apply}` and `SketchEdit::SetDimension`.
+- Additive `amg-ui` API:
+  - the `sketch::modify` module (`ModifyKind`, `ModifyOp`, `ModifyOptions`, `ModifyTool`, `ChamferType`, `field`, `chain_of`, `curves_at_point`, `pattern_dirs`);
+  - `SketchSession::last_modify`;
+  - 11 `icons::ids` (`TRIM`, `EXTEND`, `BREAK`, `FILLET`, `CHAMFER`, `OFFSET`, `MIRROR`, `PATTERN_RECT`, `PATTERN_CIRC`, `ROTATE`, `SCALE`).
+- Possible S03 follow-ups (the row does not need them): a dimension that survives a fillet of its line (measured to the virtual sharp corner, as in Fusion), and a sketch origin point, so that sketches can be anchored without Fix.

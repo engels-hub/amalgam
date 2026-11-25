@@ -199,6 +199,28 @@ icon_set! {
     SYMMETRIC = "flip-horizontal",
     /// Sketch dimension (UI-14).
     DIMENSION = "dimensions",
+    /// Sketch trim (UI-16).
+    TRIM = "scissors",
+    /// Sketch extend (UI-16).
+    EXTEND = "arrow-bar-right",
+    /// Sketch break (UI-16).
+    BREAK = "unlink",
+    /// Sketch fillet (UI-16).
+    FILLET = "border-radius",
+    /// Sketch chamfer (UI-16).
+    CHAMFER = "border-corners",
+    /// Sketch offset (UI-16).
+    OFFSET = "box-padding",
+    /// Sketch mirror (UI-16).
+    MIRROR = "flip-vertical",
+    /// Sketch rectangular pattern (UI-16).
+    PATTERN_RECT = "grid-dots",
+    /// Sketch circular pattern (UI-16).
+    PATTERN_CIRC = "rotate-dot",
+    /// Sketch rotate (UI-16).
+    ROTATE = "rotate",
+    /// Sketch scale (UI-16).
+    SCALE = "resize",
     /// Select tool.
     SELECT = "pointer",
     /// Folder node.
