@@ -43,6 +43,9 @@
 //! UI-09 adds [`sketch`] mode: the sketch session (working copy, solver worker, DOF), the Sketch
 //! Palette, inference, overlays, select & drag and the Line tool.
 //!
+//! UI-12 adds the [`params`] dialog ("Change Parameters"): the parameter table with favourites,
+//! user and model groups, a filter and inline cycle / unit errors.
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
@@ -65,6 +68,7 @@ pub mod module;
 pub mod nav;
 pub mod notify;
 pub mod panel;
+pub mod params;
 pub mod pick;
 pub mod preview;
 pub mod registry;
@@ -106,7 +110,7 @@ pub use tool::{FinishReason, InputResult, Tool, ToolCx, ToolInit};
 /// Keeps every module's `inventory::submit!` in the final binary (the S01 linker caveat: an
 /// object file nothing references may be dropped). [`UiRegistry::build`] calls it.
 pub fn link() {
-    let registers: [fn(&mut module::Registrar<'_>); 11] = [
+    let registers: [fn(&mut module::Registrar<'_>); 12] = [
         builtin::register,
         design::register,
         am::register,
@@ -116,6 +120,7 @@ pub fn link() {
         io::register,
         materials::register,
         mesh::register,
+        params::register,
         sim::register,
         sketch::register,
     ];
