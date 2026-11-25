@@ -9,6 +9,7 @@
 //! - Geometry goes through the [`BodyTessellator`] registry and is tessellated **and
 //!   uploaded on a job**, latest-wins per body; the old mesh stays visible until the new one
 //!   arrives, then the instances are repointed and the old mesh removed in one batch.
+//!   Solid bodies ([`solid::SolidTessellator`], UI-22) bring their edge polylines along.
 //!   Property, visibility and placement changes rewrite instances only (no upload).
 //! - Preview bodies ([`SceneAdapter::set_preview`]) are drawn on `Layer::Preview` in the
 //!   theme's preview colour; highlight layers are id lists resolved through the pick map.
@@ -20,6 +21,7 @@
 
 pub mod backend;
 mod raycast;
+pub mod solid;
 pub mod tess;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -31,14 +33,17 @@ use amg_doc::{
     Placements, SketchId, TopoKind,
 };
 use amg_jobs::{JobError, JobHandle, JobSystem, SpawnOptions};
-use amg_render::{Layer, Material, RenderError};
+use amg_render::{EdgeData, Layer, Material, RenderError};
 
 pub use backend::{
     CpuSceneBackend, GpuSceneBackend, HighlightItem, HighlightLayer, InstanceDesc, InstanceSlot,
     MeshSlot, MeshUploader, Range32, RenderSubKind, SceneAccess, SceneBackend, SceneOp,
     UploadedMesh,
 };
-pub use tess::{BodyTessellator, DisplayMesh, DisplayQuality, MeshTessellator, TessellateError};
+pub use solid::SolidTessellator;
+pub use tess::{
+    BodyTessellator, DisplayGeometry, DisplayMesh, DisplayQuality, MeshTessellator, TessellateError,
+};
 
 use crate::pick::{PickMode, PickTarget};
 use crate::theme::ThemeTokens;
@@ -339,12 +344,14 @@ pub enum DisplayError {
     Cancelled(#[from] amg_core::Cancelled),
 }
 
-type TessOutput = (Arc<DisplayMesh>, UploadedMesh);
+type TessOutput = (Arc<DisplayMesh>, Option<Arc<EdgeData>>, UploadedMesh);
 
 #[derive(Debug)]
 struct LiveMesh {
     slot: MeshSlot,
     cpu: Arc<DisplayMesh>,
+    /// B-rep edge polylines (CPU edge picks).
+    edges: Option<Arc<EdgeData>>,
     bvh: OnceLock<Bvh>,
     /// Mesh-local bounds, computed on first use (scene bounds for navigation, UI-03).
     bounds: OnceLock<amg_core::Aabb3>,
@@ -431,6 +438,8 @@ struct Core {
     model_material: Material,
     preview_material: Material,
     pending: BTreeSet<(Set, BodyId)>,
+    /// Whether "solid bodies are not shown" was logged.
+    warned_solid: bool,
     /// Per-body view overrides of committed bodies (AM-11).
     views: Option<Arc<BodyViews>>,
     /// Per-body base colours of committed bodies (INS-10, component colours).
@@ -465,23 +474,39 @@ impl Core {
             self.stats.superseded += 1;
         }
         let Some(t) = tess::find(&self.tessellators, &e.geom) else {
-            tracing::debug!(?id, "scene: no tessellator for this body's geometry");
+            if matches!(e.geom, BodyGeom::Solid(_)) && !self.warned_solid {
+                self.warned_solid = true;
+                tracing::warn!(
+                    ?id,
+                    "scene: solid bodies without a B-rep shape (a build without OCCT, or \
+                     placeholder geometry) are not shown"
+                );
+            } else {
+                tracing::debug!(?id, "scene: no tessellator for this body's geometry");
+            }
             self.stats.undisplayable += 1;
             self.pending.remove(&(set, id));
             return;
         };
         let geom = e.geom.clone();
         let uploader = Arc::clone(&self.uploader);
-        let quality = self.quality;
+        // Previews follow a dialog's values: coarse and fast.
+        let quality = match set {
+            Set::Model => self.quality,
+            Set::Preview => DisplayQuality::Preview,
+        };
         let label = match set {
             Set::Model => "Display body",
             Set::Preview => "Display preview body",
         };
         let handle = jobs.spawn_fn(label, SpawnOptions::default(), move |ctx| {
-            let mesh = t.tessellate(&geom, quality, ctx)?;
+            let g = t.tessellate_display(&geom, quality, ctx)?;
             ctx.checkpoint()?;
-            let up = uploader.upload(&mesh, ctx)?;
-            Ok::<_, DisplayError>((Arc::new(mesh), up))
+            let mut up = uploader.upload(&g.mesh, ctx)?;
+            if let Some(edges) = &g.edges {
+                up = uploader.upload_edges(up, edges, ctx)?;
+            }
+            Ok::<_, DisplayError>((Arc::new(g.mesh), g.edges.map(Arc::new), up))
         });
         e.pending = Some(handle);
         self.pending.insert((set, id));
@@ -642,13 +667,14 @@ impl Core {
     }
 
     /// Inserts a finished upload: new mesh, instances repointed, old mesh removed.
-    fn install(&mut self, set: Set, e: &mut Entry, cpu: Arc<DisplayMesh>, up: UploadedMesh) {
+    fn install(&mut self, set: Set, e: &mut Entry, (cpu, edges, up): TessOutput) {
         self.next_mesh += 1;
         let slot = MeshSlot(self.next_mesh);
         self.ops.push(SceneOp::InsertMesh { slot, mesh: up });
         let old = e.mesh.replace(LiveMesh {
             slot,
             cpu,
+            edges,
             bvh: OnceLock::new(),
             bounds: OnceLock::new(),
         });
@@ -724,6 +750,7 @@ impl SceneAdapter {
                 model_material: Material::default(),
                 preview_material: Material::default(),
                 pending: BTreeSet::new(),
+                warned_solid: false,
                 views: None,
                 tints: None,
             },
@@ -912,8 +939,8 @@ impl SceneAdapter {
                 e.pending = None;
                 self.core.pending.remove(&(set, id));
                 match res {
-                    Ok((cpu, up)) => {
-                        self.core.install(set, e, cpu, up);
+                    Ok(out) => {
+                        self.core.install(set, e, out);
                         changed = true;
                     }
                     Err(JobError::Cancelled) => {}
@@ -1134,6 +1161,22 @@ impl SceneAdapter {
         self.core.quality = q;
     }
 
+    /// Changes the display quality and tessellates the committed bodies whose output depends
+    /// on it again (solids; additive, UI-22). Latest-wins like a geometry change: jobs in
+    /// flight are cancelled and the old meshes stay drawn until the new ones arrive.
+    pub fn change_quality(&mut self, q: DisplayQuality, jobs: &JobSystem) {
+        if self.core.quality == q {
+            return;
+        }
+        self.core.quality = q;
+        for (id, e) in &mut self.bodies {
+            if tess::find(&self.core.tessellators, &e.geom).is_some_and(|t| t.depends_on_quality())
+            {
+                self.core.spawn(Set::Model, *id, e, jobs);
+            }
+        }
+    }
+
     fn flush(&mut self) {
         if self.highlight_generation != self.core.pick.generation() {
             self.highlight_generation = self.core.pick.generation();
@@ -1217,6 +1260,12 @@ impl SceneAdapter {
     /// The current display mesh of a body.
     pub fn display_mesh(&self, body: BodyId) -> Option<&Arc<DisplayMesh>> {
         self.bodies.get(&body)?.mesh.as_ref().map(|m| &m.cpu)
+    }
+
+    /// The current B-rep edge polylines of a body (UI-22; `None` for mesh bodies and bodies
+    /// without a mesh yet).
+    pub fn display_edges(&self, body: BodyId) -> Option<&Arc<EdgeData>> {
+        self.bodies.get(&body)?.mesh.as_ref()?.edges.as_ref()
     }
 
     /// The scene mesh slot of a body.
@@ -1334,6 +1383,38 @@ impl SceneAdapter {
             *c = inst.world.transform_point3(local);
         }
         Some((corners, [idx[0], idx[1], idx[2]]))
+    }
+
+    /// The B-rep edge of the instance `key` nearest to the world point `at`, within `radius`
+    /// mm (CPU edge picks, UI-22). `None` for mesh bodies and unknown keys.
+    pub(crate) fn edge_near(&self, key: RenderEntityKey, at: Point3, radius: f64) -> Option<u32> {
+        let PickTarget::Body { body, .. } = self.core.pick.target(key, None)? else {
+            return None;
+        };
+        let e = self.bodies.get(&body)?;
+        let edges = e.mesh.as_ref()?.edges.as_ref()?;
+        let inst = e.instances.iter().find(|i| i.key == key)?;
+        let world = |p: &[f32; 3]| {
+            let local = edges.origin + Point3::new(p[0].into(), p[1].into(), p[2].into());
+            inst.world.transform_point3(local)
+        };
+        let mut best: Option<(u32, f64)> = None;
+        for line in &edges.polylines {
+            let first = line.first as usize;
+            let points = edges.points.get(first..first + line.len as usize)?;
+            let mut previous: Option<Point3> = None;
+            for p in points {
+                let next = world(p);
+                if let Some(a) = previous {
+                    let d = crate::pick::segment_distance(at, a, next);
+                    if d <= radius && best.is_none_or(|(_, b)| d < b) {
+                        best = Some((line.id, d));
+                    }
+                }
+                previous = Some(next);
+            }
+        }
+        best.map(|(id, _)| id)
     }
 
     /// CPU rectangle selection over the display meshes: the keys of visible model instances

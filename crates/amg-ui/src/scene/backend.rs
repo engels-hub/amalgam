@@ -13,7 +13,8 @@ use amg_core::Transform;
 use amg_jobs::JobCtx;
 use amg_jobs::gpu::Gpu;
 use amg_render::{
-    GpuMesh, Instance, InstanceKey, Layer, Material, MeshKey, RenderError, RenderScene,
+    EdgeData, EdgesKey, FaceRange, GpuEdges, GpuMesh, Instance, InstanceKey, Layer, Material,
+    MeshKey, RenderError, RenderScene,
 };
 
 use super::RenderEntityKey;
@@ -32,6 +33,8 @@ pub struct InstanceSlot(pub u64);
 pub struct UploadedMesh {
     gpu: Option<GpuMesh>,
     triangles: u32,
+    gpu_edges: Option<GpuEdges>,
+    edge_polylines: u32,
 }
 
 impl UploadedMesh {
@@ -40,6 +43,8 @@ impl UploadedMesh {
         UploadedMesh {
             triangles: mesh.triangle_count(),
             gpu: Some(mesh),
+            gpu_edges: None,
+            edge_polylines: 0,
         }
     }
 
@@ -48,7 +53,23 @@ impl UploadedMesh {
         UploadedMesh {
             gpu: None,
             triangles,
+            gpu_edges: None,
+            edge_polylines: 0,
         }
+    }
+
+    /// Adds the body's edge set of `polylines` polylines (`None`: no GPU; additive, UI-22). It
+    /// is inserted and removed together with the mesh.
+    #[must_use]
+    pub fn with_edges(mut self, edges: Option<GpuEdges>, polylines: u32) -> UploadedMesh {
+        self.gpu_edges = edges;
+        self.edge_polylines = polylines;
+        self
+    }
+
+    /// Number of edge polylines uploaded with the mesh.
+    pub fn edge_polylines(&self) -> u32 {
+        self.edge_polylines
     }
 
     /// Triangle count.
@@ -60,6 +81,11 @@ impl UploadedMesh {
     pub fn into_gpu(self) -> Option<GpuMesh> {
         self.gpu
     }
+
+    /// The GPU mesh and edge set.
+    pub fn into_gpu_parts(self) -> (Option<GpuMesh>, Option<GpuEdges>) {
+        (self.gpu, self.gpu_edges)
+    }
 }
 
 /// Uploads display meshes. Runs on job threads (the tessellation job uploads its result).
@@ -69,6 +95,25 @@ pub trait MeshUploader: Send + Sync + 'static {
     /// # Errors
     /// The S10 upload errors (`InvalidData`, `TooLarge`, `Cancelled`).
     fn upload(&self, mesh: &DisplayMesh, ctx: &JobCtx) -> Result<UploadedMesh, RenderError>;
+
+    /// Uploads a B-rep body's edges next to its uploaded mesh (additive, UI-22). The default
+    /// only records how many polylines there are.
+    ///
+    /// # Errors
+    /// As [`MeshUploader::upload`].
+    fn upload_edges(
+        &self,
+        mesh: UploadedMesh,
+        edges: &EdgeData,
+        ctx: &JobCtx,
+    ) -> Result<UploadedMesh, RenderError> {
+        ctx.checkpoint()?;
+        Ok(mesh.with_edges(None, polyline_count(edges)))
+    }
+}
+
+fn polyline_count(edges: &EdgeData) -> u32 {
+    u32::try_from(edges.polylines.len()).unwrap_or(u32::MAX)
 }
 
 /// One drawn instance of a display mesh: one per (occurrence path, body).
@@ -219,6 +264,7 @@ impl MeshUploader for CountingUploader {
 pub struct CpuSceneBackend {
     uploader: Arc<CountingUploader>,
     meshes: BTreeMap<MeshSlot, u32>,
+    edges: BTreeMap<MeshSlot, u32>,
     instances: BTreeMap<InstanceSlot, InstanceDesc>,
     highlights: [Vec<HighlightItem>; 4],
     colors: [[f32; 4]; 4],
@@ -244,6 +290,11 @@ impl CpuSceneBackend {
     /// Triangle count of a live mesh.
     pub fn mesh_triangles(&self, slot: MeshSlot) -> Option<u32> {
         self.meshes.get(&slot).copied()
+    }
+
+    /// Edge polyline count of a live mesh that has edges.
+    pub fn mesh_edges(&self, slot: MeshSlot) -> Option<u32> {
+        self.edges.get(&slot).copied()
     }
 
     /// Live instances, in slot order.
@@ -283,9 +334,13 @@ impl SceneBackend for CpuSceneBackend {
             match op {
                 SceneOp::InsertMesh { slot, mesh } => {
                     self.meshes.insert(slot, mesh.triangles());
+                    if mesh.edge_polylines() > 0 {
+                        self.edges.insert(slot, mesh.edge_polylines());
+                    }
                 }
                 SceneOp::RemoveMesh(slot) => {
                     self.meshes.remove(&slot);
+                    self.edges.remove(&slot);
                 }
                 SceneOp::SetInstance { slot, desc } => {
                     debug_assert!(
@@ -317,9 +372,35 @@ struct GpuUploader {
 
 impl MeshUploader for GpuUploader {
     fn upload(&self, mesh: &DisplayMesh, ctx: &JobCtx) -> Result<UploadedMesh, RenderError> {
-        let m = amg_render::upload_mesh(&self.gpu, &mesh.data, ctx)?;
+        // B-rep face ranges become per-vertex face ids, so GPU picks report the face index.
+        // Without ranges (mesh bodies) this is a plain upload.
+        let faces: Vec<FaceRange> = mesh
+            .face_ranges
+            .iter()
+            .zip(0u32..)
+            .map(|(r, face)| FaceRange {
+                first_tri: r.start,
+                tri_count: r.end - r.start,
+                face,
+            })
+            .collect();
+        let m = amg_render::upload_mesh_with_faces(&self.gpu, &mesh.data, &faces, ctx)?;
         self.uploads.fetch_add(1, Ordering::Relaxed);
         Ok(UploadedMesh::gpu(m))
+    }
+
+    fn upload_edges(
+        &self,
+        mesh: UploadedMesh,
+        edges: &EdgeData,
+        ctx: &JobCtx,
+    ) -> Result<UploadedMesh, RenderError> {
+        let n = polyline_count(edges);
+        if n == 0 {
+            return Ok(mesh);
+        }
+        let e = amg_render::upload_edges(&self.gpu, edges, ctx)?;
+        Ok(mesh.with_edges(Some(e), n))
     }
 }
 
@@ -337,6 +418,7 @@ pub struct GpuSceneBackend {
     uploader: Arc<GpuUploader>,
     access: SceneAccess,
     meshes: HashMap<MeshSlot, MeshKey>,
+    edges: HashMap<MeshSlot, EdgesKey>,
     instances: HashMap<InstanceSlot, InstanceKey>,
     highlights: [Vec<HighlightItem>; 4],
     colors: [[f32; 4]; 4],
@@ -361,6 +443,7 @@ impl GpuSceneBackend {
             }),
             access,
             meshes: HashMap::new(),
+            edges: HashMap::new(),
             instances: HashMap::new(),
             highlights: Default::default(),
             colors: [[0.0; 4]; 4],
@@ -398,6 +481,11 @@ impl GpuSceneBackend {
     /// The `RenderScene` key of a slot's mesh.
     pub fn mesh_key(&self, slot: MeshSlot) -> Option<MeshKey> {
         self.meshes.get(&slot).copied()
+    }
+
+    /// The `RenderScene` key of the edge set of a slot's mesh (B-rep bodies).
+    pub fn edges_key(&self, slot: MeshSlot) -> Option<EdgesKey> {
+        self.edges.get(&slot).copied()
     }
 
     /// The `RenderScene` key of a slot's instance.
@@ -440,12 +528,13 @@ impl SceneBackend for GpuSceneBackend {
             return;
         }
         let meshes = &mut self.meshes;
+        let edges = &mut self.edges;
         let instances = &mut self.instances;
         let mut pending = Some(scene_ops);
         (self.access)(&mut |scene: &mut RenderScene| {
             let Some(ops) = pending.take() else { return };
             for op in ops {
-                apply_gpu(scene, meshes, instances, op);
+                apply_gpu(scene, meshes, edges, instances, op);
             }
         });
     }
@@ -458,18 +547,26 @@ impl SceneBackend for GpuSceneBackend {
 fn apply_gpu(
     scene: &mut RenderScene,
     meshes: &mut HashMap<MeshSlot, MeshKey>,
+    edges: &mut HashMap<MeshSlot, EdgesKey>,
     instances: &mut HashMap<InstanceSlot, InstanceKey>,
     op: SceneOp,
 ) {
     match op {
         SceneOp::InsertMesh { slot, mesh } => {
-            if let Some(m) = mesh.into_gpu() {
+            let (m, e) = mesh.into_gpu_parts();
+            if let Some(m) = m {
                 meshes.insert(slot, scene.insert_mesh(m));
+            }
+            if let Some(e) = e {
+                edges.insert(slot, scene.insert_edges(e));
             }
         }
         SceneOp::RemoveMesh(slot) => {
             if let Some(k) = meshes.remove(&slot) {
                 scene.remove_mesh(k);
+            }
+            if let Some(k) = edges.remove(&slot) {
+                scene.remove_edges(k);
             }
         }
         SceneOp::SetInstance { slot, desc } => {
@@ -480,8 +577,14 @@ fn apply_gpu(
                 );
                 return;
             };
+            // Mesh bodies have no edge set: the wireframe styles draw their triangle
+            // wireframe. B-rep bodies draw their edges instead.
+            let edge_set = edges.get(&desc.mesh).copied();
+            let mesh_wireframe = edge_set.is_none();
             if let Some(inst) = instances.get(&slot).and_then(|k| scene.instance_mut(*k)) {
                 inst.mesh = Some(mesh);
+                inst.edges = edge_set;
+                inst.mesh_wireframe = mesh_wireframe;
                 inst.transform = desc.transform;
                 inst.visible = desc.visible;
                 inst.layer = desc.layer;
@@ -498,9 +601,8 @@ fn apply_gpu(
                 material: desc.material,
                 sectioned: desc.sectioned,
                 shading: desc.shading,
-                // Bodies arrive as triangle meshes (no B-rep edge sets yet), so the wireframe
-                // styles draw their triangle wireframe.
-                mesh_wireframe: true,
+                edges: edge_set,
+                mesh_wireframe,
                 ..Instance::new(mesh, desc.transform)
             });
             instances.insert(slot, key);
