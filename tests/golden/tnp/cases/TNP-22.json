@@ -1,0 +1,14 @@
+{
+ "id": "TNP-22",
+ "phase": "DOC-13",
+ "naive_index_breaks": false,
+ "script": [
+  {"bind":"s1","sketch":{"plane":"XZ","entities":[["L",1,[10,0],[30,0]],["L",2,[30,0],[30,20]],["L",3,[30,20],[10,20]],["L",4,[10,20],[10,0]]]}},
+  {"bind":"rev","cmd":{"AddFeature":{"at":null,"feature":{"kind":"solid.revolve","v":1,"data":{"profiles":[{"$profile":{"sketch":"$s1","at":[20,10]}}],"axis":"OriginZ","angle":"270 deg","op":"NewBody"}},"context":"$root","name":null}}},
+  {"bind":"fil","FIL":[{"$pick":{"kind":"Edge","near":[0,-30,10],"class":"Line"}},"1 mm"]}
+ ],
+ "edit": [
+  {"patch":{"id":"$rev","merge":{"angle":"360 deg"}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Error","error":"NotFound","intended":null}
+}

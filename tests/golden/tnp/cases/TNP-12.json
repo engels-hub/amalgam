@@ -1,0 +1,14 @@
+{
+ "id": "TNP-12",
+ "phase": "DOC-06",
+ "naive_index_breaks": true,
+ "base": "B2",
+ "script": [
+  {"bind":"pocket","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[11,30,20],[12,60,20],[13,60,40],[14,30,40]],"z0":30,"height":20,"op":"Cut","target":{"origin":"$prism","slot":0}}},"context":"$root","name":null}}},
+  {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$prism","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[60,30,40],"class":"Line"}}],"radius":2}},"context":"$root","name":null}}}
+ ],
+ "edit": [
+  {"patch":{"id":"$pocket","merge":{"points":[[11,30,20],[15,45,15],[12,60,20],[13,60,40],[14,30,40]]}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Line","centroid":[60,30,40],"measure":20}}
+}

@@ -1,0 +1,14 @@
+{
+ "id": "TNP-10",
+ "phase": "DOC-06",
+ "naive_index_breaks": false,
+ "base": "B1",
+ "script": [
+  {"bind":"fil1","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}},
+  {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[100,1.817,38.183],"class":"Circle"}}],"radius":1}},"context":"$root","name":null}}}
+ ],
+ "edit": [
+  {"patch":{"id":"$fil1","merge":{"radius":8}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Circle","centroid":[100,2.90704,37.09296],"measure":12.56637}}
+}

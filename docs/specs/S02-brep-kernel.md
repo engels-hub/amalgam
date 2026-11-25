@@ -2683,3 +2683,14 @@ Every change is inside lane A's crates. No other lane's files changed.
   `LocalOpFailed` naming the faces. It is found by sampling, so a strategy's validation gate
   still needs the R5 self-interference check for B-spline faces.
 - No new dependency; `THIRD_PARTY.md` unchanged.
+
+### 2026-11-25: request from DOC-06 (lane E; not changed here)
+- `BrepKernel::unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult>` on
+  the trait (BREP-10, additive). The persistent-naming note §5.1 has every BodyOp result
+  unified, with the history composed in; DOC-06's lane-E test features (`test.brep_prism`
+  Cut/Join) use the hidden `OcctKernel::unify_coplanar` meanwhile, so they need an `OcctKernel`
+  rather than any `&dyn BrepKernel`. Nothing else was missing: DOC-06 uses `make_box`,
+  `make_planar_faces`, `prism`, `boolean`, `fillet`, `sub_geom`, `sub_geom_all`,
+  `ShapeHistory::{compose, order_splits}`, `split_order_key`'s quantum, `Shape` adjacency
+  (`edge_faces`, `vertex_edges`, `is_seam`), `surface`/`curve` for radii and
+  `write_bin`/`read_bin` (index-stable round trip, relied on by the `.amg` cache).

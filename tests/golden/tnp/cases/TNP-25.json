@@ -1,0 +1,16 @@
+{
+ "id": "TNP-25",
+ "phase": "DOC-06",
+ "naive_index_breaks": true,
+ "base": "B1",
+ "script": [
+  {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}},{"$pick":{"kind":"Edge","near":[50,60,40],"class":"Line"}}],"radius":3,"policy":"DropMissing"}},"context":"$root","name":null}}}
+ ],
+ "edit": [
+  {"bind":"fil0","cmd":{"AddFeature":{"at":"$index_of:fil","feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,60,40],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}}
+ ],
+ "expect": [
+  {"subject":{"feature":"$fil","ref":1},"health":"Warning","outcome":"Error","error":"NotFound","intended":null},
+  {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Line","centroid":[50,0,40],"measure":100}}
+ ]
+}

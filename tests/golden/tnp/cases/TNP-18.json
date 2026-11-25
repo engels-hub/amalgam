@@ -1,0 +1,10 @@
+{
+ "id": "TNP-18",
+ "phase": "DOC-13",
+ "naive_index_breaks": false,
+ "script": "S17",
+ "edit": [
+  {"patch":{"id":"$pat","merge":{"count":"3"}}}
+ ],
+ "expect": {"subject":{"feature":"$cha","ref":0},"outcome":"Error","error":"NotFound","intended":null}
+}

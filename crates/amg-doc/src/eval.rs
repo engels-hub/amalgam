@@ -16,7 +16,9 @@ use crate::assembly::{BodyInstance, OccPath, Placements};
 use crate::id::{
     BodyId, ComponentId, ConstructionId, FeatureId, OccurrenceId, ParamId, Revision, SketchId,
 };
-use crate::naming::{BodyNaming, EntityRef, ResolveError};
+use crate::naming::{
+    BodyNaming, EntityRef, NamingView, ResolutionRecord, ResolveError, Resolved, TopoRef,
+};
 use crate::stub::{IndexedMesh, SdfGraph, Shape, SketchGeom, SubdMesh};
 
 /// Recompute results for one authored revision.
@@ -29,6 +31,10 @@ pub struct Evaluated {
     construction: BTreeMap<ConstructionId, ConstructionGeom>,
     nodes: BTreeMap<FeatureId, NodeEval>,
     placements: Arc<Placements>,
+    /// Body lineage (note §6.1): body → bodies it was consumed into or split into.
+    successors: BTreeMap<BodyId, Vec<BodyId>>,
+    /// Split piece → the body it was split off from.
+    derived: BTreeMap<BodyId, BodyId>,
 }
 
 impl Evaluated {
@@ -149,6 +155,54 @@ impl Evaluated {
     pub fn set_node(&mut self, id: FeatureId, eval: NodeEval) {
         self.nodes.insert(id, eval);
     }
+
+    /// Records body lineage: `from` was consumed into, or split into, `to` (`derived`: `to` is
+    /// a split piece of `from`).
+    pub fn add_successor(&mut self, from: BodyId, to: BodyId, derived: bool) {
+        let s = self.successors.entry(from).or_default();
+        if let Err(i) = s.binary_search(&to) {
+            s.insert(i, to);
+        }
+        if derived {
+            self.derived.insert(to, from);
+        }
+    }
+
+    /// Bodies `id` was consumed into or split into (`BodyChangeKind::Consumed` /
+    /// `CreatedFrom`), ascending.
+    pub fn successors(&self, id: BodyId) -> &[BodyId] {
+        self.successors.get(&id).map_or(&[], Vec::as_slice)
+    }
+
+    /// Resolves a reference against the final evaluated state (S13 request; also S11 R2),
+    /// with the [default kernel](crate::naming::default_kernel) and the model tolerance.
+    pub fn resolve(&self, r: &TopoRef) -> Result<Resolved, ResolveError> {
+        let rec = crate::naming::resolve(
+            self,
+            crate::naming::default_kernel(),
+            &amg_core::Tolerance::default(),
+            r,
+        );
+        rec.result.map(|v| v[0])
+    }
+}
+
+impl NamingView for Evaluated {
+    fn body_geom(&self, id: BodyId) -> Option<&BodyGeom> {
+        self.bodies.get(&id).map(|b| &b.geom)
+    }
+
+    fn naming(&self, id: BodyId) -> Option<&BodyNaming> {
+        self.bodies.get(&id)?.naming.as_deref()
+    }
+
+    fn successors(&self, id: BodyId) -> &[BodyId] {
+        Evaluated::successors(self, id)
+    }
+
+    fn derived_from(&self, id: BodyId) -> Option<BodyId> {
+        self.derived.get(&id).copied()
+    }
 }
 
 /// One evaluated body.
@@ -212,6 +266,10 @@ pub struct NodeEval {
     pub key: Option<CacheKey>,
     /// Wall time of the compute (zero on a cache hit).
     pub duration: Duration,
+    /// The references the feature resolved, in call order (UI re-pick, Accept match, the TNP
+    /// corpus). Empty for suppressed or rolled-back nodes, and for outputs read back from a
+    /// saved file's cache.
+    pub resolutions: Arc<[ResolutionRecord]>,
 }
 
 /// Health of a timeline node (Fusion semantics, S01 §3).
@@ -299,6 +357,7 @@ mod tests {
                 }),
                 key: Some(CacheKey([7; 32])),
                 duration: Duration::ZERO,
+                resolutions: Arc::new([]),
             },
         );
         assert_eq!(e.revision, Revision(3));

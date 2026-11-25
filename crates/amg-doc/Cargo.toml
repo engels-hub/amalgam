@@ -35,6 +35,9 @@ zip.workspace = true
 # `amg_doc::testing`. Never enabled by binaries; this crate's integration tests and benches get
 # it through the self dev-dependency below.
 test-features = []
+# Links OCCT through amg-brep (DOC-06): the B-rep test features and the TNP golden corpus
+# (`tests/tnp.rs`) need it. Off by default, so the workspace still builds without vcpkg.
+occt = ["amg-brep/occt"]
 
 [dev-dependencies]
 amg-doc = { path = ".", features = ["test-features"] }
@@ -76,6 +79,10 @@ harness = false
 
 [[bench]]
 name = "materials"
+harness = false
+
+[[bench]]
+name = "naming"
 harness = false
 
 [lints]

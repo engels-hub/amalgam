@@ -1,0 +1,15 @@
+{
+ "id": "TNP-29",
+ "phase": "DOC-13",
+ "naive_index_breaks": null,
+ "script": [
+  {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[100,0]],["L",2,[100,0],[100,60]],["L",3,[100,60],[0,60]],["L",4,[0,60],[0,0]],["C",11,[50,30],5]]}},
+  {"bind":"plate","EXT":["$s1",[20,30],"10 mm","NewBody"]},
+  {"bind":"s2","sketch":{"plane":{"$pick":{"kind":"Face","near":[20,15,10],"class":"Plane"}},"entities":[["C",1,[20,15],3]]}}
+ ],
+ "edit": [
+  {"sketch_edit":{"id":"$s1","add":[["C",12,[80,30],5]]}},
+  {"patch":{"id":"$plate","merge":{"profiles":[{"$profile":{"sketch":"$s1","at":[20,30]}}]}}}
+ ],
+ "expect": {"subject":{"feature":"$s2","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Face","class":"Plane","centroid":[49.59674,30,10],"measure":5842.92037}}
+}

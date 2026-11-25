@@ -1,0 +1,3 @@
+[
+ {"bind":"prism","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[1,0,0],[2,100,0],[3,100,60],[4,0,60]],"z0":0,"height":40,"op":"New","target":null}},"context":"$root","name":null}}}
+]

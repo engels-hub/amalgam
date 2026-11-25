@@ -1,0 +1,15 @@
+{
+ "id": "TNP-19",
+ "phase": "DOC-13",
+ "naive_index_breaks": false,
+ "script": [
+  {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[10,0],[50,0]],["L",2,[50,0],[50,60]],["L",3,[50,60],[10,60]],["L",4,[10,60],[10,0]]]}},
+  {"bind":"e1","EXT":["$s1",[30,30],"30 mm","NewBody"]},
+  {"bind":"mir","cmd":{"AddFeature":{"at":null,"feature":{"kind":"solid.mirror","v":1,"data":{"bodies":[{"origin":"$e1","slot":0}],"plane":"OriginYZ"}},"context":"$root","name":null}}},
+  {"bind":"fil","FIL":[{"$pick":{"kind":"Edge","near":[-30,0,30],"class":"Line"}},"2 mm"]}
+ ],
+ "edit": [
+  {"patch":{"id":"$e1","merge":{"extent":{"Distance":"50 mm"}}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Line","centroid":[-30,0,50],"measure":40}}
+}

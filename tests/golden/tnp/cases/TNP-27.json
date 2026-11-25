@@ -1,0 +1,14 @@
+{
+ "id": "TNP-27",
+ "phase": "DOC-06",
+ "naive_index_breaks": false,
+ "base": "B1",
+ "script": [
+  {"bind":"fil3","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}},{"$pick":{"kind":"Edge","near":[100,30,40],"class":"Line"}},{"$pick":{"kind":"Edge","near":[100,0,20],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}},
+  {"bind":"probe","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.probe","v":1,"data":{"body":{"origin":"$box","slot":0},"refs":[{"$pick":{"kind":"Face","near":[97.5,2.5,37.5],"class":"Sphere"}}],"policy":"AllOrError"}},"context":"$root","name":null}}}
+ ],
+ "edit": [
+  {"cmd":{"EditFeature":{"id":"$box","feature":{"kind":"test.brep_box","v":1,"data":{"size":[100,60,50]}}}}}
+ ],
+ "expect": {"subject":{"feature":"$probe","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Face","class":"Sphere","centroid":[97.5,2.5,47.5],"measure":39.26991}}
+}

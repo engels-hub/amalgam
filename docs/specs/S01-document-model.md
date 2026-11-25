@@ -873,7 +873,7 @@ inventory::collect!(ExtRegistration);
 | DOC-07 | `.amg` container: manifest + `design.json` + `bodies/` + `ext/`, `FORMAT_VERSION`, document and per-feature migration chains, `serde_path_to_error` diagnostics, safe save (tmp + fsync + rename + `.bak`), save/load as jobs | DOC-05 | P0 | Done | 1. Save→load→save gives byte-identical `design.json`. 2. `TooNew`, truncated zip, flipped byte and bad JSON each give the specific `FormatError` (with path for JSON). 3. A v0→v1 fixture migration test exists. 4. Killing the process during save (test hook) leaves the original file intact. |
 | DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Done | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
 | DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Done | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
-| DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Todo | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous, plus unmerged, widened, class-changed (no ∞ arithmetic) and tombstone lookup by lineage. 2. 10 golden cases from the DOC-11 corpus (TNP-01/02/03/05/06/07/08/09/10/12) run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut, probe) and resolve to the intended entity (asserted by fingerprint); the other DOC-06-phase cases (TNP-04/11/24..28) meet their recorded `expect`. 3. Zero silent wrong resolutions (DOC-11 note §11.2 definition) over all DOC-06-phase cases. 4. Naming survives save/load (TNP-28). 5. The note §9 benches (`naming/finish-1000`, `naming/resolve`) run and their results are recorded in the note's §13. |
+| DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Review | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous, plus unmerged, widened, class-changed (no ∞ arithmetic) and tombstone lookup by lineage. 2. 10 golden cases from the DOC-11 corpus (TNP-01/02/03/05/06/07/08/09/10/12) run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut, probe) and resolve to the intended entity (asserted by fingerprint); the other DOC-06-phase cases (TNP-04/11/24..28) meet their recorded `expect`. 3. Zero silent wrong resolutions (DOC-11 note §11.2 definition) over all DOC-06-phase cases. 4. Naming survives save/load (TNP-28). 5. The note §9 benches (`naming/finish-1000`, `naming/resolve`) run and their results are recorded in the note's §13. |
 | DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of the core corpus cases (DOC-11 note §11.4) meet their recorded `expect` (intended entity and quality, or the expected warning/error); the remainder fail with a feature error or warning; **0 silent wrong resolutions** (note §11.2 definition: a quiet `Ok` on a non-intended entity, or a quiet `Ok` where an error is expected). The harness measures the naive index baseline on every case and ≥ 5 cases are measured to break it (predictions in the corpus are corrected where the measurement differs). The held-out fuzz set (note §11.6) has 0 silent wrong resolutions. Runs in CI under 60 s (the fuzz set may run nightly if it doesn't fit). |
 
 | DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Done | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
@@ -1081,6 +1081,76 @@ Phase 2 lane E (its SOL deps are Phase 2).
   (`a = a + 1`) is reported as `Cycle([a, a])`, because the name is registered before its
   expression is resolved.
 - Bench `benches/params.rs` (1 000 chained params): editing the head parameter re-evaluates all 999 dependents in 0.61 ms (including the `Design` clone and validation; target < 2 ms). A full load of the 1 000-parameter design from JSON takes 4.2 ms, which includes serde parsing of the whole file, parsing 1 000 expressions and evaluating them; no budget applies to it.
+
+### 2026-11-25 - DOC-06 persistent naming framework (lane E)
+Implements the naming note (`docs/notes/persistent-naming.md`, DOC-11) as written; results and
+bench numbers are in the note's §13 (2026-11-25 entry). API changes are listed under Interface
+changes (2026-11-25, DOC-06).
+- **Code.** `amg-doc::naming` is now a module directory: `mod.rs` (final types of note §10:
+  `TopoName` with a cached FNV-1a hash and depth, the `Gen`/`Bound`/`Split`/`Merge`/`Inst` grammar,
+  `NameSource` with `Profile`/`Selection`/`Construction`/`Digest`, `GeomFingerprint` with `radius`
+  and the §6.3 `distance`, `thresholds`, `BodyNaming` with groups, tombstones and
+  `instanced`/`for_import`/`for_mesh`, the resolution types), `builder.rs` (`NamingBuilder`,
+  rules of §4.2–4.4), `topo.rs` (edge/vertex derivation §4.3, `NamingTopology`, `ShapeTopo`,
+  `SyntheticTopology`), `resolve.rs` (candidate sets by lineage §6.2, stages §6.4, tombstones,
+  set policies, messages §7, `topo_ref_at`), `intern.rs` (interned element maps for the cache,
+  §8.1). Lane-E test features in `amg-doc::testing::brep` (`test.brep_box`, `test.brep_prism`
+  with UnifySameDomain after Cut/Join, `test.brep_fillet`, `test.probe`).
+- **Evaluated storage.** `EvalBody::naming` holds the element map; `Evaluated` keeps body lineage
+  (`successors`, `derived_from`) and implements `NamingView`; `NodeEval::resolutions` holds the
+  feature's `ResolutionRecord`s, also on a cache hit (stored in the `GeomCache` entry) and when the
+  feature fails. Resolution warnings become node diagnostics automatically and are part of the
+  cached output.
+- **`.amg` cache.** `CACHE_FORMAT` 1 → 2: element maps are stored interned (a segment table plus
+  index lists, shared names written once; decoding shares the `Arc`s again), solids as real
+  `amg-brep` binaries (`Shape::write_bin`, index-stable) instead of a stub tag, and the new
+  `CreatedFrom`/`Consumed` changes. Older cache entries no longer decode and simply recompute
+  (the engine salt changed anyway). The body codec also stores real B-reps for baked bodies.
+- **Cache-key fix (S05 INS-10 finding).** `node_key` now hashes the feature id, so two features
+  with identical data in one component no longer share one cached output (before, the second
+  node was `Ok` but its body was missing). `ENGINE_FORMAT_VERSION` 1 → 2 and the salt includes
+  `NAMING_VERSION`; the golden keys in `tests/recompute.rs` are updated as that test's comment
+  prescribes. Regression test `identical_features_in_one_component_get_their_own_outputs`.
+  `tests/positions.rs::f1_sees_base_f2_sees_the_capture_and_marker_or_suppression_hides_it`
+  asserted the old sharing (`key(f2) == key(f1)`, "a hit on F1's output"); it now checks that F2
+  sees the same base transform and has its own key.
+- **Done-when evidence.**
+  1. `naming::tests` (synthetic element maps and histories, no OCCT): exact,
+     split-disambiguated (`NewSplit`), fingerprint-only, not found (adjacency and tombstone),
+     ambiguous, unmerged, widened (split gone and merged), class changed (one, all, stage-1
+     sanity; `distance` returns `None`, never ∞), tombstone lookup by lineage in both
+     directions, index drift, low margin/far match, no fingerprint, body missing/unsupported,
+     body lineage (consumed quiet, split-off `BodyChanged`), set policies with expansion of new
+     split pieces, determinism; plus builder rules (reuse of kept names and `Arc`s, split order,
+     merge, generated from tags/selections/names, role-only corners, unexplained faces, dedup,
+     tombstones, errors, `Digest` cap), `instanced`, mesh groups and the interned codec.
+  2. `tests/tnp.rs` (`--features occt`): the 10 intended-entity cases TNP-01/02/03/05/06/07/08/
+     09/10/12 resolve to the expected entity (checked by fingerprint: class, centroid, measure)
+     and TNP-04/11/24/25/26/27/28 meet their `expect`.
+  3. The same run counts 0 silent wrong resolutions (note §11.2) over all 17 DOC-06 cases.
+  4. TNP-28 saves to `.amg` with the cache, reopens, recomputes with every output served from the
+     file and equal element maps, then gives TNP-07's result.
+  5. `benches/naming.rs` ran; numbers in note §13: `finish-1000` 2.9 ms (< 3 ms), resolve stage 1
+     1.5 µs, stage 2 1.6 µs, naming share of a real fillet 0.8 % (≤ 5 %).
+  - The harness also measures the naive index baseline: 8 of 17 cases break it; 6 predictions were
+    wrong and are corrected in the case files and note §11.4.
+- **Deviations.** `BodyChangeKind::Created` keeps its two fields; the split-off lineage is a new
+  variant `CreatedFrom { geom, naming, derived_from }` (adding a field would have broken ~40
+  struct literals in other lanes). `NameSeg::Generated` is renamed `Gen` per the note, which
+  needed a 3-line compile fix in `amg-ui::select::naming` (lane D; also `key: 0`, `radius: None`
+  in its literals; behaviour unchanged). `RecomputeCtx::resolve_profile`/`region_source` are not
+  implemented (no DOC-06 case needs them; DOC-13 with SOL-02). Resolutions of outputs read back
+  from a saved file's cache are empty (the warnings survive, the records don't). The memory
+  figure is a structural estimate (`BodyNaming::estimated_heap_bytes`), not a counting
+  allocator (`unsafe`).
+- **Cargo.** New `amg-doc` feature `occt = ["amg-brep/occt"]` for the B-rep test features and the
+  corpus; the default build is unchanged and the corpus run is skipped without it (only the corpus
+  files are parsed). New bench `naming`. No new dependency.
+- **Leftovers.** `resolve_profile`/`region_source` and `EntityRef::Profile` fingerprint matching
+  (DOC-13/SOL-02); persisting `NodeEval::resolutions` in the cache; `finish` allocations
+  (its 3 ms margin is small); S02 request below (unify on the trait); `amg-ui::select::naming` can now
+  call `naming::topo_ref_at` / `Evaluated::resolve` instead of its provisional index lookup (lane
+  D, S11 R1/R2).
 
 **Sources:**
 - RustSec RUSTSEC-2026-0250 (https://rustsec.org/advisories/RUSTSEC-2026-0250.html)
@@ -1911,3 +1981,34 @@ DOC-07) already existed; items 1 and 2 landed with IO-14.
   baked bodies (`remove_feature`).
 - Tests: `crates/amg-doc/tests/baked_feature.rs`. No change to `design.json`, `FORMAT_VERSION` or
   existing tests.
+
+### 2026-11-25 - DOC-06 landed (lane E)
+The naming block of Interfaces is replaced by note §10, with these differences:
+- `BodyChangeKind` gains `CreatedFrom { geom, naming, derived_from }` and `Consumed { into }`
+  (the note's `Created { derived_from }` is the separate `CreatedFrom` variant). The engine records
+  lineage (`Evaluated::successors`, `NamingView::derived_from`) and checks that the bodies exist.
+- `NamingBuilder`: as in note §10, plus `finish_report` (returns `NamingReport { unexplained }`
+  for `PartialHistory`) and `finish_topo(&dyn NamingTopology)`; `NamingTopology`, `ShapeTopo`,
+  `SyntheticTopology` are public.
+- Resolver: `resolve(view, kernel, tol, r)` as specified, plus `resolve_with(view, &dyn
+  GeomSource, tol, r)`, `resolve_set(view, geom, tol, refs, policy)`, `GeomSource`,
+  `KernelGeom`, `default_kernel()`, `warning_message`. `NamingView` gains defaulted
+  `derived_from` and `feature_order`.
+- `RecomputeCtx`: `resolve`, `resolve_all`, `resolve_set` (per member, so a feature knows which
+  selection key each entity has), `naming_builder`, `kernel` (default kernel), `with_kernel`.
+  Not done: `resolve_profile`, `region_source`.
+- `Evaluated::resolve(&self, &TopoRef)` (S13 request; default kernel, model tolerance),
+  `Evaluated::add_successor`, `NamingView for Evaluated`. `NodeEval::resolutions`.
+- `GeomCache::{get_with, insert_with}` (resolutions next to the output).
+- `TopoKind` gains `PartialOrd, Ord` and `sub_kind`/`from_sub_kind`; `MatchQuality`, `Resolved`,
+  `ResolveWarning`, `ResolveError` derive serde. `BodyNaming` has a private lazy index (built on
+  the first resolution, dropped by `clone`), so it is built with `BodyNaming::new` or `default`,
+  and gains `list`, `instanced_names` and `estimated_heap_bytes`. `MeshSource` alias for
+  `for_mesh`.
+- `ENGINE_FORMAT_VERSION` 2, `CACHE_FORMAT` 2 (see the Refinement log).
+- Lane D change (compile fix only): `amg-ui/src/select/naming.rs` uses `NameSeg::Gen` and sets
+  `key: 0` / `radius: None` in its `TopoRef`/`GeomFingerprint` literals.
+- **Request to S02 (lane A):** a public `unify_same_domain(&Shape, &UnifyOpts) -> OpResult` on
+  `BrepKernel` (BREP-10). The lane-E test features call the hidden `OcctKernel::unify_coplanar`
+  through `naming::default_kernel()` because the trait has none; S04's BodyOp rule (note §5.1)
+  needs the trait method.

@@ -1,0 +1,15 @@
+{
+ "id": "TNP-20",
+ "phase": "DOC-13",
+ "naive_index_breaks": false,
+ "script": [
+  {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[50,0]],["L",2,[50,0],[50,60]],["L",3,[50,60],[0,60]],["L",4,[0,60],[0,0]],["L",5,[50,0],[100,0]],["L",6,[100,0],[100,60]],["L",7,[100,60],[50,60]]]}},
+  {"bind":"e1","EXT":["$s1",[25,30],"40 mm","NewBody"]},
+  {"bind":"e2","EXT":["$s1",[75,30],"40 mm","Join",["$e1"]]},
+  {"bind":"s2","sketch":{"plane":{"$pick":{"kind":"Face","near":[50,30,40],"class":"Plane"}},"entities":[["C",1,[50,30],5]]}}
+ ],
+ "edit": [
+  {"patch":{"id":"$e2","merge":{"extent":{"Distance":"30 mm"}}}}
+ ],
+ "expect": {"subject":{"feature":"$s2","ref":0},"outcome":"Error","error":"Ambiguous","intended":null}
+}

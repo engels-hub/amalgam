@@ -271,10 +271,11 @@ fn keys_are_deterministic_and_independent_of_the_document_uuid() {
     assert_eq!(hex, GOLDEN, "cache keys changed; see comment");
 }
 
+// ENGINE_FORMAT_VERSION 2 (DOC-06): the key hashes the feature id, the salt NAMING_VERSION.
 const GOLDEN: [&str; 3] = [
-    "0dafe2e4e1ebf1782762010135fadbe9b7d3730606a72f3bef138687427b2c53",
-    "c3f298ea0a8057ee0e67e922a9d83e606443fb4427f0faf52516dfc7be0b6f98",
-    "855b530f1143ead506e85b7af9910f183d2f015e6a25cdb6075216acb3de7617",
+    "cec4ff57e53aab1db77acbef65f967dae17ea8ff81bb9fd1ae496905304063c9",
+    "231f44fa939c1229b1ad63e6597c3f1114864b558a5547ef178ac842b3f0e9c5",
+    "9d24956dce62d852c8fb8aea7a378510694bdaba09b141e6b11a167e9f5c9665",
 ];
 
 #[test]
@@ -451,4 +452,31 @@ fn cancellation_keeps_finished_features_cached() {
     let r = run(&d, &cache);
     assert_eq!(r.cached, vec![a, b]);
     assert_eq!(r.computed, vec![x, c]);
+}
+
+// ---- DOC-06: the cache key includes the feature id (S05 INS-10 finding) ---------------------
+
+#[test]
+fn identical_features_in_one_component_get_their_own_outputs() {
+    let mut d = Design::new("twins");
+    let cache = GeomCache::new(1 << 30);
+    let a = add(&mut d, counter(&[], 5, false));
+    let b = add(&mut d, counter(&[], 5, false));
+    let r = run(&d, &cache);
+    assert_eq!(
+        r.computed,
+        vec![a, b],
+        "the twin is computed, not served from the cache"
+    );
+    assert_ne!(key_of(&r.evaluated, a), key_of(&r.evaluated, b));
+    assert!(r.evaluated.body(body(a)).is_some());
+    assert!(
+        r.evaluated.body(body(b)).is_some(),
+        "the second body exists"
+    );
+    assert_eq!(r.evaluated.bodies().count(), 2);
+    // Both stay cached, each under its own key.
+    let again = run(&d, &cache);
+    assert_eq!(again.cached, vec![a, b]);
+    assert_eq!(again.evaluated.bodies().count(), 2);
 }

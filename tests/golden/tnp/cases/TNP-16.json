@@ -1,0 +1,17 @@
+{
+ "id": "TNP-16",
+ "phase": "DOC-13",
+ "naive_index_breaks": true,
+ "script": [
+  {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[100,0]],["L",2,[100,0],[100,60]],["L",3,[100,60],[0,60]],["L",4,[0,60],[0,0]]]}},
+  {"bind":"plate","EXT":["$s1",[50,30],"10 mm","NewBody"]},
+  {"bind":"s2","sketch":{"plane":"XY","entities":[["C",11,[20,30],5],["C",12,[50,30],5],["C",13,[80,30],5]]}},
+  {"bind":"holes","EXTN":["$s2",[[20,30],[50,30],[80,30]],"All","Cut",["$plate"]]},
+  {"bind":"cha","CHA":[{"$pick":{"kind":"Edge","near":[85,30,10],"class":"Circle"}},"1 mm"]}
+ ],
+ "edit": [
+  {"sketch_edit":{"id":"$s2","remove":[11]}},
+  {"patch":{"id":"$holes","merge":{"profiles":[{"$profile":{"sketch":"$s2","at":[50,30]}},{"$profile":{"sketch":"$s2","at":[80,30]}}]}}}
+ ],
+ "expect": {"subject":{"feature":"$cha","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Circle","centroid":[80,30,10],"measure":31.41593}}
+}

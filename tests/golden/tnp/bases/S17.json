@@ -1,0 +1,8 @@
+[
+ {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[-50,-50],[50,-50]],["L",2,[50,-50],[50,50]],["L",3,[50,50],[-50,50]],["L",4,[-50,50],[-50,-50]]]}},
+ {"bind":"plate","EXT":["$s1",[0,0],"10 mm","NewBody"]},
+ {"bind":"s2","sketch":{"plane":"XY","entities":[["C",1,[30,0],4]]}},
+ {"bind":"hole","EXT":["$s2",[30,0],"All","Cut",["$plate"]]},
+ {"bind":"pat","cmd":{"AddFeature":{"at":null,"feature":{"kind":"solid.pattern_circular","v":1,"data":{"features":["$hole"],"axis":"OriginZ","count":"6","angle":"360 deg"}},"context":"$root","name":null}}},
+ {"bind":"cha","CHA":[{"$pick":{"kind":"Edge","near":[-26,0,10],"class":"Circle"}},"0.5 mm"]}
+]

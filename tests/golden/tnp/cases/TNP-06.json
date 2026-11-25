@@ -1,0 +1,11 @@
+{
+ "id": "TNP-06",
+ "phase": "DOC-06",
+ "naive_index_breaks": false,
+ "base": "B1",
+ "script": "S6",
+ "edit": [
+  {"patch":{"id":"$slot","merge":{"points":[[51,55,-10],[52,65,-10],[53,65,70],[54,55,70]]}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Line","centroid":[82.5,0,40],"measure":35}}
+}
