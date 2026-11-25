@@ -25,12 +25,17 @@ use std::time::{Duration, Instant};
 
 use amg_core::Transform;
 use amg_core::units::LengthUnit;
-use amg_doc::{BodyGeom, BodyId, Evaluated};
+use amg_doc::{
+    BodyChange, BodyChangeKind, BodyGeom, BodyId, Command as DocCommand, Dependency, Evaluated,
+    Feature, FeatureBox as BoxedFeature, FeatureError, FeatureOutput, RecomputeCtx,
+};
+use amg_features::io::ExportRefinement;
 use amg_io::{
     ExportOptions, Format, ImportOptions, Scene, SceneNode, SceneObject, Sink, SlicerFlavor,
     Source, ValidityPolicy,
 };
 use amg_mesh::IndexedMesh;
+use amg_ui::app::CommitBatch as Batch;
 use amg_ui::io::{
     EXPORT_CMD, ExportDialog, INSERT_MESH_CMD, ImportDialog, UnitSel, prefs, set_prefs_path,
 };
@@ -579,6 +584,122 @@ fn export_with_holes_shows_the_report_and_repair_first_exports() {
     let check =
         amg_io::check_export(&back.scene, Format::ThreeMf, &amg_jobs::JobCtx::detached()).unwrap();
     assert!(check.is_valid(), "{check:?}");
+}
+
+/// A solid body without a B-rep (what a build without a kernel can hold).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct SolidStub;
+
+impl Feature for SolidStub {
+    fn inputs(&self) -> Vec<Dependency> {
+        Vec::new()
+    }
+
+    fn compute(&self, ctx: &mut RecomputeCtx<'_>) -> Result<FeatureOutput, FeatureError> {
+        Ok(FeatureOutput {
+            bodies: vec![BodyChange {
+                id: ctx.new_body_id(0),
+                change: BodyChangeKind::Created {
+                    geom: BodyGeom::Solid(amg_doc::stub::Shape::new()),
+                    naming: None,
+                },
+            }],
+            ..FeatureOutput::default()
+        })
+    }
+}
+
+amg_doc::register_feature!(SolidStub, "uitest.io09_solid", version = 1);
+
+/// Whether this test build links the geometry kernel (feature unification can turn it on).
+fn amg_brep_backend() -> bool {
+    amg_features::io::kernel_available()
+}
+
+/// IO-09: the refinement preset shows only with a solid body, is remembered per format, and a
+/// solid body that cannot be tessellated ends in an error toast.
+#[test]
+fn export_refinement_preset_is_shown_for_solids_and_remembered() {
+    let e = env("refinement");
+    let src = e.dir.join("ok.stl");
+    write_scene(&scene_of(vec![sphere()]), Format::Stl, &src);
+    let (mut h, fake) = harness();
+    insert_by_drop(&mut h, &src);
+    let open = |h: &mut AppHarness| {
+        h.app_mut().request_command(EXPORT_CMD);
+        h.kittest().step();
+        h.kittest().step();
+    };
+    open(&mut h);
+    assert!(
+        h.kittest().query_by_label("Refinement").is_none(),
+        "mesh bodies only"
+    );
+    click(&mut h, "Cancel");
+
+    let root = h.document().design().root();
+    h.app_mut().submit(Batch {
+        label: "Solid".into(),
+        commands: vec![DocCommand::AddFeature {
+            at: None,
+            feature: BoxedFeature::new(SolidStub),
+            context: root,
+            name: None,
+        }],
+    });
+    h.drive_until_idle();
+    open(&mut h);
+    assert!(h.kittest().query_by_label("Refinement").is_some());
+    let custom = ExportRefinement::Custom {
+        surface_deviation_mm: 0.05,
+        normal_deviation_rad: 0.2,
+    };
+    {
+        let d = h.app_mut().dialog_mut::<ExportDialog>().unwrap();
+        assert_eq!(d.refinement(), ExportRefinement::Medium, "default");
+        d.set_format(Format::ThreeMf);
+        d.set_refinement(custom);
+    }
+    h.kittest().step();
+    assert!(h.kittest().query_by_label("Surface deviation").is_some());
+    let out = e.dir.join("solid.3mf");
+    fake.answer(Some(out.clone()));
+    click(&mut h, "OK");
+    wait(&mut h, 60, "error", |h| {
+        h.app()
+            .notifications()
+            .items()
+            .iter()
+            .any(|t| t.notification.title == "Error")
+    });
+    h.kittest().step();
+    assert!(!out.exists());
+    assert!(
+        h.kittest().query_by_label("Refinement").is_some(),
+        "back on the form"
+    );
+    // The default build says the kernel is missing; with `occt`, that the stub has no faces.
+    let why = if amg_brep_backend() {
+        "has no faces to export"
+    } else {
+        "geometry kernel is not available"
+    };
+    assert!(
+        h.app()
+            .notifications()
+            .items()
+            .iter()
+            .any(|t| t.notification.body.contains(why)),
+        "{:?}",
+        h.app().notifications().items()
+    );
+    assert_eq!(prefs::load().export_for(Format::ThreeMf).refinement, custom);
+    click(&mut h, "Cancel");
+    open(&mut h);
+    assert_eq!(
+        h.app().dialog::<ExportDialog>().unwrap().refinement(),
+        custom
+    );
 }
 
 #[test]

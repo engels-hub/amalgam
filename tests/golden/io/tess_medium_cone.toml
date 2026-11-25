@@ -1,0 +1,28 @@
+# Golden metrics for io/tess_medium_cone. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 406.1718319591125
+area = 320.09514184337536
+vertices = 258
+triangles = 512
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -4.989726963751682,
+    -4.997431081003439,
+    0.0,
+]
+max = [
+    5.0,
+    4.997431081003439,
+    10.0,
+]

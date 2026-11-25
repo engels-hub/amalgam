@@ -2267,3 +2267,14 @@ Every change is inside lane A's crates. No other lane's files changed.
 - **For S20:** `compose` is available (R8). `capture::SubShapeGeom` may move to the S02
   `SubShapeGeom`; that would change the dump format.
 - No new dependency. New bench `benches/history.rs` (`[[bench]]` in `amg-brep/Cargo.toml`).
+
+### 2026-11-25: tessellation speed, measured by IO-09 (note for lane A, no code change)
+- 3MF export of a 1 000-face solid is bound by `BrepKernel::tessellate` on large planar faces with
+  many boundary points (release, absolute 0.025 mm / 15°): `plate_with_holes` 9.6 s (BREP-18), and
+  a wheel whose side faces alternate 499 planes and 499 cylinders, with two caps, about 0.40 s per
+  call, 0.38 s of it in `BRepMesh_IncrementalMesh` (a leftover for BREP-18: the caps have no holes,
+  only long curved outer boundaries). The part is `scalloped_wheel_1000` in
+  `crates/amg-features/tests/io_tess_common/mod.rs`; see the S12 IO-09 log.
+- OCCT's mesh can exceed the requested linear deflection: a sphere (r = 7 mm fixture) at 0.005 mm /
+  10° measured 0.010 mm. IO-09 re-tessellates tighter in its adapter.
+

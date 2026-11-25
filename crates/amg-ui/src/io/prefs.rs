@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use amg_core::units::LengthUnit;
+use amg_features::io::ExportRefinement;
 use amg_io::{Format, SlicerFlavor, UpAxis};
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +50,9 @@ pub struct ExportPref {
     pub binary: bool,
     /// OBJ: write the `.mtl`.
     pub mtl: bool,
+    /// Tessellation preset of the solid bodies (IO-09).
+    #[serde(default)]
+    pub refinement: ExportRefinement,
 }
 
 impl Default for ExportPref {
@@ -60,6 +64,7 @@ impl Default for ExportPref {
             ascii: false,
             binary: true,
             mtl: true,
+            refinement: ExportRefinement::Medium,
         }
     }
 }
@@ -208,6 +213,10 @@ mod tests {
             Format::ThreeMf,
             ExportPref {
                 flavor: SlicerFlavor::Orca,
+                refinement: ExportRefinement::Custom {
+                    surface_deviation_mm: 0.05,
+                    normal_deviation_rad: 0.2,
+                },
                 ..ExportPref::default()
             },
         );
@@ -217,5 +226,10 @@ mod tests {
         // A file written before a field existed still loads.
         let old: IoPrefs = serde_json::from_str("{}").unwrap();
         assert_eq!(old, p);
+        // So does a format's entry from before the refinement preset (IO-09).
+        let mut v = serde_json::to_value(ExportPref::default()).unwrap();
+        v.as_object_mut().unwrap().remove("refinement");
+        let before: ExportPref = serde_json::from_value(v).unwrap();
+        assert_eq!(before.refinement, ExportRefinement::Medium);
     }
 }

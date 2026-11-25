@@ -13,7 +13,8 @@
 //!   (a registered [`crate::dialog::DropHandler`]); the reader sniffs the format, and a file it
 //!   cannot read ends in the `IoError` toast with its hint.
 //! - **Export** ([`ExportDialog`]): format, selection (all visible / selected bodies), unit,
-//!   3MF flavour (Generic, Orca/Bambu), the validity report with "Repair first" (adds MESH-04
+//!   3MF flavour (Generic, Orca/Bambu), the refinement preset when a solid body exists
+//!   (IO-09: Low, Medium, High, Custom), the validity report with "Repair first" (adds MESH-04
 //!   `mesh.repair` features, then exports) and "Export anyway", progress and Cancel.
 //! - **Remembered choices** per format in `io-prefs.json` ([`prefs`]).
 //!

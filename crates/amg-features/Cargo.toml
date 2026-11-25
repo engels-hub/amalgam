@@ -60,6 +60,12 @@ harness = false
 name = "inspect_props"
 harness = false
 
+# IO-09: solid bodies to 3MF through the OCCT tessellation.
+[[bench]]
+name = "io_tessellate"
+harness = false
+required-features = ["occt"]
+
 [features]
 # Links the OCCT backend of amg-brep, for tests on real B-rep solids (S06 ASM-09). Needs
 # AMG_OCCT_DIR like amg-brep's own `occt` feature.

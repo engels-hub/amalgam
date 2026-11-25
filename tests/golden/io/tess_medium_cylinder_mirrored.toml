@@ -1,0 +1,28 @@
+# Golden metrics for io/tess_medium_cylinder_mirrored. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 1566.4952306351972
+area = 784.5376788745084
+vertices = 98
+triangles = 192
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -8.0,
+    -3.9974310810034392,
+    0.0,
+]
+max = [
+    1.9897269637516821,
+    5.997431081003439,
+    20.0,
+]

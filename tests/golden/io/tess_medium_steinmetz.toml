@@ -1,0 +1,28 @@
+# Golden metrics for io/tess_medium_steinmetz. Written by `AMG_BLESS=1`; tolerances are kept
+# across blesses and may be edited by hand. Spec: S00 §5.
+
+[tolerances]
+volume_rel = 0.000001
+area_rel = 0.000001
+bbox_abs = 0.000001
+
+[metrics]
+volume = 1149.6425146058214
+area = 575.3408721229733
+vertices = 130
+triangles = 256
+boundary_edges = 0
+non_manifold_edges = 0
+euler = 2
+
+[metrics.bbox]
+min = [
+    -6.0,
+    -6.0,
+    -6.0,
+]
+max = [
+    6.0,
+    6.0,
+    6.0,
+]
