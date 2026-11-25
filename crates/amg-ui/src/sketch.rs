@@ -13,12 +13,17 @@
 //! - [`tools`]: Create Sketch, the session's select & drag tool ([`SKETCH_SELECT_CMD`]; SK-05
 //!   `DragSession`, release = one `CommitDrag`), and [`LINE_CMD`] (chained lines with
 //!   inference, heads-up input and tangent-arc drag-back).
+//! - [`shapes`] and [`create`] (UI-13): the other creation tools ([`CreateKind`]: rectangles,
+//!   circles, arcs, polygon, slots, ellipse, point) on the SK-21 / SK-22 builders, with the
+//!   same inference and heads-up input; [`CONSTRUCTION_CMD`] (`X`) toggles construction.
 //! - [`FINISH_SKETCH_CMD`], Esc with no sketch tool running and the palette's Finish button
 //!   leave the session.
 
+pub mod create;
 pub mod infer;
 pub mod palette;
 pub mod session;
+pub mod shapes;
 pub mod solver;
 pub mod tools;
 pub mod view;
@@ -27,13 +32,15 @@ use crate::command::{CmdAction, CmdId, CommandDef, Enablement, Enabler, Placemen
 use crate::design::SKETCH_CONTEXT;
 use crate::module::{GroupId, Registrar, UiModule};
 use crate::tool::{Tool, ToolInit};
-use crate::{app::CmdEnv, timeline};
+use crate::{app::AppCx, app::CmdEnv, timeline};
 
+pub use create::CreateTool;
 pub use infer::{Anchor, Inference};
 pub use session::{
     Inferred, PaletteOptions, SKETCH_LAYER, SKETCH_SELECT_CMD, SessionStats, SketchLayer,
     SketchSession,
 };
+pub use shapes::{CreateKind, PolygonOptions};
 pub use tools::{CreateSketchTool, HeadsUp, LineTool, SketchSelectTool};
 
 inventory::submit! { UiModule { id: "sketch", register } }
@@ -44,6 +51,8 @@ pub const CREATE_SKETCH_CMD: CmdId = CmdId("sketch.sketch");
 pub const FINISH_SKETCH_CMD: CmdId = CmdId("sketch.finish");
 /// The Line tool.
 pub const LINE_CMD: CmdId = CmdId("sketch.line");
+/// Normal / construction toggle.
+pub const CONSTRUCTION_CMD: CmdId = CmdId("sketch.construction");
 
 fn in_sketch(env: &CmdEnv<'_>) -> Enablement {
     if env.contexts.contains(&SKETCH_CONTEXT) {
@@ -71,6 +80,42 @@ fn start_select(init: &ToolInit<'_>) -> Box<dyn Tool> {
 
 fn start_line(init: &ToolInit<'_>) -> Box<dyn Tool> {
     Box::new(LineTool::new(init))
+}
+
+/// The tool factory of a creation tool (command actions are plain function pointers).
+fn start_shape(kind: CreateKind) -> fn(&ToolInit<'_>) -> Box<dyn Tool> {
+    macro_rules! start {
+        ($k:ident) => {
+            |init| Box::new(CreateTool::new(CreateKind::$k, init))
+        };
+    }
+    match kind {
+        CreateKind::Rect2Point => start!(Rect2Point),
+        CreateKind::Rect3Point => start!(Rect3Point),
+        CreateKind::RectCenter => start!(RectCenter),
+        CreateKind::CircleCenter => start!(CircleCenter),
+        CreateKind::Circle2Point => start!(Circle2Point),
+        CreateKind::Circle3Point => start!(Circle3Point),
+        CreateKind::Circle2Tangent => start!(Circle2Tangent),
+        CreateKind::Arc3Point => start!(Arc3Point),
+        CreateKind::ArcCenter => start!(ArcCenter),
+        CreateKind::ArcTangent => start!(ArcTangent),
+        CreateKind::Polygon => start!(Polygon),
+        CreateKind::SlotCenterToCenter => start!(SlotCenterToCenter),
+        CreateKind::SlotOverall => start!(SlotOverall),
+        CreateKind::SlotCenterPoint => start!(SlotCenterPoint),
+        CreateKind::SlotArc => start!(SlotArc),
+        CreateKind::Ellipse => start!(Ellipse),
+        CreateKind::Point => start!(Point),
+    }
+}
+
+fn toggle_construction(cx: &mut AppCx<'_>) {
+    session::with_session(cx, |s, app| {
+        if let Err(e) = s.toggle_construction(app) {
+            tracing::debug!("construction toggle skipped: {e}");
+        }
+    });
 }
 
 /// Registers the sketch commands, the session layer and the timeline info of sketches.
@@ -134,6 +179,41 @@ pub fn register(r: &mut Registrar<'_>) {
                 pinned: true,
                 order: 0,
             }),
+    );
+    let create_group = |pinned, order| Placement::Toolbar {
+        group: GroupId("design.sketch.create"),
+        pinned,
+        order,
+    };
+    for (i, kind) in (1..).zip(CreateKind::ALL) {
+        let def = kind.def();
+        let action = CmdAction::StartTool(start_shape(kind));
+        let mut cmd = CommandDef::new(def.id.0, def.label, action)
+            .with_icon(def.icon)
+            .with_tooltip(def.tooltip)
+            .with_keywords(def.keywords)
+            .with_enabler(Enabler::When(in_sketch))
+            .placed(create_group(def.pinned, i * 10));
+        if let Some(shortcut) = def.shortcut {
+            cmd = cmd.with_shortcut(shortcut);
+        }
+        r.command(cmd);
+    }
+    r.command(
+        CommandDef::new(
+            CONSTRUCTION_CMD.0,
+            "Normal / Construction",
+            CmdAction::Run(toggle_construction),
+        )
+        .with_icon(ids::CONSTRUCTION)
+        .with_tooltip(
+            "Toggle the selected curves between normal and construction geometry (nothing \
+             selected: the style of new geometry)",
+        )
+        .with_keywords(&["sketch", "construction", "centreline", "reference"])
+        .with_shortcut("sketch:X")
+        .with_enabler(Enabler::When(in_sketch))
+        .placed(create_group(false, 1000)),
     );
     r.command(
         CommandDef::new(

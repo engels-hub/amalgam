@@ -137,6 +137,42 @@ icon_set! {
     LINE = "line",
     /// Finish Sketch (UI-09).
     SKETCH_FINISH = "circle-check",
+    /// 2-point rectangle (UI-13).
+    RECT_2PT = "rectangle",
+    /// 3-point rectangle (UI-13).
+    RECT_3PT = "square-rotated",
+    /// Centre rectangle (UI-13).
+    RECT_CENTER = "square-dot",
+    /// Centre circle (UI-13).
+    CIRCLE_CENTER = "circle-dot",
+    /// 2-point circle (UI-13).
+    CIRCLE_2PT = "circle-number-2",
+    /// 3-point circle (UI-13).
+    CIRCLE_3PT = "circle-number-3",
+    /// 2-tangent circle (UI-13).
+    CIRCLE_2TANGENT = "circles-relation",
+    /// 3-point arc (UI-13).
+    ARC_3PT = "vector-bezier-arc",
+    /// Centre point arc (UI-13).
+    ARC_CENTER = "circle-half",
+    /// Tangent arc (UI-13).
+    ARC_TANGENT = "vector-spline",
+    /// Polygon (UI-13).
+    POLYGON = "polygon",
+    /// Centre to centre slot (UI-13).
+    SLOT_CENTER = "capsule-horizontal",
+    /// Overall slot (UI-13).
+    SLOT_OVERALL = "capsule",
+    /// Centre point slot (UI-13).
+    SLOT_CENTER_POINT = "pill",
+    /// Arc slot (UI-13).
+    SLOT_ARC = "chart-arcs",
+    /// Sketch point (UI-13).
+    POINT = "point",
+    /// Ellipse (UI-13).
+    ELLIPSE = "oval",
+    /// Construction toggle (UI-13).
+    CONSTRUCTION = "line-dashed",
     /// Select tool.
     SELECT = "pointer",
     /// Folder node.

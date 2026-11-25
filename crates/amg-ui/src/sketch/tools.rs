@@ -7,13 +7,15 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use amg_core::{Dimension as Dim, Plane, Point2, Vec2};
-use amg_doc::{Command, ConstructionGeom, EntityRef, Expr, ExprSrc, FeatureBox, UnitPrefs};
+use amg_doc::{
+    Command, ConstructionGeom, EntityRef, Expr, ExprSrc, FeatureBox, ParamTable, UnitPrefs,
+};
 use amg_features::sketch::{PlaneInput, SketchEdit, SketchFeature};
 use amg_render::{DepthMode, LabelStyle, LineStyle, OverlayList, PointStyle};
 use amg_sketch::query::{self, PickFilter, SnapKind};
 use amg_sketch::{
     AngleBranch, ConstraintKind, Dimension, DimensionKind, EditResult, End, EntityId, EntityKind,
-    Sketch, TangentKind,
+    Sketch, SketchError, TangentKind,
 };
 
 use super::infer::{Anchor, InferInput, Inference, SNAP_RADIUS_PT, infer};
@@ -31,16 +33,18 @@ pub const PICK_RADIUS_PT: f64 = 6.0;
 
 /// What the sketch tools cache from the session each frame (for `overlay` and hints).
 #[derive(Clone, Debug, Default)]
-struct Cached {
-    plane: Option<Plane>,
-    sketch: Option<Arc<Sketch>>,
+pub(super) struct Cached {
+    pub(super) plane: Option<Plane>,
+    pub(super) sketch: Option<Arc<Sketch>>,
     dof: Option<u32>,
-    grid: bool,
-    busy: bool,
+    pub(super) grid: bool,
+    pub(super) busy: bool,
+    /// New geometry is construction geometry (`X`).
+    pub(super) construction: bool,
 }
 
 impl Cached {
-    fn refresh(&mut self, cx: &mut ToolCx<'_>) -> bool {
+    pub(super) fn refresh(&mut self, cx: &mut ToolCx<'_>) -> bool {
         let got = with_session(cx.app(), |s, _| {
             (
                 *s.plane(),
@@ -48,10 +52,12 @@ impl Cached {
                 s.dof().map(|d| d.dof),
                 s.palette.snap,
                 s.is_busy(),
+                s.construction,
             )
         });
         match got {
-            Some((plane, sketch, dof, grid, busy)) => {
+            Some((plane, sketch, dof, grid, busy, construction)) => {
+                self.construction = construction;
                 self.plane = Some(plane);
                 self.sketch = Some(sketch);
                 self.dof = dof;
@@ -66,7 +72,7 @@ impl Cached {
         }
     }
 
-    fn dof_text(&self) -> String {
+    pub(super) fn dof_text(&self) -> String {
         match self.dof {
             Some(n) => format!("DOF: {n}"),
             None => "DOF: …".to_owned(),
@@ -88,7 +94,7 @@ pub fn nice_step(min: f64) -> f64 {
 }
 
 /// The cursor on the sketch plane and the mm-per-point there.
-fn cursor_on(
+pub(super) fn cursor_on(
     plane: &Plane,
     view: Option<&CameraView>,
     ray: &amg_core::Ray3,
@@ -97,7 +103,7 @@ fn cursor_on(
     Some((p, mm_per_point(view, plane, p)))
 }
 
-fn mods_ctrl(m: egui::Modifiers) -> bool {
+pub(super) fn mods_ctrl(m: egui::Modifiers) -> bool {
     m.ctrl || m.command
 }
 
@@ -321,7 +327,18 @@ impl Tool for SketchSelectTool {
     }
 
     fn status_hint(&self) -> Option<Cow<'static, str>> {
-        Some(format!("{} · click to select, drag to move", self.cache.dof_text()).into())
+        let construction = if self.cache.construction {
+            " · construction"
+        } else {
+            ""
+        };
+        Some(
+            format!(
+                "{} · click to select, drag to move{construction}",
+                self.cache.dof_text()
+            )
+            .into(),
+        )
     }
 
     fn update(&mut self, cx: &mut ToolCx<'_>) {
@@ -592,10 +609,17 @@ impl LineTool {
         let inf2 = inf.clone();
         let st = start.clone();
         let res = with_session(cx.app(), |s, app| {
+            let construction = s.construction;
             s.commit_op(
                 app,
                 "Line",
-                |f| f.apply(SketchEdit::AddLine { a, b }),
+                |f| {
+                    let res = f.apply(SketchEdit::AddLine { a, b })?;
+                    if construction {
+                        f.edit_sketch(|sk| mark_construction(sk, &res.created))?;
+                    }
+                    Ok(res)
+                },
                 |res, sk| line_follow_ups(res, sk, &st, &inf2, dims.as_ref()),
             )
         });
@@ -643,15 +667,22 @@ impl LineTool {
         };
         let st = start.clone();
         let res = with_session(cx.app(), |s, app| {
+            let construction = s.construction;
             s.commit_op(
                 app,
                 "Tangent arc",
                 |f| {
-                    f.edit_sketch(|sk| sk.add_arc(arc.center, arc.start, arc.end))
-                        .map(|id| EditResult {
-                            created: vec![id],
-                            ..EditResult::default()
-                        })
+                    f.edit_sketch(|sk| {
+                        let id = sk.add_arc(arc.center, arc.start, arc.end)?;
+                        if construction {
+                            mark_construction(sk, &[id])?;
+                        }
+                        Ok(id)
+                    })
+                    .map(|id| EditResult {
+                        created: vec![id],
+                        ..EditResult::default()
+                    })
                 },
                 |res, sk| {
                     let mut edits = Vec::new();
@@ -727,23 +758,10 @@ impl LineTool {
         };
         let params = cx.env().design.params().clone();
         let prefs = UnitPrefs::default();
-        let eval = |src: &str, dim: Dim, unit: &str| -> Option<(f64, Expr)> {
-            let src = src.trim();
-            if src.is_empty() {
-                return None;
-            }
-            let text = if src.parse::<f64>().is_ok() {
-                format!("{src} {unit}")
-            } else {
-                src.to_owned()
-            };
-            let q = params.try_eval(&text, Some(dim), &prefs).ok()?;
-            Some((q.value, Expr::Inline(ExprSrc(text))))
-        };
         let cursor = self.cursor.unwrap_or(start.at + Vec2::X);
         let here = cursor - start.at;
-        let length = eval(&hu.fields[0], Dim::LENGTH, "mm");
-        let angle = eval(&hu.fields[1], Dim::ANGLE, "deg");
+        let length = eval_typed(&params, &prefs, &hu.fields[0], Dim::LENGTH);
+        let angle = eval_typed(&params, &prefs, &hu.fields[1], Dim::ANGLE);
         let len = length.as_ref().map_or(here.length(), |(v, _)| *v);
         if !(len.is_finite() && len > 1e-9) {
             return;
@@ -906,6 +924,40 @@ impl LineTool {
     }
 }
 
+/// Evaluates a heads-up field: a bare number takes the default unit (mm, deg), anything else
+/// is an S01 expression of dimension `dim`. Returns the value (mm, rad) and the expression.
+pub(super) fn eval_typed(
+    params: &ParamTable,
+    prefs: &UnitPrefs,
+    src: &str,
+    dim: Dim,
+) -> Option<(f64, Expr)> {
+    let src = src.trim();
+    if src.is_empty() {
+        return None;
+    }
+    let unit = if dim == Dim::ANGLE { "deg" } else { "mm" };
+    let text = if src.parse::<f64>().is_ok() {
+        format!("{src} {unit}")
+    } else {
+        src.to_owned()
+    };
+    let q = params.try_eval(&text, Some(dim), prefs).ok()?;
+    Some((q.value, Expr::Inline(ExprSrc(text))))
+}
+
+/// Marks the curves among `ids` as construction geometry.
+pub(super) fn mark_construction(s: &mut Sketch, ids: &[EntityId]) -> Result<(), SketchError> {
+    for &id in ids {
+        if s.entity(id)
+            .is_some_and(|e| !matches!(e.kind, EntityKind::Point { .. }))
+        {
+            s.set_construction(id, true)?;
+        }
+    }
+    Ok(())
+}
+
 /// Heads-up values of one segment.
 #[derive(Clone, Debug)]
 struct TypedDims {
@@ -926,7 +978,7 @@ fn line_ends(s: &Sketch, line: EntityId) -> Option<(EntityId, EntityId)> {
 }
 
 /// Unit direction of travel of curve `e` at its end `end` (out of the chain point).
-fn travel_dir(s: &Sketch, e: EntityId, end: End) -> Option<Vec2> {
+pub(super) fn travel_dir(s: &Sketch, e: EntityId, end: End) -> Option<Vec2> {
     let c = s.curve(e)?;
     let (t0, t1) = c.param_range();
     let d = match end {

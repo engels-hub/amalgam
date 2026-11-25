@@ -144,6 +144,8 @@ pub struct SketchSession {
     pending: Option<PendingCommit>,
     /// Display and snap options.
     pub palette: PaletteOptions,
+    /// Construction mode: new geometry is construction geometry (`X`).
+    pub construction: bool,
     /// Selected sketch entities.
     pub selected: BTreeSet<EntityId>,
     /// The entity under the cursor (set by the sketch tools each frame).
@@ -208,6 +210,7 @@ impl SketchSession {
             drag: None,
             pending: None,
             palette: PaletteOptions::default(),
+            construction: false,
             selected: BTreeSet::new(),
             hovered: None,
             inference: None,
@@ -363,6 +366,36 @@ impl SketchSession {
         // Reload from whatever the design holds next frame (also after a failed edit).
         self.synced = None;
         self.stats.commits += 1;
+    }
+
+    /// The Construction command (`X`): turns the selected curves into construction geometry,
+    /// or back to normal when all of them are construction already (one undo entry). With no
+    /// curve selected it flips [`construction`](Self::construction), the mode of new geometry.
+    ///
+    /// # Errors
+    /// The sketch is busy with an earlier edit.
+    pub fn toggle_construction(&mut self, cx: &mut AppCx<'_>) -> Result<(), SketchError> {
+        let curves: Vec<(EntityId, bool)> = self
+            .selected
+            .iter()
+            .filter_map(|&id| {
+                let e = self.working.sketch.entity(id)?;
+                (!matches!(e.kind, EntityKind::Point { .. })).then_some((id, e.construction))
+            })
+            .collect();
+        if curves.is_empty() {
+            self.construction = !self.construction;
+            cx.request_repaint();
+            return Ok(());
+        }
+        let on = !curves.iter().all(|(_, c)| *c);
+        let edits = curves
+            .into_iter()
+            .map(|(id, _)| SketchEdit::SetConstruction { id, on })
+            .collect();
+        let batch = SketchEdit::Batch(edits);
+        self.commit(cx, "Toggle construction", batch, Vec::new())?;
+        Ok(())
     }
 
     /// Starts dragging `entity` grabbed at `grab` (sketch coordinates). False if the entity
