@@ -16,10 +16,18 @@
 //! - [`shapes`] and [`create`] (UI-13): the other creation tools ([`CreateKind`]: rectangles,
 //!   circles, arcs, polygon, slots, ellipse, point) on the SK-21 / SK-22 builders, with the
 //!   same inference and heads-up input; [`CONSTRUCTION_CMD`] (`X`) toggles construction.
+//! - [`constrain`], [`dimension`] and [`glyphs`] (UI-14): the twelve constraint tools
+//!   ([`ConstraintTool`], SKETCH ▸ Constraints), Sketch Dimension (`D`; the kind follows the
+//!   picks and the label placement), the SK-04 check with the "Create as driven dimension?"
+//!   prompt, constraint glyph icons (hover lights up the constrained entities; click selects,
+//!   Delete removes), inline dimension editing (double-click a label) and label drag.
 //! - [`FINISH_SKETCH_CMD`], Esc with no sketch tool running and the palette's Finish button
 //!   leave the session.
 
+pub mod constrain;
 pub mod create;
+pub mod dimension;
+pub mod glyphs;
 pub mod infer;
 pub mod palette;
 pub mod session;
@@ -34,11 +42,13 @@ use crate::module::{GroupId, Registrar, UiModule};
 use crate::tool::{Tool, ToolInit};
 use crate::{app::AppCx, app::CmdEnv, timeline};
 
+pub use constrain::{ConstrainTool, ConstraintTool};
 pub use create::CreateTool;
+pub use dimension::{DIMENSION_DEF, DimensionEditDialog, DimensionTool, DrivenPromptDialog};
 pub use infer::{Anchor, Inference};
 pub use session::{
-    Inferred, PaletteOptions, SKETCH_LAYER, SKETCH_SELECT_CMD, SessionStats, SketchLayer,
-    SketchSession,
+    DrivenOffer, Inferred, PaletteOptions, SKETCH_LAYER, SKETCH_SELECT_CMD, SessionStats,
+    SketchLayer, SketchSession,
 };
 pub use shapes::{CreateKind, PolygonOptions};
 pub use tools::{CreateSketchTool, HeadsUp, LineTool, SketchSelectTool};
@@ -108,6 +118,33 @@ fn start_shape(kind: CreateKind) -> fn(&ToolInit<'_>) -> Box<dyn Tool> {
         CreateKind::Ellipse => start!(Ellipse),
         CreateKind::Point => start!(Point),
     }
+}
+
+/// The tool factory of a constraint tool.
+fn start_constraint(tool: ConstraintTool) -> fn(&ToolInit<'_>) -> Box<dyn Tool> {
+    macro_rules! start {
+        ($k:ident) => {
+            |init| Box::new(ConstrainTool::new(ConstraintTool::$k, init))
+        };
+    }
+    match tool {
+        ConstraintTool::HorizontalVertical => start!(HorizontalVertical),
+        ConstraintTool::Coincident => start!(Coincident),
+        ConstraintTool::Tangent => start!(Tangent),
+        ConstraintTool::Equal => start!(Equal),
+        ConstraintTool::Parallel => start!(Parallel),
+        ConstraintTool::Perpendicular => start!(Perpendicular),
+        ConstraintTool::Fix => start!(Fix),
+        ConstraintTool::Midpoint => start!(Midpoint),
+        ConstraintTool::Concentric => start!(Concentric),
+        ConstraintTool::Collinear => start!(Collinear),
+        ConstraintTool::Symmetric => start!(Symmetric),
+        ConstraintTool::Curvature => start!(Curvature),
+    }
+}
+
+fn start_dimension(init: &ToolInit<'_>) -> Box<dyn Tool> {
+    Box::new(DimensionTool::new(init))
 }
 
 fn toggle_construction(cx: &mut AppCx<'_>) {
@@ -215,6 +252,38 @@ pub fn register(r: &mut Registrar<'_>) {
         .with_enabler(Enabler::When(in_sketch))
         .placed(create_group(false, 1000)),
     );
+    {
+        let def = DIMENSION_DEF;
+        let mut cmd = CommandDef::new(def.id.0, def.label, CmdAction::StartTool(start_dimension))
+            .with_icon(def.icon)
+            .with_tooltip(def.tooltip)
+            .with_keywords(def.keywords)
+            .with_enabler(Enabler::When(in_sketch))
+            .placed(create_group(def.pinned, 900));
+        if let Some(shortcut) = def.shortcut {
+            cmd = cmd.with_shortcut(shortcut);
+        }
+        r.command(cmd);
+    }
+    for (i, tool) in (1..).zip(ConstraintTool::ALL) {
+        let def = tool.def();
+        r.command(
+            CommandDef::new(
+                def.id.0,
+                def.label,
+                CmdAction::StartTool(start_constraint(tool)),
+            )
+            .with_icon(def.icon)
+            .with_tooltip(def.tooltip)
+            .with_keywords(def.keywords)
+            .with_enabler(Enabler::When(in_sketch))
+            .placed(Placement::Toolbar {
+                group: GroupId("design.sketch.constraints"),
+                pinned: def.pinned,
+                order: i * 10,
+            }),
+        );
+    }
     r.command(
         CommandDef::new(
             SKETCH_SELECT_CMD.0,
