@@ -29,6 +29,7 @@ pub(super) fn take(op: &ffi::OcOp) -> KResult<(Occ, RawHistory)> {
         out_indices: raw.out_indices,
         role_faces: raw.role_faces,
         roles: raw.roles,
+        role_args: raw.role_args,
     };
     Ok((Occ::new(shape), history))
 }

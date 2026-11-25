@@ -1,0 +1,12 @@
+# B-rep metrics of brep/blend_fillet_variable_linear (S02 BREP-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 990.5237334846585
+area = 589.3301442146058
+faces = 7
+edges = 15
+vertices = 10
+classes = "PPBPPPP"

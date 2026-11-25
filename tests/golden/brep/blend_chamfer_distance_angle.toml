@@ -1,0 +1,12 @@
+# B-rep metrics of brep/blend_chamfer_distance_angle (S02 BREP-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 988.4529946162077
+area = 589.237604307034
+faces = 7
+edges = 15
+vertices = 10
+classes = "PPPPPPP"

@@ -18,7 +18,7 @@ fn list(shapes: &[&Occ]) -> KResult<UniquePtr<ffi::OcShapeList>> {
     Ok(out)
 }
 
-fn status(op: &ffi::OcOp) -> KResult<BoolStatus> {
+pub(super) fn status(op: &ffi::OcOp) -> KResult<BoolStatus> {
     let raw = ffi::op_bool_status(op).map_err(|e| to_kernel_error(&e))?;
     let offending = raw
         .offending_operands

@@ -80,6 +80,7 @@ mod occt {
         println!("cargo:rerun-if-changed=cpp/occt_query.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_history.hxx");
         println!("cargo:rerun-if-changed=cpp/occt_naming.cpp");
+        println!("cargo:rerun-if-changed=cpp/occt_blend.cpp");
 
         let fixtures = cfg!(feature = "fixture-gen");
         let mut bridges = vec!["src/bridge.rs"];
@@ -98,6 +99,7 @@ mod occt {
             .file("cpp/occt_bool.cpp")
             .file("cpp/occt_query.cpp")
             .file("cpp/occt_naming.cpp")
+            .file("cpp/occt_blend.cpp")
             .include(&include)
             .std("c++17");
         if fixtures {

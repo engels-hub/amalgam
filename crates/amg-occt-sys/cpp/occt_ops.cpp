@@ -398,6 +398,9 @@ OcOpHistory op_history(const OcOp &op) {
   for (std::uint8_t r : op.roles) {
     out.roles.push_back(r);
   }
+  for (std::uint32_t a : op.role_args) {
+    out.role_args.push_back(a);
+  }
   return out;
 }
 

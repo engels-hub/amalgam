@@ -15,7 +15,8 @@ use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, JobCtx, KernelConfig, OcctKernel, Shape, SubKind, Validate,
 };
 use stress::{
-    StressOp, eval, measure_queries, read_queries, run, run_with, sweep_queries, tess_queries,
+    StressOp, blend_queries, eval, measure_queries, read_queries, run, run_with, sweep_queries,
+    tess_queries,
 };
 
 const THREADS: usize = 8;
@@ -262,6 +263,76 @@ fn shared_filleted_box_survives_concurrent_sweeps() {
 #[test]
 fn shared_plate_survives_concurrent_sweeps() {
     stress_sweeps("plate_with_holes", 6, 6, 0x5EED_1403);
+}
+
+/// BREP-06 Done-when 6: 8 threads fillet and chamfer edges of one shared shape (the shape itself
+/// is the op's input), alongside reads. The blends run on a private copy, so the input's `BinTools`
+/// hash must not change, and every result (volume bits, counts, history, or the error) must equal
+/// the single-threaded one.
+fn stress_blends(name: &str, limit: usize, iterations: usize, seed: u64) {
+    let (Some(reference_shape), Some(shared)) = (load(name), load(name)) else {
+        return;
+    };
+    let kernel = kernel();
+    let mut ops = blend_queries(&reference_shape, limit);
+    assert!(!ops.is_empty(), "{name}: no blendable edges");
+    ops.extend([StressOp::Bbox, StressOp::Counts, StressOp::Check]);
+    let reference: Vec<String> = ops
+        .iter()
+        .map(|&op| eval(&kernel, &reference_shape, op))
+        .collect();
+    let failed: Vec<&String> = reference.iter().filter(|r| r.starts_with("Err")).collect();
+    eprintln!(
+        "{name}: {} blend ops, {} of them errors",
+        ops.len() - 3,
+        failed.len()
+    );
+    if let Some(first) = failed.first() {
+        eprintln!("{name}: first error {}", &first[..first.len().min(240)]);
+    }
+    let report = run(
+        &kernel, &shared, &ops, &reference, THREADS, iterations, seed,
+    );
+    eprintln!(
+        "{name}: {} threads x {} iterations over {} ops in {:.2} s; BinTools hash {:016x} -> {:016x}",
+        report.threads,
+        report.iterations,
+        report.ops,
+        report.elapsed.as_secs_f64(),
+        report.hash_before,
+        report.hash_after
+    );
+    assert!(
+        report.mismatches.is_empty(),
+        "{name}: {} mismatches, first: {}",
+        report.mismatches.len(),
+        report.mismatches[0]
+    );
+    assert!(report.input_unchanged, "{name}: the shared input changed");
+    assert_eq!(report.hash_before, report.hash_after);
+    for (k, &op) in ops.iter().enumerate() {
+        assert_eq!(eval(&kernel, &shared, op), reference[k], "{op:?}");
+    }
+}
+
+#[test]
+fn shared_box_survives_concurrent_blends() {
+    stress_blends("box", 12, 120, 0x5EED_0601);
+}
+
+#[test]
+fn shared_filleted_box_survives_concurrent_blends() {
+    stress_blends("filleted_box", 10, 40, 0x5EED_0602);
+}
+
+#[test]
+fn shared_plate_survives_concurrent_blends() {
+    stress_blends("plate_with_holes", 2, 2, 0x5EED_0604);
+}
+
+#[test]
+fn shared_cylinder_survives_concurrent_blends() {
+    stress_blends("cylinder", 4, 80, 0x5EED_0603);
 }
 
 /// BREP-09: 8 threads run the measurement queries (mass properties, classify, closest point,

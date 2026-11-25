@@ -214,6 +214,7 @@ public:
       has_role_[static_cast<std::size_t>(i - 1)] = true;
       op_.role_faces.push_back(static_cast<std::uint32_t>(i - 1));
       op_.roles.push_back(role);
+      op_.role_args.push_back(0);
     }
   }
 

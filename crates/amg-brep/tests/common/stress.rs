@@ -14,9 +14,9 @@ use std::time::{Duration, Instant};
 
 use amg_brep::geom::Surface;
 use amg_brep::{
-    BrepKernel, CheckOpts, Dir3, EdgeId, FaceId, JobCtx, KResult, Line3, OcctKernel, OpResult,
-    Point2, Point3, PrismExtent, PrismOpts, Shape, SubKind, SubShape, TessMesh, TessQuality, Vec3,
-    VertexId,
+    BrepKernel, ChamferSpec, CheckOpts, Dir3, EdgeId, FaceId, FilletOpts, FilletSpec, JobCtx,
+    KResult, Line3, OcctKernel, OpResult, Point2, Point3, PrismExtent, PrismOpts, Shape, SubKind,
+    SubShape, TessMesh, TessQuality, Vec3, VertexId,
 };
 
 /// One deterministic operation on the shared shape.
@@ -64,6 +64,27 @@ pub enum StressOp {
     EdgeEnds(EdgeId),
     /// `distance` to a sub-shape of the shared shape (both arguments share its TShapes).
     DistanceToSub(SubShape),
+    /// `fillet` of one edge of the shared shape itself, radius in µm (category C: blends a
+    /// private copy), BREP-06.
+    Fillet(EdgeId, u32),
+    /// `chamfer` of one edge of the shared shape, distance in µm (category C), BREP-06.
+    Chamfer(EdgeId, u32),
+}
+
+/// The BREP-06 blend ops: a fillet and a chamfer of up to `limit` edges between two faces, spread
+/// over the shape.
+pub fn blend_queries(shape: &Shape, limit: usize) -> Vec<StressOp> {
+    let edges: Vec<EdgeId> = shape
+        .edges()
+        .filter(|&e| matches!(shape.edge_faces(e), [a, b] if a != b))
+        .collect();
+    let step = (edges.len() / limit).max(1);
+    edges
+        .into_iter()
+        .step_by(step)
+        .take(limit)
+        .flat_map(|e| [StressOp::Fillet(e, 500), StressOp::Chamfer(e, 400)])
+        .collect()
 }
 
 /// The BREP-09 measurement ops: mass properties, then classification, closest points and rays
@@ -326,6 +347,17 @@ pub fn eval(kernel: &OcctKernel, shape: &Shape, op: StressOp) -> String {
                 .expect("transformed");
             format!("{:?}", kernel.distance(shape, &moved))
         }
+        StressOp::Fillet(e, micrometres) => sweep_digest(kernel.fillet(
+            shape,
+            &[(e, FilletSpec::Constant(f64::from(micrometres) * 1e-3))],
+            &FilletOpts::default(),
+            &JobCtx::detached(),
+        )),
+        StressOp::Chamfer(e, micrometres) => sweep_digest(kernel.chamfer(
+            shape,
+            &[(e, ChamferSpec::Equal(f64::from(micrometres) * 1e-3))],
+            &JobCtx::detached(),
+        )),
         StressOp::TessellateEdge(e, q) => format!(
             "{:?}",
             kernel

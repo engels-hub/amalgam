@@ -4,10 +4,10 @@
 
 use amg_brep::geom;
 use amg_brep::{
-    BoolOp, BoolOpts, BrepKernel, CheckOpts, CheckReport, Classification, DistanceResult, EdgeEnds,
-    EdgeId, FaceBuild, FaceId, JobCtx, KResult, KernelError, Line3, MassProps, OpResult, Plane,
-    Point2, Point3, PrismExtent, PrismOpts, Ray3, RayHit, Shape, SubShape, SubShapeGeom,
-    SurfacePoint, TessMesh, TessQuality, Tolerance, Vec3,
+    BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, Classification,
+    DistanceResult, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletSpec, JobCtx, KResult,
+    KernelError, Line3, MassProps, OpResult, Plane, Point2, Point3, PrismExtent, PrismOpts, Ray3,
+    RayHit, Shape, SubShape, SubShapeGeom, SurfacePoint, TessMesh, TessQuality, Tolerance, Vec3,
 };
 
 /// The injected "not done" failure.
@@ -114,6 +114,33 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
     }
     fn section(&self, _a: &Shape, _b: &Shape, _ctx: &JobCtx) -> KResult<OpResult> {
         Err(not_done("section"))
+    }
+    fn fillet(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, FilletSpec)],
+        opts: &FilletOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.fillet(s, edges, opts, ctx)
+    }
+    fn chamfer(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, ChamferSpec)],
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.chamfer(s, edges, ctx)
+    }
+    fn fillet_max_radius(
+        &self,
+        s: &Shape,
+        edges: &[EdgeId],
+        hi: f64,
+        iterations: u32,
+        ctx: &JobCtx,
+    ) -> KResult<f64> {
+        self.inner.fillet_max_radius(s, edges, hi, iterations, ctx)
     }
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {
         self.inner.plane_section(s, plane)

@@ -9,6 +9,8 @@
 #![cfg(feature = "occt")]
 #![allow(clippy::expect_used, clippy::unwrap_used, reason = "test code")]
 
+#[path = "common/blend_corpus.rs"]
+mod blend_corpus;
 #[path = "common/bool_corpus.rs"]
 mod bool_corpus;
 #[path = "common/history.rs"]
@@ -491,9 +493,20 @@ fn every_output_face_has_a_source_or_a_role() {
         }
         assert!(bool_ok >= 130, "{bool_ok} boolean results");
     }
+    // BREP-06: every fillet and chamfer of its corpus.
+    let blends = blend_corpus::corpus(&k);
+    for case in &blends {
+        let r = case.run(&k).unwrap();
+        if let Some(e) = completeness_error(&r, &[&case.input]) {
+            failures.push(format!("{}: {e}", case.name));
+        }
+        faces += r.shape.count(SubKind::Face);
+    }
     eprintln!(
-        "completeness: {} BREP-03/14 results, {bool_ok} BREP-04 results, {faces} output faces",
-        corpus.len()
+        "completeness: {} BREP-03/14 results, {bool_ok} BREP-04 results, {} BREP-06 results, \
+         {faces} output faces",
+        corpus.len(),
+        blends.len()
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

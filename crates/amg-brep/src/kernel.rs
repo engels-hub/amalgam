@@ -10,6 +10,7 @@ use amg_jobs::JobCtx;
 use rayon::prelude::*;
 
 use crate::backend::{self, Occ};
+use crate::blend::{self, BlendEdge};
 use crate::boolean::{self, BoolCode, BoolOutcome};
 use crate::builders;
 use crate::check::{CheckOpts, CheckReport};
@@ -19,7 +20,9 @@ use crate::extract;
 use crate::geom::{self, Tag};
 use crate::history::{FaceBuild, OpResult, ShapeHistory};
 use crate::ops::{self, PrimitiveKind};
-use crate::opts::{BoolOp, BoolOpts, PrismExtent, PrismOpts, TessQuality};
+use crate::opts::{
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, PrismExtent, PrismOpts, TessQuality,
+};
 use crate::query::{
     self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
 };
@@ -307,6 +310,84 @@ pub trait BrepKernel: Send + Sync {
     /// # Errors
     /// `OpFailed { op: "section" }`; `Cancelled`; `Occt`.
     fn section(&self, a: &Shape, b: &Shape, ctx: &JobCtx) -> KResult<OpResult>;
+
+    // -- local ops (BREP-06) --
+
+    /// `s` with `edges` rounded (`BRepFilletAPI_MakeFillet` on a private copy, category C).
+    ///
+    /// Each edge must lie between two distinct faces of `s` and be listed once. OCCT extends an
+    /// edge along its tangent chain into a *contour*; contours are numbered in the order of the
+    /// first edge of `edges` on them. An edge already on an earlier edge's chain is accepted
+    /// when its spec is the same, and refused otherwise. Specs:
+    /// - `Constant(r)`: radius `r`;
+    /// - `Variable(law)`: `(t, r)` samples with `t` the relative arc length along the contour,
+    ///   from exactly 0 to exactly 1 and strictly increasing (OCCT interpolates between them);
+    /// - `Chord(c)`: the constant radius whose circular section has chord `c` between the two
+    ///   tangent lines, `r = c / (2 sin(φ/2))` with `φ` the angle between the faces' outward
+    ///   normals at the middle of the edge (exact for edges of constant dihedral angle).
+    ///
+    /// `opts.shape` is the blend surface's `ChFi3d_FilletShape`; `tol_app_3d` and `fleche`
+    /// override OCCT's approximation parameters (`SetParams`), `None` keeps its defaults.
+    /// Cancellation is checked before and after the call only.
+    ///
+    /// History (operand 0 = `s`): faces trimmed by the blend are `Modified`, untouched faces and
+    /// edges `Modified` 1:1 (they pass through the private copy, so they are new TShapes),
+    /// blended edges `Generated` into their blend faces and vertices into the corner faces OCCT
+    /// attributes to them. Every blend face has `OpRole::FilletBlend { contour }`; every other
+    /// new face (a corner patch between contours) `OpRole::CornerPatch`.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "edges" | "opts" }` (with the edge in `offending` where
+    /// one is to blame); `LocalOpFailed { op: "fillet" }` when OCCT cannot build the blend:
+    /// `offending` lists the input edges of the faulty contours (`NbFaultyContours`) and of the
+    /// failing corners (`NbFaultyVertices`), or, when OCCT names none, the edges of every
+    /// contour that fails on its own (all edges when they only fail together); `message` has
+    /// the stripe status per contour (`ChFiDS_StartsolFailure`, ...) and OCCT's exception;
+    /// `partial` holds OCCT's partial result (`BadShape`) for display only. `InvalidResult`
+    /// under the validation policy; `Cancelled`; `Occt`.
+    fn fillet(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, FilletSpec)],
+        opts: &FilletOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// `s` with `edges` bevelled (`BRepFilletAPI_MakeChamfer` on a private copy, category C).
+    /// Edges, contours and cancellation as for [`BrepKernel::fillet`]. Specs: `Equal(d)`,
+    /// `TwoDistances { d1, d2, face }` (`d1` measured on `face`, which must be one of the edge's
+    /// two faces, `d2` on the other), `DistanceAngle { d, angle, face }` (`d` on `face`, the
+    /// chamfer plane at `angle` ∈ (0, π/2) rad from it, so `d·tan(angle)` on the other face).
+    /// History as for `fillet`, with `OpRole::ChamferFace` on the chamfer faces.
+    ///
+    /// # Errors
+    /// As [`BrepKernel::fillet`], with `op: "chamfer"`; OCCT gives no fault list for chamfers,
+    /// so `offending` is always found by building each contour on its own.
+    fn chamfer(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, ChamferSpec)],
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// The largest constant radius `r ≤ hi` that fillets all of `edges` of `s` into a valid
+    /// (BRepCheck) shape, by bisection: `hi` itself when it works, else `iterations` halvings of
+    /// `(0, hi]`, so the answer is within `hi / 2^iterations` below the boundary of the workable
+    /// range (S20 KH-03). Assumes the workable radii form one interval from 0; cancellation is
+    /// checked between steps.
+    ///
+    /// # Errors
+    /// `InvalidInput` as for `fillet`, or for `hi` not finite and positive or `iterations` 0 or
+    /// above 64; `LocalOpFailed { op: "fillet_max_radius" }` when no tried radius works
+    /// (`offending` from the smallest try); `Cancelled`; `Occt`.
+    fn fillet_max_radius(
+        &self,
+        s: &Shape,
+        edges: &[EdgeId],
+        hi: f64,
+        iterations: u32,
+        ctx: &JobCtx,
+    ) -> KResult<f64>;
 
     // -- geometry extraction (BREP-17) --
 
@@ -652,6 +733,50 @@ impl OcctKernel {
         self.bool_result(op, &operands, input.fuzzy, outcome)
     }
 
+    /// Runs a lowered fillet or chamfer and builds its result.
+    fn blended(
+        &self,
+        op: &'static str,
+        s: &Shape,
+        chamfer: bool,
+        specs: &[BlendEdge],
+        params: &blend::FilletParams,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        ctx.checkpoint()?;
+        let outcome = s.occ().blend(chamfer, specs, params, true)?;
+        ctx.checkpoint()?;
+        let (occ, raw) =
+            outcome.map_err(|(status, partial)| blend::failure(op, status, partial))?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result(op, &shape)?;
+        let history = ops::history(&raw, ops::counts(s));
+        Ok(finished(shape, history, Vec::new()))
+    }
+
+    /// Whether a constant-radius fillet of `edges` (lowered) at `r` gives a valid shape: `None`
+    /// when it does, else why not.
+    fn fillet_fails(&self, s: &Shape, edges: &[BlendEdge], r: f64) -> KResult<Option<KernelError>> {
+        let specs: Vec<BlendEdge> = edges
+            .iter()
+            .map(|e| BlendEdge { a: r, ..e.clone() })
+            .collect();
+        let params = blend::lower_opts(&FilletOpts::default())?;
+        match s.occ().blend(false, &specs, &params, false)? {
+            Ok((occ, _)) => {
+                let report = Shape::from_occ(occ).check_report();
+                Ok((!report.valid).then_some(KernelError::InvalidResult {
+                    op: "fillet",
+                    report,
+                }))
+            }
+            Err((status, partial)) => match blend::failure("fillet", status, partial) {
+                e @ KernelError::LocalOpFailed { .. } => Ok(Some(e)),
+                e => Err(e),
+            },
+        }
+    }
+
     fn swept(
         &self,
         op: &'static str,
@@ -894,6 +1019,99 @@ impl BrepKernel for OcctKernel {
         let outcome = a.occ().section(b.occ(), self.default_parallel(), ctx)?;
         ctx.checkpoint()?;
         self.bool_result("section", &[a, b], 0.0, outcome)
+    }
+
+    fn fillet(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, FilletSpec)],
+        opts: &FilletOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let params = blend::lower_opts(opts)?;
+        let specs = blend::lower_fillet(s, edges, &self.cfg.tolerance, |e, f1, f2| {
+            s.occ().edge_face_angle(e.0, f1.0, f2.0)
+        })?;
+        self.blended("fillet", s, false, &specs, &params, ctx)
+    }
+
+    fn chamfer(
+        &self,
+        s: &Shape,
+        edges: &[(EdgeId, ChamferSpec)],
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let params = blend::lower_opts(&FilletOpts::default())?;
+        let specs = blend::lower_chamfer(s, edges, &self.cfg.tolerance)?;
+        self.blended("chamfer", s, true, &specs, &params, ctx)
+    }
+
+    fn fillet_max_radius(
+        &self,
+        s: &Shape,
+        edges: &[EdgeId],
+        hi: f64,
+        iterations: u32,
+        ctx: &JobCtx,
+    ) -> KResult<f64> {
+        backend::require()?;
+        let tol = &self.cfg.tolerance;
+        if !hi.is_finite() || hi <= tol.linear {
+            return Err(KernelError::InvalidInput {
+                what: "hi",
+                reason: format!(
+                    "the upper radius must be finite and larger than {:e} mm, got {hi}",
+                    tol.linear
+                ),
+                offending: Vec::new(),
+            });
+        }
+        if iterations == 0 || iterations > 64 {
+            return Err(KernelError::InvalidInput {
+                what: "iterations",
+                reason: format!("iterations must be in 1..=64, got {iterations}"),
+                offending: Vec::new(),
+            });
+        }
+        let specs: Vec<(EdgeId, FilletSpec)> = edges
+            .iter()
+            .map(|&e| (e, FilletSpec::Constant(hi)))
+            .collect();
+        let lowered = blend::lower_fillet(s, &specs, tol, |_, _, _| Ok(0.0))?;
+        ctx.checkpoint()?;
+        let Some(mut last_failure) = self.fillet_fails(s, &lowered, hi)? else {
+            return Ok(hi);
+        };
+        let (mut lo, mut bad) = (0.0, hi);
+        for _ in 0..iterations {
+            ctx.checkpoint()?;
+            let mid = 0.5 * (lo + bad);
+            match self.fillet_fails(s, &lowered, mid)? {
+                None => lo = mid,
+                Some(e) => {
+                    bad = mid;
+                    last_failure = e;
+                }
+            }
+        }
+        ctx.checkpoint()?;
+        if lo > 0.0 {
+            return Ok(lo);
+        }
+        let (message, offending) = match last_failure {
+            KernelError::LocalOpFailed {
+                message, offending, ..
+            } => (message, offending),
+            other => (other.to_string(), Vec::new()),
+        };
+        Err(KernelError::LocalOpFailed {
+            op: "fillet_max_radius",
+            message: format!("no radius in (0, {bad:e}] mm works: {message}"),
+            offending,
+            partial: None,
+        })
     }
 
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {

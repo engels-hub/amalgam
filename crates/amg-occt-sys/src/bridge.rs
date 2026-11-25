@@ -243,6 +243,33 @@ pub mod ffi {
         out_indices: Vec<u32>,
         role_faces: Vec<u32>,
         roles: Vec<u8>,
+        /// One per role (or empty): the contour of a fillet blend face, 0 otherwise.
+        role_args: Vec<u32>,
+    }
+
+    /// One edge of a fillet or chamfer (BREP-06), by index in the input shape. `kind`: 0 fillet
+    /// constant (radius `a`), 1 fillet variable (law `laws[law_start..law_end]`: `(t, r)` pairs,
+    /// `t` relative along the contour), 2 chamfer equal (distance `a`), 3 chamfer two distances
+    /// (`a` on face `face`, `b` on the other), 4 chamfer distance-angle (`a` on face `face`,
+    /// angle `b` rad from it).
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcBlendEdge {
+        edge: u32,
+        kind: u8,
+        a: f64,
+        b: f64,
+        face: u32,
+        law_start: usize,
+        law_end: usize,
+    }
+
+    /// Fillet options (BREP-06). `shape`: 0 rational, 1 quasi-angular, 2 polynomial
+    /// (`ChFi3d_FilletShape`); `tol_app_3d` and `fleche` ≤ 0 keep OCCT's defaults.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcFilletParams {
+        shape: u8,
+        tol_app_3d: f64,
+        fleche: f64,
     }
 
     /// One sub-shape's fingerprint (BREP-05). `geom_class` is amg-brep's `GeomClass` in
@@ -592,6 +619,26 @@ pub mod ffi {
         /// (the plain `volume` uses fixed-order quadrature, which under-integrates faces whose
         /// boundaries are not iso-lines).
         fn volume_adaptive(shape: &OcShape, eps: f64) -> Result<f64>;
+
+        // -- fillets and chamfers (BREP-06), implemented in occt_blend.cpp --
+
+        /// Fillets (`chamfer` false) or chamfers `edges` of `shape` (`index` is its index) on a
+        /// private copy. A failed build is reported by `op_bool_status` (errors, offending
+        /// edges); its op then holds OCCT's partial result, or a null shape. An error starting
+        /// with `invalid: ` is a bad input (an edge OCCT ignores, conflicting specs on one tangent
+        /// chain). `with_history` false skips the history (the max-radius probe).
+        fn blend_op(
+            shape: &OcShape,
+            index: &OcIndex,
+            chamfer: bool,
+            edges: &[OcBlendEdge],
+            laws: &[f64],
+            params: &OcFilletParams,
+            with_history: bool,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// The angle (rad, 0..π) between the outward normals of faces `f1` and `f2` at the middle
+        /// of edge `e`.
+        fn edge_face_angle(index: &OcIndex, e: u32, f1: u32, f2: u32) -> Result<f64>;
 
         // -- measurement queries (BREP-09), implemented in occt_query.cpp --
 
