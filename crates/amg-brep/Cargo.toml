@@ -45,6 +45,12 @@ name = "gen_brep_fixtures"
 path = "tests/gen/generate.rs"
 required-features = ["fixture-gen"]
 
+# BREP-10: regenerates testdata/brep/defects/, the healing and check corpus.
+[[example]]
+name = "gen_brep_defects"
+path = "tests/gen/defects.rs"
+required-features = ["fixture-gen"]
+
 # S20 KH-01: replay, list, recover and promote kernel failure dumps (until `amg-cli kernel`).
 [[example]]
 name = "kernel-replay"
@@ -77,6 +83,11 @@ required-features = ["occt"]
 
 [[bench]]
 name = "offset"
+harness = false
+required-features = ["occt"]
+
+[[bench]]
+name = "heal"
 harness = false
 required-features = ["occt"]
 

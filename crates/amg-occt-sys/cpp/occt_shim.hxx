@@ -50,6 +50,10 @@ struct OcSubMap;
 struct OcBlendEdge;
 struct OcFilletParams;
 struct OcOffsetParams;
+struct OcHealParams;
+struct OcUnifyParams;
+struct OcSewParams;
+struct OcCheckProblem;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -110,6 +114,8 @@ public:
   std::vector<std::uint16_t> offending_operands;
   std::vector<std::uint8_t> offending_kinds;
   std::vector<std::uint32_t> offending_indices;
+  // Heal (BREP-10): the sub-shapes the fixes replaced, removed or re-toleranced.
+  std::uint32_t fixes = 0;
 };
 
 // The argument or tool list of one boolean (BREP-04): handles sharing the callers' TShapes.
@@ -363,6 +369,37 @@ std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
                                 rust::Slice<const std::uint32_t> remove,
                                 rust::Slice<const std::uint32_t> faces,
                                 rust::Slice<const double> offsets, const ProgressSink &sink);
+
+// -- healing and assembly (BREP-10), implemented in occt_heal.cpp --
+
+// CATEGORY: C (ShapeFix_Shape and ShapeFix_Wireframe write tolerances into and rebuild what they
+// fix, so they run on a private BRepBuilderAPI_Copy (geometry copied too) made here; `shape` is
+// only read)
+std::unique_ptr<OcOp> heal_op(const OcShape &shape, const OcHealParams &params,
+                              const ProgressSink &sink);
+
+// CATEGORY: C (ShapeUpgrade_UnifySameDomain on a private BRepBuilderAPI_Copy made here; `shape`
+// is only read)
+std::unique_ptr<OcOp> unify_same_domain_op(const OcShape &shape, const OcUnifyParams &params);
+
+// CATEGORY: C (BRepBuilderAPI_Sewing re-tolerances the edges and vertices it merges, so it runs on
+// one private BRepBuilderAPI_Copy of all the shapes made here; they are only read)
+std::unique_ptr<OcOp> sew_op(const OcShapeList &shapes, const OcSewParams &params,
+                             const ProgressSink &sink);
+
+// CATEGORY: C (BRepBuilderAPI_MakeSolid sets the shell's Closed flag on its TShape, so it runs on a
+// private BRepBuilderAPI_Copy made here; `shape` is only read)
+std::unique_ptr<OcOp> make_solid_op(const OcShape &shape);
+
+// CATEGORY: N (a new compound that shares the shapes' TShapes; they are only read)
+std::unique_ptr<OcShape> make_compound_of(const OcShapeList &shapes);
+
+// CATEGORY: C (BOPAlgo_ArgumentAnalyzer with self-interference, small-edge and curve-on-surface
+// tests runs on a private BRepBuilderAPI_Copy made here; `shape` and `index` are only read)
+rust::Vec<OcCheckProblem> analyze_shape(const OcShape &shape, const OcIndex &index);
+
+// CATEGORY: R
+std::uint32_t op_fix_count(const OcOp &op);
 
 // -- measurement queries (BREP-09), implemented in occt_query.cpp --
 

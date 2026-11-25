@@ -8,8 +8,8 @@ use crate::error::KResult;
 use crate::geom::{self, Curve3, GeomClass};
 use crate::kernel::BrepKernel;
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, OffsetJoin, PrismExtent, PrismOpts,
-    ShellOpts, TessQuality,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, OffsetJoin, PrismExtent,
+    PrismOpts, SewOpts, ShellOpts, TessQuality, UnifyOpts,
 };
 use crate::shape::{EdgeId, FaceId, Shape, SubKind, SubShape};
 
@@ -346,6 +346,37 @@ pub enum KernelOp {
         /// Join.
         join: OffsetJoin,
     },
+    /// `heal`.
+    Heal {
+        /// Shape.
+        shape: InputRef,
+        /// Options.
+        opts: HealOpts,
+    },
+    /// `unify_same_domain`.
+    UnifySameDomain {
+        /// Shape.
+        shape: InputRef,
+        /// Options.
+        opts: UnifyOpts,
+    },
+    /// `sew`.
+    Sew {
+        /// The shapes sewn, in order.
+        faces: Vec<InputRef>,
+        /// Options.
+        opts: SewOpts,
+    },
+    /// `make_solid`.
+    MakeSolid {
+        /// The shell(s).
+        shell: InputRef,
+    },
+    /// `make_compound`.
+    MakeCompound {
+        /// The parts, in order.
+        parts: Vec<InputRef>,
+    },
     /// `interference`.
     Interference {
         /// First shape.
@@ -410,6 +441,11 @@ impl KernelOp {
             KernelOp::Shell { .. } => "shell",
             KernelOp::Offset { .. } => "offset",
             KernelOp::Thicken { .. } => "thicken",
+            KernelOp::Heal { .. } => "heal",
+            KernelOp::UnifySameDomain { .. } => "unify_same_domain",
+            KernelOp::Sew { .. } => "sew",
+            KernelOp::MakeSolid { .. } => "make_solid",
+            KernelOp::MakeCompound { .. } => "make_compound",
             KernelOp::Interference { .. } => "interference",
             KernelOp::PlaneSection { .. } => "plane_section",
             KernelOp::ProjectEdges { .. } => "project_edges",
@@ -430,7 +466,13 @@ impl KernelOp {
             | KernelOp::FilletMaxRadius { shape, .. }
             | KernelOp::Shell { shape, .. }
             | KernelOp::Offset { shape, .. }
-            | KernelOp::Thicken { shape, .. } => vec![*shape],
+            | KernelOp::Thicken { shape, .. }
+            | KernelOp::Heal { shape, .. }
+            | KernelOp::UnifySameDomain { shape, .. } => vec![*shape],
+            KernelOp::MakeSolid { shell } => vec![*shell],
+            KernelOp::Sew { faces: shapes, .. } | KernelOp::MakeCompound { parts: shapes } => {
+                shapes.clone()
+            }
             KernelOp::Boolean { objects, tools, .. } | KernelOp::Split { objects, tools, .. } => {
                 objects.iter().chain(tools).copied().collect()
             }
@@ -612,6 +654,13 @@ impl KernelOp {
                 thickness,
                 join,
             } => shape(k.thicken(one(s)?, *thickness, *join, ctx)),
+            KernelOp::Heal { shape: s, opts } => shape(k.heal(one(s)?, opts, ctx)),
+            KernelOp::UnifySameDomain { shape: s, opts } => {
+                shape(k.unify_same_domain(one(s)?, opts))
+            }
+            KernelOp::Sew { faces, opts } => shape(k.sew(&many(faces)?, opts, ctx)),
+            KernelOp::MakeSolid { shell } => shape(k.make_solid(one(shell)?)),
+            KernelOp::MakeCompound { parts } => k.make_compound(&many(parts)?).map(|c| vec![c]),
             KernelOp::Interference { a, b } => k
                 .interference(one(a)?, one(b)?, ctx)
                 .map(|r| r.map(|r| r.shape).into_iter().collect()),
@@ -813,6 +862,32 @@ mod tests {
                 thickness: -0.25,
                 join: OffsetJoin::Arc,
             },
+            KernelOp::Heal {
+                shape: InputRef(0),
+                opts: HealOpts {
+                    tol: 1e-4,
+                    fix_small_edges: false,
+                    fix_orientation: true,
+                    max_tol: 1e-2,
+                },
+            },
+            KernelOp::UnifySameDomain {
+                shape: InputRef(0),
+                opts: UnifyOpts {
+                    concat_bsplines: true,
+                    ..UnifyOpts::default()
+                },
+            },
+            KernelOp::Sew {
+                faces: refs(0..6),
+                opts: SewOpts {
+                    tol: 1e-3,
+                    non_manifold: true,
+                    make_solid: false,
+                },
+            },
+            KernelOp::MakeSolid { shell: InputRef(1) },
+            KernelOp::MakeCompound { parts: refs(0..2) },
             KernelOp::PlaneSection {
                 shape: InputRef(0),
                 plane: frame,

@@ -18,12 +18,13 @@ use crate::config::KernelConfig;
 use crate::error::{KResult, KernelError};
 use crate::extract;
 use crate::geom::{self, Tag};
+use crate::heal;
 use crate::history::{FaceBuild, OpResult, ShapeHistory};
 use crate::offset::{self, OffsetIn};
 use crate::ops::{self, PrimitiveKind};
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, OffsetJoin, PrismExtent, PrismOpts,
-    ShellOpts, TessQuality,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, OffsetJoin, PrismExtent,
+    PrismOpts, SewOpts, ShellOpts, TessQuality, UnifyOpts,
 };
 use crate::query::{
     self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
@@ -89,8 +90,15 @@ pub fn init(cfg: &KernelConfig) {
 /// Each op WP adds its methods here together with S20's `KernelOp` variant and the forwarding
 /// arm in `tests/api_contract.rs`, which keeps the trait forwardable.
 pub trait BrepKernel: Send + Sync {
-    /// `BRepCheck_Analyzer` validity of `s`, with problems per sub-shape (S02 §9).
-    /// `opts.self_interference` is BREP-10's and ignored until then.
+    /// `BRepCheck_Analyzer` validity of `s`, with problems per sub-shape (S02 §9): the
+    /// `BRepCheck_Status` names without their prefix (`NotClosed`, `InvalidPointOnCurve`, ...).
+    ///
+    /// With `opts.self_interference` (slower; S20 request R5) `BOPAlgo_ArgumentAnalyzer` runs
+    /// too, on a private copy, with its self-interference, small-edge and curve-on-surface tests:
+    /// its findings carry the full `BOPAlgo_CheckStatus` names (`BOPAlgo_SelfIntersect` on each of
+    /// the interfering sub-shapes, `BOPAlgo_TooSmallEdge`, `BOPAlgo_InvalidCurveOnSurface`), and
+    /// any of them makes the report invalid. An analyzer that raises adds `BOPAlgo_CheckFail`.
+    /// The validation policy ([`crate::Validate`]) runs the `BRepCheck` part only.
     fn check(&self, s: &Shape, opts: &CheckOpts) -> CheckReport;
 
     // -- builders (BREP-03) --
@@ -474,6 +482,90 @@ pub trait BrepKernel: Send + Sync {
         join: OffsetJoin,
         ctx: &JobCtx,
     ) -> KResult<OpResult>;
+
+    // -- healing and assembly (BREP-10) --
+
+    /// `s` healed (S02 §9): `ShapeFix_Shape` (missing or bad pcurves and 3D curves,
+    /// `SameParameter`, vertex and edge tolerances, wire order, gaps and self-intersections, face,
+    /// shell and solid orientation), then `ShapeFix_Wireframe` (wire gaps, and with
+    /// `opts.fix_small_edges` edges shorter than `opts.tol` merged into their neighbours or
+    /// dropped), on a private copy with its geometry (category C). `opts.tol` is the fixes'
+    /// precision; no tolerance grows beyond `opts.max_tol`. `opts.fix_orientation` false keeps
+    /// every orientation as it is. Progress and cancellation reach inside `ShapeFix_Shape`; the
+    /// wireframe pass is checked before and after.
+    ///
+    /// History (operand 0 = `s`): every face, edge and vertex is `Modified` into its fixed version
+    /// (1:1 when the fix left it alone: it passes through the copy), into several when a fix split
+    /// it, and `Deleted` when a fix removed it (a dropped small edge, a degenerated face). Merged
+    /// small edges are all `Modified` into the merged edge. Warnings: `Healed { fixes }` with the
+    /// number of sub-shapes a fix replaced, removed or re-toleranced (none when `s` needed no
+    /// fix), `ToleranceGrown` when the result's largest tolerance exceeds `s`'s and the kernel's.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "opts" }` (a null shape, a non-positive `tol`, `max_tol`
+    /// below `tol`); `LocalOpFailed { op: "heal" }` when a fix raises; `InvalidResult` under the
+    /// validation policy when the result is still invalid; `Cancelled`; `Occt`.
+    fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult>;
+
+    /// `s` with same-domain faces (on one surface) and edges (on one curve) merged
+    /// (`ShapeUpgrade_UnifySameDomain` on a private copy, category C): `opts.faces`,
+    /// `opts.edges`, `opts.concat_bsplines` (merge the B-spline edges of one smooth chain into
+    /// one B-spline), `opts.lin_tol` (mm) and `opts.ang_tol` (rad) are the algorithm's options.
+    /// The defaults are those of [`PrismOpts::merge_coplanar`]. No progress or cancellation (one
+    /// fast pass).
+    ///
+    /// History (operand 0 = `s`): each merged face or edge is `Modified` into the merged one, the
+    /// others `Modified` 1:1 (through the copy); edges and vertices that vanish inside a merged
+    /// face or edge are `Deleted`.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "opts" }` (a null shape, a negative or non-finite
+    /// `lin_tol`, `ang_tol` outside `[0, π)`); `InvalidResult` under the validation policy;
+    /// `Occt`.
+    fn unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult>;
+
+    /// `faces` (faces, shells, or any shapes with faces: one operand each) sewn into shells
+    /// (`BRepBuilderAPI_Sewing` with cutting and degenerated-face analysis, on one private copy
+    /// of all of them, category C): boundary edges within `opts.tol` of each other are merged, and
+    /// sub-shapes the inputs already share stay shared. `opts.non_manifold` allows edges with more
+    /// than two faces. With `opts.make_solid` every closed shell becomes a solid, oriented to
+    /// bound a finite volume (as [`BrepKernel::make_solid`]); the result is the solid, or a
+    /// compound of solids. Without it the result is OCCT's sewn shape: a shell, a face, or a
+    /// compound of shells and free faces. Progress and cancellation reach inside the sewing.
+    ///
+    /// History (operands in `faces` order): every face, edge and vertex is `Modified` into its
+    /// sewn version (1:1 for a face; two edges merged into one both map to it; an edge the sewing
+    /// cut into sections maps to each of them); degenerated faces the sewing removed are
+    /// `Deleted`.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "faces" | "opts" }` (no shapes, a shape without faces, more than
+    /// 65 536 shapes, a non-positive `tol`); `LocalOpFailed { op: "sew" }` when `make_solid` is
+    /// set and the sewn shape has an open shell or a free face (`message` gives their count and
+    /// the number of free edges; `partial` is the sewn shape); `InvalidResult` under the
+    /// validation policy; `Cancelled`; `Occt`.
+    fn sew(&self, faces: &[Shape], opts: &SewOpts, ctx: &JobCtx) -> KResult<OpResult>;
+
+    /// A solid per closed shell of `shell` (a shell, or a compound of shells, without solids; a
+    /// face that closes on itself, a sphere or a torus, counts as a shell), oriented to bound a
+    /// finite volume: `BRepBuilderAPI_MakeSolid`, reversed when the point at
+    /// infinity classifies inside (`ShapeFix_Solid::SolidFromShell`), on a private copy
+    /// (category C). One solid comes back as such, several as a compound. History (operand 0):
+    /// everything `Modified` 1:1.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shell" }` for a null shape, one without faces, one with solids, or
+    /// one with an open shell or an open face outside any shell; `InvalidResult` under the
+    /// validation policy; `Occt`.
+    fn make_solid(&self, shell: &Shape) -> KResult<OpResult>;
+
+    /// A compound of `parts` in order, sharing their sub-shapes (category N: no copy). An empty
+    /// list gives an empty compound. Its indices follow `TopExp::MapShapes` over the parts in
+    /// order, so a sub-shape that two parts share is indexed once.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "parts" }` for a null part; `BackendUnavailable`.
+    fn make_compound(&self, parts: &[Shape]) -> KResult<Shape>;
 
     // -- geometry extraction (BREP-17) --
 
@@ -918,8 +1010,23 @@ fn edge_tags(map: &[u32], tags: &[Tag]) -> Vec<(EdgeId, Tag)> {
 }
 
 impl BrepKernel for OcctKernel {
-    fn check(&self, s: &Shape, _opts: &CheckOpts) -> CheckReport {
-        s.check_report()
+    fn check(&self, s: &Shape, opts: &CheckOpts) -> CheckReport {
+        let mut report = s.check_report();
+        if opts.self_interference && !s.is_null() {
+            match s.occ().analyze() {
+                Ok(problems) => {
+                    report.valid &= problems.is_empty();
+                    report.problems.extend(problems);
+                }
+                Err(e) => {
+                    report.valid = false;
+                    report
+                        .problems
+                        .push((None, format!("BOPAlgo_CheckFail: {e}")));
+                }
+            }
+        }
+        report
     }
 
     fn make_planar_faces(
@@ -1254,6 +1361,78 @@ impl BrepKernel for OcctKernel {
         backend::require()?;
         let input = offset::lower_thicken(s, thickness, join, &self.cfg.tolerance)?;
         self.offset_result("thicken", s, &input, ctx)
+    }
+
+    fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult> {
+        backend::require()?;
+        let input = heal::lower_heal(s, opts)?;
+        ctx.checkpoint()?;
+        let outcome = s.occ().heal(&input, ctx)?;
+        ctx.checkpoint()?;
+        let (occ, raw, fixes) =
+            outcome.map_err(|(status, partial)| heal::failure("heal", "shape", status, partial))?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result("heal", &shape)?;
+        let history = ops::history(&raw, ops::counts(s));
+        let mut warnings = Vec::new();
+        if fixes > 0 {
+            warnings.push(crate::KernelWarning::Healed { fixes });
+        }
+        warnings.extend(boolean::warnings(
+            0.0,
+            &[s],
+            &shape,
+            self.cfg.tolerance.linear,
+        ));
+        Ok(finished(shape, history, warnings))
+    }
+
+    fn unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult> {
+        backend::require()?;
+        let input = heal::lower_unify(s, opts)?;
+        let (occ, raw) = s.occ().unify_same_domain(&input)?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result("unify_same_domain", &shape)?;
+        let history = ops::history(&raw, ops::counts(s));
+        Ok(finished(shape, history, Vec::new()))
+    }
+
+    fn sew(&self, faces: &[Shape], opts: &SewOpts, ctx: &JobCtx) -> KResult<OpResult> {
+        backend::require()?;
+        let input = heal::lower_sew(faces, opts)?;
+        ctx.checkpoint()?;
+        let occs: Vec<&Occ> = faces.iter().map(Shape::occ).collect();
+        let outcome = Occ::sew(&occs, &input, ctx)?;
+        ctx.checkpoint()?;
+        let (occ, raw) =
+            outcome.map_err(|(status, partial)| heal::failure("sew", "faces", status, partial))?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result("sew", &shape)?;
+        let counts = faces.iter().map(ops::counts).collect();
+        let history = ops::history_n(&raw, counts);
+        let operands: Vec<&Shape> = faces.iter().collect();
+        let warnings = boolean::warnings(0.0, &operands, &shape, self.cfg.tolerance.linear);
+        Ok(finished(shape, history, warnings))
+    }
+
+    fn make_solid(&self, shell: &Shape) -> KResult<OpResult> {
+        backend::require()?;
+        heal::check_make_solid(shell)?;
+        let (occ, raw) = shell
+            .occ()
+            .make_solid()?
+            .map_err(|(status, partial)| heal::failure("make_solid", "shell", status, partial))?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result("make_solid", &shape)?;
+        let history = ops::history(&raw, ops::counts(shell));
+        Ok(finished(shape, history, Vec::new()))
+    }
+
+    fn make_compound(&self, parts: &[Shape]) -> KResult<Shape> {
+        backend::require()?;
+        heal::check_parts(parts)?;
+        let occs: Vec<&Occ> = parts.iter().map(Shape::occ).collect();
+        Ok(Shape::from_occ(Occ::compound(&occs)?))
     }
 
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {

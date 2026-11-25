@@ -16,8 +16,8 @@ use crate::geom;
 use crate::history::{FaceBuild, OpResult};
 use crate::kernel::BrepKernel;
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, OffsetJoin, PrismExtent, PrismOpts,
-    ShellOpts, TessQuality,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, OffsetJoin, PrismExtent,
+    PrismOpts, SewOpts, ShellOpts, TessQuality, UnifyOpts,
 };
 use crate::query::{
     Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
@@ -527,6 +527,57 @@ impl<K: BrepKernel> BrepKernel for RecordingKernel<K> {
             },
             || vec![s],
             || self.inner.thicken(s, thickness, join, ctx),
+        )
+    }
+
+    fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Heal {
+                shape: one(0),
+                opts: opts.clone(),
+            },
+            || vec![s],
+            || self.inner.heal(s, opts, ctx),
+        )
+    }
+
+    fn unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::UnifySameDomain {
+                shape: one(0),
+                opts: opts.clone(),
+            },
+            || vec![s],
+            || self.inner.unify_same_domain(s, opts),
+        )
+    }
+
+    fn sew(&self, faces: &[Shape], opts: &SewOpts, ctx: &JobCtx) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Sew {
+                faces: refs(0..faces.len()),
+                opts: opts.clone(),
+            },
+            || faces.iter().collect(),
+            || self.inner.sew(faces, opts, ctx),
+        )
+    }
+
+    fn make_solid(&self, shell: &Shape) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::MakeSolid { shell: one(0) },
+            || vec![shell],
+            || self.inner.make_solid(shell),
+        )
+    }
+
+    fn make_compound(&self, parts: &[Shape]) -> KResult<Shape> {
+        self.guarded(
+            || KernelOp::MakeCompound {
+                parts: refs(0..parts.len()),
+            },
+            || parts.iter().collect(),
+            || self.inner.make_compound(parts),
         )
     }
 

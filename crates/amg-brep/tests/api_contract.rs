@@ -496,6 +496,31 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
         self.inner.thicken(s, thickness, join, ctx)
     }
 
+    fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.heal(s, opts, ctx)
+    }
+
+    fn unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.unify_same_domain(s, opts)
+    }
+
+    fn sew(&self, faces: &[Shape], opts: &SewOpts, ctx: &JobCtx) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.sew(faces, opts, ctx)
+    }
+
+    fn make_solid(&self, shell: &Shape) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_solid(shell)
+    }
+
+    fn make_compound(&self, parts: &[Shape]) -> KResult<Shape> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_compound(parts)
+    }
+
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<CurveSeg>> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.plane_section(s, plane)

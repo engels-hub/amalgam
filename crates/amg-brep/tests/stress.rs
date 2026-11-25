@@ -15,8 +15,8 @@ use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, JobCtx, KernelConfig, OcctKernel, Shape, SubKind, Validate,
 };
 use stress::{
-    StressOp, blend_queries, eval, measure_queries, read_queries, run, run_with, sweep_queries,
-    tess_queries,
+    StressOp, blend_queries, eval, heal_queries, measure_queries, read_queries, run, run_with,
+    sweep_queries, tess_queries,
 };
 
 const THREADS: usize = 8;
@@ -333,6 +333,62 @@ fn shared_plate_survives_concurrent_blends() {
 #[test]
 fn shared_cylinder_survives_concurrent_blends() {
     stress_blends("cylinder", 4, 80, 0x5EED_0603);
+}
+
+/// BREP-10: 8 threads heal, unify, sew the faces of, compound and fully check one shared shape,
+/// alongside reads. The shared input's BinTools hash must not change (every op works on private
+/// copies; `make_compound` and `sew` never put the caller's shapes into a compound), and every
+/// result must equal the single-threaded one.
+fn stress_healing(name: &str, iterations: usize, seed: u64) {
+    let (Some(reference_shape), Some(shared)) = (load(name), load(name)) else {
+        return;
+    };
+    let kernel = kernel();
+    let mut ops = heal_queries();
+    ops.extend([StressOp::Bbox, StressOp::Counts, StressOp::Check]);
+    let reference: Vec<String> = ops
+        .iter()
+        .map(|&op| eval(&kernel, &reference_shape, op))
+        .collect();
+    assert!(
+        reference.iter().all(|r| !r.starts_with("Err")),
+        "{name}: {reference:?}"
+    );
+    let report = run(
+        &kernel, &shared, &ops, &reference, THREADS, iterations, seed,
+    );
+    eprintln!(
+        "{name}: {} threads x {} iterations over {} ops in {:.2} s; BinTools hash {:016x} -> {:016x}",
+        report.threads,
+        report.iterations,
+        report.ops,
+        report.elapsed.as_secs_f64(),
+        report.hash_before,
+        report.hash_after
+    );
+    assert!(
+        report.mismatches.is_empty(),
+        "{name}: {} mismatches, first: {}",
+        report.mismatches.len(),
+        report.mismatches[0]
+    );
+    assert!(report.input_unchanged, "{name}: the shared input changed");
+    assert_eq!(report.hash_before, report.hash_after);
+}
+
+#[test]
+fn shared_box_survives_concurrent_healing() {
+    stress_healing("box", 200, 0x5EED_1001);
+}
+
+#[test]
+fn shared_filleted_box_survives_concurrent_healing() {
+    stress_healing("filleted_box", 40, 0x5EED_1002);
+}
+
+#[test]
+fn shared_cylinder_survives_concurrent_healing() {
+    stress_healing("cylinder", 120, 0x5EED_1003);
 }
 
 /// BREP-09: 8 threads run the measurement queries (mass properties, classify, closest point,

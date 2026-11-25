@@ -10,7 +10,7 @@ use crate::KResult;
 use crate::boolean::{BoolCode, BoolIn, BoolOutcome, BoolStatus};
 use crate::shape::{SubKind, SubShape};
 
-fn list(shapes: &[&Occ]) -> KResult<UniquePtr<ffi::OcShapeList>> {
+pub(super) fn list(shapes: &[&Occ]) -> KResult<UniquePtr<ffi::OcShapeList>> {
     let mut out = ffi::new_shape_list().map_err(|e| to_kernel_error(&e))?;
     for s in shapes {
         ffi::shape_list_push(out.pin_mut(), &s.shape).map_err(|e| to_kernel_error(&e))?;
