@@ -173,6 +173,32 @@ icon_set! {
     ELLIPSE = "oval",
     /// Construction toggle (UI-13).
     CONSTRUCTION = "line-dashed",
+    /// Coincident constraint (UI-14).
+    COINCIDENT = "focus-2",
+    /// Collinear constraint (UI-14).
+    COLLINEAR = "dots-diagonal",
+    /// Concentric constraint (UI-14).
+    CONCENTRIC = "target",
+    /// Midpoint constraint (UI-14).
+    MIDPOINT = "layout-align-middle",
+    /// Fix / unfix (UI-14).
+    FIX = "lock",
+    /// Parallel constraint (UI-14).
+    PARALLEL = "slashes",
+    /// Perpendicular constraint (UI-14).
+    PERPENDICULAR = "angle",
+    /// Horizontal constraint (UI-14).
+    HORIZONTAL = "arrows-horizontal",
+    /// Vertical constraint (UI-14).
+    VERTICAL = "arrows-vertical",
+    /// Tangent constraint (UI-14).
+    TANGENT = "ease-in-out",
+    /// Equal constraint (UI-14).
+    EQUAL = "equal",
+    /// Symmetric constraint (UI-14).
+    SYMMETRIC = "flip-horizontal",
+    /// Sketch dimension (UI-14).
+    DIMENSION = "dimensions",
     /// Select tool.
     SELECT = "pointer",
     /// Folder node.

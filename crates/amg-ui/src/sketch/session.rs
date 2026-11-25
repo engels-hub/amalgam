@@ -19,14 +19,16 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use amg_core::{Plane, Point2};
-use amg_doc::{Command, Feature, FeatureBox, FeatureId, SketchId};
+use amg_doc::{Command, Expr, ExprSrc, Feature, FeatureBox, FeatureId, SketchId};
 use amg_features::sketch::{SketchEdit, SketchFeature};
 use amg_jobs::{JobHandle, JobState, Priority, SpawnOptions};
-use amg_sketch::solve::{ConstraintState, DofReport, DragSpec, SolveStatus};
+use amg_sketch::solve::{ConstraintCheck, ConstraintState, DofReport, DragSpec, SolveStatus};
 use amg_sketch::{
-    ConstraintKind, EditResult, EntityId, EntityKind, ProfileSet, Sketch, SketchError,
+    ConstraintId, ConstraintKind, EditResult, EntityId, EntityKind, ProfileSet, Quantity, Sketch,
+    SketchError,
 };
 
+use super::dimension::dimension_text_expr;
 use super::solver::{SolverJob, SolverJobError, SolverOp, SolverOut, SolverState};
 use crate::app::{AppCx, CommitBatch};
 use crate::command::CmdId;
@@ -93,6 +95,7 @@ pub struct Inferred {
 enum JobKind {
     Solve,
     Check,
+    Probe,
     DragStep,
     DragFinish,
 }
@@ -112,6 +115,31 @@ struct DragCtl {
     release: bool,
     /// A frame failed to start: the drag ends without a commit.
     failed: bool,
+}
+
+/// A constraint or dimension waiting for its SK-04 classification (UI-14).
+#[derive(Debug)]
+struct Probe {
+    label: String,
+    kind: ConstraintKind,
+    /// `Some(expr)`: a driving dimension with this value expression (refused ones are offered
+    /// as driven); `None`: a geometric constraint (refused ones are not added).
+    dimension: Option<Expr>,
+    sent: bool,
+}
+
+/// A dimension that would over-constrain the sketch, offered as a driven dimension
+/// ("Create as driven dimension?", QUESTIONS #16).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DrivenOffer {
+    /// The undo label of the dimension.
+    pub label: String,
+    /// The dimension (driving; it becomes driven on Yes).
+    pub kind: ConstraintKind,
+    /// `true` if it contradicts the sketch, `false` if it is implied (redundant).
+    pub conflicting: bool,
+    /// The other constraints of its dependency group.
+    pub with: Vec<ConstraintId>,
 }
 
 #[derive(Debug)]
@@ -142,6 +170,11 @@ pub struct SketchSession {
     want_solve: bool,
     drag: Option<DragCtl>,
     pending: Option<PendingCommit>,
+    probe: Option<Probe>,
+    /// The session's number in its layer (`SketchLayer::opened`); its dialogs compare it.
+    serial: u32,
+    /// The dimension label being dragged and where it is now (not committed yet).
+    label_drag: Option<(ConstraintId, Point2)>,
     /// Display and snap options.
     pub palette: PaletteOptions,
     /// Construction mode: new geometry is construction geometry (`X`).
@@ -154,6 +187,17 @@ pub struct SketchSession {
     pub inference: Option<super::infer::Inference>,
     /// The active creation tool's open heads-up input (tests and scripts).
     pub heads_up: Option<super::tools::HeadsUp>,
+    /// The constraint whose glyph (or dimension whose label) is under the cursor (UI-14).
+    pub hovered_constraint: Option<ConstraintId>,
+    /// Selected constraint glyphs and dimension labels (Delete removes them; UI-14).
+    pub selected_constraints: BTreeSet<ConstraintId>,
+    /// Why the newest constraint or dimension was not added (status bar; UI-14).
+    pub notice: Option<String>,
+    /// An over-constraining dimension waiting for "Create as driven dimension?" (UI-14).
+    pub driven_offer: Option<DrivenOffer>,
+    /// The newest dimension added through [`add_dimension`](Self::add_dimension) or
+    /// [`accept_driven`](Self::accept_driven) (its tool opens the value editor on it).
+    pub last_dimension: Option<ConstraintId>,
     stats: SessionStats,
 }
 
@@ -209,12 +253,20 @@ impl SketchSession {
             want_solve: true,
             drag: None,
             pending: None,
+            probe: None,
+            serial: 0,
+            label_drag: None,
             palette: PaletteOptions::default(),
             construction: false,
             selected: BTreeSet::new(),
             hovered: None,
             inference: None,
             heads_up: None,
+            hovered_constraint: None,
+            selected_constraints: BTreeSet::new(),
+            notice: None,
+            driven_offer: None,
+            last_dimension: None,
             stats: SessionStats::default(),
         })
     }
@@ -266,12 +318,289 @@ impl SketchSession {
 
     /// A solver job is running or queued work waits (tests, idle detection).
     pub fn is_solving(&self) -> bool {
-        self.inflight.is_some() || self.want_solve || self.pending.is_some() || self.drag.is_some()
+        self.inflight.is_some()
+            || self.want_solve
+            || self.pending.is_some()
+            || self.drag.is_some()
+            || self.probe.is_some()
     }
 
     /// An edit waits for its constraint check, or a drag is open: tools hold new input.
     pub fn is_busy(&self) -> bool {
-        self.pending.is_some() || self.drag.is_some()
+        self.pending.is_some() || self.drag.is_some() || self.probe.is_some()
+    }
+
+    /// The session's number in its layer (dialogs that belong to it compare it).
+    pub fn serial(&self) -> u32 {
+        self.serial
+    }
+
+    /// The entities drawn highlighted because a constraint glyph or dimension label is hovered
+    /// or selected: exactly the entities those constraints reference.
+    pub fn highlighted(&self) -> BTreeSet<EntityId> {
+        let mut out = BTreeSet::new();
+        for id in self
+            .hovered_constraint
+            .iter()
+            .chain(&self.selected_constraints)
+        {
+            if let Some(c) = self.display.constraint(*id) {
+                out.extend(c.kind.entities());
+            }
+        }
+        out
+    }
+
+    /// The dimension label being dragged and its current position.
+    pub fn label_drag(&self) -> Option<(ConstraintId, Point2)> {
+        self.label_drag
+    }
+
+    /// Adds geometric constraint `kind` after an SK-04 check in a solver job (one undo entry
+    /// labelled `label`). A redundant or conflicting one is not added; [`notice`](Self::notice)
+    /// says why. Until the check is back [`is_busy`](Self::is_busy) is true.
+    ///
+    /// # Errors
+    /// The session is busy, or `kind` is invalid for the sketch (wrong entity kinds).
+    pub fn add_constraint(
+        &mut self,
+        cx: &mut AppCx<'_>,
+        label: &str,
+        kind: ConstraintKind,
+    ) -> Result<(), SketchError> {
+        self.probe_then(cx, label, kind, None)
+    }
+
+    /// Adds a driving dimension (`kind` must be a `ConstraintKind::Dimension`) with value
+    /// expression `expr` after an SK-04 check. When it would over-constrain the sketch it is
+    /// not added: [`driven_offer`](Self::driven_offer) is set and the "Create as driven
+    /// dimension?" prompt opens ([`accept_driven`](Self::accept_driven)).
+    ///
+    /// # Errors
+    /// The session is busy, or `kind` is not a valid dimension of the sketch.
+    pub fn add_dimension(
+        &mut self,
+        cx: &mut AppCx<'_>,
+        label: &str,
+        kind: ConstraintKind,
+        expr: Expr,
+    ) -> Result<(), SketchError> {
+        if !matches!(kind, ConstraintKind::Dimension(_)) {
+            return Err(SketchError::NotApplicable("not a dimension"));
+        }
+        self.probe_then(cx, label, kind, Some(expr))
+    }
+
+    fn probe_then(
+        &mut self,
+        cx: &mut AppCx<'_>,
+        label: &str,
+        kind: ConstraintKind,
+        dimension: Option<Expr>,
+    ) -> Result<(), SketchError> {
+        if self.is_busy() {
+            return Err(SketchError::NotApplicable("an edit is still being checked"));
+        }
+        // Reject wrong entity kinds now (the rules `Sketch::add_constraint` applies).
+        let mut probe = self.working.sketch.clone();
+        probe.add_constraint(kind.clone())?;
+        self.notice = None;
+        self.driven_offer = None;
+        self.probe = Some(Probe {
+            label: label.to_owned(),
+            kind,
+            dimension,
+            sent: false,
+        });
+        cx.request_repaint();
+        Ok(())
+    }
+
+    /// Answers the "Create as driven dimension?" prompt: `yes` adds the offered dimension as a
+    /// driven (measured) dimension in one undo entry, `no` drops it.
+    pub fn accept_driven(&mut self, cx: &mut AppCx<'_>, yes: bool) {
+        let Some(offer) = self.driven_offer.take() else {
+            return;
+        };
+        self.notice = None;
+        if !yes {
+            return;
+        }
+        let ConstraintKind::Dimension(mut d) = offer.kind else {
+            return;
+        };
+        d.driving = false;
+        let edit = SketchEdit::AddConstraint {
+            kind: ConstraintKind::Dimension(d),
+            expr: None,
+        };
+        match self.commit(cx, &offer.label, edit, Vec::new()) {
+            Ok(r) => self.last_dimension = r.constraints_added.first().copied(),
+            Err(e) => self.notice = Some(format!("Not added: {e}")),
+        }
+    }
+
+    /// Removes constraints and dimensions `ids` (one undo entry).
+    ///
+    /// # Errors
+    /// The session is busy or an id is unknown.
+    pub fn remove_constraints(
+        &mut self,
+        cx: &mut AppCx<'_>,
+        ids: &[ConstraintId],
+    ) -> Result<(), SketchError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let edits = ids
+            .iter()
+            .map(|&id| SketchEdit::RemoveConstraint(id))
+            .collect();
+        let label = if ids.len() == 1 {
+            "Delete constraint"
+        } else {
+            "Delete constraints"
+        };
+        self.commit(cx, label, SketchEdit::Batch(edits), Vec::new())?;
+        self.selected_constraints.retain(|c| !ids.contains(c));
+        if self.hovered_constraint.is_some_and(|c| ids.contains(&c)) {
+            self.hovered_constraint = None;
+        }
+        Ok(())
+    }
+
+    /// The value expression of driving dimension `id` as the editor shows it: the expression
+    /// of its model parameter (`d3`), or its inline text.
+    pub fn dimension_source(&self, design: &amg_doc::Design, id: ConstraintId) -> Option<String> {
+        match self.working.dims.get(&id)? {
+            Expr::Param(p) => design.params().get(*p).map(|p| p.expr.0.clone()),
+            Expr::Inline(src) => Some(src.0.clone()),
+        }
+    }
+
+    /// The model parameter behind driving dimension `id`, if it has one (`d<n>`).
+    pub fn dimension_param(&self, id: ConstraintId) -> Option<amg_doc::ParamId> {
+        match self.working.dims.get(&id)? {
+            Expr::Param(p) => Some(*p),
+            Expr::Inline(_) => None,
+        }
+    }
+
+    /// Sets the value expression of driving dimension `id` to `src` (one undo entry). A
+    /// dimension backed by a model parameter (`d<n>`, the usual case) gets the new expression
+    /// on that parameter (`SetParamExpr`, so the parameter keeps its name); one with an inline
+    /// expression gets `SketchEdit::SetDimension`. A bare number takes mm or degrees. The
+    /// working copy picks up the new value and re-solves.
+    ///
+    /// # Errors
+    /// The message of the check that failed (unknown name, unit, cycle, a driven dimension);
+    /// nothing changed.
+    pub fn set_dimension_expr(
+        &mut self,
+        cx: &mut AppCx<'_>,
+        id: ConstraintId,
+        src: &str,
+    ) -> Result<(), String> {
+        let q = match self.working.sketch.constraint(id).map(|c| &c.kind) {
+            Some(ConstraintKind::Dimension(d)) if d.driving => d.kind.quantity(),
+            Some(ConstraintKind::Dimension(_)) => {
+                return Err("a driven dimension only measures".to_owned());
+            }
+            _ => return Err("not a dimension".to_owned()),
+        };
+        let text = {
+            let env = cx.env();
+            let (params, prefs) = (env.design.params(), &env.design.meta().default_units);
+            dimension_text_expr(params, prefs, src, quantity_dim(q))?
+        };
+        if let Some(p) = self.dimension_param(id) {
+            let cmd = Command::SetParamExpr { id: p, expr: text };
+            let mut copy = cx.env().design.clone();
+            amg_doc::apply_command(&mut copy, cmd.clone()).map_err(|e| e.to_string())?;
+            cx.submit(CommitBatch {
+                label: "Edit dimension".to_owned(),
+                commands: vec![cmd],
+            });
+            self.stats.commits += 1;
+            cx.request_repaint();
+            return Ok(());
+        }
+        let edit = SketchEdit::SetDimension {
+            id,
+            expr: Expr::Inline(ExprSrc(text)),
+        };
+        self.commit(cx, "Edit dimension", edit, Vec::new())
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Starts dragging the label of dimension `id` (no undo entry until
+    /// [`end_label_drag`](Self::end_label_drag)).
+    pub fn begin_label_drag(&mut self, id: ConstraintId) -> bool {
+        if self.is_busy() {
+            return false;
+        }
+        let Some(d) = self
+            .display
+            .constraint(id)
+            .and_then(|c| c.kind.as_dimension())
+        else {
+            return false;
+        };
+        self.label_drag = Some((id, d.label_pos));
+        true
+    }
+
+    /// Moves the dragged label to `pos` (sketch coordinates).
+    pub fn drag_label_to(&mut self, pos: Point2) {
+        if let Some((_, p)) = &mut self.label_drag {
+            *p = pos;
+        }
+    }
+
+    /// Drops the dragged label: one `SetDimensionLabel` undo entry (S03 R5).
+    pub fn end_label_drag(&mut self, cx: &mut AppCx<'_>) {
+        let Some((id, pos)) = self.label_drag.take() else {
+            return;
+        };
+        let moved = self
+            .working
+            .sketch
+            .constraint(id)
+            .and_then(|c| c.kind.as_dimension())
+            .is_some_and(|d| d.label_pos != pos);
+        if moved {
+            let edit = SketchEdit::SetDimensionLabel { id, pos };
+            if let Err(e) = self.commit(cx, "Move dimension label", edit, Vec::new()) {
+                tracing::debug!("label move skipped: {e}");
+            }
+        }
+    }
+
+    /// Writes the current values of the driving dimensions' expressions (a parameter edited
+    /// in Change Parameters, an edited dimension) into the working copy; true if one changed
+    /// (the sketch then re-solves).
+    fn refresh_dimension_values(&mut self, cx: &AppCx<'_>) -> bool {
+        let env = cx.env();
+        let (params, prefs) = (env.design.params(), &env.design.meta().default_units);
+        let mut changed = Vec::new();
+        for (id, e) in &self.working.dims {
+            let Some(ConstraintKind::Dimension(d)) =
+                self.working.sketch.constraint(*id).map(|c| &c.kind)
+            else {
+                continue;
+            };
+            let Ok(v) = params.resolve(e, quantity_dim(d.kind.quantity()), prefs) else {
+                continue;
+            };
+            if v.value.is_finite() && v.value.to_bits() != d.value.to_bits() {
+                changed.push((*id, v.value));
+            }
+        }
+        for (id, v) in &changed {
+            let _ = self.working.sketch.set_dimension_value(*id, *v);
+        }
+        !changed.is_empty()
     }
 
     /// A drag is open.
@@ -457,7 +786,7 @@ impl SketchSession {
             .synced
             .as_ref()
             .is_none_or(|s| thin(s) != thin(&node_feature));
-        if external && self.pending.is_none() && self.drag.is_none() {
+        if external && self.pending.is_none() && self.drag.is_none() && self.probe.is_none() {
             match node_feature.as_any().downcast_ref::<SketchFeature>() {
                 Some(f) => {
                     let mut w = f.clone();
@@ -469,6 +798,13 @@ impl SketchSession {
                 }
                 None => return false,
             }
+        }
+        if self.pending.is_none()
+            && self.drag.is_none()
+            && self.probe.is_none()
+            && self.refresh_dimension_values(cx)
+        {
+            self.edited();
         }
         self.collect(cx);
         self.schedule(cx);
@@ -498,6 +834,7 @@ impl SketchSession {
                 if kind != JobKind::Solve {
                     self.drag = None;
                     self.pending = None;
+                    self.probe = None;
                 }
                 return;
             }
@@ -545,6 +882,12 @@ impl SketchSession {
                 }
                 self.submit(cx, &p.label);
             }
+            SolverOut::Probed(res) => {
+                let Some(p) = self.probe.take() else {
+                    return;
+                };
+                self.finish_probe(cx, p, res);
+            }
             SolverOut::DragStepped(step) => {
                 self.stats.drag_frames += 1;
                 match step {
@@ -589,6 +932,60 @@ impl SketchSession {
         }
     }
 
+    /// Adds a probed constraint or dimension, or says why not and offers a dimension as driven.
+    fn finish_probe(
+        &mut self,
+        cx: &mut AppCx<'_>,
+        p: Probe,
+        res: Result<ConstraintCheck, SketchError>,
+    ) {
+        let (conflicting, with) = match res {
+            Ok(ConstraintCheck::Independent) => {
+                let edit = SketchEdit::AddConstraint {
+                    kind: p.kind,
+                    expr: p.dimension.clone(),
+                };
+                match self.working.apply(edit) {
+                    Ok(r) => {
+                        if p.dimension.is_some() {
+                            self.last_dimension = r.constraints_added.first().copied();
+                        }
+                        self.edited();
+                        self.submit(cx, &p.label);
+                    }
+                    Err(e) => self.notice = Some(format!("Not added: {e}")),
+                }
+                return;
+            }
+            Ok(ConstraintCheck::Redundant { with }) => (false, with),
+            Ok(ConstraintCheck::Conflicting { with }) => (true, with),
+            Err(e) => {
+                self.notice = Some(format!("Not added: {e}"));
+                return;
+            }
+        };
+        if p.dimension.is_some() {
+            self.notice = Some("the dimension would over-constrain the sketch".to_owned());
+            self.driven_offer = Some(DrivenOffer {
+                label: p.label,
+                kind: p.kind,
+                conflicting,
+                with,
+            });
+            cx.open_dialog(Box::new(super::dimension::DrivenPromptDialog {
+                session: self.serial,
+            }));
+        } else {
+            let why = if conflicting {
+                "conflicts with existing constraints"
+            } else {
+                "is already implied by existing constraints"
+            };
+            self.notice = Some(format!("Not added: {} {why}", p.kind.name()));
+        }
+        cx.request_repaint();
+    }
+
     fn schedule(&mut self, cx: &mut AppCx<'_>) {
         if self.inflight.is_some() {
             return;
@@ -603,6 +1000,14 @@ impl SketchSession {
                 JobKind::Check,
             ))
         } else if self.pending.is_some() {
+            None
+        } else if let Some(p) = self.probe.as_mut().filter(|p| !p.sent) {
+            p.sent = true;
+            Some((
+                SolverOp::Probe(Box::new(self.working.sketch.clone()), p.kind.clone()),
+                JobKind::Probe,
+            ))
+        } else if self.probe.is_some() {
             None
         } else if self.want_solve && (self.state_gen != self.generation || self.drag.is_none()) {
             self.want_solve = false;
@@ -664,6 +1069,14 @@ impl SketchSession {
     /// The job state of the in-flight job (tests).
     pub fn job_state(&self) -> Option<JobState> {
         self.inflight.as_ref().map(|j| j.handle.state())
+    }
+}
+
+/// The S01 dimension of a sketch dimension's value.
+pub(crate) fn quantity_dim(q: Quantity) -> amg_core::Dimension {
+    match q {
+        Quantity::Length => amg_core::Dimension::LENGTH,
+        Quantity::Angle => amg_core::Dimension::ANGLE,
     }
 }
 
@@ -735,12 +1148,16 @@ impl SketchLayer {
             self.end(cx);
         }
         match SketchSession::open(cx, id) {
-            Some(s) => {
+            Some(mut s) => {
                 cx.camera().look_at_plane(&s.plane, true);
-                self.session = Some(s);
                 self.opened += 1;
+                s.serial = self.opened;
+                self.session = Some(s);
                 cx.enter_context(crate::design::SKETCH_CONTEXT);
                 cx.open_dialog(Box::new(super::palette::SketchPaletteDialog {
+                    session: self.opened,
+                }));
+                cx.open_dialog(Box::new(super::glyphs::GlyphPainter {
                     session: self.opened,
                 }));
             }

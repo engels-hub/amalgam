@@ -8,7 +8,7 @@
 use amg_core::{Plane, Point2, Point3, Ray3};
 use amg_render::{DepthMode, LabelStyle, LineStyle, OverlayList, PointStyle};
 use amg_sketch::solve::ConstraintState;
-use amg_sketch::{ConstraintKind, Curve2, DimensionKind, EntityId, EntityKind, Quantity, Sketch};
+use amg_sketch::{ConstraintKind, Curve2, DimensionKind, EntityId, EntityKind, Quantity};
 
 use super::session::SketchSession;
 use crate::input::CameraView;
@@ -146,12 +146,17 @@ fn line_style(color: [f32; 4], construction: bool) -> LineStyle {
     }
 }
 
-/// Colour of entity `e` in `s`.
-fn entity_color(s: &SketchSession, e: EntityId, construction: bool) -> [f32; 4] {
+/// Colour of entity `e` in `s`; `hl` are the entities of hovered or selected constraints.
+fn entity_color(
+    s: &SketchSession,
+    hl: &std::collections::BTreeSet<EntityId>,
+    e: EntityId,
+    construction: bool,
+) -> [f32; 4] {
     if s.selected.contains(&e) {
         return colors::SELECTED;
     }
-    if s.hovered == Some(e) {
+    if s.hovered == Some(e) || hl.contains(&e) {
         return colors::HOVER;
     }
     match s.entity_state(e) {
@@ -200,16 +205,6 @@ pub fn constraint_glyph(k: &ConstraintKind) -> Option<&'static str> {
     })
 }
 
-/// A point that represents entity `e` (the middle of a curve, the point itself).
-fn anchor_of(sketch: &Sketch, e: EntityId) -> Option<Point2> {
-    if let Some(p) = sketch.point(e) {
-        return Some(p);
-    }
-    let c = sketch.curve(e)?;
-    let (t0, t1) = c.param_range();
-    Some(c.eval(0.5 * (t0 + t1)))
-}
-
 /// Text of a dimension value.
 pub fn dimension_text(kind: &DimensionKind, value: f64) -> String {
     match kind.quantity() {
@@ -242,6 +237,7 @@ pub fn draw_session(s: &SketchSession, out: &mut OverlayList, view: Option<&Came
             out.polygon(&w, &tris, colors::PROFILE, DepthMode::AlwaysOnTop, None);
         }
     }
+    let hl = s.highlighted();
     let mut points = Vec::new();
     let mut point_colors: Vec<([f32; 4], Point3)> = Vec::new();
     for (id, ent) in sketch.entities() {
@@ -249,7 +245,7 @@ pub fn draw_session(s: &SketchSession, out: &mut OverlayList, view: Option<&Came
             if pal.show_points
                 && let Some(p) = sketch.point(id)
             {
-                let c = entity_color(s, id, ent.construction);
+                let c = entity_color(s, &hl, id, ent.construction);
                 if c == colors::UNDER {
                     points.push(plane.to_world(p));
                 } else {
@@ -261,7 +257,7 @@ pub fn draw_session(s: &SketchSession, out: &mut OverlayList, view: Option<&Came
         let Some(curve) = sketch.curve(id) else {
             continue;
         };
-        let color = entity_color(s, id, ent.construction);
+        let color = entity_color(s, &hl, id, ent.construction);
         polyline(
             out,
             &plane,
@@ -278,45 +274,41 @@ pub fn draw_session(s: &SketchSession, out: &mut OverlayList, view: Option<&Came
     for (c, p) in point_colors {
         out.points(&[p], pstyle(c), None);
     }
-    if pal.show_constraints || pal.show_dimensions {
-        for (_, c) in sketch.constraints() {
-            match &c.kind {
-                ConstraintKind::Dimension(d) => {
-                    if pal.show_dimensions {
-                        let color = if d.driving {
-                            colors::FULL
-                        } else {
-                            colors::UNDER
-                        };
-                        label(
-                            out,
-                            &plane,
-                            d.label_pos,
-                            dimension_text(&d.kind, d.value),
-                            color,
-                        );
-                    }
-                }
-                k if pal.show_constraints => {
-                    let Some(g) = constraint_glyph(k) else {
-                        continue;
-                    };
-                    let Some(e) = k.entities().first().copied() else {
-                        continue;
-                    };
-                    if let Some(at) = anchor_of(&sketch, e) {
-                        let off = mm_per_point(view, &plane, at) * 12.0;
-                        label(
-                            out,
-                            &plane,
-                            at + Point2::new(off, off),
-                            g.to_owned(),
-                            colors::INFER,
-                        );
-                    }
-                }
-                _ => {}
+    // Constraint glyphs are icons painted over the viewport (`glyphs::GlyphPainter`).
+    if pal.show_dimensions {
+        let drag = s.label_drag();
+        let hot: std::collections::BTreeSet<_> = s
+            .hovered_constraint
+            .iter()
+            .chain(&s.selected_constraints)
+            .copied()
+            .collect();
+        for (id, c) in sketch.constraints() {
+            let ConstraintKind::Dimension(d) = &c.kind else {
+                continue;
+            };
+            let at = super::glyphs::label_pos(d, id, drag);
+            let color = if hot.contains(&id) {
+                colors::SELECTED
+            } else if d.driving {
+                colors::FULL
+            } else {
+                colors::UNDER
+            };
+            // A thin leader from the label to the measured geometry.
+            if let Some(from) = d
+                .kind
+                .entities()
+                .first()
+                .and_then(|e| super::glyphs::anchor_of(&sketch, *e))
+            {
+                let mut style = line_style([color[0], color[1], color[2], 0.6], !d.driving);
+                style.width_px = 1.0;
+                polyline(out, &plane, &[from, at], style);
             }
+            let text = dimension_text(&d.kind, d.value);
+            let text = if d.driving { text } else { format!("({text})") };
+            label(out, &plane, at, text, color);
         }
     }
 }

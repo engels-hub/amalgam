@@ -14,8 +14,8 @@ use amg_features::sketch::{PlaneInput, SketchEdit, SketchFeature};
 use amg_render::{DepthMode, LabelStyle, LineStyle, OverlayList, PointStyle};
 use amg_sketch::query::{self, PickFilter, SnapKind};
 use amg_sketch::{
-    AngleBranch, ConstraintKind, Dimension, DimensionKind, EditResult, End, EntityId, EntityKind,
-    Sketch, SketchError, TangentKind,
+    AngleBranch, ConstraintId, ConstraintKind, Dimension, DimensionKind, EditResult, End, EntityId,
+    EntityKind, Sketch, SketchError, TangentKind,
 };
 
 use super::infer::{Anchor, InferInput, Inference, SNAP_RADIUS_PT, infer};
@@ -41,6 +41,8 @@ pub(super) struct Cached {
     pub(super) busy: bool,
     /// New geometry is construction geometry (`X`).
     pub(super) construction: bool,
+    /// The session's notice (why the last constraint was not added; UI-14).
+    pub(super) notice: Option<String>,
 }
 
 impl Cached {
@@ -53,11 +55,13 @@ impl Cached {
                 s.palette.snap,
                 s.is_busy(),
                 s.construction,
+                s.notice.clone(),
             )
         });
         match got {
-            Some((plane, sketch, dof, grid, busy, construction)) => {
+            Some((plane, sketch, dof, grid, busy, construction, notice)) => {
                 self.construction = construction;
+                self.notice = notice;
                 self.plane = Some(plane);
                 self.sketch = Some(sketch);
                 self.dof = dof;
@@ -296,6 +300,8 @@ impl Tool for CreateSketchTool {
 pub struct SketchSelectTool {
     cache: Cached,
     dragging: bool,
+    /// A dimension label is being dragged (UI-14).
+    label_dragging: bool,
 }
 
 impl SketchSelectTool {
@@ -310,6 +316,35 @@ impl SketchSelectTool {
         query::pick(sketch, p, mmpp * PICK_RADIUS_PT, PickFilter::ALL)
             .first()
             .map(|h| (h.entity, p))
+    }
+
+    /// The dimension label or constraint glyph under screen position `pos` (UI-14).
+    fn constraint_hit(&self, cx: &mut ToolCx<'_>, pos: egui::Pos2) -> Option<ConstraintId> {
+        let view = cx.camera()?.clone();
+        let (plane, sketch) = (self.cache.plane?, self.cache.sketch.clone()?);
+        let (reveal, drag, pal) = with_session(cx.app(), |s, _| {
+            let reveal: std::collections::BTreeSet<EntityId> =
+                s.selected.iter().chain(&s.hovered).copied().collect();
+            (reveal, s.label_drag(), s.palette)
+        })?;
+        if pal.show_dimensions
+            && let Some(id) = super::glyphs::dimension_hit(&sketch, &view, &plane, pos, drag)
+        {
+            return Some(id);
+        }
+        if !pal.show_constraints {
+            return None;
+        }
+        let glyphs = super::glyphs::layout(&sketch, &reveal);
+        super::glyphs::glyph_hit(&glyphs, &view, &plane, pos).map(|g| g.constraint)
+    }
+
+    fn is_dimension(&self, id: ConstraintId) -> bool {
+        self.cache
+            .sketch
+            .as_ref()
+            .and_then(|s| s.constraint(id))
+            .is_some_and(|c| c.kind.as_dimension().is_some())
     }
 }
 
@@ -349,31 +384,65 @@ impl Tool for SketchSelectTool {
 
     fn input(&mut self, ev: &ViewportEvent, cx: &mut ToolCx<'_>) -> InputResult {
         match ev {
-            ViewportEvent::Hover { ray, .. } => {
-                let hit = self.hit(cx, ray).map(|(e, _)| e);
-                with_session(cx.app(), |s, _| s.hovered = hit);
+            ViewportEvent::Hover { ray, pos } => {
+                let glyph = self.constraint_hit(cx, *pos);
+                let hit = if glyph.is_some() {
+                    None
+                } else {
+                    self.hit(cx, ray).map(|(e, _)| e)
+                };
+                with_session(cx.app(), |s, _| {
+                    s.hovered = hit;
+                    s.hovered_constraint = glyph;
+                });
                 InputResult::Consumed
             }
             ViewportEvent::Click {
                 button: egui::PointerButton::Primary,
                 ray,
                 mods,
-                ..
+                pos,
+                count,
             } => {
-                let hit = self.hit(cx, ray).map(|(e, _)| e);
                 let add = mods.shift || mods_ctrl(*mods);
-                with_session(cx.app(), |s, _| match hit {
-                    Some(e) if add => {
-                        if !s.selected.remove(&e) {
+                if let Some(c) = self.constraint_hit(cx, *pos) {
+                    let edit = *count >= 2 && self.is_dimension(c);
+                    with_session(cx.app(), |s, app| {
+                        if !add {
+                            s.selected.clear();
+                            s.selected_constraints.clear();
+                        }
+                        if !s.selected_constraints.remove(&c) || !add {
+                            s.selected_constraints.insert(c);
+                        }
+                        if edit {
+                            app.open_dialog(Box::new(super::dimension::DimensionEditDialog::new(
+                                s.serial(),
+                                c,
+                            )));
+                            app.request_repaint();
+                        }
+                    });
+                    return InputResult::Consumed;
+                }
+                let hit = self.hit(cx, ray).map(|(e, _)| e);
+                with_session(cx.app(), |s, _| {
+                    if !add {
+                        s.selected_constraints.clear();
+                    }
+                    match hit {
+                        Some(e) if add => {
+                            if !s.selected.remove(&e) {
+                                s.selected.insert(e);
+                            }
+                        }
+                        Some(e) => {
+                            s.selected.clear();
                             s.selected.insert(e);
                         }
+                        None if !add => s.selected.clear(),
+                        None => {}
                     }
-                    Some(e) => {
-                        s.selected.clear();
-                        s.selected.insert(e);
-                    }
-                    None if !add => s.selected.clear(),
-                    None => {}
                 });
                 InputResult::Consumed
             }
@@ -382,6 +451,16 @@ impl Tool for SketchSelectTool {
                 from,
                 ..
             } => {
+                if let Some(c) = self.constraint_hit(cx, *from)
+                    && self.is_dimension(c)
+                {
+                    let ok = with_session(cx.app(), |s, _| s.begin_label_drag(c)).unwrap_or(false);
+                    self.label_dragging = ok;
+                    if ok {
+                        cx.set_cursor(egui::CursorIcon::Grabbing);
+                        return InputResult::Consumed;
+                    }
+                }
                 let Some(view) = cx.camera() else {
                     return InputResult::Ignored;
                 };
@@ -397,6 +476,26 @@ impl Tool for SketchSelectTool {
                 } else {
                     InputResult::Ignored
                 }
+            }
+            ViewportEvent::Drag { ray, .. } if self.label_dragging => {
+                if let Some(plane) = self.cache.plane
+                    && let Some(p) = ray_to_plane(&plane, ray)
+                {
+                    with_session(cx.app(), |s, _| s.drag_label_to(p));
+                }
+                cx.app().request_repaint();
+                InputResult::Consumed
+            }
+            ViewportEvent::DragEnd { ray, .. } if self.label_dragging => {
+                self.label_dragging = false;
+                let p = self.cache.plane.and_then(|pl| ray_to_plane(&pl, ray));
+                with_session(cx.app(), |s, app| {
+                    if let Some(p) = p {
+                        s.drag_label_to(p);
+                    }
+                    s.end_label_drag(app);
+                });
+                InputResult::Consumed
             }
             ViewportEvent::Drag { ray, .. } if self.dragging => {
                 if let Some(plane) = self.cache.plane
@@ -423,8 +522,9 @@ impl Tool for SketchSelectTool {
                 ..
             } => {
                 let had = with_session(cx.app(), |s, _| {
-                    let had = !s.selected.is_empty();
+                    let had = !s.selected.is_empty() || !s.selected_constraints.is_empty();
                     s.selected.clear();
+                    s.selected_constraints.clear();
                     had
                 })
                 .unwrap_or(false);
@@ -440,13 +540,22 @@ impl Tool for SketchSelectTool {
             } => {
                 with_session(cx.app(), |s, app| {
                     let ids: Vec<EntityId> = s.selected.iter().copied().collect();
-                    if !ids.is_empty() {
-                        let _ = s.commit(
-                            app,
-                            "Delete sketch geometry",
-                            SketchEdit::RemoveEntities(ids),
-                            Vec::new(),
-                        );
+                    let cons: Vec<ConstraintId> = s.selected_constraints.iter().copied().collect();
+                    if ids.is_empty() {
+                        if let Err(e) = s.remove_constraints(app, &cons) {
+                            tracing::debug!("constraint delete skipped: {e}");
+                        }
+                    } else {
+                        let mut edits: Vec<SketchEdit> =
+                            cons.into_iter().map(SketchEdit::RemoveConstraint).collect();
+                        edits.push(SketchEdit::RemoveEntities(ids));
+                        let edit = if edits.len() == 1 {
+                            edits.remove(0)
+                        } else {
+                            SketchEdit::Batch(edits)
+                        };
+                        let _ = s.commit(app, "Delete sketch geometry", edit, Vec::new());
+                        s.selected_constraints.clear();
                     }
                 });
                 InputResult::Consumed

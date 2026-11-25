@@ -55,6 +55,9 @@ pub enum SolverOp {
     /// Check the constraints in order on this sketch (each accepted one is added before the
     /// next is checked); see [`SolverOut::Checked`].
     Check(Box<Sketch>, Vec<ConstraintKind>),
+    /// Classify one candidate with SK-04 `check_constraint` without adding it (UI-14: the
+    /// constraint tools and the "create as driven?" flow); see [`SolverOut::Probed`].
+    Probe(Box<Sketch>, ConstraintKind),
     /// Start a drag (if `begin` is set) and move it to `target`.
     DragStep {
         /// The grab of a new drag; `None` continues the open one.
@@ -78,6 +81,8 @@ pub enum SolverOut {
     },
     /// Per checked constraint: `true` if it was accepted (independent).
     Checked(Vec<bool>),
+    /// The classification of a [`SolverOp::Probe`] candidate.
+    Probed(Result<ConstraintCheck, amg_sketch::SketchError>),
     /// One drag frame (`Err`: the drag could not start).
     DragStepped(Result<DragStep, amg_sketch::SketchError>),
     /// The drag finished; the state's sketch holds the final values.
@@ -166,6 +171,9 @@ impl Job for SolverJob {
                     accepted.push(ok);
                 }
                 SolverOut::Checked(accepted)
+            }
+            SolverOp::Probe(sketch, kind) => {
+                SolverOut::Probed(state.solver.check_constraint(&sketch, &kind))
             }
             SolverOp::DragStep { begin, target } => {
                 if let Some(spec) = begin {
