@@ -522,10 +522,12 @@ fn f1_sees_base_f2_sees_the_capture_and_marker_or_suppression_hides_it() {
     });
     fx.recompute();
     assert!(max_diff(&fx.local(fx.o), &BASE_O()) < 1e-12);
-    // Without the capture F2 reads the base transform like F1 does: same feature data and same
-    // captured view, so the very same cache key (a hit on F1's output).
+    // Without the capture F2 reads the base transform like F1 does. (Before DOC-06 the two had
+    // the very same cache key and F2 was a hit on F1's output; keys now include the feature id,
+    // S05 INS-10 finding, so F2 computes its own output from the same view.)
     let key = |f| fx.doc.evaluated().node(f).unwrap().key;
-    assert_eq!(key(f2), key(f1));
+    assert!(max_diff(&seen(&fx.doc, f2), &BASE_O()) < 1e-15);
+    assert_ne!(key(f2), key(f1));
     assert_ne!(key(f2), key_f2_with);
     fx.apply(Command::SetSuppressed {
         ids: vec![c1],

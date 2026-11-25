@@ -1,0 +1,13 @@
+{
+ "id": "TNP-11",
+ "phase": "DOC-06",
+ "naive_index_breaks": false,
+ "base": "B1",
+ "script": [
+  {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}}
+ ],
+ "edit": [
+  {"bind":"fil0","cmd":{"AddFeature":{"at":"$index_of:fil","feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}}],"radius":3}},"context":"$root","name":null}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Error","error":"NotFound","intended":null}
+}

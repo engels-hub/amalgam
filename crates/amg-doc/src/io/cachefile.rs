@@ -34,13 +34,16 @@ use crate::feature::{BodyChange, BodyChangeKind, FeatureOutput};
 use crate::id::{BodyId, ComponentId};
 use crate::io::BodyCodec;
 use crate::model::{BlobRef, Design};
-use crate::naming::{BodyNaming, EntityRef};
+use crate::naming::{BodyNaming, EntityRef, WireNaming};
 use crate::recompute::engine_salt;
 
 /// Name of the index entry.
 pub const CACHE_INDEX: &str = "cache/index.json";
 /// Version of the index and entry layout written here.
-pub const CACHE_FORMAT: u32 = 1;
+///
+/// v2 (DOC-06): element maps are interned (`naming::WireNaming`), solids are real `.brep`
+/// binaries, and `CreatedFrom`/`Consumed` changes exist.
+pub const CACHE_FORMAT: u32 = 2;
 
 /// Error of an [`OutputCodec`].
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -82,19 +85,37 @@ struct WireBody {
 enum WireChange {
     Created {
         geom: Vec<u8>,
-        naming: Option<BodyNaming>,
+        naming: Option<WireNaming>,
     },
     Modified {
         geom: Vec<u8>,
-        naming: Option<BodyNaming>,
+        naming: Option<WireNaming>,
     },
     Deleted,
     /// S06 ASM-09. Appended, so entries written before it still decode.
     Moved {
         component: ComponentId,
         geom: Vec<u8>,
-        naming: Option<BodyNaming>,
+        naming: Option<WireNaming>,
     },
+    /// DOC-06.
+    CreatedFrom {
+        geom: Vec<u8>,
+        naming: Option<WireNaming>,
+        derived_from: BodyId,
+    },
+    /// DOC-06.
+    Consumed {
+        into: BodyId,
+    },
+}
+
+fn enc_naming(n: Option<&BodyNaming>) -> Option<WireNaming> {
+    n.map(WireNaming::encode)
+}
+
+fn dec_naming(n: Option<WireNaming>) -> Result<Option<BodyNaming>, OutputCodecError> {
+    n.map(|w| w.decode().map_err(OutputCodecError)).transpose()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -128,11 +149,11 @@ impl OutputCodec for StubOutputCodec {
                 let change = match &b.change {
                     BodyChangeKind::Created { geom: g, naming: n } => WireChange::Created {
                         geom: geom(g)?,
-                        naming: n.clone(),
+                        naming: enc_naming(n.as_ref()),
                     },
                     BodyChangeKind::Modified { geom: g, naming: n } => WireChange::Modified {
                         geom: geom(g)?,
-                        naming: n.clone(),
+                        naming: enc_naming(n.as_ref()),
                     },
                     BodyChangeKind::Deleted => WireChange::Deleted,
                     BodyChangeKind::Moved {
@@ -142,8 +163,18 @@ impl OutputCodec for StubOutputCodec {
                     } => WireChange::Moved {
                         component: *component,
                         geom: geom(g)?,
-                        naming: n.clone(),
+                        naming: enc_naming(n.as_ref()),
                     },
+                    BodyChangeKind::CreatedFrom {
+                        geom: g,
+                        naming: n,
+                        derived_from,
+                    } => WireChange::CreatedFrom {
+                        geom: geom(g)?,
+                        naming: enc_naming(n.as_ref()),
+                        derived_from: *derived_from,
+                    },
+                    BodyChangeKind::Consumed { into } => WireChange::Consumed { into: *into },
                 };
                 Ok(WireBody { id: b.id, change })
             })
@@ -194,11 +225,11 @@ impl OutputCodec for StubOutputCodec {
             let change = match b.change {
                 WireChange::Created { geom: g, naming } => BodyChangeKind::Created {
                     geom: geom(&g)?,
-                    naming,
+                    naming: dec_naming(naming)?,
                 },
                 WireChange::Modified { geom: g, naming } => BodyChangeKind::Modified {
                     geom: geom(&g)?,
-                    naming,
+                    naming: dec_naming(naming)?,
                 },
                 WireChange::Deleted => BodyChangeKind::Deleted,
                 WireChange::Moved {
@@ -208,8 +239,18 @@ impl OutputCodec for StubOutputCodec {
                 } => BodyChangeKind::Moved {
                     component,
                     geom: geom(&g)?,
-                    naming,
+                    naming: dec_naming(naming)?,
                 },
+                WireChange::CreatedFrom {
+                    geom: g,
+                    naming,
+                    derived_from,
+                } => BodyChangeKind::CreatedFrom {
+                    geom: geom(&g)?,
+                    naming: dec_naming(naming)?,
+                    derived_from,
+                },
+                WireChange::Consumed { into } => BodyChangeKind::Consumed { into },
             };
             bodies.push(BodyChange { id: b.id, change });
         }

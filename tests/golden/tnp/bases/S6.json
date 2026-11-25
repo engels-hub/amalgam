@@ -1,0 +1,4 @@
+[
+ {"bind":"slot","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[51,60,-10],[52,70,-10],[53,70,70],[54,60,70]],"z0":30,"height":20,"op":"Cut","target":{"origin":"$box","slot":0}}},"context":"$root","name":null}}},
+ {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[85,0,40],"class":"Line"}}],"radius":3}},"context":"$root","name":null}}}
+]

@@ -1,0 +1,12 @@
+{
+ "id": "TNP-28",
+ "phase": "DOC-06",
+ "naive_index_breaks": false,
+ "base": "B1",
+ "script": "S6",
+ "edit": [
+  {"saveload":true},
+  {"patch":{"id":"$slot","merge":{"points":[[51,35,-10],[52,45,-10],[53,45,70],[54,35,70]]}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Warning","quality":"Disambiguated","warning":"IndexDrift","entity":{"kind":"Edge","class":"Line","centroid":[72.5,0,40],"measure":55}}
+}

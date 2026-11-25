@@ -37,14 +37,17 @@ use crate::feature::{
 };
 use crate::id::{BodyId, ConstructionId, FeatureId, SketchId};
 use crate::model::{Design, DesignMode};
-use crate::naming::EntityRef;
+use crate::naming::{EntityRef, ResolutionRecord};
 use crate::param::Expr;
 use crate::positions::{CapturePositionFeature, PositionTable};
 use crate::timeline::FeatureNode;
 
 /// Version of the cache-key layout and of the geometry payload format. Bump when either
 /// changes: every cached output is then invalid.
-pub const ENGINE_FORMAT_VERSION: u32 = 1;
+///
+/// v2 (DOC-06): the key hashes the feature id (two features with identical data in one
+/// component no longer share an output) and the salt holds `naming::NAMING_VERSION`.
+pub const ENGINE_FORMAT_VERSION: u32 = 2;
 
 /// Kernel identity folded into [`engine_salt`].
 ///
@@ -58,6 +61,7 @@ pub fn engine_salt(tol: &Tolerance) -> [u8; 32] {
     h.bytes(b"amg-doc/engine-salt");
     h.u64(u64::from(ENGINE_FORMAT_VERSION));
     h.bytes(KERNEL_VERSION.as_bytes());
+    h.u64(u64::from(crate::naming::NAMING_VERSION));
     h.f64(tol.linear);
     h.f64(tol.angular);
     h.finish().0
@@ -194,9 +198,9 @@ impl<'a> Pass<'a> {
             let name = node.name.as_deref().unwrap_or_else(|| node.feature.kind());
             self.job.progress_msg(lo, name);
             if i >= marker {
-                self.set(node.id, Health::RolledBack, None, Default::default());
+                self.set(node.id, Health::RolledBack, None, Default::default(), None);
             } else if node.suppressed {
-                self.set(node.id, Health::Suppressed, None, Default::default());
+                self.set(node.id, Health::Suppressed, None, Default::default(), None);
             } else {
                 let sub = self.job.sub(lo, hi);
                 self.node(node, &sub)?;
@@ -251,6 +255,7 @@ impl<'a> Pass<'a> {
         health: Health,
         key: Option<CacheKey>,
         duration: std::time::Duration,
+        resolutions: Option<Arc<[ResolutionRecord]>>,
     ) {
         self.out.set_node(
             id,
@@ -258,12 +263,13 @@ impl<'a> Pass<'a> {
                 health,
                 key,
                 duration,
+                resolutions: resolutions.unwrap_or_else(|| Arc::new([])),
             },
         );
     }
 
     fn fail(&mut self, id: FeatureId, key: Option<CacheKey>, d: Diagnostic) {
-        self.set(id, Health::Error(d), key, Default::default());
+        self.set(id, Health::Error(d), key, Default::default(), None);
     }
 
     /// Evaluates one live node: key, cache lookup or compute, apply.
@@ -275,33 +281,46 @@ impl<'a> Pass<'a> {
                 return Ok(());
             }
         };
-        let (output, duration, hit) = if let Some(o) = self.cache.get(&key) {
-            (o, std::time::Duration::ZERO, true)
+        let (output, resolutions, duration, hit) = if let Some((o, r)) = self.cache.get_with(&key) {
+            (o, r, std::time::Duration::ZERO, true)
         } else {
             let started = Instant::now();
-            let result = {
+            let (result, records, warnings) = {
                 let mut ctx =
                     RecomputeCtx::new(self.design, &self.out, node.id, node.context, self.mode)
                         .with_job(job)
                         .with_positions(&self.positions);
-                node.feature.compute(&mut ctx)
+                let result = node.feature.compute(&mut ctx);
+                let (records, warnings) = ctx.take_resolutions();
+                (result, records, warnings)
             };
             let duration = started.elapsed();
-            let output = match result {
+            let resolutions: Arc<[ResolutionRecord]> = records.into();
+            let mut output = match result {
                 Ok(o) => o,
                 Err(FeatureError::Cancelled) => return Err(Cancelled),
                 Err(e) => {
-                    self.fail(node.id, Some(key), error_diag(&e));
+                    let d = error_diag(&e);
+                    self.set(
+                        node.id,
+                        Health::Error(d),
+                        Some(key),
+                        duration,
+                        Some(resolutions),
+                    );
                     return Ok(());
                 }
             };
+            // Resolution warnings are part of the output, so they survive the cache (S01 §4).
+            output.warnings.extend(warnings);
             if let Err(d) = self.check_output(node, &output) {
                 self.fail(node.id, Some(key), d);
                 return Ok(());
             }
             let output = Arc::new(output);
-            self.cache.insert(key, Arc::clone(&output));
-            (output, duration, false)
+            self.cache
+                .insert_with(key, Arc::clone(&output), Arc::clone(&resolutions));
+            (output, resolutions, duration, false)
         };
         if hit {
             self.cached.push(node.id);
@@ -314,7 +333,7 @@ impl<'a> Pass<'a> {
         } else {
             Health::Warning(output.warnings.clone())
         };
-        self.set(node.id, health, Some(key), duration);
+        self.set(node.id, health, Some(key), duration, Some(resolutions));
         Ok(())
     }
 
@@ -328,6 +347,33 @@ impl<'a> Pass<'a> {
                     if c.id.origin != node.id && self.design.baked(c.id).is_none() {
                         return bad(format!(
                             "feature created {:?}, which belongs to another feature",
+                            c.id
+                        ));
+                    }
+                }
+                BodyChangeKind::CreatedFrom { derived_from, .. } => {
+                    if c.id.origin != node.id {
+                        return bad(format!(
+                            "feature created {:?}, which belongs to another feature",
+                            c.id
+                        ));
+                    }
+                    if self.out.body(*derived_from).is_none() {
+                        return bad(format!(
+                            "feature split {:?} off {derived_from:?}, which does not exist",
+                            c.id
+                        ));
+                    }
+                }
+                BodyChangeKind::Consumed { into } => {
+                    if self.out.body(c.id).is_none() {
+                        return bad(format!("feature consumed {:?}, which does not exist", c.id));
+                    }
+                    let into_exists =
+                        self.out.body(*into).is_some() || out.bodies.iter().any(|b| b.id == *into);
+                    if !into_exists || *into == c.id {
+                        return bad(format!(
+                            "feature consumed {:?} into {into:?}, which does not exist",
                             c.id
                         ));
                     }
@@ -368,9 +414,23 @@ impl<'a> Pass<'a> {
                     self.put_body(c.id, node, geom, naming.as_ref(), true);
                     self.body_key.insert(c.id, key);
                 }
+                BodyChangeKind::CreatedFrom {
+                    geom,
+                    naming,
+                    derived_from,
+                } => {
+                    self.put_body(c.id, node, geom, naming.as_ref(), false);
+                    self.body_key.insert(c.id, key);
+                    self.out.add_successor(*derived_from, c.id, true);
+                }
                 BodyChangeKind::Deleted => {
                     self.out.remove_body(c.id);
                     self.body_key.remove(&c.id);
+                }
+                BodyChangeKind::Consumed { into } => {
+                    self.out.remove_body(c.id);
+                    self.body_key.remove(&c.id);
+                    self.out.add_successor(c.id, *into, false);
                 }
                 BodyChangeKind::Moved {
                     component,
@@ -432,6 +492,9 @@ impl<'a> Pass<'a> {
         let f = &node.feature;
         let mut h = KeyHasher::new();
         h.0.update(&self.salt);
+        // The feature id (v2): outputs carry ids derived from it (`BodyId { origin }`), so two
+        // features with identical data must not share an output (S05 INS-10 finding).
+        h.u64(node.id.0);
         h.bytes(f.kind().as_bytes());
         h.u64(u64::from(f.version()));
         let json = f

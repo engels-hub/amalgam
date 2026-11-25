@@ -1,0 +1,11 @@
+{
+ "id": "TNP-08",
+ "phase": "DOC-06",
+ "naive_index_breaks": true,
+ "base": "B1",
+ "script": "S6",
+ "edit": [
+  {"cmd":{"SetSuppressed":{"ids":["$slot"],"suppressed":true}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Warning","quality":"Widened","warning":"Widened","entity":{"kind":"Edge","class":"Line","centroid":[50,0,40],"measure":100}}
+}

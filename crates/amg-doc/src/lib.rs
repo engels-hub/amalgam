@@ -76,8 +76,10 @@ pub use model::{
     ExtRecord, ID_LIMIT, ModelError, Occurrence, UnitPrefs,
 };
 pub use naming::{
-    BodyNaming, EntityRef, GeomClass, GeomFingerprint, MatchQuality, NameSeg, NameSource,
-    ResolveError, Resolved, Role, TopoKind, TopoName, TopoRef,
+    BodyNaming, EntityRef, GeomClass, GeomFingerprint, MAX_NAME_DEPTH, MatchQuality,
+    NAMING_VERSION, NameSeg, NameSource, NamingBuilder, NamingError, NamingView, OperandNaming,
+    ProfileFp, ResolutionRecord, ResolveError, ResolveWarning, Resolved, Role, SetPolicy,
+    SplitOrder, TopoKind, TopoName, TopoRef, WidenCause, resolve, topo_ref_at,
 };
 pub use param::{Expr, ExprSrc, Param, ParamError, ParamKind, ParamTable, UnitSpec};
 pub use positions::{

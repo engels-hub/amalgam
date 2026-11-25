@@ -1,0 +1,13 @@
+{
+ "id": "TNP-03",
+ "phase": "DOC-06",
+ "naive_index_breaks": true,
+ "base": "B2",
+ "script": [
+  {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$prism","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[0,60,20],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}}
+ ],
+ "edit": [
+  {"cmd":{"EditFeature":{"id":"$prism","feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[1,0,0],[3,100,60],[4,0,60]],"z0":0,"height":40,"op":"New","target":null}}}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Line","centroid":[0,60,20],"measure":40}}
+}

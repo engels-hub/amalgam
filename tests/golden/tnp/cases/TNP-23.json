@@ -1,0 +1,15 @@
+{
+ "id": "TNP-23",
+ "phase": "DOC-13",
+ "naive_index_breaks": false,
+ "script": [
+  {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[50,0]],["L",2,[50,0],[50,60]],["L",3,[50,60],[0,60]],["L",4,[0,60],[0,0]],["L",5,[60,0],[100,0]],["L",6,[100,0],[100,60]],["L",7,[100,60],[60,60]],["L",8,[60,60],[60,0]]]}},
+  {"bind":"eA","EXT":["$s1",[25,30],"40 mm","NewBody"]},
+  {"bind":"eB","EXT":["$s1",[80,30],"20 mm","NewBody"]},
+  {"bind":"fil","FIL":[{"$pick":{"kind":"Edge","near":[80,0,20],"class":"Line"}},"2 mm"]}
+ ],
+ "edit": [
+  {"bind":"comb","cmd":{"AddFeature":{"at":"$index_of:fil","feature":{"kind":"solid.combine","v":1,"data":{"target":{"origin":"$eA","slot":0},"tools":[{"origin":"$eB","slot":0}],"op":"Join","keep_tools":false}},"context":"$root","name":null}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","body":{"origin":"$eA","slot":0},"entity":{"kind":"Edge","class":"Line","centroid":[80,0,20],"measure":40}}
+}

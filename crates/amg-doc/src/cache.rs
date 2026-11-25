@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::eval::{BodyGeom, CacheKey};
 use crate::feature::{BodyChangeKind, FeatureOutput};
+use crate::naming::ResolutionRecord;
 
 /// Default cache budget, bytes (S01 §3: 2 GiB, a preference).
 pub const DEFAULT_BUDGET_BYTES: u64 = 2 << 30;
@@ -36,6 +37,7 @@ pub fn estimate_bytes(out: &FeatureOutput) -> u64 {
     let mut n = BASE + out.bodies.len() * PER_BODY + out.warnings.len() * PER_WARNING;
     for b in &out.bodies {
         if let BodyChangeKind::Created { geom, .. }
+        | BodyChangeKind::CreatedFrom { geom, .. }
         | BodyChangeKind::Modified { geom, .. }
         | BodyChangeKind::Moved { geom, .. } = &b.change
             && let BodyGeom::Mesh(m) = geom
@@ -53,6 +55,8 @@ fn mesh_bytes(m: &amg_mesh::IndexedMesh) -> usize {
 
 struct Entry {
     value: Arc<FeatureOutput>,
+    /// The resolutions the feature recorded (DOC-06), served with the output.
+    resolutions: Arc<[ResolutionRecord]>,
     bytes: u64,
     tick: u64,
 }
@@ -160,21 +164,30 @@ impl GeomCache {
 
     /// The cached output for `key`, marking it most recently used.
     pub fn get(&self, key: &CacheKey) -> Option<Arc<FeatureOutput>> {
+        self.get_with(key).map(|(v, _)| v)
+    }
+
+    /// [`GeomCache::get`] plus the resolutions stored with the output (empty for outputs read
+    /// from a backing store).
+    pub fn get_with(
+        &self,
+        key: &CacheKey,
+    ) -> Option<(Arc<FeatureOutput>, Arc<[ResolutionRecord]>)> {
         let mut g = self.lock();
         let tick = g.next_tick();
         let found = match g.map.get_mut(key) {
             Some(e) => {
                 let old = std::mem::replace(&mut e.tick, tick);
-                Some((Arc::clone(&e.value), old))
+                Some((Arc::clone(&e.value), Arc::clone(&e.resolutions), old))
             }
             None => None,
         };
         match found {
-            Some((value, old)) => {
+            Some((value, res, old)) => {
                 g.order.remove(&old);
                 g.order.insert(tick, *key);
                 self.hits.fetch_add(1, Ordering::Relaxed);
-                Some(value)
+                Some((value, res))
             }
             None => {
                 drop(g);
@@ -182,7 +195,7 @@ impl GeomCache {
                 if let Some(value) = self.backing().and_then(|b| b.load(key)) {
                     self.insert(*key, Arc::clone(&value));
                     self.hits.fetch_add(1, Ordering::Relaxed);
-                    return Some(value);
+                    return Some((value, Arc::new([])));
                 }
                 self.misses.fetch_add(1, Ordering::Relaxed);
                 None
@@ -205,6 +218,16 @@ impl GeomCache {
     /// Stores an output, evicting least recently used entries over budget. An output larger
     /// than the whole budget is not stored.
     pub fn insert(&self, key: CacheKey, value: Arc<FeatureOutput>) {
+        self.insert_with(key, value, Arc::new([]));
+    }
+
+    /// [`GeomCache::insert`] with the resolutions the feature recorded.
+    pub fn insert_with(
+        &self,
+        key: CacheKey,
+        value: Arc<FeatureOutput>,
+        resolutions: Arc<[ResolutionRecord]>,
+    ) {
         let bytes = estimate_bytes(&value);
         let mut g = self.lock();
         if let Some(old) = g.map.remove(&key) {
@@ -217,7 +240,15 @@ impl GeomCache {
         let tick = g.next_tick();
         g.order.insert(tick, key);
         g.used += bytes;
-        g.map.insert(key, Entry { value, bytes, tick });
+        g.map.insert(
+            key,
+            Entry {
+                value,
+                resolutions,
+                bytes,
+                tick,
+            },
+        );
         let budget = g.budget;
         g.evict_to(budget);
     }

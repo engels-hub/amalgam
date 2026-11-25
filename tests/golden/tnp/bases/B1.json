@@ -1,0 +1,3 @@
+[
+ {"bind":"box","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_box","v":1,"data":{"size":[100,60,40]}},"context":"$root","name":null}}}
+]

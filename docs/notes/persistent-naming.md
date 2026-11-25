@@ -1140,10 +1140,10 @@ The fillet command template used below (radius `R`, pick `P`):
 | TNP-02 | DOC-06 | **yes** | profile gains a vertex | Ok Exact |
 | TNP-03 | DOC-06 | **yes** | profile loses a vertex | Ok Exact |
 | TNP-04 | DOC-06 | — | inserted split, symmetric | Error Ambiguous |
-| TNP-05 | DOC-06 | — | inserted split, asymmetric | Warning NewSplit |
+| TNP-05 | DOC-06 | **yes** | inserted split, asymmetric | Warning NewSplit |
 | TNP-06 | DOC-06 | no | seen split, dimension edit | Ok Exact |
-| TNP-07 | DOC-06 | **yes** | seen split, pieces swap order | Warning IndexDrift |
-| TNP-08 | DOC-06 | — | seen split suppressed | Warning Widened |
+| TNP-07 | DOC-06 | no | seen split, pieces swap order | Warning IndexDrift |
+| TNP-08 | DOC-06 | **yes** | seen split suppressed | Warning Widened |
 | TNP-09 | DOC-06 | **yes** | reorder | Ok Exact |
 | TNP-10 | DOC-06 | no | fillet of fillet edge, radius edit | Ok Exact |
 | TNP-11 | DOC-06 | — | inserted fillet consumes edge | Error NotFound |
@@ -1159,11 +1159,11 @@ The fillet command template used below (radius `R`, pick `P`):
 | TNP-21 | DOC-13 | — | split body, size edit | Ok Exact |
 | TNP-22 | DOC-13 | — | revolve to 360° removes caps | Error NotFound |
 | TNP-23 | DOC-13 | — | combine inserted (body lineage) | Ok Exact |
-| TNP-24 | DOC-06 | no | Accept match on a fillet input; fillet-of-fillet downstream | Ok Exact (no cascade) |
-| TNP-25 | DOC-06 | no | set-valued fillet, one member consumed upstream | member Error NotFound (dropped), other Ok Exact, feature Warning |
-| TNP-26 | DOC-06 | ? | seen split, pieces become congruent | Ok Exact |
-| TNP-27 | DOC-06 | ? | fillet corner patch referenced, height edit | Ok Exact |
-| TNP-28 | DOC-06 | **yes** | save/load, then TNP-07's edit | Warning IndexDrift |
+| TNP-24 | DOC-06 | **yes** | Accept match on a fillet input; fillet-of-fillet downstream | Ok Exact (no cascade) |
+| TNP-25 | DOC-06 | **yes** | set-valued fillet, one member consumed upstream | member Error NotFound (dropped), other Ok Exact, feature Warning |
+| TNP-26 | DOC-06 | no | seen split, pieces become congruent | Ok Exact |
+| TNP-27 | DOC-06 | no | fillet corner patch referenced, height edit | Ok Exact |
+| TNP-28 | DOC-06 | no | save/load, then TNP-07's edit | Warning IndexDrift |
 | TNP-29 | DOC-13 | ? | hole added to the plate region, profile re-picked | Ok Exact |
 | TNP-30 | DOC-13 | ? | profile list order reversed | Ok Exact |
 
@@ -1219,7 +1219,7 @@ picked centroid. Ratio 1.0 → Ambiguous.
 d(long) = 0.26, d(short) = 0.69, ratio 0.38 → picks the long piece, with a `NewSplit`
 warning (the reference predates the split).
 ```json
-{"id":"TNP-05","phase":"DOC-06","naive_index_breaks":false,"base":"B1",
+{"id":"TNP-05","phase":"DOC-06","naive_index_breaks":true,"base":"B1",
  "script":[{"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}}],"radius":3}},"context":"$root","name":null}}}],
  "edit":[{"bind":"notch","cmd":{"AddFeature":{"at":"$index_of:fil","feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[41,20,-10],[42,30,-10],[43,30,10],[44,20,10]],"z0":30,"height":20,"op":"Cut","target":{"origin":"$box","slot":0}}},"context":"$root","name":null}}}],
  "expect":{"subject":{"feature":"$fil","ref":0},"outcome":"Warning","quality":"Disambiguated","warning":"NewSplit","entity":{"kind":"Edge","class":"Line","centroid":[65,0,40],"measure":70}}}
@@ -1245,14 +1245,14 @@ Name-equal (index 1) is now piece A. The fingerprint picks B: d = 0.53 vs 2.25, 
 They disagree → `IndexDrift` warning. A naive index ref, or one trusting `Split.index`,
 would hit A.
 ```json
-{"id":"TNP-07","phase":"DOC-06","naive_index_breaks":true,"base":"B1","script":"S6",
+{"id":"TNP-07","phase":"DOC-06","naive_index_breaks":false,"base":"B1","script":"S6",
  "edit":[{"patch":{"id":"$slot","merge":{"points":[[51,35,-10],[52,45,-10],[53,45,70],[54,35,70]]}}}],
  "expect":{"subject":{"feature":"$fil","ref":0},"outcome":"Warning","quality":"Disambiguated","warning":"IndexDrift","entity":{"kind":"Edge","class":"Line","centroid":[72.5,0,40],"measure":55}}}
 ```
 
 **TNP-08: suppressing the groove leaves the whole top-front edge.**
 ```json
-{"id":"TNP-08","phase":"DOC-06","naive_index_breaks":false,"base":"B1","script":"S6",
+{"id":"TNP-08","phase":"DOC-06","naive_index_breaks":true,"base":"B1","script":"S6",
  "edit":[{"cmd":{"SetSuppressed":{"ids":["$slot"],"suppressed":true}}}],
  "expect":{"subject":{"feature":"$fil","ref":0},"outcome":"Warning","quality":"Widened","warning":"Widened","entity":{"kind":"Edge","class":"Line","centroid":[50,0,40],"measure":100}}}
 ```
@@ -1461,7 +1461,7 @@ Accept match is run on fillet 1. Fillet 2 references the arc where blend 1 meets
 face. Blend 1 is `Gen{fil1, Blend#0, Selection(1)}` before and after, so fillet 2 stays
 Exact, and fillet 1's refreshed ref is now Exact too (name-equal long piece, ratio ≈ 0).
 ```json
-{"id":"TNP-24","phase":"DOC-06","naive_index_breaks":false,"base":"B1",
+{"id":"TNP-24","phase":"DOC-06","naive_index_breaks":true,"base":"B1",
  "script":[{"bind":"fil1","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}},
            {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[100,1.817,38.183],"class":"Circle"}}],"radius":1}},"context":"$root","name":null}}}],
  "edit":[{"bind":"notch","cmd":{"AddFeature":{"at":"$index_of:fil1","feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[41,20,-10],[42,30,-10],[43,30,10],[44,20,10]],"z0":30,"height":20,"op":"Cut","target":{"origin":"$box","slot":0}}},"context":"$root","name":null}}},
@@ -1474,7 +1474,7 @@ Exact, and fillet 1's refreshed ref is now Exact too (name-equal long piece, rat
 The back edge's member is dropped (`NotFound`, recorded and warned), the front edge still
 resolves, and the feature is `Warning`.
 ```json
-{"id":"TNP-25","phase":"DOC-06","naive_index_breaks":false,"base":"B1",
+{"id":"TNP-25","phase":"DOC-06","naive_index_breaks":true,"base":"B1",
  "script":[{"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}},{"$pick":{"kind":"Edge","near":[50,60,40],"class":"Line"}}],"radius":3,"policy":"DropMissing"}},"context":"$root","name":null}}}],
  "edit":[{"bind":"fil0","cmd":{"AddFeature":{"at":"$index_of:fil","feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,60,40],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}}],
  "expect":[{"subject":{"feature":"$fil","ref":1},"health":"Warning","outcome":"Error","error":"NotFound","intended":null},
@@ -1486,7 +1486,7 @@ A' (x 0..45) and B' (x 55..100) both have area 2700, equal after quantisation (�
 centroid decides the order: A' is index 0, B' index 1, and B' is name-equal. d(B') = 0.344
 (7.5 mm away, s = 30, 30 → 45 mm), d(A') = 2.10, ratio 0.16 → quiet, Exact.
 ```json
-{"id":"TNP-26","phase":"DOC-06","naive_index_breaks":null,"base":"B1","script":"S6",
+{"id":"TNP-26","phase":"DOC-06","naive_index_breaks":false,"base":"B1","script":"S6",
  "edit":[{"patch":{"id":"$slot","merge":{"points":[[51,45,-10],[52,55,-10],[53,55,70],[54,45,70]]}}}],
  "expect":{"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Line","centroid":[77.5,0,40],"measure":45}}}
 ```
@@ -1498,7 +1498,7 @@ spherical octant of radius 5 about (95, 5, h − 5), centroid offset r/2 on each
 πr²/2. Tolerance 1e-4. If OCCT builds the corner as a B-spline patch instead, DOC-06 records
 the observed class and centroid here and in §13.
 ```json
-{"id":"TNP-27","phase":"DOC-06","naive_index_breaks":null,"base":"B1",
+{"id":"TNP-27","phase":"DOC-06","naive_index_breaks":false,"base":"B1",
  "script":[{"bind":"fil3","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}},{"$pick":{"kind":"Edge","near":[100,30,40],"class":"Line"}},{"$pick":{"kind":"Edge","near":[100,0,20],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}},
            {"bind":"probe","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.probe","v":1,"data":{"body":{"origin":"$box","slot":0},"refs":[{"$pick":{"kind":"Face","near":[97.5,2.5,37.5],"class":"Sphere"}}],"policy":"AllOrError"}},"context":"$root","name":null}}}],
  "edit":[{"cmd":{"EditFeature":{"id":"$box","feature":{"kind":"test.brep_box","v":1,"data":{"size":[100,60,50]}}}}}],
@@ -1508,7 +1508,7 @@ the observed class and centroid here and in §13.
 **TNP-28: TNP-07 with a save/load between base and edit.**
 Names, selection keys and fingerprints round-trip; the result equals TNP-07's.
 ```json
-{"id":"TNP-28","phase":"DOC-06","naive_index_breaks":true,"base":"B1","script":"S6",
+{"id":"TNP-28","phase":"DOC-06","naive_index_breaks":false,"base":"B1","script":"S6",
  "edit":[{"saveload":true},
          {"patch":{"id":"$slot","merge":{"points":[[51,35,-10],[52,45,-10],[53,45,70],[54,35,70]]}}}],
  "expect":{"subject":{"feature":"$fil","ref":0},"outcome":"Warning","quality":"Disambiguated","warning":"IndexDrift","entity":{"kind":"Edge","class":"Line","centroid":[72.5,0,40],"measure":55}}}
@@ -1640,6 +1640,55 @@ same cases. DOC-13 adds a seeded fuzz run that nobody tunes on (`amg-features/te
   outcomes (TNP-02's edit changed, TNP-20 now follows from §6.2 rule (c), TNP-22's nearest
   seam corrected to d ≈ 1.58). New cases TNP-24..30 were computed by hand the same way.
 - **2026-10-21 (owner).** Note Accepted; §15 answered with every recommendation (QUESTIONS #43–#49).
+- **2026-11-25 (DOC-06).** Framework implemented as written (`crates/amg-doc/src/naming/`); no
+  threshold or weight changed, so `NAMING_VERSION` stays 1.
+  - **Corpus run** (`cargo nextest run -p amg-doc --features occt --test tnp`, OCCT 8.0.1): all 17
+    DOC-06-phase cases meet their `expect`, 0 silent wrong (§11.2). The distances worked out by
+    hand in §11.4 hold: TNP-05 picks the 70 mm piece (NewSplit), TNP-07/28 the 55 mm piece
+    (IndexDrift), TNP-26 is Exact, TNP-04 Ambiguous, TNP-11 NotFound by the adjacency rule,
+    TNP-25 drops the back edge and the feature is `Warning`. TNP-27: OCCT builds the 3-edge
+    corner as a real `Sphere` face (centroid (97.5, 2.5, 47.5), area 39.2699 after the edit),
+    not a B-spline, so the case stands as written. TNP-28 restores all 3 outputs from the `.amg`
+    cache with equal element maps before the edit.
+  - **Naive baseline, measured** (per §11.2, on the subject's input state after the edit): breaks
+    in TNP-02, 03, 05, 08, 09, 12, 24, 25 (8 cases); holds in TNP-01, 06, 07, 10, 26, 27, 28.
+    Predictions corrected in §11.4 and the case files: TNP-05, 08, 24, 25 → yes (the notch or the
+    inserted fillet renumbers the edges); TNP-07 and 28 → no (OCCT keeps the in-shape index of the
+    B/front edge when the groove moves, so only a ref trusting `Split.index` would hit A, as the
+    TNP-07 text says); TNP-26, 27 → no.
+  - **§9 benches** (`cargo bench -p amg-doc --features occt --bench naming`, release, a machine
+    shared with another build; synthetic 1 000-face / 3 000-edge / 2 000-vertex body):
+
+    | Bench | Measured | Target |
+    |---|---|---|
+    | `naming/finish-1000` (op keeps every face; names and edge `Arc`s reused) | 2.91 ms (2.89–2.93); 4.3–4.6 ms on the first, busier run before the reuse fix below | < 3 ms (estimate) — met, narrowly |
+    | `naming/finish-1000-fresh` (first naming) | 2.34 ms | — |
+    | `naming/index-1000` (lazy resolver index, once per element map) | 1.5 ms | — |
+    | `naming/resolve/stage1-edge` / `stage1-face` | 1.5 µs / 0.65 µs | < 20 µs |
+    | `naming/resolve/stage2-split` (2 candidates, table fingerprints) | 1.6 µs | < 100 µs |
+    | memory, first naming | 145 B per element | ≤ 192 B |
+    | memory, kept op | 8 B per element (3 000/3 000 edge names shared) | 8 B |
+    | `naming/occt/fillet-4-op` vs `fillet-4-finish` (real box, 4 top edges) | 2.93 ms vs 22.5 µs: **0.8 %** naming share | ≤ 5 % (binding) |
+
+    The first run measured `finish-1000` at 4.3–4.6 ms; skipping the new `Bound` name when the
+    input's name already matches, and reusing the sorted-names buffer, brought it to 2.9 ms (the
+    machine was also less loaded). The margin is small; the remaining time is per-edge
+    allocations (one key vector per edge and vertex) and the kept history's lookup tables, so
+    flat key storage is the next step if the budget tightens. The binding budget (naming ≤ 5 % of
+    the op it follows, §9 last row) holds at 0.8 %. Memory is
+    estimated with `BodyNaming::estimated_heap_bytes` (unique name allocations plus vectors)
+    instead of a counting allocator, which would need `unsafe` outside the allowed crates.
+    Stage-2 and stage-3 times with real fingerprints are dominated by `sub_geom` (S02 bench).
+  - **Implementation decisions inside the note's latitude:** `RecomputeCtx::kernel()` defaults to
+    a process-wide `OcctKernel` (`naming::default_kernel`), overridable with `with_kernel`; the
+    resolver takes fingerprints through a `GeomSource` trait (`KernelGeom` over a kernel, tables
+    in tests) and builders a `NamingTopology` (`ShapeTopo` over `amg-brep`,
+    `SyntheticTopology` for tests and benches), so Done-when 1 runs without OCCT; a face without a
+    role in rule 3 gets role `Face#0`; a `Bound` reference whose face has no candidates but a
+    tombstone reports `NotFound { removed_by }` (decision 7 applied to edges); tombstone ties use
+    timeline order from the feature's input state; a split-off body's lineage is the new
+    `BodyChangeKind::CreatedFrom { derived_from }` variant instead of a field on `Created`, so
+    existing `Created` literals stay valid.
 
 
 ## 14. Sources

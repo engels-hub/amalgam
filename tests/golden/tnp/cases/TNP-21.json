@@ -1,0 +1,15 @@
+{
+ "id": "TNP-21",
+ "phase": "DOC-13",
+ "naive_index_breaks": false,
+ "script": [
+  {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[-50,0],[50,0]],["L",2,[50,0],[50,60]],["L",3,[50,60],[-50,60]],["L",4,[-50,60],[-50,0]]]}},
+  {"bind":"e1","EXT":["$s1",[0,30],"40 mm","NewBody"]},
+  {"bind":"split","cmd":{"AddFeature":{"at":null,"feature":{"kind":"solid.split_body","v":1,"data":{"body":{"origin":"$e1","slot":0},"tool":"OriginYZ"}},"context":"$root","name":null}}},
+  {"bind":"fil","FIL":[{"$pick":{"kind":"Edge","near":[25,0,40],"class":"Line"}},"2 mm"]}
+ ],
+ "edit": [
+  {"sketch_edit":{"id":"$s1","move":[[1,[-50,0],[80,0]],[2,[80,0],[80,60]],[3,[80,60],[-50,60]]]}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","body":{"origin":"$split","slot":1},"entity":{"kind":"Edge","class":"Line","centroid":[40,0,40],"measure":80}}
+}

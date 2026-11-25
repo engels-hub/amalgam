@@ -1,0 +1,14 @@
+{
+ "id": "TNP-13",
+ "phase": "DOC-13",
+ "naive_index_breaks": false,
+ "script": [
+  {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[100,0]],["L",2,[100,0],[100,60]],["L",3,[100,60],[0,60]],["L",4,[0,60],[0,0]]]}},
+  {"bind":"e1","EXT":["$s1",[50,30],"40 mm","NewBody"]},
+  {"bind":"fil","FIL":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}},"5 mm"]}
+ ],
+ "edit": [
+  {"sketch_edit":{"id":"$s1","remove":[1],"add":[["L",9,[0,0],[100,0]]]}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Warning","quality":"FingerprintOnly","warning":"FingerprintOnly","entity":{"kind":"Edge","class":"Line","centroid":[50,0,40],"measure":100}}
+}

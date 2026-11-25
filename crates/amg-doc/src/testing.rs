@@ -17,7 +17,9 @@ use crate::id::FeatureId;
 use crate::param::Expr;
 use crate::stub::{IndexedMesh, Shape};
 
-/// Kinds registered by this module.
+pub mod brep;
+
+/// Kinds registered by this module (the B-rep test features are in [`brep::KINDS`]).
 pub const KINDS: [&str; 5] = [
     "test.add_mesh",
     "test.box",

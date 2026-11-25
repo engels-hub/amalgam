@@ -1,0 +1,15 @@
+{
+ "id": "TNP-09",
+ "phase": "DOC-06",
+ "naive_index_breaks": true,
+ "base": "B1",
+ "script": [
+  {"bind":"cutA","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[31,20,-10],[32,30,-10],[33,30,70],[34,20,70]],"z0":30,"height":20,"op":"Cut","target":{"origin":"$box","slot":0}}},"context":"$root","name":null}}},
+  {"bind":"cutB","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[21,70,20],[22,90,20],[23,90,40],[24,70,40]],"z0":30,"height":20,"op":"Cut","target":{"origin":"$box","slot":0}}},"context":"$root","name":null}}},
+  {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$box","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[80,20,40],"class":"Line"}}],"radius":2}},"context":"$root","name":null}}}
+ ],
+ "edit": [
+  {"cmd":{"MoveFeature":{"id":"$cutB","to":1}}}
+ ],
+ "expect": {"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Line","centroid":[80,20,40],"measure":20}}
+}

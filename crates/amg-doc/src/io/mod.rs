@@ -210,7 +210,17 @@ pub struct StubBodyCodec;
 impl BodyCodec for StubBodyCodec {
     fn encode(&self, _blob: &BlobRef, geom: &BodyGeom) -> Result<Vec<u8>, BodyCodecError> {
         Ok(match geom {
-            BodyGeom::Solid(_) => b"stub:solid".to_vec(),
+            // A real B-rep (DOC-06: the cache keeps element maps against real shapes) is stored
+            // with amg-brep's binary format, which keeps every sub-shape index.
+            BodyGeom::Solid(s) => match s.brep() {
+                Some(b) => {
+                    let mut out = Vec::new();
+                    b.write_bin(&mut out)
+                        .map_err(|e| BodyCodecError(format!("brep encode: {e}")))?;
+                    out
+                }
+                None => b"stub:solid".to_vec(),
+            },
             BodyGeom::Mesh(m) => {
                 // Real geometry (MESH-16): the versioned, checksummed `AMGM` encoding.
                 let mut out = Vec::new();
@@ -228,6 +238,11 @@ impl BodyCodec for StubBodyCodec {
         match bytes {
             b"stub:solid" => Ok(BodyGeom::Solid(Shape::new())),
             b"stub:mesh" => Ok(BodyGeom::Mesh(Arc::new(IndexedMesh::default()))),
+            _ if bytes.starts_with(b"AMGB") => {
+                let shape = amg_brep::Shape::read_bin(bytes)
+                    .map_err(|e| BodyCodecError(format!("brep decode: {e}")))?;
+                Ok(BodyGeom::Solid(Shape::from_brep(shape)))
+            }
             _ if bytes.starts_with(b"AMGM") => {
                 let body = amg_mesh::MeshBody::read_binary(bytes)
                     .map_err(|e| BodyCodecError(format!("mesh decode: {e}")))?;

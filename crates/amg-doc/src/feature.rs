@@ -15,7 +15,7 @@
 
 use std::any::Any;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use amg_core::{Dimension, Quantity, Tolerance, Transform};
 use amg_jobs::JobCtx;
@@ -27,7 +27,10 @@ use crate::eval::{BodyGeom, ConstructionGeom, Diagnostic, Evaluated};
 use crate::expr::ExprError;
 use crate::id::{BodyId, ComponentId, ConstructionId, FeatureId, OccurrenceId, SketchId};
 use crate::model::Design;
-use crate::naming::{BodyNaming, EntityRef, ResolveError};
+use crate::naming::{
+    BodyNaming, EntityRef, KernelGeom, NamingBuilder, NamingView, ResolutionRecord, ResolveError,
+    Resolved, SetPolicy, TopoRef,
+};
 use crate::param::Expr;
 use crate::positions::PositionTable;
 use crate::registry::registry;
@@ -425,6 +428,24 @@ pub enum BodyChangeKind {
         /// Element map.
         naming: Option<BodyNaming>,
     },
+    /// A new body split off from `derived_from` (split body pieces after the first, note §6.1):
+    /// like `Created`, plus body lineage so references into `derived_from` can follow faces
+    /// into it (with a `BodyChanged` warning). DOC-06; the note's `Created { derived_from }`
+    /// as a variant of its own, so existing `Created` literals stay valid.
+    CreatedFrom {
+        /// Geometry.
+        geom: BodyGeom,
+        /// Element map.
+        naming: Option<BodyNaming>,
+        /// The body it was split off from.
+        derived_from: BodyId,
+    },
+    /// The body was combined into `into` and no longer exists on its own (combine/join of a
+    /// tool body, note §6.1); references into it follow its faces into `into`.
+    Consumed {
+        /// The body it became part of.
+        into: BodyId,
+    },
 }
 
 /// Full compute or a cheap interactive preview (separate cache keys, never persisted).
@@ -493,6 +514,50 @@ pub struct RecomputeCtx<'a> {
     mode: ComputeMode,
     job: Option<&'a JobCtx>,
     positions: Option<&'a PositionTable>,
+    kernel: Option<KernelRef<'a>>,
+    /// Resolutions in call order, and the warnings they produced (DOC-06). Behind a mutex so the
+    /// context stays `Sync`; features resolve from the `compute` thread only, so the order is
+    /// the call order.
+    resolutions: Mutex<Resolutions>,
+}
+
+#[derive(Debug, Default)]
+struct Resolutions {
+    records: Vec<ResolutionRecord>,
+    warnings: Vec<Diagnostic>,
+}
+
+/// A borrowed kernel (`dyn BrepKernel` has no `Debug`).
+#[derive(Clone, Copy)]
+struct KernelRef<'a>(&'a dyn amg_brep::BrepKernel);
+
+impl fmt::Debug for KernelRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("BrepKernel")
+    }
+}
+
+/// [`NamingView`] of a feature's input state, with timeline order for tombstone reports.
+struct InputView<'c, 'a> {
+    ctx: &'c RecomputeCtx<'a>,
+}
+
+impl NamingView for InputView<'_, '_> {
+    fn body_geom(&self, id: BodyId) -> Option<&BodyGeom> {
+        self.ctx.before.body_geom(id)
+    }
+    fn naming(&self, id: BodyId) -> Option<&BodyNaming> {
+        NamingView::naming(self.ctx.before, id)
+    }
+    fn successors(&self, id: BodyId) -> &[BodyId] {
+        self.ctx.before.successors(id)
+    }
+    fn derived_from(&self, id: BodyId) -> Option<BodyId> {
+        self.ctx.before.derived_from(id)
+    }
+    fn feature_order(&self, f: FeatureId) -> Option<usize> {
+        self.ctx.design.timeline().node(f).map(|(i, _)| i)
+    }
 }
 
 impl<'a> RecomputeCtx<'a> {
@@ -514,7 +579,117 @@ impl<'a> RecomputeCtx<'a> {
             mode,
             job: None,
             positions: None,
+            kernel: None,
+            resolutions: Mutex::new(Resolutions::default()),
         }
+    }
+
+    /// Uses `kernel` for fingerprints and [`RecomputeCtx::kernel`] instead of the
+    /// [default kernel](crate::naming::default_kernel).
+    #[must_use]
+    pub fn with_kernel(mut self, kernel: &'a dyn amg_brep::BrepKernel) -> RecomputeCtx<'a> {
+        self.kernel = Some(KernelRef(kernel));
+        self
+    }
+
+    /// The B-rep kernel features run their ops on.
+    pub fn kernel(&self) -> &'a dyn amg_brep::BrepKernel {
+        match self.kernel {
+            Some(k) => k.0,
+            None => crate::naming::default_kernel(),
+        }
+    }
+
+    /// A [`NamingBuilder`] for this feature.
+    pub fn naming_builder(&self) -> NamingBuilder {
+        NamingBuilder::new(self.feature)
+    }
+
+    fn lock_resolutions(&self) -> std::sync::MutexGuard<'_, Resolutions> {
+        self.resolutions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn record(&self, rec: ResolutionRecord, r: &TopoRef, dropped: bool) {
+        let mut g = self.lock_resolutions();
+        let message = match &rec.result {
+            Ok(v) => v
+                .first()
+                .and_then(|x| x.warning)
+                .map(|w| crate::naming::warning_message(&w, r.kind)),
+            Err(e) if dropped => Some(format!(
+                "Dropped from the selection: {}",
+                crate::naming::error_message(e, r.kind)
+            )),
+            Err(_) => None,
+        };
+        if let Some(message) = message {
+            g.warnings.push(Diagnostic {
+                message,
+                cause: None,
+                entities: vec![EntityRef::Topo(r.clone())],
+            });
+        }
+        g.records.push(rec);
+    }
+
+    /// Resolves `r` against this feature's input state (note §6) and records the resolution;
+    /// a warning becomes a diagnostic on this node automatically.
+    ///
+    /// # Errors
+    /// The [`ResolveError`]; a feature usually returns it with `?` (`Health::Error`).
+    pub fn resolve(&self, r: &TopoRef) -> Result<Resolved, ResolveError> {
+        let view = InputView { ctx: self };
+        let geom = KernelGeom::new(&view, self.kernel());
+        let rec = crate::naming::resolve_with(&view, &geom, self.tolerance(), r);
+        let out = rec.result.clone().map(|v| v[0]);
+        self.record(rec, r, false);
+        out
+    }
+
+    /// Resolves a set-valued reference (note §5.1): the members' entities in input order (an
+    /// expanded member contributes all its split pieces).
+    ///
+    /// # Errors
+    /// See [`crate::naming::resolve_set`].
+    pub fn resolve_all(
+        &self,
+        refs: &[TopoRef],
+        policy: SetPolicy,
+    ) -> Result<Vec<Resolved>, ResolveError> {
+        self.resolve_set(refs, policy)
+            .map(|m| m.into_iter().flatten().collect())
+    }
+
+    /// [`RecomputeCtx::resolve_all`] grouped per member (empty for a dropped member), so a
+    /// feature knows which selection key each entity belongs to.
+    ///
+    /// # Errors
+    /// See [`crate::naming::resolve_set`].
+    pub fn resolve_set(
+        &self,
+        refs: &[TopoRef],
+        policy: SetPolicy,
+    ) -> Result<Vec<Vec<Resolved>>, ResolveError> {
+        let view = InputView { ctx: self };
+        let geom = KernelGeom::new(&view, self.kernel());
+        let (records, out) =
+            crate::naming::resolve_set(&view, &geom, self.tolerance(), refs, policy);
+        let drop = policy == SetPolicy::DropMissing && out.is_ok();
+        for (rec, r) in records.into_iter().zip(refs) {
+            self.record(rec, r, drop);
+        }
+        out
+    }
+
+    /// Takes the recorded resolutions and their warnings (the engine, after `compute`).
+    pub(crate) fn take_resolutions(&self) -> (Vec<ResolutionRecord>, Vec<Diagnostic>) {
+        let mut g = self.lock_resolutions();
+        (
+            std::mem::take(&mut g.records),
+            std::mem::take(&mut g.warnings),
+        )
     }
 
     /// Connects the running position table of the timeline pass (ASM-13). Without one,
