@@ -518,6 +518,49 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
         self.inner.thicken(s, thickness, join, ctx)
     }
 
+    fn draft(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        opts: &DraftOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.draft(s, faces, opts, ctx)
+    }
+
+    fn defeature(&self, s: &Shape, faces: &[FaceId], ctx: &JobCtx) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.defeature(s, faces, ctx)
+    }
+
+    fn replace_face(
+        &self,
+        s: &Shape,
+        face: FaceId,
+        with: &Surface,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.replace_face(s, face, with, ctx)
+    }
+
+    fn split_faces(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        tool: &Shape,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.split_faces(s, faces, tool, ctx)
+    }
+
+    fn offset_faces(&self, s: &Shape, faces: &[(FaceId, f64)], ctx: &JobCtx) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.offset_faces(s, faces, ctx)
+    }
+
     fn heal(&self, s: &Shape, opts: &HealOpts, ctx: &JobCtx) -> KResult<OpResult> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.heal(s, opts, ctx)

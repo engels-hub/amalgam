@@ -1,0 +1,12 @@
+# B-rep metrics of brep/draft_box_sides (S02 BREP-16). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 3574.646181755607
+area = 1431.2591053192
+faces = 6
+edges = 12
+vertices = 8
+classes = "PPPPPP"

@@ -16,6 +16,7 @@ mod heal;
 mod history;
 mod index;
 mod kernel;
+mod local;
 mod lock;
 mod offset;
 mod ops;

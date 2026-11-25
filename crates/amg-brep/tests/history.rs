@@ -18,6 +18,8 @@ mod bool_corpus;
 mod heal_corpus;
 #[path = "common/history.rs"]
 mod history_check;
+#[path = "common/local_corpus.rs"]
+mod local_corpus;
 #[path = "common/offset_corpus.rs"]
 mod offset_corpus;
 #[path = "common/parts.rs"]
@@ -543,14 +545,24 @@ fn every_output_face_has_a_source_or_a_role() {
         }
         faces += r.shape.count(SubKind::Face);
     }
+    // BREP-16: draft, defeature, replace face, split faces, split body and offset faces.
+    let locals = local_corpus::corpus(&k);
+    for case in &locals {
+        let r = case.run(&k).unwrap();
+        if let Some(e) = completeness_error(&r, &case.operands()) {
+            failures.push(format!("{}: {e}", case.name));
+        }
+        faces += r.shape.count(SubKind::Face);
+    }
     eprintln!(
         "completeness: {} BREP-03/14 results, {bool_ok} BREP-04 results, {} BREP-06 results, \
-         {} BREP-07 results, {heal_ok} BREP-10 results, {} BREP-15 results, {faces} output \
-         faces",
+         {} BREP-07 results, {heal_ok} BREP-10 results, {} BREP-15 results, {} BREP-16 \
+         results, {faces} output faces",
         corpus.len(),
         blends.len(),
         offsets.len(),
-        sweeps.len()
+        sweeps.len(),
+        locals.len()
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

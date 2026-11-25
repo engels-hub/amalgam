@@ -1,0 +1,12 @@
+# B-rep metrics of brep/replace_top_up (S02 BREP-16). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 4800.0
+area = 1720.0
+faces = 6
+edges = 12
+vertices = 8
+classes = "PPPPPP"

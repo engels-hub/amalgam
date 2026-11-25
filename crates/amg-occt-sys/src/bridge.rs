@@ -272,7 +272,8 @@ pub mod ffi {
         fleche: f64,
     }
 
-    /// Shell, offset or thicken (BREP-07). `mode`: 0 shell (thick solid), 1 offset, 2 thicken;
+    /// Shell, offset or thicken (BREP-07). `mode`: 0 shell (thick solid), 1 offset, 2 thicken,
+    /// 3 offset faces (R-S04-5, BREP-16: `offset` 0, only the per-face list moves);
     /// `offset` along the outward normal (mm; negative is inward), `tol` the offset algorithm's
     /// confusion tolerance, `join` 0 arc, 1 intersection.
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -337,6 +338,16 @@ pub mod ffi {
         check_compatibility: bool,
         smoothing: bool,
         max_degree: u8,
+    }
+
+    /// Draft options (BREP-16): faces tilted by `angle` rad about their intersection with the
+    /// `neutral` plane; a positive angle removes material on the `pull` side of the plane
+    /// (`BRepOffsetAPI_DraftAngle`).
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcDraftParams {
+        pull: V3,
+        angle: f64,
+        neutral: OcFrame,
     }
 
     /// One loft section: wire operand `wire`, or the point `point` when `wire` is `u32::MAX`.
@@ -756,6 +767,53 @@ pub mod ffi {
             wires: &OcShapeList,
             sections: &[OcLoftSection],
             params: &OcLoftParams,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+
+        // -- draft, defeature, replace face, split faces (BREP-16), in occt_local.cpp --
+
+        /// `BRepOffsetAPI_DraftAngle` of `faces` (see `OcDraftParams`) on a private copy, with
+        /// the history from `shape` (faces `Modified` 1:1). A face OCCT cannot draft, or a failed
+        /// build, is reported by `op_bool_status` (errors, offending faces; `invalid: ` for a face
+        /// that is not planar, cylindrical or conical), and the op then has no shape.
+        fn draft_op(
+            shape: &OcShape,
+            index: &OcIndex,
+            faces: &[u32],
+            params: &OcDraftParams,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// `BRepAlgoAPI_Defeaturing` removing `faces` on a private copy, with the history from
+        /// `shape`. A feature OCCT skips (`BOPAlgo_AlertUnableToRemoveTheFeature`) is a failure
+        /// naming its faces (`op_bool_status`).
+        fn defeature_op(
+            shape: &OcShape,
+            index: &OcIndex,
+            faces: &[u32],
+            parallel: bool,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// The largest signed distance (mm, along the outward normals) from sample points of
+        /// face `face` to the surface of the face `tool`; NaN when no normal line meets it.
+        fn face_reach(index: &OcIndex, face: u32, tool: &OcShape) -> Result<f64>;
+        /// `shape` split by the face `tool` (on a new surface for face `face`), keeping the
+        /// pieces on the material side of the surface. Face `face` is `Modified` into the faces on
+        /// the surface. Failures as for `draft_op`.
+        fn trim_face_op(
+            shape: &OcShape,
+            index: &OcIndex,
+            face: u32,
+            tool: &OcShape,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
+        /// `faces` of `shape` split by the curves of `tool` on them (its edges lying on them, or
+        /// its section with them when it has faces), on private copies. Solids are not split.
+        /// Failures as for `draft_op` (`invalid: ` when the tool does not meet the faces).
+        fn split_faces_op(
+            shape: &OcShape,
+            index: &OcIndex,
+            faces: &[u32],
+            tool: &OcShape,
             sink: &ProgressSink,
         ) -> Result<UniquePtr<OcOp>>;
 

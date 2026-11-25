@@ -1,0 +1,12 @@
+# B-rep metrics of brep/split_faces_top_bottom_by_plane (S02 BREP-16). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 3840.0000000000005
+area = 1504.0
+faces = 8
+edges = 18
+vertices = 12
+classes = "PPPPPPPP"

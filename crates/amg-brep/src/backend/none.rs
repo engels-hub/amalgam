@@ -313,6 +313,45 @@ impl Occ {
         match *self {}
     }
 
+    pub(crate) fn draft(
+        &self,
+        _input: &crate::local::DraftIn,
+        _ctx: &JobCtx,
+    ) -> KResult<OffsetOutcome<(Occ, RawHistory)>> {
+        match *self {}
+    }
+
+    pub(crate) fn defeature(
+        &self,
+        _faces: &[u32],
+        _parallel: bool,
+        _ctx: &JobCtx,
+    ) -> KResult<OffsetOutcome<(Occ, RawHistory)>> {
+        match *self {}
+    }
+
+    pub(crate) fn face_reach(&self, _face: u32, _tool: &Occ) -> KResult<f64> {
+        match *self {}
+    }
+
+    pub(crate) fn trim_face(
+        &self,
+        _face: u32,
+        _tool: &Occ,
+        _ctx: &JobCtx,
+    ) -> KResult<OffsetOutcome<(Occ, RawHistory)>> {
+        match *self {}
+    }
+
+    pub(crate) fn split_faces(
+        &self,
+        _faces: &[u32],
+        _tool: &Occ,
+        _ctx: &JobCtx,
+    ) -> KResult<OffsetOutcome<(Occ, RawHistory)>> {
+        match *self {}
+    }
+
     pub(crate) fn mass_props(&self, _eps: f64) -> KResult<RawMass> {
         match *self {}
     }

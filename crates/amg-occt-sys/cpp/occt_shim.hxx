@@ -57,6 +57,7 @@ struct OcCheckProblem;
 struct OcPipeParams;
 struct OcLoftParams;
 struct OcLoftSection;
+struct OcDraftParams;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -417,6 +418,35 @@ std::unique_ptr<OcOp> pipe_op(const OcShapeList &operands, const OcPipeParams &p
 std::unique_ptr<OcOp> thru_sections_op(const OcShapeList &wires,
                                        rust::Slice<const OcLoftSection> sections,
                                        const OcLoftParams &params, const ProgressSink &sink);
+
+// -- draft, defeature, replace face, split faces (BREP-16), implemented in occt_local.cpp --
+
+// CATEGORY: C (BRepOffsetAPI_DraftAngle rebuilds the faces it tilts and re-tolerances their edges,
+// so it runs on a private BRepBuilderAPI_Copy of `shape` made here; `shape` and `index` are only
+// read)
+std::unique_ptr<OcOp> draft_op(const OcShape &shape, const OcIndex &index,
+                               rust::Slice<const std::uint32_t> faces,
+                               const OcDraftParams &params, const ProgressSink &sink);
+
+// CATEGORY: C (BRepAlgoAPI_Defeaturing on a private BRepBuilderAPI_Copy made here; `shape` and
+// `index` are only read)
+std::unique_ptr<OcOp> defeature_op(const OcShape &shape, const OcIndex &index,
+                                   rust::Slice<const std::uint32_t> faces, bool parallel,
+                                   const ProgressSink &sink);
+
+// CATEGORY: R (samples the face and intersects lines with the tool's surface; both only read)
+double face_reach(const OcIndex &index, std::uint32_t face, const OcShape &tool);
+
+// CATEGORY: C (BRepAlgoAPI_Splitter of a private BRepBuilderAPI_Copy made here by the tool face,
+// non-destructive; `shape`, `index` and `tool` are only read)
+std::unique_ptr<OcOp> trim_face_op(const OcShape &shape, const OcIndex &index, std::uint32_t face,
+                                   const OcShape &tool, const ProgressSink &sink);
+
+// CATEGORY: C (BRepAlgoAPI_Section / BRepAlgoAPI_Splitter on private BRepBuilderAPI_Copy copies of
+// `shape` and `tool` made here; the callers' shapes are only read)
+std::unique_ptr<OcOp> split_faces_op(const OcShape &shape, const OcIndex &index,
+                                     rust::Slice<const std::uint32_t> faces, const OcShape &tool,
+                                     const ProgressSink &sink);
 
 // -- measurement queries (BREP-09), implemented in occt_query.cpp --
 

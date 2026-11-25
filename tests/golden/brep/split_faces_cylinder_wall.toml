@@ -1,0 +1,12 @@
+# B-rep metrics of brep/split_faces_cylinder_wall (S02 BREP-16). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 1130.9733552923258
+area = 603.1857894892404
+faces = 4
+edges = 5
+vertices = 3
+classes = "YYPP"

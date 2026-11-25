@@ -8,8 +8,9 @@ use crate::error::KResult;
 use crate::geom::{self, Curve3, GeomClass};
 use crate::kernel::BrepKernel;
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, HealOpts, LoftSection, OffsetJoin,
-    PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality, ThruSectionsOpts, UnifyOpts,
+    BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletSpec, HealOpts, LoftSection,
+    OffsetJoin, PipeOpts, PrismExtent, PrismOpts, SewOpts, ShellOpts, TessQuality,
+    ThruSectionsOpts, UnifyOpts,
 };
 use crate::shape::{EdgeId, FaceId, Shape, SubKind, SubShape};
 
@@ -364,6 +365,47 @@ pub enum KernelOp {
         /// Join.
         join: OffsetJoin,
     },
+    /// `draft`.
+    Draft {
+        /// Shape.
+        shape: InputRef,
+        /// Drafted faces (by index).
+        faces: Vec<FaceId>,
+        /// Options.
+        opts: DraftOpts,
+    },
+    /// `defeature`.
+    Defeature {
+        /// Shape.
+        shape: InputRef,
+        /// Removed faces (by index).
+        faces: Vec<FaceId>,
+    },
+    /// `replace_face`.
+    ReplaceFace {
+        /// Shape.
+        shape: InputRef,
+        /// The replaced face (by index).
+        face: FaceId,
+        /// The new surface.
+        with: geom::Surface,
+    },
+    /// `split_faces`.
+    SplitFaces {
+        /// Shape.
+        shape: InputRef,
+        /// Split faces (by index).
+        faces: Vec<FaceId>,
+        /// Tool.
+        tool: InputRef,
+    },
+    /// `offset_faces`.
+    OffsetFaces {
+        /// Shape.
+        shape: InputRef,
+        /// Faces (by index) and their offsets.
+        faces: Vec<(FaceId, f64)>,
+    },
     /// `heal`.
     Heal {
         /// Shape.
@@ -461,6 +503,11 @@ impl KernelOp {
             KernelOp::Shell { .. } => "shell",
             KernelOp::Offset { .. } => "offset",
             KernelOp::Thicken { .. } => "thicken",
+            KernelOp::Draft { .. } => "draft",
+            KernelOp::Defeature { .. } => "defeature",
+            KernelOp::ReplaceFace { .. } => "replace_face",
+            KernelOp::SplitFaces { .. } => "split_faces",
+            KernelOp::OffsetFaces { .. } => "offset_faces",
             KernelOp::Heal { .. } => "heal",
             KernelOp::UnifySameDomain { .. } => "unify_same_domain",
             KernelOp::Sew { .. } => "sew",
@@ -487,6 +534,10 @@ impl KernelOp {
             | KernelOp::Shell { shape, .. }
             | KernelOp::Offset { shape, .. }
             | KernelOp::Thicken { shape, .. }
+            | KernelOp::Draft { shape, .. }
+            | KernelOp::Defeature { shape, .. }
+            | KernelOp::ReplaceFace { shape, .. }
+            | KernelOp::OffsetFaces { shape, .. }
             | KernelOp::Heal { shape, .. }
             | KernelOp::UnifySameDomain { shape, .. } => vec![*shape],
             KernelOp::MakeSolid { shell } => vec![*shell],
@@ -500,6 +551,7 @@ impl KernelOp {
                 objects.iter().chain(tools).copied().collect()
             }
             KernelOp::Section { a, b } | KernelOp::Interference { a, b } => vec![*a, *b],
+            KernelOp::SplitFaces { shape, tool, .. } => vec![*shape, *tool],
             _ => Vec::new(),
         }
     }
@@ -687,6 +739,23 @@ impl KernelOp {
                 thickness,
                 join,
             } => shape(k.thicken(one(s)?, *thickness, *join, ctx)),
+            KernelOp::Draft {
+                shape: s,
+                faces,
+                opts,
+            } => shape(k.draft(one(s)?, faces, opts, ctx)),
+            KernelOp::Defeature { shape: s, faces } => shape(k.defeature(one(s)?, faces, ctx)),
+            KernelOp::ReplaceFace {
+                shape: s,
+                face,
+                with,
+            } => shape(k.replace_face(one(s)?, *face, with, ctx)),
+            KernelOp::SplitFaces {
+                shape: s,
+                faces,
+                tool,
+            } => shape(k.split_faces(one(s)?, faces, one(tool)?, ctx)),
+            KernelOp::OffsetFaces { shape: s, faces } => shape(k.offset_faces(one(s)?, faces, ctx)),
             KernelOp::Heal { shape: s, opts } => shape(k.heal(one(s)?, opts, ctx)),
             KernelOp::UnifySameDomain { shape: s, opts } => {
                 shape(k.unify_same_domain(one(s)?, opts))
@@ -918,6 +987,33 @@ mod tests {
                 thickness: -0.25,
                 join: OffsetJoin::Arc,
             },
+            KernelOp::Draft {
+                shape: InputRef(0),
+                faces: vec![FaceId(0), FaceId(2)],
+                opts: DraftOpts {
+                    pull: Dir3::Z,
+                    angle: 0.05,
+                    neutral: frame,
+                },
+            },
+            KernelOp::Defeature {
+                shape: InputRef(0),
+                faces: vec![FaceId(3)],
+            },
+            KernelOp::ReplaceFace {
+                shape: InputRef(0),
+                face: FaceId(5),
+                with: geom::Surface::Plane(frame),
+            },
+            KernelOp::SplitFaces {
+                shape: InputRef(0),
+                faces: vec![FaceId(5)],
+                tool: InputRef(1),
+            },
+            KernelOp::OffsetFaces {
+                shape: InputRef(0),
+                faces: vec![(FaceId(5), 2.5)],
+            },
             KernelOp::Heal {
                 shape: InputRef(0),
                 opts: HealOpts {
@@ -971,6 +1067,7 @@ mod tests {
         assert_eq!(by_kind("boolean").inputs(), refs(0..3));
         assert_eq!(by_kind("pipe").inputs(), refs(0..3));
         assert_eq!(by_kind("thru_sections").inputs(), refs(0..2));
+        assert_eq!(by_kind("split_faces").inputs(), refs(0..2));
         assert!(ops[4].inputs().is_empty());
     }
 }

@@ -5,6 +5,7 @@ mod boolean;
 mod build;
 mod extract;
 mod heal;
+mod local;
 mod offset;
 mod ops;
 mod query;

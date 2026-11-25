@@ -87,6 +87,11 @@ harness = false
 required-features = ["occt"]
 
 [[bench]]
+name = "local"
+harness = false
+required-features = ["occt"]
+
+[[bench]]
 name = "heal"
 harness = false
 required-features = ["occt"]
