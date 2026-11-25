@@ -58,6 +58,18 @@ fn map_dir(t: &Transform, d: Dir3) -> Dir3 {
     Dir3::new(t.transform_vector3(d.get()), &Tolerance::DEFAULT).unwrap_or(d)
 }
 
+/// `p` moved by the rigid transform `t`, keeping the frame orthonormal and right-handed under
+/// rounding. The identity returns `p` bit for bit.
+pub(super) fn transform_plane(t: &Transform, p: &Plane) -> Plane {
+    if *t == Transform::IDENTITY {
+        return *p;
+    }
+    let x = map_dir(t, p.x);
+    let y_img = map_dir(t, p.y).get();
+    let normal = Dir3::new(x.get().cross(y_img), &Tolerance::DEFAULT).unwrap_or(p.normal);
+    frame(t.transform_point3(p.origin), x, normal)
+}
+
 /// World geometry of an origin entity of a component placed by `component_to_world`
 /// (rigid).
 pub fn origin_geom(e: OriginEntity, component_to_world: &Transform) -> RefGeom {
@@ -69,13 +81,7 @@ pub fn origin_geom(e: OriginEntity, component_to_world: &Transform) -> RefGeom {
             dir: map_dir(t, d),
         })
     };
-    let plane = |p: Plane| {
-        let x = map_dir(t, p.x);
-        let y_img = map_dir(t, p.y).get();
-        // Keep the frame orthonormal and right-handed under rounding.
-        let normal = Dir3::new(x.get().cross(y_img), &Tolerance::DEFAULT).unwrap_or(p.normal);
-        RefGeom::Plane(frame(o, x, normal))
-    };
+    let plane = |p: Plane| RefGeom::Plane(transform_plane(t, &p));
     match e {
         OriginEntity::Point => RefGeom::Point(o),
         OriginEntity::XAxis => axis(Dir3::X),

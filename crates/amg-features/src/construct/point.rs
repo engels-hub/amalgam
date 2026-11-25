@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::curves::curve_of;
 use super::{
-    ConstructInputs, CtxInputs, PathPosition, RefInput, ResolvedRef, dependency, math,
-    resolve_tracked,
+    ConstructInputs, CtxInputs, PathPosition, RefInput, ResolvedRef, dependency, highlight_failed,
+    math, resolve_tracked,
 };
 
 /// How a construction point is defined (Fusion's Construct menu; conventions in note §6).
@@ -80,7 +80,7 @@ impl PointDef {
         let tol = inputs.tolerance();
         let mut warnings = Vec::new();
         let mut res = |r: &RefInput| -> Result<ResolvedRef, FeatureError> {
-            resolve_tracked(inputs, r, &mut warnings)
+            resolve_tracked(inputs, r, &mut warnings).map(|(resolved, _)| resolved)
         };
         let point = match self {
             PointDef::AtVertex { point } => math::point_of(&res(point)?.geom)?,
@@ -148,7 +148,9 @@ impl Feature for ConstructPoint {
     }
 
     fn compute(&self, ctx: &mut RecomputeCtx<'_>) -> Result<FeatureOutput, FeatureError> {
-        let (point, warnings) = self.def.evaluate(&CtxInputs { ctx })?;
+        let result = self.def.evaluate(&CtxInputs { ctx });
+        highlight_failed(ctx, &self.def.refs(), &result);
+        let (point, warnings) = result?;
         Ok(FeatureOutput {
             construction: Some(ConstructionGeom::Point(point)),
             warnings,

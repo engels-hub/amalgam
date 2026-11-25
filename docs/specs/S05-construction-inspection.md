@@ -784,7 +784,7 @@ pub mod display {
 | INS-03 | Physical properties of mesh bodies: `props::mesh_mass_props`, `combine`, density from material with default material, Properties panel, CoM glyph | INS-01, INS-08, MAT-06 | P0 | Done | 1. A 10×20×30 box rotated by 20 random rotations and translated: volume 6000 ± 1e-9, CoM within 1e-9 mm, inertia = R·diag(m(b²+c²)/12, …)·Rᵀ within 1e-9 relative. 2. Icosphere r = 10: volume and inertia converge to the analytic sphere values (error falls ≥ 3.5× per subdivision level). 3. Translating a body changes `inertia_com` by < 1e-9 relative. 4. Non-watertight → volume-based fields `None` with a reason; area still given. 5. `combine` of two halves equals the whole within 1e-9 relative. 6. 1 M tris < 30 ms; 10 M < 300 ms; bit-identical across thread counts. 7. Mass of a 1000 mm³ PLA cube shows 1.24 g. |
 | CON-01 | Construction framework + planes: `RefInput`/`OriginEntity`/`RefGeom`/`ConstructError`, `construct::math` plane functions (all 8 variants) and helpers, `ConstructPlane` feature registered (`construct.plane` v1) with inputs, `exprs`, compute against pre-resolved `RefGeom` (test resolver) | DOC-02, DOC-03, DOC-04 | P0 | Done | Table-driven tests: ≥ 5 analytic cases per variant plus every error in note §6. Examples: offset XY by 5 → z = 5. At-angle 30° about +X from XY → normal (0, −sin 30°, cos 30°) (right-hand rule). Tangent to cylinder r = 3 on Z at 0° from XZ → normal +Y, through (0, 3, 0). Midplane of z = 0 and z = 10 → z = 5. Three collinear points → `Collinear`. Results within 1e-12. The same inputs give a bit-identical frame. The feature serialises round-trip, recomputes from the cache, and an `Expr` parameter edit recomputes only it and its dependants (DOC-03 counter). |
 | CON-02 | Axes (6 variants) and points (6 variants): math + `ConstructAxis`/`ConstructPoint` features | CON-01 | P0 | Done | Same table-driven standard as CON-01 (≥ 5 analytic cases per variant, all errors). Point through three planes on random non-degenerate triples matches a 3×3 solve within 1e-9. Line–line on skew lines with a 0.01 mm gap → `Skew { distance: 0.01 ± 1e-12 }`. The features register, serialise and recompute. |
-| CON-03 | Reference resolution: `EntityRef`/`RefInput` → `ResolvedRef` for origin entities (with component transform), construction geometry, B-rep faces/edges/vertices (S02 analytic types, `CurveEval`/`SurfaceEval` adapters, context plane), sketch curves/points (S03 world mapping), planar mesh face groups (plane fit); `resolve_in` for tools; health mapping (FingerprintOnly → warning) | CON-01, DOC-06, BREP-09, SK-01, MESH-16 | P0 | Todo | On a test part (box with a hole, built with S04 or with direct `BrepKernel` calls): the planar face resolves to a `Plane` matching the face within 1e-9; the hole face resolves to a `Cylinder` with the exact radius; a circular edge resolves to a `Circle`; a sketch line resolves to a `Line` with `context_plane` = the sketch plane. Offset plane on a face survives an upstream extrude-distance edit (with DOC-06 naming) and moves with the face. A deleted referenced face gives a feature `Error` whose `Diagnostic.entities` contains the ref. |
+| CON-03 | Reference resolution: `EntityRef`/`RefInput` → `ResolvedRef` for origin entities (with component transform), construction geometry, B-rep faces/edges/vertices (S02 analytic types, `CurveEval`/`SurfaceEval` adapters, context plane), sketch curves/points (S03 world mapping), planar mesh face groups (plane fit); `resolve_in` for tools; health mapping (FingerprintOnly → warning) | CON-01, DOC-06, BREP-09, SK-01, MESH-16 | P0 | Review | On a test part (box with a hole, built with S04 or with direct `BrepKernel` calls): the planar face resolves to a `Plane` matching the face within 1e-9; the hole face resolves to a `Cylinder` with the exact radius; a circular edge resolves to a `Circle`; a sketch line resolves to a `Line` with `context_plane` = the sketch plane. Offset plane on a face survives an upstream extrude-distance edit (with DOC-06 naming) and moves with the face. A deleted referenced face gives a feature `Error` whose `Diagnostic.entities` contains the ref. |
 | CON-04 | Construct UI: commands in the Construct menu (`amg-ui::construct`), UI-05 dialog schemas for all variants, construction display via `display::display_extent` + RND-07 with pick ids, browser "Construction" / "Origin" folders | CON-02, CON-03, UI-05, UI-07, RND-07 | P0 | Todo | Each of the 20 variants can be created from the menu and S-key search, edited and deleted, all undoable. `display_extent` unit tests follow the note §6 sizing rules. Construction planes are pickable as sketch planes and as section-analysis bases. Manual script: offset plane → sketch on it → extrude → edit the offset → the extrude follows. |
 | INS-07 | Measure on B-rep, construction, origin and sketch entities: `Operand::Ref`/`Operand::Brep`, exact B-rep distance/length/area via S02, analytic radius/angle via `RefGeom`, mixed mesh–B-rep via tessellation (`Exactness::Tessellated`), tool filters extended | INS-01, INS-08, CON-03, BREP-08, BREP-09 | P0 | Todo | On analytic solids: box edge length, face area, distance between parallel faces within 1e-9; cylinder face radius exact; circular edge diameter exact; angle between two planar faces at 30° ± 1e-12 rad. Distance from a sphere (r = 10, centre 25 mm away) to a plane: 15 ± 1e-7. Distance between a construction plane and a vertex is exact. A mesh–solid distance is marked "≈" and lies within the tessellation deflection of the exact value. |
 | INS-10 | Properties on solids + assemblies: B-rep `mass_props` (S02), per-component/occurrence totals with transforms, mixed selections, "Display component colours" | INS-03, BREP-09, ASM-01, RND-03 | P0 | Done (solid colours visible after UI-22; GPU colour check pending owner) | Box, cylinder and sphere solids: volume, CoM and inertia within 1e-9 relative of analytic. The same part as a mesh (fine tessellation) agrees within the tessellation error bound. A two-occurrence assembly total equals the sum with the parallel-axis rule within 1e-9 relative. The component-colour toggle colours each component distinctly and restores the appearances. |
@@ -1551,6 +1551,86 @@ body, non-rigid placements, cancellation, recompute after an occurrence move.
 - Units are still mm / g, and only the built-in material library is searched (as INS-03).
 
 
+### 2026-11-25 - CON-03 reference resolution (lane A)
+
+*Landed* in `amg-features::construct` (no change outside the module and this spec; no new
+dependency; `amg-doc`, `amg-brep`, `amg-sketch`, `amg-mesh` only through their public APIs):
+- `resolve` (+ `resolve/brep.rs`, `resolve/sketch.rs`): `resolve_input` and `resolve_in`
+  (signatures as in Interfaces) over one resolver for:
+  - origin entities and construction geometry;
+  - B-rep faces: `Plane` (normal out of the material), `Cylinder`, `Cone`, `Sphere`, `Torus`
+    with the kernel's exact parameters; B-spline and other surfaces as a `SurfaceEval` adapter;
+  - B-rep edges: `Segment`, `Circle` (with its arc range); elliptic and B-spline edges as a
+    `CurveEval` adapter; `context_plane` = the first planar face next to the edge (a seam edge
+    of a curved face has none). B-rep vertices: `Point`;
+  - sketch curves and points mapped by `SketchGeom::plane`, which is also the `context_plane`;
+    ellipses and splines as `CurveEval`;
+  - mesh face groups: `fit_plane_faces`, accepted if every vertex is within
+    `MeasureOpts::planar_tolerance` (1e-3 mm), else "the face group is not planar";
+  - `EntityRef::InContext` (nested too): the occurrence path moves the result. In a recompute the
+    path starts at the context component and uses the captured positions; any other reference
+    stays in component space (S06 request of 2026-11-08).
+  - Bodies and profiles are rejected.
+- `curves::FreeCurve` (`CurveEval` for 3D B-splines, ellipses and sketch curves): analytic or
+  de Boor derivatives, arc length by 8-point Gauss-Legendre per piece, safeguarded Newton for
+  `param_at_length` and `closest_param`.
+- **Health.** A fingerprint-only match is exactly one warning (DOC-06 records it for topological
+  references; the feature adds none of its own then). A reference that does not resolve is an
+  error with that reference in `Diagnostic.entities`; a construction that fails on its geometry
+  (parallel, collinear, wrong kind) highlights all its references.
+- **Hole orientation** (CON-01/02 leftover): for a cylinder, cone, sphere or torus face whose
+  normal points towards the axis or centre, "tangent at point" and both perpendicular axes now
+  point out of the material. "Tangent at angle" keeps the note §6 sign (set by the reference
+  plane).
+
+*Done-when evidence* (`tests/construct_resolve.rs`, module `solid`; part: a 40 × 30 × 10 box
+with a Ø12 through hole from a sketch and `solid.extrude`; OCCT 8.0.1):
+1. All six planar faces resolve to a `Plane` with the outward axis normal and every face vertex
+   on it, within 1e-9.
+2. The hole face resolves to a `Cylinder` with radius == 6.0 (bit-equal) on the axis through
+   (15, 12) within 1e-9.
+3. Both circular edges resolve to a `Circle` with radius == 6.0, centre within 1e-9, full circle,
+   context plane = the adjacent top or bottom face.
+4. A sketch line on a construction plane z = 7 resolves to the straight form `RefGeom::Segment`
+   (read as a line by `math::line_of`) with `context_plane` == the sketch plane; "plane at angle"
+   uses it as the zero plane.
+5. A plane offset 5 mm from the top face is at z = 15, then 30 and 8.5 after the extrude distance
+   goes 10 → 25 → 3.5 mm (within 1e-9, health `Ok`).
+6. Deleting the sketch circle removes the hole face: the axis through it is an error with cause
+   `Resolve(NotFound)` and `Diagnostic.entities == [ref]`.
+
+Also tested: boss against hole orientation; cone, sphere, torus, cylinder and planar faces,
+also mirrored (left-handed frames); arc edges against their circle, elliptic and B-spline edges against the kernel's
+tessellation; a B-spline face; planar, curved, fingerprint-only and lost mesh groups; sketch
+arc, circle, ellipse, spline and points; occurrence paths in tools and in a recompute that
+follows a moved occurrence. `cargo nextest run -p amg-features`: 246 pass, 1 skipped; with
+`--features occt`: 295 pass, 1 skipped; clippy `-D warnings` clean in both; fmt clean.
+
+*Additions to the Interfaces block (additive, all in `construct`):*
+- `resolve::{resolve_input_oriented, resolve_in_at, resolve_plane_input}`. `resolve_in_at` takes
+  the occurrence path of the context component (`resolve_in` is the empty path), which gives
+  tools the component transform of origin entities and of references picked in an occurrence.
+- `InspectResolveError` is `#[non_exhaustive]` and gains `Missing(String)` and
+  `Geometry(String)`.
+- `ConstructInputs::{resolve_oriented, records_warnings}` with defaults, so `ResolvedRef` keeps
+  its fields.
+- `curves::FreeCurve`.
+
+*Deviations:*
+- Done-when 4 says "a `Line`": the result is `RefGeom::Segment`, as the `RefGeom` docs define
+  for sketch lines. An infinite `Line` would lose the ends and be refused as a path.
+- Offset, parabolic, hyperbolic and other special edges (`Curve3::Other`) are refused rather
+  than approximated: `amg-brep` has no evaluator for them (S02 request below).
+- No golden file: resolution makes no new geometry, and the expected values are analytic.
+
+*Leftovers:*
+- `SurfaceEval` evaluates through the default kernel (it must own a `'static` handle).
+- A reference whose whole body or sketch is gone fails in the engine before `compute`, so that
+  diagnostic names no entity (S01 request below).
+- `SketchFeature` still refuses planar-face planes; S03 can use `resolve_plane_input`.
+- INS-07 / INS-11 use `resolve_in_at`; CON-04 does the UI and `display`.
+
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1589,3 +1669,12 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **`amg-ui::inspect::props`**: `BodyEntry` gains `path` and `mesh`; `PropsResult.total` is now
   optional, with new `failed` and `scopes` (`FailedBody`, `ScopeTotal`).
 - Framework hooks: S11 Interface changes 2026-11-25.
+
+### 2026-11-25: requests from CON-03 (not changed here)
+- **S01 (`amg-doc`, DOC-03):** when a node fails because an input's producer did not deliver it
+  (`recompute.rs`, `upstream`), put the `Dependency::Entity` reference into
+  `Diagnostic.entities`, so the timeline also shows the broken reference when the whole body or
+  sketch is gone (found by reading the code; not covered by a test).
+- **S02 (`amg-brep`):** evaluation with derivatives for edge curves reported as `Curve3::Other`
+  (offset, parabola, hyperbola), so they can be construction inputs.
+

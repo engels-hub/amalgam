@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::curves::curve_of;
 use super::{
-    ConstructInputs, CtxInputs, PathPosition, RefInput, ResolvedRef, dependency, math,
-    resolve_tracked,
+    ConstructInputs, CtxInputs, PathPosition, RefInput, ResolvedRef, dependency, highlight_failed,
+    math, resolve_tracked,
 };
 
 /// How a construction plane is defined (Fusion's Construct menu; conventions in note §6).
@@ -123,18 +123,24 @@ impl PlaneDef {
     ) -> Result<(Plane, Vec<Diagnostic>), FeatureError> {
         let tol = inputs.tolerance();
         let mut warnings = Vec::new();
-        let mut res = |r: &RefInput| -> Result<ResolvedRef, FeatureError> {
+        let mut oriented = |r: &RefInput| -> Result<(ResolvedRef, bool), FeatureError> {
             resolve_tracked(inputs, r, &mut warnings)
         };
+        // Only some constructions care which side of an analytic face is outside.
+        macro_rules! res {
+            ($r:expr) => {
+                oriented($r).map(|(resolved, _)| resolved)
+            };
+        }
         let plane = match self {
             PlaneDef::Offset { base, distance } => {
-                let base = math::plane_of(&res(base)?.geom)?;
+                let base = math::plane_of(&res!(base)?.geom)?;
                 math::plane_offset(&base, inputs.length(distance)?)
             }
             PlaneDef::AtAngle { line, zero, angle } => {
-                let line = res(line)?;
+                let line = res!(line)?;
                 let zero = match zero {
-                    Some(z) => Some(math::plane_of(&res(z)?.geom)?),
+                    Some(z) => Some(math::plane_of(&res!(z)?.geom)?),
                     None => line.context_plane,
                 };
                 let l = math::line_of(&line.geom, &tol)?;
@@ -145,32 +151,33 @@ impl PlaneDef {
                 reference,
                 angle,
             } => {
-                let face = res(face)?;
-                let reference = math::plane_of(&res(reference)?.geom)?;
+                let face = res!(face)?;
+                let reference = math::plane_of(&res!(reference)?.geom)?;
                 math::plane_tangent(&face.geom, &reference, inputs.angle(angle)?, &tol)?
             }
             PlaneDef::Midplane { a, b } => {
-                let (a, b) = (res(a)?, res(b)?);
+                let (a, b) = (res!(a)?, res!(b)?);
                 math::midplane(&a.geom, &b.geom, &tol)?
             }
             PlaneDef::TwoEdges { a, b } => {
-                let a = math::line_of(&res(a)?.geom, &tol)?;
-                let b = math::line_of(&res(b)?.geom, &tol)?;
+                let a = math::line_of(&res!(a)?.geom, &tol)?;
+                let b = math::line_of(&res!(b)?.geom, &tol)?;
                 math::plane_two_lines(&a, &b, &tol)?
             }
             PlaneDef::ThreePoints { a, b, c } => {
-                let a = math::point_of(&res(a)?.geom)?;
-                let b = math::point_of(&res(b)?.geom)?;
-                let c = math::point_of(&res(c)?.geom)?;
+                let a = math::point_of(&res!(a)?.geom)?;
+                let b = math::point_of(&res!(b)?.geom)?;
+                let c = math::point_of(&res!(c)?.geom)?;
                 math::plane_three_points(a, b, c, &tol)?
             }
             PlaneDef::TangentAtPoint { face, point } => {
-                let face = res(face)?;
-                let p = math::point_of(&res(point)?.geom)?;
-                math::plane_tangent_at_point(&face.geom, p, &tol)?
+                let (face, reversed) = oriented(face)?;
+                let p = math::point_of(&res!(point)?.geom)?;
+                let plane = math::plane_tangent_at_point(&face.geom, p, &tol)?;
+                if reversed { plane.flipped() } else { plane }
             }
             PlaneDef::AlongPath { path, at } => {
-                let curve = curve_of(&res(path)?.geom)?;
+                let curve = curve_of(&res!(path)?.geom)?;
                 let (v, by_distance) = match at {
                     PathPosition::Fraction(e) => (inputs.scalar(e)?, false),
                     PathPosition::Distance(e) => (inputs.length(e)?, true),
@@ -229,7 +236,9 @@ impl Feature for ConstructPlane {
     }
 
     fn compute(&self, ctx: &mut RecomputeCtx<'_>) -> Result<FeatureOutput, FeatureError> {
-        let (plane, warnings) = self.def.evaluate(&CtxInputs { ctx })?;
+        let result = self.def.evaluate(&CtxInputs { ctx });
+        highlight_failed(ctx, &self.def.refs(), &result);
+        let (plane, warnings) = result?;
         Ok(FeatureOutput {
             construction: Some(ConstructionGeom::Plane(plane)),
             warnings,
