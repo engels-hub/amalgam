@@ -5,9 +5,9 @@
 //!
 //! - [`math`]: pure f64 functions over [`RefGeom`] (world-space geometry of a resolved
 //!   reference). They know nothing about documents and are tested on analytic inputs.
-//! - [`resolve`]: [`RefInput`] → [`ResolvedRef`] inside a recompute. CON-01 resolves origin
-//!   entities and other construction geometry; B-rep, sketch and mesh references join with
-//!   CON-03.
+//! - [`resolve`]: [`RefInput`] → [`ResolvedRef`], inside a recompute and for tools (CON-03):
+//!   origin entities, construction geometry, B-rep faces, edges and vertices, sketch curves
+//!   and points and planar mesh face groups, also seen through an occurrence path.
 //!
 //! [`ConstructPlane`] (`construct.plane` v1, CON-01), [`ConstructAxis`] (`construct.axis` v1)
 //! and [`ConstructPoint`] (`construct.point` v1, CON-02) are the features. Their compute goes
@@ -285,6 +285,18 @@ pub enum PathPosition {
 pub trait ConstructInputs {
     /// Resolves one input.
     fn resolve(&self, r: &RefInput) -> Result<ResolvedRef, FeatureError>;
+    /// [`resolve`](ConstructInputs::resolve) plus the orientation of an analytic face: `true`
+    /// if the face's outward normal points *towards* the axis or centre of its [`RefGeom`] (a
+    /// hole). Planes and free-form surfaces carry their orientation in the geometry and report
+    /// `false`.
+    fn resolve_oriented(&self, r: &RefInput) -> Result<(ResolvedRef, bool), FeatureError> {
+        Ok((self.resolve(r)?, false))
+    }
+    /// Whether resolving `r` already records the health warning of a fingerprint-only match
+    /// (DOC-06 does it for topological references inside a recompute).
+    fn records_warnings(&self, _r: &RefInput) -> bool {
+        false
+    }
     /// A length expression in mm.
     fn length(&self, e: &Expr) -> Result<f64, FeatureError>;
     /// An angle expression in radians.
@@ -306,6 +318,12 @@ impl ConstructInputs for CtxInputs<'_, '_> {
     fn resolve(&self, r: &RefInput) -> Result<ResolvedRef, FeatureError> {
         resolve::resolve_input(self.ctx, r)
     }
+    fn resolve_oriented(&self, r: &RefInput) -> Result<(ResolvedRef, bool), FeatureError> {
+        resolve::resolve_input_oriented(self.ctx, r)
+    }
+    fn records_warnings(&self, r: &RefInput) -> bool {
+        r.entity().is_some_and(resolve::is_topological)
+    }
     fn length(&self, e: &Expr) -> Result<f64, FeatureError> {
         self.ctx.eval_length(e)
     }
@@ -320,21 +338,43 @@ impl ConstructInputs for CtxInputs<'_, '_> {
     }
 }
 
-/// Resolves `r`, recording a health warning if it matched by fingerprint only (S05 §7).
+/// Resolves `r`, recording a health warning if it matched by fingerprint only (S05 §7) and
+/// the resolution did not record one itself. The flag is the face orientation of
+/// [`ConstructInputs::resolve_oriented`].
 fn resolve_tracked(
     inputs: &dyn ConstructInputs,
     r: &RefInput,
     warnings: &mut Vec<Diagnostic>,
-) -> Result<ResolvedRef, FeatureError> {
-    let resolved = inputs.resolve(r)?;
-    if resolved.quality == Some(MatchQuality::FingerprintOnly) {
+) -> Result<(ResolvedRef, bool), FeatureError> {
+    let (resolved, reversed) = inputs.resolve_oriented(r)?;
+    if resolved.quality == Some(MatchQuality::FingerprintOnly) && !inputs.records_warnings(r) {
         warnings.push(Diagnostic {
             message: "a reference matched by geometry only; check the result".to_owned(),
             cause: None,
             entities: r.entity().cloned().into_iter().collect(),
         });
     }
-    Ok(resolved)
+    Ok((resolved, reversed))
+}
+
+/// Highlights every referenced entity of a construction that failed on its geometry (parallel
+/// inputs, wrong input kind, ...), so the timeline shows which references broke (S05 §7). A
+/// reference that did not resolve was already highlighted on its own by [`resolve`].
+fn highlight_failed<T>(
+    ctx: &amg_doc::RecomputeCtx<'_>,
+    refs: &[&RefInput],
+    result: &Result<T, FeatureError>,
+) {
+    let on_inputs = matches!(
+        result,
+        Err(FeatureError::InvalidValue {
+            field: "inputs",
+            ..
+        })
+    );
+    if on_inputs && ctx.highlights().is_empty() {
+        ctx.highlight(refs.iter().filter_map(|r| r.entity().cloned()));
+    }
 }
 
 /// The dependency a reference input adds to `Feature::inputs`.

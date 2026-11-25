@@ -7,7 +7,10 @@ use amg_doc::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{ConstructInputs, CtxInputs, RefInput, ResolvedRef, dependency, math, resolve_tracked};
+use super::{
+    ConstructInputs, CtxInputs, RefInput, ResolvedRef, dependency, highlight_failed, math,
+    resolve_tracked,
+};
 
 /// How a construction axis is defined (Fusion's Construct menu; conventions in note §6).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -75,34 +78,59 @@ impl AxisDef {
     ) -> Result<(Line3, Vec<Diagnostic>), FeatureError> {
         let tol = inputs.tolerance();
         let mut warnings = Vec::new();
-        let mut res = |r: &RefInput| -> Result<ResolvedRef, FeatureError> {
+        let mut oriented = |r: &RefInput| -> Result<(ResolvedRef, bool), FeatureError> {
             resolve_tracked(inputs, r, &mut warnings)
         };
+        // Only some constructions care which side of an analytic face is outside.
+        macro_rules! res {
+            ($r:expr) => {
+                oriented($r).map(|(resolved, _)| resolved)
+            };
+        }
         let axis = match self {
-            AxisDef::ThroughRevolved { face_or_edge } => math::axis_of(&res(face_or_edge)?.geom)?,
+            AxisDef::ThroughRevolved { face_or_edge } => math::axis_of(&res!(face_or_edge)?.geom)?,
             AxisDef::PerpendicularAtPoint { face, point } => {
-                let face = res(face)?;
-                let p = math::point_of(&res(point)?.geom)?;
-                math::axis_perpendicular_at_point(&face.geom, p, true, &tol)?
+                let (face, reversed) = oriented(face)?;
+                let p = math::point_of(&res!(point)?.geom)?;
+                outward(
+                    math::axis_perpendicular_at_point(&face.geom, p, true, &tol)?,
+                    reversed,
+                )
             }
             AxisDef::PerpendicularToFaceAtPoint { face, point } => {
-                let face = res(face)?;
-                let p = math::point_of(&res(point)?.geom)?;
-                math::axis_perpendicular_at_point(&face.geom, p, false, &tol)?
+                let (face, reversed) = oriented(face)?;
+                let p = math::point_of(&res!(point)?.geom)?;
+                outward(
+                    math::axis_perpendicular_at_point(&face.geom, p, false, &tol)?,
+                    reversed,
+                )
             }
             AxisDef::ThroughTwoPlanes { a, b } => {
-                let a = math::plane_of(&res(a)?.geom)?;
-                let b = math::plane_of(&res(b)?.geom)?;
+                let a = math::plane_of(&res!(a)?.geom)?;
+                let b = math::plane_of(&res!(b)?.geom)?;
                 math::axis_two_planes(&a, &b, &tol)?
             }
             AxisDef::ThroughTwoPoints { a, b } => {
-                let a = math::point_of(&res(a)?.geom)?;
-                let b = math::point_of(&res(b)?.geom)?;
+                let a = math::point_of(&res!(a)?.geom)?;
+                let b = math::point_of(&res!(b)?.geom)?;
                 math::axis_two_points(a, b, &tol)?
             }
-            AxisDef::ThroughEdge { edge } => math::line_of(&res(edge)?.geom, &tol)?,
+            AxisDef::ThroughEdge { edge } => math::line_of(&res!(edge)?.geom, &tol)?,
         };
         Ok((axis, warnings))
+    }
+}
+
+/// `line` along the face's outward normal: reversed for a face whose normal points towards
+/// its axis or centre.
+fn outward(line: Line3, reversed: bool) -> Line3 {
+    if reversed {
+        Line3 {
+            point: line.point,
+            dir: -line.dir,
+        }
+    } else {
+        line
     }
 }
 
@@ -129,7 +157,9 @@ impl Feature for ConstructAxis {
     }
 
     fn compute(&self, ctx: &mut RecomputeCtx<'_>) -> Result<FeatureOutput, FeatureError> {
-        let (axis, warnings) = self.def.evaluate(&CtxInputs { ctx })?;
+        let result = self.def.evaluate(&CtxInputs { ctx });
+        highlight_failed(ctx, &self.def.refs(), &result);
+        let (axis, warnings) = result?;
         Ok(FeatureOutput {
             construction: Some(ConstructionGeom::Axis(axis)),
             warnings,
