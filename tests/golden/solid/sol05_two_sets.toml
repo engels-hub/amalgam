@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol05_two_sets (S04 SOL-05). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 7944.203522483336
+area = 2351.4999849278233
+faces = 8
+edges = 18
+vertices = 12
+bbox_min = [0.0, -0.0000000000000004440892098500626, -0.0000000000000004440892098500626]
+bbox_max = [20.0, 20.0, 20.0]

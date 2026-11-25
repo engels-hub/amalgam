@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol05_chamfer_slot_loop (S04 SOL-05). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 10864.306527855771
+area = 3484.0939755164895
+faces = 10
+edges = 20
+vertices = 12
+bbox_min = [0.0, -10.0, 0.0]
+bbox_max = [60.0, 10.0, 10.0]

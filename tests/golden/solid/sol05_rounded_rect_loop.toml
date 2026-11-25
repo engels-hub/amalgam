@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol05_rounded_rect_loop (S04 SOL-05). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 23293.13712421687
+area = 6391.107719948474
+faces = 18
+edges = 40
+vertices = 24
+bbox_min = [-0.0000000000000004440892098500626, -0.0000000000000004440892098500626, 0.0]
+bbox_max = [60.0000001, 40.0, 10.0]

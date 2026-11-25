@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol05_chord_3 (S04 SOL-05). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 7980.68583470577
+area = 2379.8590138005666
+faces = 7
+edges = 15
+vertices = 10
+bbox_min = [0.0, -0.0000000000000004440892098500626, 0.0]
+bbox_max = [20.0, 20.0, 20.0]

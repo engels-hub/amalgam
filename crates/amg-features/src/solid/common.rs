@@ -279,6 +279,84 @@ pub fn resolve_subs(
     Ok(out)
 }
 
+// ---- topology helpers -------------------------------------------------------------------------
+
+/// Edges G1-continuous with `seeds` across shared vertices (S04 §2, R-S04-1): starting from
+/// the seeds, an edge joins the chain when, at a vertex it shares with a chain edge, the two
+/// edges leave the vertex in opposite directions within `angular` rad (their tangents from
+/// [`BrepKernel::edge_ends`]). Only edges between two distinct faces join (seams and free
+/// edges can't be blended). Returns the seeds first (input order, duplicates removed), then
+/// the propagated edges in breadth-first order.
+///
+/// # Errors
+/// The kernel error of a seed's `edge_ends` (an out-of-range or degenerated seed). A
+/// neighbour whose tangent is undefined is skipped.
+pub fn tangent_chain_edges(
+    k: &dyn BrepKernel,
+    s: &amg_brep::Shape,
+    seeds: &[amg_brep::EdgeId],
+    angular: f64,
+) -> KResult<Vec<amg_brep::EdgeId>> {
+    use amg_brep::{EdgeEnds, EdgeId};
+    use std::collections::BTreeMap;
+
+    /// The directions in which `e` leaves its two end vertices: `t0` at the start, `-t1` at
+    /// the end.
+    fn leaving(ends: &EdgeEnds) -> [amg_core::Vec3; 2] {
+        [ends.t0.get(), -ends.t1.get()]
+    }
+
+    let mut cache: BTreeMap<EdgeId, Option<EdgeEnds>> = BTreeMap::new();
+    let mut ends_of = |e: EdgeId, strict: bool| -> KResult<Option<EdgeEnds>> {
+        if let Some(v) = cache.get(&e) {
+            return Ok(v.clone());
+        }
+        let v = match k.edge_ends(s, e) {
+            Ok(v) => Some(v),
+            Err(err) if strict => return Err(err),
+            Err(_) => None,
+        };
+        cache.insert(e, v.clone());
+        Ok(v)
+    };
+    let blendable = |e: EdgeId| matches!(*s.edge_faces(e), [a, b] if a != b);
+    let cos = angular.cos();
+    let mut chain: Vec<EdgeId> = Vec::new();
+    for &e in seeds {
+        ends_of(e, true)?;
+        if !chain.contains(&e) {
+            chain.push(e);
+        }
+    }
+    let mut next = 0;
+    while next < chain.len() {
+        let e = chain[next];
+        next += 1;
+        let Some(ee) = ends_of(e, false)? else {
+            continue;
+        };
+        let verts = s.edge_vertices(e);
+        let dirs = leaving(&ee);
+        for (i, &v) in verts.iter().enumerate() {
+            for &o in s.vertex_edges(v) {
+                if o == e || chain.contains(&o) || !blendable(o) {
+                    continue;
+                }
+                let Some(oe) = ends_of(o, false)? else {
+                    continue;
+                };
+                let overts = s.edge_vertices(o);
+                let odirs = leaving(&oe);
+                let smooth = (0..2).any(|j| overts[j] == v && dirs[i].dot(odirs[j]) <= -cos);
+                if smooth {
+                    chain.push(o);
+                }
+            }
+        }
+    }
+    Ok(chain)
+}
+
 /// A participant as it is just before this feature: itself, or its live successor (a body
 /// consumed or split since the reference was stored), `None` if it is gone.
 fn follow(ctx: &RecomputeCtx<'_>, id: BodyId) -> Option<BodyId> {
