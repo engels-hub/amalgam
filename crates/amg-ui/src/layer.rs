@@ -33,6 +33,9 @@ pub struct LayerOut<'a> {
     /// The command of the document's active tool (`None`: the select tool runs; additive,
     /// UI-09: the sketch session restarts its own tool when none is active).
     pub active_tool: Option<crate::command::CmdId>,
+    /// Per-body base colours of the committed bodies (additive, INS-10): `None` (the default
+    /// each frame) keeps the materials; the last layer that sets it wins.
+    pub body_tints: &'a mut Option<std::sync::Arc<crate::scene::BodyTints>>,
 }
 
 /// The section planes of the view (RND-06) and which bodies they clip.

@@ -4,14 +4,16 @@
 //! - [`MEASURE_CMD`] ("Measure", shortcut `I`) is in the INSPECT tab's *Inspect* group and in
 //!   SOLID ▸ Inspect, and in S-key search. It starts [`measure::MeasureTool`].
 //! - [`snap`]: pick → snapped, classified pick → INS-01 operand (smart regions and chains).
-//! - [`props`]: the Properties panel ([`PROPERTIES_CMD`], mass properties of mesh bodies with
-//!   the centre-of-mass glyph).
+//! - [`props`]: the Properties panel ([`PROPERTIES_CMD`], mass properties of mesh and solid
+//!   bodies, occurrences and components, with the centre-of-mass glyph).
+//! - [`colors`]: "Display Component Colours" ([`COMPONENT_COLORS_CMD`], INS-10).
 //! - [`SECTION_CMD`] ("Section Analysis") starts [`section_tool::SectionTool`]; [`section`] holds
 //!   the per-document layer (records → RND-06 planes, caps job, outlines), the browser
 //!   "Analysis" folder and the Section Statistics panel ([`SECTION_STATS_CMD`]).
 //! - [`overlay`]: the RND-07 overlay (witness line, Δ, angle arc, circles), drawn through the
 //!   additive `Tool::overlay` hook.
 
+pub mod colors;
 pub mod measure;
 pub mod overlay;
 pub mod props;
@@ -23,6 +25,7 @@ use crate::command::{CmdAction, CmdId, CommandDef, Enabler, Placement};
 use crate::module::{GroupId, Registrar, UiModule};
 use crate::tool::{Tool, ToolInit};
 
+pub use colors::{COMPONENT_COLORS_CMD, COMPONENT_COLORS_FLAG};
 pub use measure::{MEASURE_JOB, MeasureSnapshot, MeasureTool, measure_snapshot};
 pub use props::{PROPERTIES_CMD, PROPERTIES_JOB, PROPERTIES_PANEL};
 pub use section::{SECTION_CMD, SECTION_JOB, SECTION_PANEL, SECTION_STATS_CMD, SectionLayer};
@@ -88,7 +91,8 @@ pub fn register(r: &mut Registrar<'_>) {
         )
         .with_icon(crate::icons::ids::PROPERTIES)
         .with_tooltip(
-            "Volume, area, mass, centre of mass and inertia of the selected mesh bodies, with              the density of their material",
+            "Volume, area, mass, centre of mass and inertia of the selected bodies and \
+             components, with the density of their material",
         )
         .with_keywords(&[
             "inspect",
@@ -101,7 +105,7 @@ pub fn register(r: &mut Registrar<'_>) {
             "center of gravity",
             "physical properties",
         ])
-        .with_enabler(Enabler::When(measure::enabled))
+        .with_enabler(Enabler::When(props::enabled))
         .placed(Placement::Toolbar {
             group: GroupId("design.inspect.inspect"),
             pinned: true,
@@ -161,5 +165,6 @@ pub fn register(r: &mut Registrar<'_>) {
         }),
     );
     props::register(r);
+    colors::register(r);
     section::register(r);
 }

@@ -16,6 +16,8 @@
 //! intersection of their kept half-spaces (each plane removes the side its normal points into),
 //! at most [`MAX_SECTION_PLANES`] planes ([`combine`]).
 
+pub mod assembly;
+
 use amg_core::{Plane, Point3, Tolerance};
 use amg_doc::{BodyId, Command, Design, EntityRef, ExtKey, ExtRecord};
 use serde::{Deserialize, Serialize};

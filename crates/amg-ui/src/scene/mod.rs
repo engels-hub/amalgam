@@ -67,6 +67,11 @@ pub struct BodyViews {
     pub bodies: BTreeMap<BodyId, BodyView>,
 }
 
+/// Per-body base colours (linear RGB) that replace the material colour while set, keeping the
+/// body's opacity (additive, INS-10: "Display component colours"). Bodies not listed keep
+/// their material; a [`BodyView::tint`] wins over it.
+pub type BodyTints = BTreeMap<BodyId, [f32; 3]>;
+
 /// Per-body section display (INS-09): which bodies the view's section planes clip
 /// (`Instance::sectioned`) and their cap colours (linear RGB; `None` = RND-06's darkened base
 /// colour).
@@ -386,6 +391,8 @@ struct Entry {
     view_tint: Option<[f32; 4]>,
     /// RND-08 shading from the [`BodyViews`] override (AM-12).
     view_shading: Option<amg_render::Shading>,
+    /// Base colour from [`BodyTints`] (INS-10).
+    tint: Option<[f32; 3]>,
 }
 
 impl std::fmt::Debug for Entry {
@@ -426,6 +433,8 @@ struct Core {
     pending: BTreeSet<(Set, BodyId)>,
     /// Per-body view overrides of committed bodies (AM-11).
     views: Option<Arc<BodyViews>>,
+    /// Per-body base colours of committed bodies (INS-10, component colours).
+    tints: Option<Arc<BodyTints>>,
 }
 
 /// The view of the document an update reads.
@@ -493,6 +502,10 @@ impl Core {
     /// Recomputes the entry's instances from the placements and sends what changed.
     fn sync_instances(&mut self, set: Set, id: BodyId, e: &mut Entry, src: &Src<'_>) {
         let mut wanted: Vec<(u32, Transform, bool)> = Vec::new();
+        e.tint = match set {
+            Set::Model => self.tints.as_ref().and_then(|t| t.get(&id).copied()),
+            Set::Preview => None,
+        };
         let views = self.views.clone();
         let view = match (set, views.as_deref()) {
             (Set::Model, Some(v)) => Some(v.bodies.get(&id)),
@@ -567,6 +580,9 @@ impl Core {
             return;
         };
         let mut material = self.material(set, e);
+        if let Some([r, g, b]) = e.tint {
+            material.base_color = [r, g, b, material.base_color[3]];
+        }
         if let Some(tint) = e.view_tint {
             material.base_color = tint;
         }
@@ -709,6 +725,7 @@ impl SceneAdapter {
                 preview_material: Material::default(),
                 pending: BTreeSet::new(),
                 views: None,
+                tints: None,
             },
             bodies: BTreeMap::new(),
             preview: BTreeMap::new(),
@@ -1018,6 +1035,23 @@ impl SceneAdapter {
         self.flush();
     }
 
+    /// Sets or clears the per-body base colours of committed bodies (additive, INS-10; see
+    /// [`BodyTints`]). Only instances whose description changes are rewritten (no upload);
+    /// `None` restores the materials.
+    pub fn set_body_tints(&mut self, tints: Option<Arc<BodyTints>>) {
+        self.core.tints = tints;
+        for (id, e) in &mut self.bodies {
+            e.tint = self.core.tints.as_ref().and_then(|t| t.get(id).copied());
+            self.core.send_instances(Set::Model, e);
+        }
+        self.flush();
+    }
+
+    /// The per-body base colours in force (INS-10).
+    pub fn body_tints(&self) -> Option<&Arc<BodyTints>> {
+        self.core.tints.as_ref()
+    }
+
     /// The per-body view overrides in force (AM-11).
     pub fn body_views(&self) -> Option<&Arc<BodyViews>> {
         self.core.views.as_ref()
@@ -1157,6 +1191,12 @@ impl SceneAdapter {
     /// The pick map.
     pub fn pick_map(&self) -> &PickMap {
         &self.core.pick
+    }
+
+    /// Every occurrence path, indexed by `PickTarget::Body::instance` (append-only for one
+    /// adapter; additive, INS-10).
+    pub fn occurrence_paths(&self) -> &[OccPath] {
+        &self.core.paths
     }
 
     /// The occurrence path of a `PickTarget::Body::instance` index.
@@ -1417,6 +1457,7 @@ fn reconcile(
                 section: (true, None),
                 view_tint: None,
                 view_shading: None,
+                tint: None,
             };
             core.spawn(set, id, &mut e, jobs);
             core.sync_instances(set, id, &mut e, src);

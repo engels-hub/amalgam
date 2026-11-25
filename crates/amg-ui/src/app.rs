@@ -75,6 +75,10 @@ pub struct DocTab {
     pub sketch_edit: Option<amg_doc::FeatureId>,
     /// Module state attached to this document (additive, INS-09; [`crate::layer`]).
     pub(crate) layers: crate::layer::DocLayers,
+    /// View flags that are on (INS-10).
+    pub(crate) view_flags: std::collections::BTreeSet<&'static str>,
+    /// The scene's occurrence-path table (INS-10).
+    pub(crate) instance_paths: Vec<amg_doc::OccPath>,
 }
 
 /// A group of document commands applied as one undo entry at the end of the frame.
@@ -165,6 +169,11 @@ pub struct CmdEnv<'a> {
     pub hovered: Option<&'a SelItem>,
     /// The command of the active tool (`None`: the select tool).
     pub active_tool: Option<CmdId>,
+    /// The document's view flags that are on ([`AppCx::set_view_flag`]; additive, INS-10).
+    pub view_flags: &'a std::collections::BTreeSet<&'static str>,
+    /// Occurrence paths by `PickTarget::Body::instance` index, as of the last scene update
+    /// (empty before it; additive, INS-10).
+    pub instance_paths: &'a [amg_doc::OccPath],
 }
 
 /// Mutable access for modules; all document mutation is deferred to the end of the frame.
@@ -239,6 +248,18 @@ impl AppCx<'_> {
     /// layer itself is running.
     pub fn doc_layer<T: crate::layer::DocLayer>(&mut self) -> Option<&mut T> {
         self.doc.layers.get_mut::<T>()
+    }
+
+    /// Turns a per-document view flag (`<module>.<name>`) on or off: view state that is not
+    /// saved, read through [`CmdEnv::view_flags`] by toggle commands, panels and layers
+    /// (additive, INS-10).
+    pub fn set_view_flag(&mut self, flag: &'static str, on: bool) {
+        if on {
+            self.doc.view_flags.insert(flag);
+        } else {
+            self.doc.view_flags.remove(flag);
+        }
+        self.request_repaint();
     }
 
     /// The document's selection.
@@ -474,6 +495,8 @@ pub(crate) fn env_of_doc<'a>(
         selection: &doc.selection,
         hovered: doc.tools.frame.hover.as_ref().map(|h| &h.item),
         active_tool: doc.tools.active.as_ref().map(|a| a.id),
+        view_flags: &doc.view_flags,
+        instance_paths: &doc.instance_paths,
     }
 }
 
@@ -1056,6 +1079,8 @@ impl AmalgamApp {
             timeline: crate::timeline::TimelineState::default(),
             sketch_edit: None,
             layers: crate::layer::DocLayers::default(),
+            view_flags: std::collections::BTreeSet::new(),
+            instance_paths: Vec::new(),
         });
         self.active = self.docs.len() - 1;
         self.start_recovery_session(id);

@@ -8,12 +8,13 @@
 //! - [`measure`] (INS-01): operands, per-entity measures, exact minimum distance, angles,
 //!   smart selection (planar regions, feature-edge chains), plane and circle fits, snapping and
 //!   result rows.
-//! - [`props`] (INS-03): mass properties of closed meshes (volume, mass, CoM, inertia,
-//!   principal axes) and their `combine`.
+//! - [`props`] (INS-03, INS-10): mass properties of closed meshes and B-rep solids (volume,
+//!   mass, CoM, inertia, principal axes), their `combine`, occurrence placements and totals.
 //! - [`section`] (INS-02): section caps on meshes (oriented loops, CDT with split constraints,
 //!   non-zero / even–odd fill, multi-plane clipping), outlines, open curves and stats.
 //! - [`doc`] (INS-09): the `inspect.section` extension record ([`doc::SectionAnalysis`]), its
-//!   commands and migration hook, and the combination of visible analyses.
+//!   commands and migration hook, and the combination of visible analyses. [`doc::assembly`]
+//!   (INS-10) maps a selection to placed body instances and their component / occurrence totals.
 
 mod cache;
 pub mod doc;
@@ -58,6 +59,9 @@ pub enum InspectError {
     /// A B-rep query failed (INS-07/10).
     #[error("B-rep query failed: {0}")]
     Brep(String),
+    /// This build has no B-rep kernel (cargo feature `occt` off; INS-10).
+    #[error("B-rep properties need the geometry kernel: backend unavailable in this build")]
+    BackendUnavailable,
     /// A reference does not resolve (INS-07).
     #[error("reference does not resolve: {0}")]
     Resolve(String),
@@ -72,6 +76,9 @@ impl Diagnostic for InspectError {
             InspectError::NotWatertight(_) => Some("Repair the mesh first (Mesh ▸ Repair)".into()),
             InspectError::NonRigidTransform => {
                 Some("Measure the body without the scaled occurrence transform.".into())
+            }
+            InspectError::BackendUnavailable => {
+                Some("Use a build with the `occt` feature to measure solid bodies.".into())
             }
             InspectError::Mesh(e) => e.hint(),
             _ => None,

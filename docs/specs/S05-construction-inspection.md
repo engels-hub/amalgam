@@ -787,7 +787,7 @@ pub mod display {
 | CON-03 | Reference resolution: `EntityRef`/`RefInput` → `ResolvedRef` for origin entities (with component transform), construction geometry, B-rep faces/edges/vertices (S02 analytic types, `CurveEval`/`SurfaceEval` adapters, context plane), sketch curves/points (S03 world mapping), planar mesh face groups (plane fit); `resolve_in` for tools; health mapping (FingerprintOnly → warning) | CON-01, DOC-06, BREP-09, SK-01, MESH-16 | P0 | Todo | On a test part (box with a hole, built with S04 or with direct `BrepKernel` calls): the planar face resolves to a `Plane` matching the face within 1e-9; the hole face resolves to a `Cylinder` with the exact radius; a circular edge resolves to a `Circle`; a sketch line resolves to a `Line` with `context_plane` = the sketch plane. Offset plane on a face survives an upstream extrude-distance edit (with DOC-06 naming) and moves with the face. A deleted referenced face gives a feature `Error` whose `Diagnostic.entities` contains the ref. |
 | CON-04 | Construct UI: commands in the Construct menu (`amg-ui::construct`), UI-05 dialog schemas for all variants, construction display via `display::display_extent` + RND-07 with pick ids, browser "Construction" / "Origin" folders | CON-02, CON-03, UI-05, UI-07, RND-07 | P0 | Todo | Each of the 20 variants can be created from the menu and S-key search, edited and deleted, all undoable. `display_extent` unit tests follow the note §6 sizing rules. Construction planes are pickable as sketch planes and as section-analysis bases. Manual script: offset plane → sketch on it → extrude → edit the offset → the extrude follows. |
 | INS-07 | Measure on B-rep, construction, origin and sketch entities: `Operand::Ref`/`Operand::Brep`, exact B-rep distance/length/area via S02, analytic radius/angle via `RefGeom`, mixed mesh–B-rep via tessellation (`Exactness::Tessellated`), tool filters extended | INS-01, INS-08, CON-03, BREP-08, BREP-09 | P0 | Todo | On analytic solids: box edge length, face area, distance between parallel faces within 1e-9; cylinder face radius exact; circular edge diameter exact; angle between two planar faces at 30° ± 1e-12 rad. Distance from a sphere (r = 10, centre 25 mm away) to a plane: 15 ± 1e-7. Distance between a construction plane and a vertex is exact. A mesh–solid distance is marked "≈" and lies within the tessellation deflection of the exact value. |
-| INS-10 | Properties on solids + assemblies: B-rep `mass_props` (S02), per-component/occurrence totals with transforms, mixed selections, "Display component colours" | INS-03, BREP-09, ASM-01, RND-03 | P0 | Todo | Box, cylinder and sphere solids: volume, CoM and inertia within 1e-9 relative of analytic. The same part as a mesh (fine tessellation) agrees within the tessellation error bound. A two-occurrence assembly total equals the sum with the parallel-axis rule within 1e-9 relative. The component-colour toggle colours each component distinctly and restores the appearances. |
+| INS-10 | Properties on solids + assemblies: B-rep `mass_props` (S02), per-component/occurrence totals with transforms, mixed selections, "Display component colours" | INS-03, BREP-09, ASM-01, RND-03 | P0 | Review | Box, cylinder and sphere solids: volume, CoM and inertia within 1e-9 relative of analytic. The same part as a mesh (fine tessellation) agrees within the tessellation error bound. A two-occurrence assembly total equals the sum with the parallel-axis rule within 1e-9 relative. The component-colour toggle colours each component distinctly and restores the appearances. |
 | INS-11 | Section analysis on solids + reference bases: caps from B-rep tessellation, `SectionBase::Ref` (construction planes, planar B-rep faces) with fallback warning, plane drag manipulator (UI-06) | INS-09, CON-03, BREP-08, UI-06 | P0 | Todo | The INS-02 watertight test passes on tessellations of 20 solid test parts. A section based on a construction plane follows a parameter edit of that plane. A deleted base face keeps the last plane and shows a warning. Dragging the manipulator updates the offset field both ways. |
 | INS-04 | Interference: `interfere::interference` (broad phase, mesh BVH pair test, Manifold intersection volume, B-rep common volume, mixed via tessellation), dialog with pair table, highlight, include-coincident option, "Create bodies" via Combine features | INS-01, INS-08, MESH-05, BREP-04, BREP-09, ASM-01 | P1 | Todo | Two cubes overlapping by 2 mm: volume 2·10·10 = 200 ± 1e-6 mm³ (mesh and solid paths). Face-touching cubes → `Touching` (or omitted unless include-coincident). Disjoint → omitted. A 20-body random scene matches the brute-force pair list. "Create bodies" is one undo step. 50 bodies × 100 k tris < 2 s. |
 | INS-05 | Mesh analysis fields + overlays: draft (pull direction, ±θ), accessibility (direction), discrete curvature (mean/Gaussian/min/max), legends, Analysis-folder entries | INS-08, MESH-03, RND-08 | P1 | Todo | Draft on a cylinder wall along its axis = 0 ± 1e-9 rad, and a 5° tapered frustum = 5° ± 0.01° away from edges. Accessibility from +Z of a box with a blind pocket: pocket floor accessible, undercut slot faces not, matching ray-cast ground truth exactly. Curvature on icosphere r = 10 (level 6): mean 0.1 ± 2 %, Gaussian 0.01 ± 3 %; plane 0 ± 1e-9. 1 M-vertex field < 200 ms (curvature), accessibility 1 M < 1 s. |
@@ -1481,6 +1481,76 @@ The GPU drawing of the outlines, caps and draft square is not covered by automat
 kittest uses `NullViewport`): the owner's manual script covers it, and the screenshot test of the
 box-corner cut waits for RND-09.
 
+### 2026-11-25 - INS-10 properties on solids and assemblies, component colours (lane A)
+
+*Landed* in `amg-features::inspect` (`props`, new `doc::assembly`) and `amg-ui::inspect`
+(`props`, new `colors`), with small additive hooks in the `amg-ui` framework (S11 Interface
+changes 2026-11-25). `amg-brep` is used only through `BrepKernel::mass_props` and public `Shape`
+methods; `amg-doc` only through its public API. No change in `amg-render`, so nothing to record
+under S10. No new dependency.
+- **Solids** (`props::solid_mass_props`): S02's adaptive `mass_props` in the shape's own space
+  (inertia scaled by the density), then `props::transform_mass_props` for the placement (rigid or
+  mirrored: `R·I·Rᵀ`, parallel axis for the origin tensor; scale is `NonRigidTransform`). A shape
+  without a solid, or with no enclosed volume, gives its area and a reason, like an open mesh.
+  Additive `InspectError::BackendUnavailable` ("backend unavailable") without OCCT.
+- **Mixed selections** (`props::{PropsGeom, PropsItem, items_mass_props}`): mesh and solid
+  instances in one run; one failing body gives its own error and the others are still measured.
+  A solid shown several times is integrated once. `props::group_totals` sums per group.
+- **Assemblies** (`doc::assembly`): `selected_instances` (body instances, occurrences, or every
+  instance when nothing measurable is selected), `scopes_of` and `occurrence_name`. An
+  **occurrence total** is the subtree below one occurrence path; a **component total** sums the
+  component's subtree over all its placements (the root component equals the whole design). Both
+  cover the selected instances only, in world space.
+- **Panel:** results come from the same `amg-jobs` job "Mass properties". Instances are listed per
+  body and occurrence ("Body 3.0 in Part:2"), followed by the occurrence and component totals
+  when the design has occurrences. Bodies that cannot be measured are named with the reason, and
+  the totals say how many they leave out. The context menu offers Properties on mesh and solid
+  bodies and on components.
+- **Display Component Colours** (INSPECT / SOLID ▸ Inspect, Shift+N, and a checkbox in the
+  panel): a per-document view flag, not saved and not on the undo stack. A `DocLayer` gives each
+  component's bodies one colour (golden-ratio hues in component id order) through
+  `LayerOut::body_tints`; opacity is kept, and switching it off restores the instance materials.
+
+*Done-when evidence* (`cargo nextest run -p amg-features -p amg-ui`: 475 pass, 3 skipped;
+`cargo nextest run -p amg-features --features occt`: 224 pass, 1 skipped; OCCT 8.0.1; clippy
+`-D warnings` clean with and without `amg-features/occt`). Solid tests are in
+`amg-features/tests/inspect_props_solids.rs`, panel and colour tests in
+`amg-ui/tests/properties_assembly.rs`.
+1. **Box, cylinder, sphere within 1e-9 relative** (frame tilted off every axis, also through a
+   rigid and a mirrored placement; `box_cylinder_and_sphere_match_the_analytic_values`). Worst
+   relative errors (volume / CoM over 50 mm / inertia tensor): box 0 / 1.0e-16 / 1.1e-15,
+   cylinder 4.8e-16 / 7.1e-17 / **1.1e-11**, sphere 4.7e-16 / 3.6e-17 / 4.1e-16. Area, tensor
+   about the origin and each principal pair (residual) are also checked at 1e-9.
+2. **Mesh vs solid within the tessellation bound** (`a_fine_tessellation_agrees_within_the_deflection_bound`,
+   deflection d = 0.002 mm, 0.1 rad; bounds: volume and area A·d, CoM A·d·R/(V − A·d), inertia
+   entry ρ·A·d·R²). Cylinder r 5 h 12 (628 triangles): volume 0.248 ≤ 1.068 mm³, CoM 1e-15 ≤
+   9.0e-3 mm, inertia 7.7e-9 ≤ 8.3e-8 t·mm². Sphere r 7 (34 984): 0.607 ≤ 1.232, 2.2e-5 ≤ 6.0e-3,
+   2.6e-8 ≤ 7.5e-8. Torus 10 / 3 (64 008): 0.917 ≤ 2.369, 8.9e-15 ≤ 1.7e-2, 1.3e-7 ≤ 5.0e-7.
+3. **Two-occurrence assembly by the parallel-axis rule within 1e-9** (a 10×20×30 part placed
+   twice, off-axis; total, occurrence totals and component totals against the hand-built sum).
+   Total volume / CoM / inertia: mesh 0 / 3.6e-17 / 7.6e-17, solid 1.5e-16 / 5.3e-17 / 1.1e-16.
+4. **Component colours applied and restored** (`component_colours_are_applied_per_component_and_restored`,
+   `the_colour_command_and_the_panel_checkbox_share_the_state`, CPU scene backend): one colour per
+   component and different between components, opacity 0.5 kept, a body added while on gets its
+   component's colour, off restores every instance material exactly, no undo entry, another
+   document is not coloured.
+
+Also tested: selections (instance, occurrence with nested children, empty occurrence, invalid
+path), a solid without geometry next to a mesh ("backend unavailable" without OCCT), a surface
+body, non-rigid placements, cancellation, recompute after an occurrence move.
+
+*Deviations / leftovers:*
+- Colours replace the base colour in the UI scene adapter, not through RND-03 appearance
+  overrides (the adapter does not apply body appearances yet). Solid bodies are not displayed
+  before UI-22, so only mesh bodies show colours; the GPU drawing was not checked by eye.
+- No automated UI test measures a real B-rep solid: `amg-ui` tests build without OCCT. The
+  solid path is tested in `amg-features`; the panel is tested with a solid that has no geometry.
+- A mesh body is integrated once per placement (a solid once in total). The panel gathers its
+  inputs every frame it is drawn, O(instances). Neither was benchmarked.
+- A kernel `mass_props` call cannot be cancelled midway (1.8 s on BREP-09's perforated plate).
+- Units are still mm / g, and only the built-in material library is searched (as INS-03).
+
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1505,3 +1575,17 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   themselves, so their cache keys don't depend on positions.
 - **INS-04 / INS-10:** use `Evaluated::instances(body)` / `body_to_world(body, path)` (ASM-01;
   solved placements once ASM-04 lands) for per-occurrence transforms.
+
+### 2026-11-25: finding and API additions from INS-10
+- **To lane E (`amg-doc`, DOC-03), not changed here:** the recompute cache key (`node_key`) holds
+  the feature's kind, data, inputs and context but not its id. A second feature with identical
+  data in the same component hits the cache, its output carries the first feature's `BodyId`, and
+  no second body appears although both nodes are `Ok` (seen with a test feature in
+  `amg-ui/tests/properties_assembly.rs`, which therefore gives its features distinct data).
+- **`amg-features::inspect` additions** (additive): `InspectError::BackendUnavailable`;
+  `props::{solid_mass_props, transform_mass_props, PropsGeom, PropsItem, items_mass_props,
+  GroupTotal, group_totals}`; `doc::assembly::{PropsPick, PlacedBody, is_measurable,
+  selected_instances, PropsScope, scopes_of, occurrence_name}`.
+- **`amg-ui::inspect::props`**: `BodyEntry` gains `path` and `mesh`; `PropsResult.total` is now
+  optional, with new `failed` and `scopes` (`FailedBody`, `ScopeTotal`).
+- Framework hooks: S11 Interface changes 2026-11-25.
