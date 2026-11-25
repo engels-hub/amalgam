@@ -11,6 +11,9 @@
 //!   [`BrowserProvider::affected_by`] accepts one of the frame's `DocEvent`s (or the document
 //!   was replaced / the workspace changed). Expanding and collapsing only re-flattens the
 //!   visible rows. [`BrowserState::rebuilds`] counts rebuilds.
+//! - **Decoration** (ASM-10): every provider may add markers, buttons and radio buttons to any
+//!   row ([`BrowserProvider::decorate`]) and entries to any row menu
+//!   ([`BrowserProvider::row_menu`]).
 //! - **Rows are virtualised** with `ScrollArea::show_rows`: only the rows in view are laid out,
 //!   so 10 000 bodies cost the same per frame as 30.
 //! - **Row actions:** eye toggle → [`BrowserProvider::set_visible`]; rename (context menu or
@@ -169,6 +172,53 @@ pub trait BrowserProvider: 'static {
     fn double_click(&self, _node: &NodeKey, _cx: &mut AppCx<'_>) {}
     /// Extra context-menu entries for `node` (after the framework's Rename / Show / Hide).
     fn context_menu(&self, _node: &NodeKey, _ui: &mut egui::Ui, _cx: &mut AppCx<'_>) {}
+    /// Adds markers, buttons and emphasis to any row, whichever provider built it (additive,
+    /// ASM-10). Called while drawing, for the rows in view only, so it must be cheap; what it
+    /// adds can change without a rebuild.
+    fn decorate(&self, _env: &CmdEnv<'_>, _node: &BrowserNode, _out: &mut RowDecoration) {}
+    /// A [`RowItem`] this provider added to the row of `node` was clicked (additive, ASM-10).
+    fn item_clicked(&self, _node: &NodeKey, _item: &'static str, _cx: &mut AppCx<'_>) {}
+    /// Context-menu entries for any row, whichever provider built it (after the owner's
+    /// [`context_menu`](Self::context_menu); additive, ASM-10).
+    fn row_menu(&self, _node: &NodeKey, _ui: &mut egui::Ui, _cx: &mut AppCx<'_>) {}
+}
+
+/// What providers add to one drawn row ([`BrowserProvider::decorate`]; additive, ASM-10).
+#[derive(Clone, Debug, Default)]
+pub struct RowDecoration {
+    /// Draw the label emphasised (e.g. the active component).
+    pub emphasized: bool,
+    /// Items after the label (and badge), in the order added.
+    pub items: Vec<RowItem>,
+}
+
+/// A small icon after a row's label.
+#[derive(Clone, Debug)]
+pub struct RowItem {
+    /// Passed back to [`BrowserProvider::item_clicked`].
+    pub id: &'static str,
+    /// Icon (UI-23).
+    pub icon: IconId,
+    /// Text shown when the icon cannot be drawn.
+    pub fallback: &'static str,
+    /// Accessible name and tooltip.
+    pub label: String,
+    /// Marker, button or radio button.
+    pub kind: RowItemKind,
+}
+
+/// How a [`RowItem`] behaves.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RowItemKind {
+    /// Shows a state; not clickable.
+    Mark,
+    /// A button.
+    Button,
+    /// A radio button.
+    Radio {
+        /// Whether it is the chosen one.
+        selected: bool,
+    },
 }
 
 /// Row height, points (uniform: `show_rows` needs it).
@@ -198,10 +248,19 @@ struct Entry {
 enum Action {
     Expand(usize, bool),
     Eye(usize),
-    Select { entry: usize, toggle: bool },
+    Select {
+        entry: usize,
+        toggle: bool,
+    },
     DoubleClick(usize),
     StartRename(usize),
     Rename(usize, String),
+    /// A decoration item of `entry`, added by `provider`, was clicked.
+    Item {
+        entry: usize,
+        provider: usize,
+        item: &'static str,
+    },
 }
 
 /// An inline rename in progress.
@@ -484,6 +543,18 @@ impl BrowserState {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         row.spacing_mut().item_spacing.x = 2.0;
+        // What providers add to this row, tagged with the provider that gets the clicks.
+        let mut emphasized = false;
+        let mut items: Vec<(usize, RowItem)> = Vec::new();
+        {
+            let env = cx.env();
+            for (pi, p) in ps.iter().enumerate() {
+                let mut d = RowDecoration::default();
+                p.decorate(&env, node, &mut d);
+                emphasized |= d.emphasized;
+                items.extend(d.items.into_iter().map(|item| (pi, item)));
+            }
+        }
         row.add_space(f32::from(e.depth) * INDENT);
         if has_children {
             let open = self.expanded.contains(&node.key);
@@ -565,13 +636,31 @@ impl BrowserState {
         }
         if is_selected {
             text = text.color(ui.visuals().selection.stroke.color);
+        } else if emphasized {
+            text = text.color(ui.visuals().strong_text_color());
         }
-        let label = row.add(
-            egui::Label::new(text)
-                .sense(egui::Sense::click())
-                .selectable(false)
-                .truncate(),
-        );
+        if emphasized {
+            text = text.underline();
+        }
+        let widget = egui::Label::new(text)
+            .sense(egui::Sense::click())
+            .selectable(false)
+            .truncate();
+        let label = if items.is_empty() {
+            row.add(widget)
+        } else {
+            // Leave room for the items, so a long label is truncated before it pushes them
+            // out of the row.
+            #[allow(clippy::cast_precision_loss, reason = "a handful of items")]
+            let reserve = items.len() as f32 * (ICON_W + row.spacing().item_spacing.x);
+            let width = (row.available_width() - reserve).max(0.0);
+            row.allocate_ui_with_layout(
+                egui::vec2(width, ROW_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| ui.add(widget),
+            )
+            .inner
+        };
         match node.badge {
             Some(Severity::Error) => {
                 row.colored_label(ui.visuals().error_fg_color, "⚠")
@@ -582,6 +671,15 @@ impl BrowserState {
                     .on_hover_text("Warning");
             }
             Some(Severity::Info) | None => {}
+        }
+        for (provider, item) in items {
+            if row_item(&mut row, &item) {
+                actions.push(Action::Item {
+                    entry: i,
+                    provider,
+                    item: item.id,
+                });
+            }
         }
         if label.hovered() {
             hover.clone_from(&node.target);
@@ -611,6 +709,9 @@ impl BrowserState {
                 ui.close();
             }
             provider.context_menu(&key, ui, cx);
+            for p in ps {
+                p.row_menu(&key, ui, cx);
+            }
             // Registry context providers (UI-21).
             let picked = crate::marking::context_menu_ui(
                 ui,
@@ -623,6 +724,37 @@ impl BrowserState {
             }
         });
     }
+}
+
+/// Draws one decoration item; true if it was clicked.
+fn row_item(row: &mut egui::Ui, item: &RowItem) -> bool {
+    let clickable = item.kind != RowItemKind::Mark;
+    let sense = if clickable {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let size = [ICON_W, ROW_HEIGHT];
+    let r = match crate::icons::image(row, item.icon, ICON_PT, true) {
+        Some(img) if clickable => row.add_sized(size, egui::Button::image(img).frame(false)),
+        Some(img) => row.add_sized(size, img.sense(sense)),
+        None => row.add_sized(size, egui::Label::new(item.fallback).sense(sense)),
+    };
+    let label = item.label.clone();
+    r.widget_info(|| match item.kind {
+        RowItemKind::Mark => {
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, label.clone())
+        }
+        RowItemKind::Button => {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
+        }
+        RowItemKind::Radio { selected } => {
+            egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, selected, label.clone())
+        }
+    });
+    let clicked = clickable && r.clicked();
+    r.on_hover_text(&item.label);
+    clicked
 }
 
 /// Appends entries in pre-order.
@@ -730,6 +862,14 @@ impl crate::app::AmalgamApp {
                     focus: true,
                 });
                 self.repaint_soon();
+            }
+            Action::Item {
+                entry,
+                provider,
+                item,
+            } => {
+                let key = state.entries[entry].node.key.clone();
+                self.with_provider(provider, |p, cx| p.item_clicked(&key, item, cx));
             }
             Action::Rename(i, name) => {
                 if name.is_empty() || name == state.entries[i].node.label {

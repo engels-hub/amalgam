@@ -46,6 +46,9 @@
 //! UI-12 adds the [`params`] dialog ("Change Parameters"): the parameter table with favourites,
 //! user and model groups, a filter and inline cycle / unit errors.
 //!
+//! ASM-10 adds [`assembly`] (lane E): the active component, grounding, pending positions and the
+//! assembly menus in the browser.
+//!
 //! egui is 0.36.2 (QUESTIONS #23); its `Panel` and the eframe `logic`/`ui` split already exist
 //! there, so the spec's 0.37 names apply unchanged.
 
@@ -86,6 +89,7 @@ pub mod widgets;
 
 // Domain-lane modules (stubs from UI-01; each lane owns its file).
 pub mod am;
+pub mod assembly;
 pub mod form;
 pub mod generative;
 pub mod inspect;
@@ -110,10 +114,11 @@ pub use tool::{FinishReason, InputResult, Tool, ToolCx, ToolInit};
 /// Keeps every module's `inventory::submit!` in the final binary (the S01 linker caveat: an
 /// object file nothing references may be dropped). [`UiRegistry::build`] calls it.
 pub fn link() {
-    let registers: [fn(&mut module::Registrar<'_>); 12] = [
+    let registers: [fn(&mut module::Registrar<'_>); 13] = [
         builtin::register,
         design::register,
         am::register,
+        assembly::register,
         form::register,
         generative::register,
         inspect::register,

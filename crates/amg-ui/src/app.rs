@@ -174,6 +174,19 @@ pub struct CmdEnv<'a> {
     /// Occurrence paths by `PickTarget::Body::instance` index, as of the last scene update
     /// (empty before it; additive, INS-10).
     pub instance_paths: &'a [amg_doc::OccPath],
+    /// The document's active component (`Document::active_component`; additive, ASM-10).
+    pub active_component: amg_doc::ComponentId,
+    /// The document's view layers, read through [`CmdEnv::doc_layer`] (additive, ASM-10).
+    pub(crate) layers: &'a crate::layer::DocLayers,
+}
+
+impl CmdEnv<'_> {
+    /// The document's view layer of type `T` ([`crate::layer::DocLayer`]), read-only, for
+    /// enablement and browser decoration (additive, ASM-10). `None` if no such layer is
+    /// registered, the document has not been active yet, or the layer itself is running.
+    pub fn doc_layer<T: crate::layer::DocLayer>(&self) -> Option<&T> {
+        self.layers.get::<T>()
+    }
 }
 
 /// Mutable access for modules; all document mutation is deferred to the end of the frame.
@@ -497,6 +510,8 @@ pub(crate) fn env_of_doc<'a>(
         active_tool: doc.tools.active.as_ref().map(|a| a.id),
         view_flags: &doc.view_flags,
         instance_paths: &doc.instance_paths,
+        active_component: doc.document.active_component(),
+        layers: &doc.layers,
     }
 }
 

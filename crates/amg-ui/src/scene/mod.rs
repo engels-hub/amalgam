@@ -701,6 +701,9 @@ pub struct SceneAdapter {
     preview: BTreeMap<BodyId, Entry>,
     preview_src: Option<Arc<Evaluated>>,
     overlay: Option<Arc<Placements>>,
+    /// The component tree changed since the last recompute result: the placements the
+    /// instances were synced from may lack or still hold occurrences (ASM-10).
+    tree_changed: bool,
     highlight_targets: [Vec<PickTarget>; 4],
     highlight_items: [Vec<HighlightItem>; 4],
     highlight_colors: [[f32; 4]; 4],
@@ -758,6 +761,7 @@ impl SceneAdapter {
             preview: BTreeMap::new(),
             preview_src: None,
             overlay: None,
+            tree_changed: false,
             highlight_targets: Default::default(),
             highlight_items: Default::default(),
             highlight_colors: [[0.0; 4]; 4],
@@ -802,9 +806,17 @@ impl SceneAdapter {
                 | DocEvent::BodyPropsChanged(b) => {
                     touched.insert(*b);
                 }
-                DocEvent::ComponentTreeChanged
-                | DocEvent::OccurrenceTransformChanged(_)
+                DocEvent::ComponentTreeChanged => {
+                    placements = true;
+                    self.tree_changed = true;
+                }
+                DocEvent::OccurrenceTransformChanged(_)
                 | DocEvent::OccurrenceVisibilityChanged(_) => placements = true,
+                // Added and removed occurrences are in the placements only now, and no
+                // event names them when the geometry did not change.
+                DocEvent::RecomputeFinished { .. } => {
+                    placements |= std::mem::take(&mut self.tree_changed);
+                }
                 DocEvent::SketchChanged(s) => {
                     sketches.insert(*s);
                 }
@@ -832,6 +844,11 @@ impl SceneAdapter {
         if placements {
             for (id, e) in &mut self.bodies {
                 if !touched.contains(id) {
+                    // A body moved to another component keeps its geometry, so it is not
+                    // reconciled (ASM-09 / ASM-10).
+                    if let Some(b) = evaluated.body(*id) {
+                        e.component = b.component;
+                    }
                     self.core.sync_instances(Set::Model, *id, e, &src);
                 }
             }
@@ -851,6 +868,8 @@ impl SceneAdapter {
     pub fn rebuild(&mut self, design: &Design, evaluated: &Evaluated, jobs: &JobSystem) {
         self.clear();
         self.core.stats.rebuilds += 1;
+        // `evaluated` may be older than `design`: sync again with the next result.
+        self.tree_changed = true;
         let src = Src {
             design,
             placements: self.overlay.as_deref().unwrap_or(evaluated.placements()),

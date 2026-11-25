@@ -2849,3 +2849,28 @@ the base colour of RND-03 instance materials in the scene adapter), `amg-doc`, `
 - Additive `amg-ui` API: the `sketch::{constrain, dimension, glyphs}` modules, `SolverOp::Probe` / `SolverOut::Probed`, `SketchSession::{add_constraint, add_dimension, accept_driven, remove_constraints, set_dimension_expr, dimension_source, dimension_param, highlighted, serial, begin_label_drag, drag_label_to, end_label_drag, label_drag}` and its fields `hovered_constraint`, `selected_constraints`, `notice`, `driven_offer`, `last_dimension`; `DrivenOffer`; 13 `icons::ids` (constraint glyphs, `DIMENSION`).
 - Behaviour change in the session: dimension values follow their expressions every frame (see the UI-14 log). The UI-09 text glyphs in the overlay list are replaced by icon glyphs.
 - Still open for S01: R6 (`Feature::key_data`), so that moving a dimension label does not recompute downstream features.
+
+### 2026-11-25: ASM-10 (lane E, S06 assembly UI) - additive framework hooks
+Flagged for lane D review. All in `amg-ui`; no new third-party dependency; no change to
+`amg-doc` or `amg-features`. Existing tests pass unchanged.
+- **`browser`:** `BrowserProvider::{decorate, item_clicked, row_menu}` (default no-ops) let a
+  provider add to rows it did not build: `RowDecoration { emphasized, items }`,
+  `RowItem { id, icon, fallback, label, kind }`, `RowItemKind::{Mark, Button, Radio}`.
+  `decorate` runs while drawing, for visible rows only, so it needs no tree rebuild; `row_menu`
+  follows the owner's `context_menu` on every row. Providers of row keys other than their own
+  rely on the key format documented in `browser::framework`.
+- **`app`:** `CmdEnv::active_component` and `CmdEnv::doc_layer::<T>()` (read-only view of a
+  document layer, for enablers and `decorate`). This covers the S06 request that tools take
+  `AddFeature::context` from `Document::active_component()`; UI-05 should use it.
+- **Lane C (S07), flagged:** `mesh::{tool, combine}` pass `env.active_component` instead of the
+  root as the context of the features they add.
+- **`scene` (bug fix, no API change):** `ComponentTreeChanged` arrives while the placements are
+  still the old ones, and adding or deleting an occurrence of unchanged geometry raises no later
+  event, so the view missed new instances and kept deleted ones. The adapter now syncs instances
+  again at the next `RecomputeFinished`, and a placement sync takes each body's component from
+  the evaluated state (a body moved by `assembly.bodies_to_components` kept the old one). Such
+  a sync rewrites changed instances only; no upload. Possible S01 follow-up: `DocEvent`s for
+  added / removed placements.
+- **Icons:** the `assembly` module registers 9 more Tabler SVGs itself (`Registrar::icon`).
+- Still open from the S06 requests: the position guard (ASM-02) and the placement overlay (ASM-12).
+
