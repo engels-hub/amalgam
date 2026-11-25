@@ -204,7 +204,10 @@ impl AppHarness {
     pub fn with_document(doc: Document) -> AppHarness {
         let mut h = AppHarness::new();
         h.app_mut().active_document_mut().document = doc;
-        h.harness.run();
+        // Not `harness.run()`: panels poll running jobs with `request_repaint_after`, and on a
+        // loaded machine the replaced document's jobs outlast kittest's 4-step limit (flaky
+        // `browser::a_replaced_document_rebuilds_the_tree`).
+        h.drive_until_idle();
         h
     }
 
