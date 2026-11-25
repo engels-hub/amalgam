@@ -21,6 +21,9 @@
 //!   picks and the label placement), the SK-04 check with the "Create as driven dimension?"
 //!   prompt, constraint glyph icons (hover lights up the constrained entities; click selects,
 //!   Delete removes), inline dimension editing (double-click a label) and label drag.
+//! - [`modify`] (UI-16): the Modify tools ([`ModifyKind`]: fillet, chamfer, trim, extend,
+//!   break, offset, mirror, rectangular / circular pattern, move/copy, rotate, scale) on the S03
+//!   edit operations (SK-07, SK-16, SK-17, SK-18), one undo entry per operation.
 //! - [`FINISH_SKETCH_CMD`], Esc with no sketch tool running and the palette's Finish button
 //!   leave the session.
 
@@ -29,6 +32,7 @@ pub mod create;
 pub mod dimension;
 pub mod glyphs;
 pub mod infer;
+pub mod modify;
 pub mod palette;
 pub mod session;
 pub mod shapes;
@@ -46,6 +50,7 @@ pub use constrain::{ConstrainTool, ConstraintTool};
 pub use create::CreateTool;
 pub use dimension::{DIMENSION_DEF, DimensionEditDialog, DimensionTool, DrivenPromptDialog};
 pub use infer::{Anchor, Inference};
+pub use modify::{ModifyKind, ModifyOp, ModifyOptions, ModifyTool};
 pub use session::{
     DrivenOffer, Inferred, PaletteOptions, SKETCH_LAYER, SKETCH_SELECT_CMD, SessionStats,
     SketchLayer, SketchSession,
@@ -140,6 +145,30 @@ fn start_constraint(tool: ConstraintTool) -> fn(&ToolInit<'_>) -> Box<dyn Tool> 
         ConstraintTool::Collinear => start!(Collinear),
         ConstraintTool::Symmetric => start!(Symmetric),
         ConstraintTool::Curvature => start!(Curvature),
+    }
+}
+
+/// The tool factory of a modify tool.
+fn start_modify(kind: ModifyKind) -> fn(&ToolInit<'_>) -> Box<dyn Tool> {
+    macro_rules! start {
+        ($k:ident) => {
+            |init| Box::new(ModifyTool::new(ModifyKind::$k, init))
+        };
+    }
+    match kind {
+        ModifyKind::Trim => start!(Trim),
+        ModifyKind::Extend => start!(Extend),
+        ModifyKind::Break => start!(Break),
+        ModifyKind::Fillet => start!(Fillet),
+        ModifyKind::Chamfer => start!(Chamfer),
+        ModifyKind::Offset => start!(Offset),
+        ModifyKind::Mirror => start!(Mirror),
+        ModifyKind::RectPattern => start!(RectPattern),
+        ModifyKind::CircPattern => start!(CircPattern),
+        ModifyKind::Move => start!(Move),
+        ModifyKind::Copy => start!(Copy),
+        ModifyKind::Rotate => start!(Rotate),
+        ModifyKind::Scale => start!(Scale),
     }
 }
 
@@ -283,6 +312,27 @@ pub fn register(r: &mut Registrar<'_>) {
                 order: i * 10,
             }),
         );
+    }
+    for (i, kind) in (1..).zip(ModifyKind::ALL) {
+        let def = kind.def();
+        let mut cmd = CommandDef::new(
+            def.id.0,
+            def.label,
+            CmdAction::StartTool(start_modify(kind)),
+        )
+        .with_icon(def.icon)
+        .with_tooltip(def.tooltip)
+        .with_keywords(def.keywords)
+        .with_enabler(Enabler::When(in_sketch))
+        .placed(Placement::Toolbar {
+            group: GroupId("design.sketch.modify"),
+            pinned: def.pinned,
+            order: i * 10,
+        });
+        if let Some(shortcut) = def.shortcut {
+            cmd = cmd.with_shortcut(shortcut);
+        }
+        r.command(cmd);
     }
     r.command(
         CommandDef::new(

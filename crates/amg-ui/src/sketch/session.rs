@@ -198,6 +198,8 @@ pub struct SketchSession {
     /// The newest dimension added through [`add_dimension`](Self::add_dimension) or
     /// [`accept_driven`](Self::accept_driven) (its tool opens the value editor on it).
     pub last_dimension: Option<ConstraintId>,
+    /// The newest operation of a modify tool (UI-16; tests and scripts replay it).
+    pub last_modify: Option<super::modify::ModifyOp>,
     stats: SessionStats,
 }
 
@@ -267,6 +269,7 @@ impl SketchSession {
             notice: None,
             driven_offer: None,
             last_dimension: None,
+            last_modify: None,
             stats: SessionStats::default(),
         })
     }
