@@ -300,4 +300,42 @@ impl BrepKernel for Failing {
     fn sub_geom_all(&self, s: &Shape) -> KResult<[Vec<SubShapeGeom>; 3]> {
         self.inner.sub_geom_all(s)
     }
+
+    fn draft(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        opts: &amg_brep::DraftOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.draft(s, faces, opts, ctx)
+    }
+
+    fn defeature(&self, s: &Shape, faces: &[FaceId], ctx: &JobCtx) -> KResult<OpResult> {
+        self.inner.defeature(s, faces, ctx)
+    }
+
+    fn replace_face(
+        &self,
+        s: &Shape,
+        face: FaceId,
+        with: &Surface,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.replace_face(s, face, with, ctx)
+    }
+
+    fn split_faces(
+        &self,
+        s: &Shape,
+        faces: &[FaceId],
+        tool: &Shape,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.split_faces(s, faces, tool, ctx)
+    }
+
+    fn offset_faces(&self, s: &Shape, faces: &[(FaceId, f64)], ctx: &JobCtx) -> KResult<OpResult> {
+        self.inner.offset_faces(s, faces, ctx)
+    }
 }
