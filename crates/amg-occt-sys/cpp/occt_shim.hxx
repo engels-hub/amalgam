@@ -58,6 +58,11 @@ struct OcPipeParams;
 struct OcLoftParams;
 struct OcLoftSection;
 struct OcDraftParams;
+struct OcXdeNode;
+struct OcXdeProto;
+struct OcXdeFaceColor;
+struct OcXdeStatus;
+struct OcXdeWriteParams;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -120,6 +125,18 @@ public:
   std::vector<std::uint32_t> offending_indices;
   // Heal (BREP-10): the sub-shapes the fixes replaced, removed or re-toleranced.
   std::uint32_t fixes = 0;
+};
+
+// What one STEP or IGES read gave (BREP-13): plain nodes, prototype records, face colours and one
+// shape per prototype. Defined in occt_xde.cpp; only read after the reader returns.
+struct XdeData;
+class OcXde {
+public:
+  OcXde();
+  ~OcXde();
+  OcXde(const OcXde &) = delete;
+  OcXde &operator=(const OcXde &) = delete;
+  std::unique_ptr<XdeData> data;
 };
 
 // The argument or tool list of one boolean (BREP-04): handles sharing the callers' TShapes.
@@ -475,6 +492,53 @@ OcDistance project_on_face(const OcIndex &index, std::uint32_t f, const V3 &p, d
 
 // CATEGORY: R (BRepAdaptor_Curve D1 at both ends)
 OcEdgeEnds edge_ends(const OcIndex &index, std::uint32_t e);
+
+// -- STEP and IGES through XCAF (BREP-13), implemented in occt_xde.cpp --
+
+// CATEGORY: R (takes no shape; one STEPCAFControl_Reader and one private XCAF document per call,
+// thread-safe per instance on OCCT 8.0.1; the translator registration runs once under
+// std::call_once; shapes it made get missing 3D curves built in place before they are returned)
+std::unique_ptr<OcXde> xde_read_step(rust::Str path, bool names, bool colors,
+                                     const ProgressSink &sink);
+
+// CATEGORY: G (IGES translation is not thread-safe in OCCT 8.0: amg-brep calls it under the
+// global lock)
+std::unique_ptr<OcXde> xde_read_iges(rust::Str path, bool names, bool colors,
+                                     const ProgressSink &sink);
+
+// CATEGORY: R
+OcXdeStatus xde_status(const OcXde &xde);
+
+// CATEGORY: R
+rust::Vec<OcXdeNode> xde_nodes(const OcXde &xde);
+
+// CATEGORY: R
+rust::Vec<OcXdeProto> xde_protos(const OcXde &xde);
+
+// CATEGORY: R
+rust::Vec<OcXdeFaceColor> xde_face_colors(const OcXde &xde);
+
+// CATEGORY: R (a new handle sharing the read prototype's TShape)
+std::unique_ptr<OcShape> xde_proto_shape(const OcXde &xde, std::uint32_t i);
+
+// CATEGORY: C (the XCAF document holds private BRepBuilderAPI_Copy copies of the prototypes made
+// here, so the callers' TShapes never enter an XCAF compound; one STEPCAFControl_Writer per call)
+OcXdeStatus xde_write_step(rust::Str path, const OcXdeWriteParams &params,
+                           const OcShapeList &protos, rust::Slice<const OcXdeProto> meta,
+                           rust::Slice<const OcXdeFaceColor> face_colors,
+                           rust::Slice<const OcXdeNode> nodes, const ProgressSink &sink);
+
+// CATEGORY: G (IGES translation and the `write.iges.brep.mode` static are not thread-safe:
+// amg-brep calls it under the global lock; the shapes are private copies as for xde_write_step)
+OcXdeStatus xde_write_iges(rust::Str path, const OcXdeWriteParams &params,
+                           const OcShapeList &protos,
+                           rust::Slice<const OcXdeProto> meta,
+                           rust::Slice<const OcXdeFaceColor> face_colors,
+                           rust::Slice<const OcXdeNode> nodes, const ProgressSink &sink);
+
+// CATEGORY: C (strips the 3D curve of edge `edge` on a private BRepBuilderAPI_Copy, then runs the
+// readers' missing-curve repair on it; exists to test that repair)
+std::unique_ptr<OcShape> xde_guard_probe(const OcShape &shape, std::uint32_t edge);
 
 } // namespace amg::occt
 

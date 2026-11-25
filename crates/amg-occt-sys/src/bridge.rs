@@ -475,6 +475,58 @@ pub mod ffi {
         t1: V3,
     }
 
+    /// One node of an XCAF tree (BREP-13), in depth-first pre-order: free shapes are roots
+    /// (`parent` `u32::MAX`), an assembly's components follow it. `proto` is the prototype a
+    /// part node shows (`u32::MAX` for an assembly); `transform` is the location relative to the
+    /// parent. Colours are linear RGBA.
+    #[derive(Clone, Debug, PartialEq)]
+    struct OcXdeNode {
+        parent: u32,
+        has_name: bool,
+        name: String,
+        transform: OcMat34,
+        has_color: bool,
+        color: [f32; 4],
+        proto: u32,
+    }
+
+    /// The name and colour of one prototype (an XCAF simple-shape label).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct OcXdeProto {
+        has_name: bool,
+        name: String,
+        has_color: bool,
+        color: [f32; 4],
+    }
+
+    /// The colour of face `face` (0-based, `TopExp::MapShapes` order) of prototype `proto`.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcXdeFaceColor {
+        proto: u32,
+        face: u32,
+        color: [f32; 4],
+    }
+
+    /// How a STEP or IGES write is made: `schema` 0 AP203, 1 AP214, 2 AP242 (STEP only); `unit_mm`
+    /// the file's length unit in mm (1, 10, 1000, 25.4, 304.8 or 0.001).
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct OcXdeWriteParams {
+        schema: u8,
+        unit_mm: f64,
+    }
+
+    /// How a read or write went. `unit_names`: the STEP file's length units as written
+    /// (`STEPControl_Reader::FileUnits`); `iges_unit_flag`: the IGES global-section unit flag
+    /// (0 when not IGES).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct OcXdeStatus {
+        cancelled: bool,
+        errors: Vec<String>,
+        warnings: Vec<String>,
+        unit_names: Vec<String>,
+        iges_unit_flag: i32,
+    }
+
     extern "Rust" {
         /// The progress/cancel target of one shim call (S02 §1, occt-integration.md §3.4).
         type ProgressSink;
@@ -882,6 +934,59 @@ pub mod ffi {
         /// `u_a`/`v_a`.
         fn project_on_face(index: &OcIndex, f: u32, p: &V3, tol: f64) -> Result<OcDistance>;
         fn edge_ends(index: &OcIndex, e: u32) -> Result<OcEdgeEnds>;
+
+        // -- STEP and IGES through XCAF (BREP-13), implemented in occt_xde.cpp --
+
+        /// What one STEP or IGES read gave. Immutable once built.
+        type OcXde;
+
+        /// Reads a STEP file (`path` UTF-8) into plain nodes and prototype shapes, in mm, with
+        /// names and colours when asked. Parse progress is the first 20 %, the transfer the rest;
+        /// a cancel stops the parser (its stream ends) or the transfer. A failure or cancellation
+        /// is reported by `xde_status`. Edges of the read shapes that lack a 3D curve get one.
+        fn xde_read_step(
+            path: &str,
+            names: bool,
+            colors: bool,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcXde>>;
+        /// As `xde_read_step` for IGES (no assemblies). Not thread-safe: hold the global lock.
+        fn xde_read_iges(
+            path: &str,
+            names: bool,
+            colors: bool,
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcXde>>;
+        fn xde_status(xde: &OcXde) -> Result<OcXdeStatus>;
+        fn xde_nodes(xde: &OcXde) -> Result<Vec<OcXdeNode>>;
+        fn xde_protos(xde: &OcXde) -> Result<Vec<OcXdeProto>>;
+        fn xde_face_colors(xde: &OcXde) -> Result<Vec<OcXdeFaceColor>>;
+        fn xde_proto_shape(xde: &OcXde, i: u32) -> Result<UniquePtr<OcShape>>;
+        /// Writes `nodes` (as read: pre-order, parents first) over the prototypes `protos` (one
+        /// `meta` record each) as STEP. A failure or cancellation is reported in the status.
+        fn xde_write_step(
+            path: &str,
+            params: &OcXdeWriteParams,
+            protos: &OcShapeList,
+            meta: &[OcXdeProto],
+            face_colors: &[OcXdeFaceColor],
+            nodes: &[OcXdeNode],
+            sink: &ProgressSink,
+        ) -> Result<OcXdeStatus>;
+        /// As `xde_write_step` for IGES (B-rep solids, assemblies flattened). Not thread-safe:
+        /// hold the global lock.
+        fn xde_write_iges(
+            path: &str,
+            params: &OcXdeWriteParams,
+            protos: &OcShapeList,
+            meta: &[OcXdeProto],
+            face_colors: &[OcXdeFaceColor],
+            nodes: &[OcXdeNode],
+            sink: &ProgressSink,
+        ) -> Result<OcXdeStatus>;
+        /// A copy of `shape` whose edge `edge` lost its 3D curve and got it back from the
+        /// readers' repair. Raises if the repair did not rebuild exactly that curve.
+        fn xde_guard_probe(shape: &OcShape, edge: u32) -> Result<UniquePtr<OcShape>>;
     }
 }
 
@@ -953,3 +1058,8 @@ unsafe impl Sync for ffi::OcShape {}
 unsafe impl Send for ffi::OcIndex {}
 // SAFETY: as for `Send` above.
 unsafe impl Sync for ffi::OcIndex {}
+// SAFETY: an `OcXde` is built by one reader call and only read afterwards (`xde_*` accessors take
+// `&OcXde`; category R). What it owns (plain vectors, shapes, and after a cancelled STEP read the
+// reader with its parsed model) is referenced by nothing else, so it may be dropped on another
+// thread; amg-brep does that to keep a cancel fast.
+unsafe impl Send for ffi::OcXde {}
