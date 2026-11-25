@@ -14,6 +14,7 @@ use crate::error::KernelError;
 use crate::extract::RawSeg;
 use crate::geom::{Curve3, Surface};
 use crate::index::RawTopology;
+use crate::offset::{OffsetIn, OffsetOutcome};
 use crate::ops::{PrimitiveKind, PrismIn, RawHistory};
 use crate::query::{RawDistance, RawHit, RawMass, RawSurfacePoint};
 use crate::shape::{ShapeKind, SubKind};
@@ -245,6 +246,14 @@ impl Occ {
         _params: &FilletParams,
         _with_history: bool,
     ) -> KResult<BlendOutcome<(Occ, RawHistory)>> {
+        match *self {}
+    }
+
+    pub(crate) fn offset(
+        &self,
+        _input: &OffsetIn,
+        _ctx: &JobCtx,
+    ) -> KResult<OffsetOutcome<(Occ, RawHistory)>> {
         match *self {}
     }
 

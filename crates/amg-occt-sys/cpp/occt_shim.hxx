@@ -49,6 +49,7 @@ struct OcSubGeom;
 struct OcSubMap;
 struct OcBlendEdge;
 struct OcFilletParams;
+struct OcOffsetParams;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -352,6 +353,16 @@ std::unique_ptr<OcOp> blend_op(const OcShape &shape, const OcIndex &index, bool 
 
 // CATEGORY: R (BRep_Tool::CurveOnSurface and BRepAdaptor_Surface::D1; the faces are only read)
 double edge_face_angle(const OcIndex &index, std::uint32_t e, std::uint32_t f1, std::uint32_t f2);
+
+// -- shell, offset and thicken (BREP-07), implemented in occt_offset.cpp --
+
+// CATEGORY: C (BRepOffset_MakeOffset trims and re-tolerances the faces it offsets, so it runs on
+// a private BRepBuilderAPI_Copy of `shape` made here; `shape` and `index` are only read)
+std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
+                                const OcOffsetParams &params,
+                                rust::Slice<const std::uint32_t> remove,
+                                rust::Slice<const std::uint32_t> faces,
+                                rust::Slice<const double> offsets, const ProgressSink &sink);
 
 // -- measurement queries (BREP-09), implemented in occt_query.cpp --
 

@@ -421,6 +421,8 @@ pub(crate) fn history_n(raw: &RawHistory, operand_counts: Vec<[u32; 3]>) -> Shap
                 },
                 4 => OpRole::ChamferFace,
                 5 => OpRole::CornerPatch,
+                6 => OpRole::ShellInner,
+                7 => OpRole::OffsetFace,
                 _ => OpRole::Lateral,
             };
             (sub(0, f), role)
@@ -587,6 +589,25 @@ mod tests {
                 (sub(0, 1), OpRole::ChamferFace),
                 (sub(0, 2), OpRole::CornerPatch),
                 (sub(0, 4), OpRole::FilletBlend { contour: 2 }),
+            ]
+        );
+    }
+
+    #[test]
+    fn offset_roles_decode() {
+        let raw = RawHistory {
+            role_faces: vec![3, 0, 1],
+            roles: vec![6, 7, 2],
+            role_args: vec![0, 0, 0],
+            ..RawHistory::default()
+        };
+        let h = history(&raw, [6, 12, 8]);
+        assert_eq!(
+            h.roles,
+            vec![
+                (sub(0, 0), OpRole::OffsetFace),
+                (sub(0, 1), OpRole::Lateral),
+                (sub(0, 3), OpRole::ShellInner),
             ]
         );
     }

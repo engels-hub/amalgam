@@ -4,6 +4,7 @@ mod blend;
 mod boolean;
 mod build;
 mod extract;
+mod offset;
 mod ops;
 mod query;
 

@@ -1,0 +1,12 @@
+# B-rep metrics of brep/shell_box_hollow_outward_arc (S02 BREP-07). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 1658.9852375318587
+area = 3322.159265348857
+faces = 32
+edges = 60
+vertices = 32
+classes = "PPPPPPYYYYYYYYYYYYSSSSSSSSPPPPPP"

@@ -8,9 +8,10 @@ use crate::error::KResult;
 use crate::geom::{self, Curve3, GeomClass};
 use crate::kernel::BrepKernel;
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, PrismExtent, PrismOpts, TessQuality,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, OffsetJoin, PrismExtent, PrismOpts,
+    ShellOpts, TessQuality,
 };
-use crate::shape::{EdgeId, Shape, SubKind, SubShape};
+use crate::shape::{EdgeId, FaceId, Shape, SubKind, SubShape};
 
 /// A shape argument: index `n` is `inputs/<n>.brep` of the dump.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -43,7 +44,7 @@ impl SubShapeGeom {
         let bbox = s.sub_shape(sub).ok()?.bbox();
         match sub.kind {
             SubKind::Face => {
-                let f = crate::FaceId(sub.index);
+                let f = FaceId(sub.index);
                 Some(SubShapeGeom {
                     class: s.surface(f).class(),
                     measure: s.face_area(f),
@@ -316,6 +317,35 @@ pub enum KernelOp {
         /// Bisection steps.
         iterations: u32,
     },
+    /// `shell`.
+    Shell {
+        /// Shape.
+        shape: InputRef,
+        /// Removed faces (by index).
+        remove: Vec<FaceId>,
+        /// Options (per-face thicknesses by index).
+        opts: ShellOpts,
+    },
+    /// `offset`.
+    Offset {
+        /// Shape.
+        shape: InputRef,
+        /// Distance.
+        distance: f64,
+        /// Join.
+        join: OffsetJoin,
+        /// Tolerance.
+        tol: f64,
+    },
+    /// `thicken`.
+    Thicken {
+        /// Shape.
+        shape: InputRef,
+        /// Thickness.
+        thickness: f64,
+        /// Join.
+        join: OffsetJoin,
+    },
     /// `interference`.
     Interference {
         /// First shape.
@@ -377,6 +407,9 @@ impl KernelOp {
             KernelOp::Fillet { .. } => "fillet",
             KernelOp::Chamfer { .. } => "chamfer",
             KernelOp::FilletMaxRadius { .. } => "fillet_max_radius",
+            KernelOp::Shell { .. } => "shell",
+            KernelOp::Offset { .. } => "offset",
+            KernelOp::Thicken { .. } => "thicken",
             KernelOp::Interference { .. } => "interference",
             KernelOp::PlaneSection { .. } => "plane_section",
             KernelOp::ProjectEdges { .. } => "project_edges",
@@ -394,7 +427,10 @@ impl KernelOp {
             | KernelOp::Tessellate { shape, .. }
             | KernelOp::Fillet { shape, .. }
             | KernelOp::Chamfer { shape, .. }
-            | KernelOp::FilletMaxRadius { shape, .. } => vec![*shape],
+            | KernelOp::FilletMaxRadius { shape, .. }
+            | KernelOp::Shell { shape, .. }
+            | KernelOp::Offset { shape, .. }
+            | KernelOp::Thicken { shape, .. } => vec![*shape],
             KernelOp::Boolean { objects, tools, .. } | KernelOp::Split { objects, tools, .. } => {
                 objects.iter().chain(tools).copied().collect()
             }
@@ -560,6 +596,22 @@ impl KernelOp {
                 k.fillet_max_radius(one(s)?, &ids, *hi, *iterations, ctx)
                     .map(|_| Vec::new())
             }
+            KernelOp::Shell {
+                shape: s,
+                remove,
+                opts,
+            } => shape(k.shell(one(s)?, remove, opts, ctx)),
+            KernelOp::Offset {
+                shape: s,
+                distance,
+                join,
+                tol,
+            } => shape(k.offset(one(s)?, *distance, *join, *tol, ctx)),
+            KernelOp::Thicken {
+                shape: s,
+                thickness,
+                join,
+            } => shape(k.thicken(one(s)?, *thickness, *join, ctx)),
             KernelOp::Interference { a, b } => k
                 .interference(one(a)?, one(b)?, ctx)
                 .map(|r| r.map(|r| r.shape).into_iter().collect()),
@@ -730,7 +782,7 @@ mod tests {
                     ChamferSpec::DistanceAngle {
                         d: 1.0,
                         angle: 0.5,
-                        face: crate::FaceId(2),
+                        face: FaceId(2),
                     },
                 )],
             },
@@ -739,6 +791,27 @@ mod tests {
                 edges: vec![edge.clone()],
                 hi: 5.0,
                 iterations: 12,
+            },
+            KernelOp::Shell {
+                shape: InputRef(0),
+                remove: vec![FaceId(5)],
+                opts: ShellOpts {
+                    thickness: -1.0,
+                    join: OffsetJoin::Arc,
+                    per_face: vec![(FaceId(0), -2.0)],
+                    tol: 0.0,
+                },
+            },
+            KernelOp::Offset {
+                shape: InputRef(0),
+                distance: 0.5,
+                join: OffsetJoin::Intersection,
+                tol: 1e-6,
+            },
+            KernelOp::Thicken {
+                shape: InputRef(0),
+                thickness: -0.25,
+                join: OffsetJoin::Arc,
             },
             KernelOp::PlaneSection {
                 shape: InputRef(0),

@@ -462,6 +462,40 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
         self.inner.fillet_max_radius(s, edges, hi, iterations, ctx)
     }
 
+    fn shell(
+        &self,
+        s: &Shape,
+        remove: &[FaceId],
+        opts: &ShellOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.shell(s, remove, opts, ctx)
+    }
+
+    fn offset(
+        &self,
+        s: &Shape,
+        distance: f64,
+        join: OffsetJoin,
+        tol: f64,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.offset(s, distance, join, tol, ctx)
+    }
+
+    fn thicken(
+        &self,
+        s: &Shape,
+        thickness: f64,
+        join: OffsetJoin,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.thicken(s, thickness, join, ctx)
+    }
+
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<CurveSeg>> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.plane_section(s, plane)

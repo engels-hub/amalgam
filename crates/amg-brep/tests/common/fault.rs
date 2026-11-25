@@ -6,8 +6,9 @@ use amg_brep::geom;
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, Classification,
     DistanceResult, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletSpec, JobCtx, KResult,
-    KernelError, Line3, MassProps, OpResult, Plane, Point2, Point3, PrismExtent, PrismOpts, Ray3,
-    RayHit, Shape, SubShape, SubShapeGeom, SurfacePoint, TessMesh, TessQuality, Tolerance, Vec3,
+    KernelError, Line3, MassProps, OffsetJoin, OpResult, Plane, Point2, Point3, PrismExtent,
+    PrismOpts, Ray3, RayHit, Shape, ShellOpts, SubShape, SubShapeGeom, SurfacePoint, TessMesh,
+    TessQuality, Tolerance, Vec3,
 };
 
 /// The injected "not done" failure.
@@ -141,6 +142,34 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
         ctx: &JobCtx,
     ) -> KResult<f64> {
         self.inner.fillet_max_radius(s, edges, hi, iterations, ctx)
+    }
+    fn shell(
+        &self,
+        s: &Shape,
+        remove: &[FaceId],
+        opts: &ShellOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.shell(s, remove, opts, ctx)
+    }
+    fn offset(
+        &self,
+        s: &Shape,
+        distance: f64,
+        join: OffsetJoin,
+        tol: f64,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.offset(s, distance, join, tol, ctx)
+    }
+    fn thicken(
+        &self,
+        s: &Shape,
+        thickness: f64,
+        join: OffsetJoin,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.inner.thicken(s, thickness, join, ctx)
     }
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {
         self.inner.plane_section(s, plane)

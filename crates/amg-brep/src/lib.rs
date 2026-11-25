@@ -16,6 +16,7 @@ mod history;
 mod index;
 mod kernel;
 mod lock;
+mod offset;
 mod ops;
 pub mod opts;
 mod query;

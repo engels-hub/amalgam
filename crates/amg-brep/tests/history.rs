@@ -15,6 +15,8 @@ mod blend_corpus;
 mod bool_corpus;
 #[path = "common/history.rs"]
 mod history_check;
+#[path = "common/offset_corpus.rs"]
+mod offset_corpus;
 #[path = "common/parts.rs"]
 mod parts;
 
@@ -502,11 +504,21 @@ fn every_output_face_has_a_source_or_a_role() {
         }
         faces += r.shape.count(SubKind::Face);
     }
+    // BREP-07: every shell, offset and thicken of its corpus.
+    let offsets = offset_corpus::corpus(&k);
+    for case in &offsets {
+        let r = case.run(&k).unwrap();
+        if let Some(e) = completeness_error(&r, &[&case.input]) {
+            failures.push(format!("{}: {e}", case.name));
+        }
+        faces += r.shape.count(SubKind::Face);
+    }
     eprintln!(
         "completeness: {} BREP-03/14 results, {bool_ok} BREP-04 results, {} BREP-06 results, \
-         {faces} output faces",
+         {} BREP-07 results, {faces} output faces",
         corpus.len(),
-        blends.len()
+        blends.len(),
+        offsets.len()
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

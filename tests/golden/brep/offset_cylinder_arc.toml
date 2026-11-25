@@ -1,0 +1,12 @@
+# B-rep metrics of brep/offset_cylinder_arc (S02 BREP-07). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 1828.9814879287865
+area = 797.0192659884676
+faces = 5
+edges = 7
+vertices = 4
+classes = "YPPTT"

@@ -895,7 +895,7 @@ All lane A, gated by ADR-002 (cleared 2026-10-20). Each op WP's Done-when includ
 | BREP-04 | Booleans: `boolean` (fuse/cut/common, N objects × M tools), `split`, `section`; non-destructive always on; fuzzy/glue/OBB/check-inverted; progress + cancel; parallel-mode determinism test and `occt_threads` benchmark | BREP-14 | P0 | Done | 1. A 100-case boolean corpus (`testdata/brep/bool/`: primitives, coplanar, tangent, fuzzy-needed cases from OCCT/FreeCAD trackers) gives valid results, with volumes within 1e-6 relative of reference values (or the expected `Err`). 2. Proptest: 500 random primitive pairs give `Ok(valid)` or a clean `Err`, never a crash. 3. Inputs' BinTools hashes are unchanged after every op. 4. Determinism: 20 cases × 10 runs with parallel on are byte-identical, or parallel defaults off and the Refinement log says so. 5. Criterion: a cut of two 1000-face parts, timed with 1 / half / all OCCT threads; the default is set from the result. 6. Cancelling a long boolean returns `Cancelled` within 200 ms. |
 | BREP-05 | History framework: `ShapeHistory` (entries, `Kept`, roles, tags, `sources_of`, `compose`), extraction from `BRepBuilderAPI_MakeShape`/`BRepTools_History`/op accessors, composition of internal steps, deterministic split order, `sub_geom`/`sub_geom_all` fingerprints; applied to BREP-03/14/04 ops | BREP-04 | P0 | Done | 1. Completeness test: for every op in the BREP-03/14/04 corpora, every output face is Modified/Generated/Kept from some input or has a role, and no output index is out of range. 2. Prism of a tagged profile: each lateral face's `sources_of` is the generating edge, which carries the profile tag; caps have `StartCap`/`EndCap`. 3. Box cut by a cylinder through one face: the split face has 2 `Modified` outputs, in area-desc order, stable across 10 runs. 4. `compose` of prism + unify equals the history observed end-to-end on 5 cases. 5. `ShapeHistory` serde round-trips. 6. `sub_geom_all` on a 1000-face part takes < 20 ms. Usable by DOC-06 tests (box, prism, boolean cut). |
 | BREP-06 | Fillet (constant, variable, chord) and chamfer (equal, two-dist, dist-angle) with history (`FilletBlend`, `ChamferFace`) and `LocalOpFailed { offending }`; `fillet_max_radius` | BREP-05 | P0 | Done | 1. Golden volumes for 20 fillet/chamfer cases (cube edge, edge chains, vertex blends of 3 edges) within 1e-6 relative. 2. A radius larger than the adjacent face fails with `offending` naming the failing edge(s), checked against the expected edge ids. 3. `fillet_max_radius` on 5 cases is within 1 % of the reference largest workable radius. 4. History: each blend face maps to its source edge. 5. 10 runs are byte-identical. 6. The op is in the stress test. |
-| BREP-07 | Shell / thick solid (removed faces, per-face thickness, join arc/intersection), `offset`, `thicken` with roles `ShellInner`/`OffsetFace` | BREP-05 | P0 | Todo | 1. Golden volumes: shelled box (1 face removed, 1 mm) equals the analytic volume within 1e-9 relative. Shelled cylinder, filleted box (arc join) and thickened B-spline face (0.5 %) pass. 2. Inward/outward offset of a sphere: radius within 1e-9. 3. A thickness exceeding the minimum radius gives `LocalOpFailed` with offending faces. 4. History roles are correct on 5 cases. |
+| BREP-07 | Shell / thick solid (removed faces, per-face thickness, join arc/intersection), `offset`, `thicken` with roles `ShellInner`/`OffsetFace` | BREP-05 | P0 | Review | 1. Golden volumes: shelled box (1 face removed, 1 mm) equals the analytic volume within 1e-9 relative. Shelled cylinder, filleted box (arc join) and thickened B-spline face (0.5 %) pass. 2. Inward/outward offset of a sphere: radius within 1e-9. 3. A thickness exceeding the minimum radius gives `LocalOpFailed` with offending faces. 4. History roles are correct on 5 cases. |
 | BREP-16 | Draft, defeature (delete face), replace face, split faces by tool, split body (via `split`) with history | BREP-05 | P0 | Todo | 1. Draft of 4 box side faces at 3° about the bottom plane: the measured face angles are 3° ± 1e-9 rad and the volume is analytic. 2. Deleting a fillet face and a boss face gives the pre-feature volume within 1e-6. 3. Replacing a top face with an offset plane changes the height exactly. 4. Splitting a face by a sketch wire gives 2 faces with the right areas. 5. Every result is BRepCheck-valid with complete history. |
 | BREP-08 | Tessellation: `tessellate` on a private topology copy (category C), `TessMesh` (per-face vertices, normals, `face_ranges`, exact `weld`, edge polylines), `to_indexed_parts`, `tessellate_many` (rayon, `InParallel` off), `tessellate_edge`, quality presets | BREP-12 | P0 | Done (owner-accepted 2026-11-19; Done-when 1 moved to BREP-18) | 1. A 1000-face fixture part tessellates (display preset) in < 100 ms median, including the topology copy (criterion `budget/brep-tess-1000`); the copy share is recorded. 2. `to_indexed_parts` of every closed fixture is watertight (`amg_testkit::metrics`: 0 boundary and 0 non-manifold edges), and its volume matches `mass_props` within the deflection bound. 3. Sphere r=10 tessellations converge to the exact area as deflection shrinks. 4. Tessellating one shared `Shape` from 8 threads while another thread runs booleans on it: no crash, identical meshes, input hash unchanged. 5. `face_of_triangle` is consistent with `face_ranges` for all triangles. |
 | BREP-09 | Mass properties (volume, area, centroid, inertia, principal axes), `classify`, `distance`, `closest_point`, `ray_cast`, `eval_surface` (curvatures), `project_point_on_face`, `interference` | BREP-04 | P0 | Done | 1. Box, cylinder, sphere and torus mass props match analytic values within 1e-9 relative. Inertia tensors match within 1e-9. 2. Distance between two spheres and between a point and a face matches analytic values within 1e-9. 3. `ray_cast` hits the expected face with the correct normal on 1000 random rays at a cylinder (vs analytic). 4. Curvatures of a torus at 10 points match analytic values within 1e-9. 5. `interference` volume of two overlapping boxes is analytic. |
@@ -2237,6 +2237,192 @@ slot chain).
 - A face-fingerprint `reindex` for the reference faces of asymmetric chamfers in `KernelOp`.
 - KH-03 (S20) can build its fillet strategy chain on `fillet_max_radius` and `FilletOpts`.
 
+### 2026-11-25 - BREP-07 shell, offset and thicken
+**Landed.**
+- `amg-brep`, trait `BrepKernel` (with the forwarding arms in `RecordingKernel`,
+  `tests/api_contract.rs` and `tests/common/fault.rs`):
+  - `shell(s, remove, &ShellOpts, ctx)`, `offset(s, distance, join, tol, ctx)` and
+    `thicken(s, thickness, join, ctx)`, with the Interfaces signatures.
+  - S20's `KernelOp::{Shell, Offset, Thicken}`. Removed and per-face faces stay plain `FaceId`s
+    (as BREP-06's chamfer reference faces).
+- New module `offset` (plain Rust, unit-tested without OCCT): validation and lowering.
+  - `shell`: exactly one solid; a finite thickness longer than the linear tolerance (either
+    sign); removed faces distinct, in range and not all of them; per-face thicknesses distinct,
+    not on a removed face, of the shell's sign.
+  - `offset`: any shape with faces. `thicken`: a face, a shell or a compound of them, without
+    solids. `tol` finite and ≥ 0, where 0 means the kernel's linear tolerance.
+  - The mapping of the shim status to `InvalidInput`, `LocalOpFailed` or `Cancelled`.
+- `amg-occt-sys`, new `cpp/occt_offset.cpp` with `offset_op` (**C**): `BRepOffset_MakeOffset`
+  used directly, on a private `BRepBuilderAPI_Copy`. It is the algorithm behind
+  `BRepOffsetAPI_MakeThickSolid` / `_MakeOffsetShape`; used directly, it gives
+  `SetOffsetOnFace`, thickening and a progress range.
+  - `shell` with removed faces runs `MakeThickSolid` (`AddFace` per removed face).
+  - `shell` without removed faces runs `MakeOffsetShape`, then builds one solid from the
+    input's shell and the offset shell, with the material between them (R-S04-8). This is
+    needed because `MakeThickSolid` with no closing face returns the offset skin alone: the
+    inner box, or an outward skin of negative volume. The input must then have one shell.
+  - `offset` runs `MakeOffsetShape`. `thicken` runs `MakeOffsetShape` with `Thickening = true`.
+  - Mode `Skin`, no self-intersection, `RemoveIntEdges` off. Join `GeomAbs_Arc` or
+    `GeomAbs_Intersection`.
+  - Bridge struct `OcOffsetParams`; role codes 6 `ShellInner`, 7 `OffsetFace`.
+- **Collapse check** (before the build): every face that is offset is sampled on a 9 × 9 grid
+  of cell centres. `BRepLProp_SLProps` gives both principal curvatures `k` (signed towards the
+  surface normal; the offset `d` is flipped on reversed faces). A scale factor `1 − d·k < 1e-7`
+  anywhere means the offset surface folds, and that face is offending. OCCT does not refuse
+  these offsets: it builds folded or empty results.
+- **Canonical output order.** `BRepOffset_MakeOffset` collects faces in maps hashed by TShape
+  address, so the face order changed on every run of `MakeOffsetShape`. With it changed the edge
+  order, the sub-shape indices and the BinTools bytes (5 of 5 reruns differed).
+  - The shim rebuilds every shell (and compound) of the result with its faces in key order:
+    area largest first, then the centroid lexicographically. The faces themselves are kept.
+  - It rewrites each edge's `BRep_CurveOn2Surfaces` regularity records in face-index order.
+    OCCT stores each face pair in hash order (`G1 2 0 1 0` vs `G1 1 0 2 0`), and the bytes keep
+    that order. A seam's `BRep_CurveOnClosedSurface` record is left alone.
+  - The edges are private to the op (copies or new), so they are changed in place.
+- History (operand 0 = the input), via the copy:
+  - **shell / thicken**: the input's faces, edges and vertices are `Modified` 1:1 into their
+    copies, which stay in the result. Every OCCT image (`Modified` ∪ `Generated` of the copy) is
+    `Generated`: offset faces from their face, arc pipes from edges, arc spheres from vertices,
+    and the rim ring from the removed face.
+  - **offset**: images of the input's own kind (offset faces, offset edges) are `Modified`,
+    cross-kind images (arc faces) `Generated`.
+  - New faces that are no image (the side walls of a thickened face) are `Generated` from the
+    input edges on them.
+  - Roles: the offset skin gets `ShellInner` (shell) or `OffsetFace` (offset, thicken). The skin
+    is the images of offset faces, plus those of edges and vertices not on a removed face. Every
+    other new face (the rim at a removed face, thicken's side walls) is `Lateral`.
+  - Removed faces have no `Modified` relation.
+- Failures:
+  - `LocalOpFailed { op }` names the faces the collapse check flags. Its message gives each
+    face's radius (`face 2: offset -4 mm reaches its centre of curvature (radius 3 mm)`).
+  - Otherwise it carries OCCT's `BRepOffset_Error` name (`BRepOffset_NotConnectedShell`, ...)
+    and the faces of `GetBadShape()`, which may be none.
+  - A build that gives no solid when one is needed is also a failure. It keeps the result as
+    `partial`.
+- Cancellation goes through the BREP-12 `ProgressSink` into `MakeThickSolid`/`MakeOffsetShape`.
+  It is also checked before and after the call.
+- Tests:
+  - `tests/offset.rs`: 11 tests.
+  - `tests/common/offset_corpus.rs`: 20 cases. The closed forms are box and cylinder
+    differences, rounded-rectangle prisms, and Steiner's formula for the arc-joined box and
+    cylinder (`V + S t + M t² + 4π t³/3`, with `M = π(a+b+c)` for the box and `πh + π²r` for the
+    cylinder). The thickened B-spline face is checked against a 24 × 24 Gauss quadrature of
+    `det(S_u + sN_u, S_v + sN_v, N)` over `s ∈ [0, t]`.
+  - 20 goldens `tests/golden/brep/{shell,offset,thicken}_*.toml` (named after the case) (adaptive `mass_props` volume and area,
+    topology counts and face classes, rel 1e-6).
+  - The corpus joins `every_output_face_has_a_source_or_a_role` (`tests/history.rs`).
+  - Unit tests: 2 in `src/offset.rs`, 1 in `src/ops.rs` (role codes). The `KernelOp`
+    round-trip test has the 3 new variants.
+- Bench: `benches/offset.rs` (`brep-offset/*`).
+
+**Done-when status.** With `--features occt`, `cargo nextest run -p amg-occt-sys -p amg-brep`
+passes 300 tests (1 skipped: BREP-04's ignored timing run). Without the feature, 102 pass.
+`cargo clippy -p amg-occt-sys -p amg-brep --all-targets --all-features -- -D warnings` is clean,
+also without `--all-features`. `cargo build -p amg-brep --no-default-features` builds.
+1. Met (`golden_shells_offsets_and_thickens_match_the_reference_volumes`). All 20 cases are
+   valid single solids that match their goldens within 1e-6. 19 have a reference volume:
+   - The shelled box (top removed, 1 mm inward) matches `abc − (a−2)(b−2)(c−1)` exactly
+     (0.0). So do the intersection join, the hollow inward box, the hollow outward box with
+     intersection join, the tube (two faces removed) and the per-face case (1, 2 and 3 mm walls).
+   - The shelled cylinder matches within 2.7e-16 and the shelled filleted box (4 vertical
+     fillets r = 3, arc join, inner fillets r = 2) within 4.5e-16.
+   - The arc-joined outward hollow box matches within 2.7e-11 and the arc-joined offset box
+     within 8.2e-12. These are the adaptive integration error of the corner spheres.
+   - The thickened planes, the cylinder patch and the offset cylinder match within 1.4e-15.
+   - The thickened B-spline face (bicubic Bézier, 3 mm bump, t = 1) matches the quadrature
+     within 1.4e-8 (bound 0.5 %).
+   - The outward shell with a removed face is golden-only.
+2. Met (`offsets_of_a_sphere_keep_its_centre_and_radius`). Offsets of d = +2, +0.5, −0.5, −2
+   and −4.5 of the r = 5 sphere, with both joins, give one spherical face. Its radius is within
+   1e-9 relative of `5 + d`, its centre within 1e-9 of the origin, and the volume within 1e-9.
+3. Met (`a_thickness_beyond_the_radius_fails_on_those_faces`).
+   - Cylinder r = 6, top removed, 7 mm wall: `offending == [the lateral face]`, with
+     "radius 6" in the message. 5.5 mm works. The per-face path also fails on that face only.
+   - Filleted box, 4 mm inward wall: exactly the 4 fillet faces ("radius 3"). Outward works.
+   - Sphere r = 5, offsets −5 and −6, both joins: `[face 0]`.
+   - Cylinder patch r = 10 thickened by −12: `[face 0]`; −9 works.
+4. Met (`history_roles_follow_the_offset_skin`), on 6 cases:
+   - Box with top removed: 5 `ShellInner` faces, each `Generated` from one input face 1 mm away;
+     1 `Lateral` rim from the removed face. The 5 kept faces are `Modified` 1:1 on the same
+     planes. The removed face is not `Modified`.
+   - Per-face shell: each inner face lies at its own face's thickness.
+   - Hollow outward box with arcs: 26 `ShellInner` faces, generated from 6 faces (planes),
+     12 edges (cylinders) and 8 vertices (spheres).
+   - Offset box with arcs: 26 `OffsetFace` faces, 6 planes `Modified` from faces 1 mm away, 12
+     generated from edges, 8 from vertices.
+   - Sphere offset: the face `Modified` into the `OffsetFace`.
+   - Thickened plane: 1 `OffsetFace` from the face, 4 `Lateral` walls each `Generated` from one
+     boundary edge (edges 0–3).
+
+   Across the whole corpus every skin face has a source, every other new face is `Lateral`, and
+   every face of an offset result is `OffsetFace`.
+
+Also tested:
+- `ten_runs_are_byte_identical`: each corpus case, 10 runs, identical BinTools bytes and history
+  (`Debug`); the input's bytes are unchanged.
+- `shared_shapes_survive_concurrent_offsets`: 8 threads run 40 corpus ops each on the shared
+  inputs. Every result has the single-thread bytes, and the inputs are unchanged.
+- `a_shell_without_removed_faces_is_hollow`: R-S04-8, classified void and wall points.
+- `thicken_follows_the_normal`: +t goes along the face normal.
+- `bad_inputs_are_invalid_input`: 14 refusals. A compound of two loose solids fails as a whole
+  with `BRepOffset_NotConnectedShell`.
+- `cancelled_jobs_do_not_run`.
+- `cancel_stops_a_running_offset`: a cancel 200 ms into the offset of the 1030-face plate returns
+  `Cancelled` after 0.47 s, against 12.2 s for the full run in release. The bound is asserted
+  only under `AMG_STRICT_TIMING=1`.
+
+The history completeness test now covers 20 BREP-07 results as well (1450 output faces in all),
+with no `Unexplained` face.
+
+**Bench** (release, criterion, validation off; S02 has no shell/offset budget):
+
+| Bench | Median |
+|---|---|
+| `shell-box-top` | 4.60 ms |
+| `shell-box-hollow-arc` | 10.4 ms |
+| `offset-box-arc` | 7.18 ms |
+| `offset-sphere` | 0.32 ms |
+| `thicken-bspline-face` | 6.80 ms |
+| the 20-case corpus | 71.4 ms |
+| `offset-plate-1030` (0.1 mm, intersection) | 12.2 s |
+
+The share of the collapse check and of the canonical rebuild was not measured separately. The
+plate's 12 s is OCCT's offset of 1030 faces: an S04 press-pull on large parts goes through
+`offset_faces` (R-S04-5, BREP-16), not this op.
+
+**Findings and deviations.**
+- **`MakeThickSolid` without closing faces is not a hollow solid** (see above). The shim builds
+  the hollow solid itself from the two shells. This needs an input with one shell
+  (`InvalidInput` otherwise).
+- **`BRepBuilderAPI_Copy::Modified` drops the occurrence's orientation**: it returns the clone
+  in an orientation of its own. A reversed face's copy came back forward, so 2 of the 4 fillets
+  had the wrong curvature sign. The offset shim's copy map puts the key's orientation back on
+  the clone. BREP-06's `occt_blend.cpp` uses its copies only as identities (map keys, a chamfer's reference face), so it is not affected.
+- **BRepOffset is not deterministic in order** (see the canonical order above). BREP-06's
+  ChFi3d was, so this is the first op that canonicalises (S02 §7).
+- **The rim of a removed face is the removed face's own OCCT image**: a thin ring for an inward
+  wall. It is `Generated` from that face with role `Lateral`, not `ShellInner`.
+- **Offset histories call a moved face `Modified`**, while shell and thicken call the offset face
+  `Generated`, since the original stays. This matters for DOC-06: a feature that renames on
+  `Modified` keeps the face's name through an offset, not through a shell.
+- **Disconnected compounds** cannot be offset (`BRepOffset_NotConnectedShell`); `offset` and
+  `thicken` take connected inputs only.
+- The collapse check samples 81 points per face. A B-spline whose highest curvature falls
+  between samples can slip through, and OCCT then builds what it builds. S20's validation gate
+  (the R5 self-interference check) is the backstop.
+- `SHIM_VERSION` stays 4: no existing op's history changed. The new role codes 6 and 7 are new
+  data only.
+
+**For DOC-06.** Shell, offset and thicken histories are one-operand. Removed faces have no
+`Modified` relation. The skin roles separate the inner wall (`ShellInner`) from the kept outer
+faces, which are `Modified` 1:1. The fixtures are in `tests/common/offset_corpus.rs`.
+
+**Leftovers.**
+- A face-fingerprint `reindex` for `KernelOp::Shell`'s removed and per-face faces (as for
+  BREP-06's chamfer faces).
+- Offsetting disconnected compounds part by part, if a feature needs it.
+- `offset_faces` (R-S04-5) stays with BREP-16.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2474,4 +2660,26 @@ Every change is inside lane A's crates. No other lane's files changed.
 - **For S20 (KH-03):** `fillet_max_radius` treats "works" as a successful and BRepCheck-valid
   build. A blend can self-intersect undetected (see the BREP-06 log), so the R5 check belongs in
   the strategy's validation gate.
+- No new dependency; `THIRD_PARTY.md` unchanged.
+
+### 2026-11-25: additions and changed contracts from BREP-07 (lane A)
+Every change is inside lane A's crates. No other lane's files changed.
+- `amg-brep`, additive:
+  - `BrepKernel::{shell, offset, thicken}` with the Interfaces signatures. Every `BrepKernel`
+    implementor must add them; the in-crate decorators forward them.
+  - `KernelOp::{Shell, Offset, Thicken}` (S20 dump format).
+  - Roles `ShellInner` and `OffsetFace` now appear in op histories, and `Lateral` on shell rims
+    and thicken side walls.
+  - New module `offset`, new bench `benches/offset.rs` (`[[bench]]` in `amg-brep/Cargo.toml`).
+- `amg-occt-sys`: new `cpp/occt_offset.cpp` (in `build.rs`) with `offset_op` (C), and the struct
+  `OcOffsetParams`. `SHIM_VERSION` stays 4.
+- **For S04 / SOL-06 (R-S04-8):** `shell` with an empty `remove` list returns one solid with a
+  closed inner void. The input must have one shell. `ShellOpts::thickness < 0` keeps the input's
+  faces as the outside.
+- **For S04 / DOC-06:** an offset face is `Modified` from its face in `offset`, but `Generated`
+  in `shell` and `thicken` (where the input face stays, `Modified` 1:1). A removed face has no
+  `Modified` relation; its rim ring is `Generated` from it with role `Lateral`.
+- **For S20:** a thickness that reaches a face's centre of curvature is refused up front, with
+  `LocalOpFailed` naming the faces. It is found by sampling, so a strategy's validation gate
+  still needs the R5 self-interference check for B-spline faces.
 - No new dependency; `THIRD_PARTY.md` unchanged.

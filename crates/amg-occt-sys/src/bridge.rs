@@ -272,6 +272,17 @@ pub mod ffi {
         fleche: f64,
     }
 
+    /// Shell, offset or thicken (BREP-07). `mode`: 0 shell (thick solid), 1 offset, 2 thicken;
+    /// `offset` along the outward normal (mm; negative is inward), `tol` the offset algorithm's
+    /// confusion tolerance, `join` 0 arc, 1 intersection.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct OcOffsetParams {
+        mode: u8,
+        offset: f64,
+        tol: f64,
+        join: u8,
+    }
+
     /// One sub-shape's fingerprint (BREP-05). `geom_class` is amg-brep's `GeomClass` in
     /// declaration order (0 plane … 11 point). `measure`: face area, edge length, 0 for a vertex;
     /// `centroid` area/length weighted (fixed-order `BRepGProp`); `axis` (when `has_axis`): the
@@ -639,6 +650,24 @@ pub mod ffi {
         /// The angle (rad, 0..π) between the outward normals of faces `f1` and `f2` at the middle
         /// of edge `e`.
         fn edge_face_angle(index: &OcIndex, e: u32, f1: u32, f2: u32) -> Result<f64>;
+
+        // -- shell, offset and thicken (BREP-07), implemented in occt_offset.cpp --
+
+        /// Shells (removing faces `remove`), offsets or thickens `shape` (`index` is its index)
+        /// on a private copy; `faces[i]` gets offset `offsets[i]` instead of `params.offset`. A
+        /// failed build is reported by `op_bool_status` (errors, offending faces: those whose
+        /// offset reaches their centre of curvature, or that OCCT's input check blames); its op
+        /// then holds the result without solid, or a null shape. An error starting with
+        /// `invalid: ` is a bad input. Progress and cancellation go through `sink`.
+        fn offset_op(
+            shape: &OcShape,
+            index: &OcIndex,
+            params: &OcOffsetParams,
+            remove: &[u32],
+            faces: &[u32],
+            offsets: &[f64],
+            sink: &ProgressSink,
+        ) -> Result<UniquePtr<OcOp>>;
 
         // -- measurement queries (BREP-09), implemented in occt_query.cpp --
 

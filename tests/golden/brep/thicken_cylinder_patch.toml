@@ -1,0 +1,12 @@
+# B-rep metrics of brep/thicken_cylinder_patch (S02 BREP-07). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 164.93361431346392
+area = 382.8539514896212
+faces = 6
+edges = 12
+vertices = 8
+classes = "YYPPPP"
