@@ -538,7 +538,8 @@ impl<'a> AppCx<'a> {
 pub struct CommitBatch { pub label: String, pub commands: Vec<amg_doc::Command> }
 
 // ===== amg_ui::tool =====
-pub struct ToolInit<'a> { pub env: CmdEnv<'a>, pub preselection: &'a [SelItem], pub edit: Option<amg_doc::FeatureId> }
+pub struct ToolInit<'a> { pub env: CmdEnv<'a>, pub preselection: &'a [SelItem], pub edit: Option<amg_doc::FeatureId>,
+                         pub command: CmdId /* UI-05 */ }
 pub trait Tool: 'static {
     fn id(&self) -> CmdId;
     fn label(&self) -> Cow<'static, str>;
@@ -637,7 +638,7 @@ pub trait PickService {
 }
 
 // ===== amg_ui::select =====
-pub use amg_features::dialog::EntityFilter;        // shared bit set (Interfaces §B)
+pub struct EntityFilter(u32);                       // pick-side set; impl From<amg_features::dialog::EntityFilter> (UI-05)
 #[derive(Clone, Debug, PartialEq)]
 pub struct SelItem { pub target: PickTarget, pub entity: amg_doc::EntityRef }
 #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -903,7 +904,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-20 | Scene adapter: `DocEvent` → `RenderScene` (RND-03), `RenderEntityKey` allocation, `PickMap`, `BodyTessellator` registry with Mesh tessellator, highlight layers, preview layer feed, `CpuPickService` real implementation | UI-01, RND-03, DOC-09 | P0 | Done | 1. Scripted test: add/edit/delete 3 mesh bodies → the RenderScene contains exactly the live bodies, and an unchanged body is never re-uploaded (upload counter). 2. `DocumentReplaced` rebuilds the scene, and keys are not reused within a session. 3. `PickMap` round-trips every face index of a 10 k-triangle body. 4. A registered test tessellator for a stub `BodyGeom` variant is used. 5. Updating 1 changed body in a 100-body scene < 1 ms of UI-thread time. |
 | UI-04 | Selection system: `Selection`, `SelItem`, `EntityFilter` bar, select priority, click/Ctrl/Shift rules, window/crossing box (S10 region pick), select-through list, selection sets (`ExtRecord ui.selection_sets`), revalidation on events | UI-03, UI-20 | P0 | Done | 1. Kittest on a fixture with 3 mesh bodies: window select left→right picks only fully enclosed bodies, and right→left also picks touching ones. 2. With the filter set to faces only, a click on an edge selects the adjacent face. 3. Select-through lists all 3 stacked bodies in depth order. 4. Save a selection set → reload the file → restore gives the same `EntityRef`s, and undo removes the set. 5. Deleting a selected body drops it from the selection without error. |
 | UI-15 | Dialog widgets: `ExprInput` (live parse via `ParamTable::try_eval`, error spans, autocomplete of params/functions/units, nudge, bound-param display), `SelectionField`, `ChoiceField`, toggle/int/flip, `DialogFrame` (banner, OK enablement), quantity formatting per `UnitPrefs` | UI-04, DOC-04 | P0 | Done | 1. Kittest: typing `d1 + 5` in a length field with `d1 = 10 mm` shows `15.00 mm`. `12 kg` shows a unit-mismatch error underlined at the right span, and OK is disabled. 2. Typing `d` offers every parameter starting with `d`, and Tab completes. 3. `12,5` shows the `DecimalComma` hint (QUESTIONS #11). 4. Only one `SelectionField` is active at a time, and the active one sets the pick filter. 5. All widgets are queryable by label (AccessKit). |
-| UI-05 | Generic feature dialog renderer: `GenericFeatureTool` from `DialogRegistration` (conditions, auto-focus, live preview with debounce, preview-health banner), edit mode (preview rollback, `EditFeature` + `SetParamExpr` in one transaction), automatic `feature.<kind>` commands + toolbar placement + `FeatureUiInfo` | UI-15, SOL-01, DOC-12 | P0 | Todo | 1. The Extrude dialog is generated entirely from SOL-01's schema (no extrude-specific UI code; grep test). Changing extent type shows/hides the right fields. 2. Kittest: select a profile, type a distance → the preview appears ≤ debounce + 100 ms on a typical part. OK yields one undo entry with `AddFeature`. 3. Edit mode: changing the distance of an existing extrude keeps its model parameter `dN` and changes its expression. 4. An invalid input disables OK with the field error. Cancel leaves the document unchanged (revision equal). |
+| UI-05 | Generic feature dialog renderer: `GenericFeatureTool` from `DialogRegistration` (conditions, auto-focus, live preview with debounce, preview-health banner), edit mode (preview rollback, `EditFeature` + `SetParamExpr` in one transaction), automatic `feature.<kind>` commands + toolbar placement + `FeatureUiInfo` | UI-15, SOL-01, DOC-12 | P0 | Review | 1. The Extrude dialog is generated entirely from SOL-01's schema (no extrude-specific UI code; grep test). Changing extent type shows/hides the right fields. 2. Kittest: select a profile, type a distance → the preview appears ≤ debounce + 100 ms on a typical part. OK yields one undo entry with `AddFeature`. 3. Edit mode: changing the distance of an existing extrude keeps its model parameter `dN` and changes its expression. 4. An invalid input disables OK with the field error. Cancel leaves the document unchanged (revision equal). |
 | UI-06 | Manipulators: Distance, Angle, Triad, Plane gizmos via overlays (constant 90 px), CPU hit test, drag ↔ field binding both ways, Ctrl snapping, heads-up value | UI-05, RND-07 | P0 | Todo | 1. Dragging the extrude arrow by a scripted world delta of 12.5 mm writes `12.5 mm` into the field (prefs precision), and editing the field moves the arrow (kittest via `world_to_screen`). 2. Ctrl-drag snaps to 1 mm / 5°. 3. Triad: each of 10 parts hit-tests correctly in a 6-view matrix (unit test on `CameraView`). 4. Gizmo screen size stays 90 ± 2 px across a 1000× zoom range. |
 | UI-07 | Browser tree: framework nodes (settings, named views, origin, components/bodies/sketches/construction, selection sets), `BrowserProvider` API, virtualised rows, eye toggles (`SetBodyProps`, `SetOccurrenceVisible`, `ui.visibility` ExtRecord), rename, context menu, hover highlight, click select, double-click edit | UI-04, DOC-09 | P0 | Done | 1. Kittest on a fixture with 2 components × 3 bodies: hiding a body hides it in the scene, and undo shows it again. Renaming a body persists through save/load. 2. A test provider adds a node under Root without framework changes. 3. 10 000 synthetic bodies: browser frame cost < 1 ms (criterion), and the tree is rebuilt only on affecting events (counter). 4. Hovering a row highlights the body (highlight layer contains it). |
 | UI-08 | Timeline panel: node icons via `FeatureUiInfo`, groups, rollback marker drag (`SetMarker`), drag reorder with valid-range shading (`MoveFeature`), context menu, health badges + tooltips, hover highlight of outputs and error entities, recompute progress ring, hidden in Direct mode | UI-04, DOC-05, DOC-12 | P0 | Done | 1. Kittest on a 20-node test timeline: dragging the marker to index 5 sends `SetMarker{5}`, and nodes ≥ 5 render as rolled back. 2. Dragging a node before its input is refused (no command sent, red shading shown). A valid move sends one `MoveFeature`. 3. An erroring test feature shows an error badge with the diagnostic message as tooltip. 4. Suppress/rename/delete/group via the context menu each give one undo entry. 5. 500 nodes render < 1 ms (criterion). |
@@ -2530,6 +2531,85 @@ Also: `quality_presets_retessellate_solids_latest_wins` (cylinder: 100 / 212 / 6
 Owner confirmed: the bracket has 6 profiles, not 3 (SK-06 makes each inner loop its own
 profile). Done-when 2 now says so; the UI-16 tutorial test already checks all 6 areas.
 
+### 2026-11-25 - UI-05 generic feature dialog renderer (lane D; status Review)
+- **Landed.** `amg_ui::feature_dialog`: `GenericFeatureTool` (built from any
+  `amg_features::dialog::DialogRegistration`), `start` (the one `StartTool` factory of every
+  generated command), `command_def` / `dispatch_def` / `feature_ui_info`, `command_id`,
+  `kind_of`, `group_of`, `icon_of`. `UiRegistry::build` runs `register_generic` after every
+  module: each registration gets `feature.<kind>` (label = schema title, toolbar placement in
+  group `<workspace>.<tab>.<group>` from `CommandMeta`, pinned / order / shortcut / keywords,
+  its SVG registered as icon `feature.<kind>` or the `cube-plus` fallback) and a
+  `FeatureUiInfo` (display name = title, `EditAction::GenericDialog`); a module that
+  registered its own command or info for a kind keeps it. `DispatchRegistration`s become
+  commands enabled while `dispatch` finds a kind for the selection (none exist yet).
+- **Renderer.** Every `FieldKind` maps to a UI-15 widget (Selection → `SelectionField`,
+  Expr → `ExprInput` with `bound_param`, Choice → `ChoiceField` dropdown / button row, Bool →
+  `toggle`, Int → `IntField`, Text → a labelled text edit, FlipDirection → `flip`);
+  `visible_if` hides, `enabled_if` greys out, `group` gives a collapsible group. The first shown,
+  enabled, empty selection field is auto-focused. Errors: field rules of the shown fields
+  first (expression check, selection counts), then `build`'s `FieldErrors`; the first one is
+  OK's disabled reason (`Distance: unit mismatch: …`), build errors are also shown under their
+  field, and Enter does not commit an invalid dialog.
+- **Selection fields.** The active field mirrors the document selection (UI-04 rules through a
+  forwarded `SelectTool`, whose `update` the tool calls so its picks are polled); its items
+  become the selection when it is activated. **Profiles** have no pick target, so a field that
+  accepts `PROFILE` hit-tests the click ray against the profiles of the visible evaluated
+  sketches on the CPU (`ProfileSet::at_point`, nearest along the ray): a click toggles the
+  profile in the field (a one-pick field replaces). Profile items are `SelItem { target:
+  Sketch(s), entity: EntityRef::Profile }` and live in the field only. While such a field is
+  shown, every profile is shaded (picked / hovered / others) as tool overlays.
+- **Preview.** Whenever the values change and are valid, `AddFeature` (context
+  `CmdEnv::active_component`, per the ASM-10 note) goes to the document's `PreviewDriver`
+  (debounced, latest-wins, a job); invalid values clear it. The banner shows the previewed
+  node's health, or the preview's failure; a spinner shows while it is pending.
+- **Edit mode** (`ToolInit::edit`, reached through `FeatureUiInfo` → `feature.<kind>`): fields
+  from `read`. Nothing is previewed until a value changes; then the preview is one
+  `EditFeature` in which bound expression fields whose text changed are inline (same geometry
+  as the commit). OK commits one batch: `EditFeature` if the built feature differs (bound fields
+  keep `Expr::Param`) plus `SetParamExpr { id, expr }` for every bound field whose text changed,
+  so `dN` stays `dN`; an unchanged dialog commits nothing.
+- **`EntityFilter` (SOL-01 leftover).** Not a re-export: `amg_ui::select::EntityFilter` stays
+  the pick-side set (one `CONSTRUCTION` bit, `HANDLE`, admits `PickTarget`s), used by UI-04,
+  the filter bar and other lanes' tools; changing its bits would touch them all. It gains
+  `From<amg_features::dialog::EntityFilter>` (bits 0..=8 equal, `PLANAR_FACE` → `FACE`, the
+  three construction bits → `CONSTRUCTION`, `OCCURRENCE` → `OCCURRENCE`). Interfaces §A
+  updated.
+- **Done-when evidence** (`crates/amg-ui/tests/feature_dialog.rs`):
+  1. `dw1_the_renderer_has_no_kind_specific_code` greps `src/feature_dialog/` for `extrude`,
+     `solid.` and Extrude's field keys (none). `dw1_every_registration_gets_…` checks command,
+     owner, label, toolbar slot (`design.solid.create`, pinned, order 10), shortcut, keywords
+     and timeline info. `dw1_extrude_fields_come_from_the_schema_…`: the shown fields are
+     exactly the schema's unconditional ones, Profiles is auto-focused, Operation → Join shows
+     "Objects" and New body hides it again. The SOL-01 schema has no extent type yet (SOL-02),
+     so the condition is tested on the operation field; `dw1_every_field_kind_renders_…` covers
+     Int, Bool, Text, icon-row choice, `enabled_if`, a group and a build error on a test
+     registration.
+  2. `dw2_pick_type_preview_ok` (`occt`): see the numbers below.
+  3. `dw3_editing_the_distance_keeps_the_model_parameter`: edit opens with `distance` bound to
+     the extrude's `dN`, typing `25 mm` + OK is one undo entry, the feature still references
+     `dN`, `dN = 25 mm`, undo restores `10 mm`. `dw3_edit_without_changes_commits_nothing`.
+  4. `dw4_invalid_input_disables_ok_and_cancel_changes_nothing`: `12 kg` disables OK with
+     "Distance: unit mismatch …", Enter does not commit, clearing Profiles gives "Profiles:
+     select at least 1", Cancel leaves `history().revision()` equal and the preview idle.
+     `profiles_are_picked_in_the_viewport`: click on the rectangle picks its profile, a
+     second click removes it, a click outside picks nothing.
+- **Other framework changes (additive):** `ToolInit::command`, `Tool::as_any_mut` (default
+  `None`) + `AmalgamApp::active_tool_as::<T>()`. The shell snapshots (`shell_dark.png`,
+  `shell_light.png`) were re-blessed: the Solid toolbar now starts with the pinned Extrude
+  button.
+- **Deviations / leftovers.**
+  - "Preview rollback" is the scratch-copy preview + discard on Cancel; the S11 note's
+    "view shows the model as it was before the feature" needs the scene to hide committed
+    bodies under the preview layer (`SceneAdapter::set_preview` only adds changed bodies), so
+    in edit mode the old body stays visible under the preview. Follow-up for the scene.
+  - `DialogRegistration::new_component` is not acted on: `AddComponent` + `AddFeature` in one
+    batch needs the new component's id before it exists (a S01 command that does both, or a
+    batch placeholder). Every registration has `None` until SOL-24.
+  - Manipulators (`FieldSpec::manipulator`, `anchors`) are UI-06; the help topic id is not
+    shown (no help URL scheme yet).
+  - `MeshOpTool` and `CombineTool` (lane C) forward events to a `SelectTool` without calling
+    its `update`, so their viewport click picks are never polled; flagged for lane C.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -2961,3 +3041,16 @@ Flagged for lane D review. All in `amg-ui`; no new third-party dependency; no ch
   - `SketchSession::last_modify`;
   - 11 `icons::ids` (`TRIM`, `EXTEND`, `BREAK`, `FILLET`, `CHAMFER`, `OFFSET`, `MIRROR`, `PATTERN_RECT`, `PATTERN_CIRC`, `ROTATE`, `SCALE`).
 - Possible S03 follow-ups (the row does not need them): a dimension that survives a fillet of its line (measured to the virtual sharp corner, as in Fusion), and a sketch origin point, so that sketches can be anchored without Fix.
+
+### 2026-11-25: UI-05 (lane D)
+- No change outside `amg-ui`, no new third-party dependency. `amg_features::dialog` (SOL-01) and
+  the `amg-doc` commands (`AddFeature`, `EditFeature`, `SetParamExpr`, `Document::preview`) are
+  used through their public API; nothing is requested from S04 or S01.
+- Additive `amg-ui` framework API: the `feature_dialog` module; `ToolInit::command` (the
+  command that starts the tool; the only constructor is the router's);
+  `Tool::as_any_mut` (default `None`) and `AmalgamApp::active_tool_as::<T>()`;
+  `impl From<amg_features::dialog::EntityFilter> for select::EntityFilter` (instead of the
+  re-export, see the UI-05 log). `UiRegistry::build` adds the generated commands and
+  timeline infos after the modules.
+- Flagged for lane C: `mesh::{tool, combine}` never call their forwarded `SelectTool`'s
+  `update`, so viewport clicks in those dialogs are not polled.

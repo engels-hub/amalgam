@@ -46,6 +46,10 @@
 //! UI-12 adds the [`params`] dialog ("Change Parameters"): the parameter table with favourites,
 //! user and model groups, a filter and inline cycle / unit errors.
 //!
+//! UI-05 adds [`feature_dialog`]: the generic feature dialog (`GenericFeatureTool`) rendered
+//! from every `amg_features::dialog::DialogRegistration`, with its `feature.<kind>` command,
+//! toolbar placement and timeline info.
+//!
 //! ASM-10 adds [`assembly`] (lane E): the active component, grounding, pending positions and the
 //! assembly menus in the browser.
 //!
@@ -61,6 +65,7 @@ pub mod command;
 pub mod design;
 pub mod dialog;
 pub mod dock;
+pub mod feature_dialog;
 pub mod file;
 pub mod icons;
 pub mod input;

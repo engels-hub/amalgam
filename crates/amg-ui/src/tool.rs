@@ -54,6 +54,9 @@ pub struct ToolInit<'a> {
     pub preselection: &'a [SelItem],
     /// The feature being edited (UI-05 "Edit feature"); `None` for a new one.
     pub edit: Option<amg_doc::FeatureId>,
+    /// The command that starts the tool (additive, UI-05: one factory serves every
+    /// `feature.<kind>` command and reads the kind from here).
+    pub command: CmdId,
 }
 
 /// Whether a tool used an event.
@@ -108,6 +111,11 @@ pub trait Tool: 'static {
     /// after [`Tool::update`] with an empty list, which the viewport then draws (additive,
     /// INS-08).
     fn overlay(&mut self, _out: &mut amg_render::OverlayList, _cx: &ToolCx<'_>) {}
+    /// The tool as `Any`, for [`AmalgamApp::active_tool_as`] (tests and scripting drive a
+    /// dialog through it; additive, UI-05). `None` by default.
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
+    }
     /// `Commit` → Some(batch) to apply (or None if nothing to do); `Cancel`/`Replaced` → None.
     fn finish(&mut self, reason: FinishReason, cx: &mut ToolCx<'_>) -> Option<CommitBatch>;
 }
@@ -494,6 +502,7 @@ impl AmalgamApp {
                     env,
                     preselection: doc.selection.items(),
                     edit,
+                    command: id,
                 })
             };
             tracing::debug!(tool = %id, "tool started");
@@ -507,6 +516,13 @@ impl AmalgamApp {
     /// The command of the active tool of the active document (`None`: the select tool).
     pub fn active_tool(&self) -> Option<CmdId> {
         self.docs[self.active].tools.active.as_ref().map(|a| a.id)
+    }
+
+    /// The active tool of the active document as a `T`, if it is one and exposes itself
+    /// through [`Tool::as_any_mut`] (additive, UI-05).
+    pub fn active_tool_as<T: 'static>(&mut self) -> Option<&mut T> {
+        let a = self.docs[self.active].tools.active.as_mut()?;
+        a.tool.as_any_mut()?.downcast_mut::<T>()
     }
 
     /// Finishes the active tool of the active document (as Esc / Enter / the dialog buttons

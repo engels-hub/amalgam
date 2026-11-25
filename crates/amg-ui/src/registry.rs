@@ -106,7 +106,11 @@ impl UiRegistry {
         crate::link();
         let mut modules: Vec<&UiModule> = inventory::iter::<UiModule>.into_iter().collect();
         modules.sort_by_key(|m| m.id);
-        Self::from_modules(modules)
+        let mut reg = Self::from_modules(modules);
+        // UI-05: a `feature.<kind>` command, toolbar placement and timeline info for every
+        // dialog registration a module did not cover itself (runs last so modules win).
+        crate::feature_dialog::register_generic(&mut reg);
+        reg
     }
 
     /// Builds a registry from an explicit module list (tests), in the given order.
