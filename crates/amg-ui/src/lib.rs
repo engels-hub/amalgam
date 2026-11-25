@@ -15,6 +15,9 @@
 //! UI-20 adds the [`scene`] adapter (`DocEvent` → render scene, pick keys, [`scene::PickMap`],
 //! body tessellators, highlight and preview layers) and the [`pick`] target types.
 //!
+//! UI-22 displays solid bodies ([`scene::solid`]): BREP-08 tessellation in the adapter's jobs,
+//! with face and edge sub-ids. Real solids need the `occt` feature.
+//!
 //! UI-19 adds [`file`]: New/Open/Open Recent/Save/Save As/Save Compact/Close as jobs, native
 //! dialogs on a dedicated thread behind [`file::FileDialogBackend`], the dirty-close prompt and
 //! crash recovery (per-document `RecoverySession`, the recovery dialog).

@@ -6,9 +6,11 @@ use std::sync::Arc;
 use amg_core::Cancelled;
 use amg_doc::BodyGeom;
 use amg_jobs::JobCtx;
-use amg_render::MeshData;
+use amg_render::{EdgeData, MeshData};
 
-/// Display quality of a tessellation (UI-22 maps these to BREP-08 presets).
+/// Display quality of a tessellation. Solid bodies map these to BREP-08 presets
+/// ([`quality_preset`](super::solid::quality_preset)); preview bodies are always tessellated at
+/// `Preview`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum DisplayQuality {
     /// Coarse, for previews.
@@ -71,6 +73,23 @@ impl DisplayMesh {
     }
 }
 
+/// A body's display geometry: the triangles and, for B-rep bodies, the edge polylines
+/// (additive, UI-22).
+#[derive(Clone, Debug, Default)]
+pub struct DisplayGeometry {
+    /// The triangles.
+    pub mesh: DisplayMesh,
+    /// Edge polylines drawn with the body; `Polyline::id` is the edge sub-id. `None` for
+    /// bodies without B-rep edges.
+    pub edges: Option<EdgeData>,
+}
+
+impl From<DisplayMesh> for DisplayGeometry {
+    fn from(mesh: DisplayMesh) -> DisplayGeometry {
+        DisplayGeometry { mesh, edges: None }
+    }
+}
+
 /// Converts one kind of `BodyGeom` for display (registered with
 /// [`Registrar::tessellator`](crate::module::Registrar::tessellator)).
 ///
@@ -94,6 +113,27 @@ pub trait BodyTessellator: Send + Sync + 'static {
         quality: DisplayQuality,
         ctx: &JobCtx,
     ) -> Result<DisplayMesh, TessellateError>;
+
+    /// Triangles and edges (additive, UI-22): what the scene adapter calls. The default is
+    /// [`BodyTessellator::tessellate`] without edges.
+    ///
+    /// # Errors
+    /// As [`BodyTessellator::tessellate`].
+    fn tessellate_display(
+        &self,
+        geom: &BodyGeom,
+        quality: DisplayQuality,
+        ctx: &JobCtx,
+    ) -> Result<DisplayGeometry, TessellateError> {
+        self.tessellate(geom, quality, ctx)
+            .map(DisplayGeometry::from)
+    }
+
+    /// Whether the output changes with [`DisplayQuality`] (additive, UI-22): only such bodies
+    /// are tessellated again when the quality changes.
+    fn depends_on_quality(&self) -> bool {
+        false
+    }
 }
 
 /// Mesh bodies: a direct conversion of the `IndexedMesh` (UI-20). Flat shaded unless the mesh

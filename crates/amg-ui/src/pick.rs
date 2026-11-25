@@ -166,9 +166,10 @@ enum CpuRequest {
 /// ([`SceneAdapter::raycast`]), mapped to document targets through its
 /// [`PickMap`](crate::scene::PickMap).
 ///
-/// Point picks report faces and, on mesh bodies when the filter has edges or vertices, the
-/// triangle edge (`3 × triangle + corner`) or mesh vertex within the pick radius of the hit
-/// point, in front of the face it lies on (UI-04). B-rep edges and vertices need S10.
+/// Point picks report faces and, when the filter has edges or vertices, the sub-entity within
+/// the pick radius of the hit point, in front of the face it lies on: on mesh bodies the
+/// triangle edge (`3 × triangle + corner`) or mesh vertex (UI-04), on solid bodies the B-rep
+/// edge (UI-22). B-rep vertices need S10.
 ///
 /// Asynchronous like S10's: a [`PickService`] request is answered in the next
 /// [`PickService::begin_frame`] (one frame later). The UI-20 world-ray API
@@ -231,8 +232,8 @@ impl CpuPickService {
             .collect()
     }
 
-    /// The mesh vertex or triangle edge of a face hit within `radius_pt` of the hit point
-    /// (vertices first), if the filter wants it.
+    /// The mesh vertex, triangle edge or B-rep edge of a face hit within `radius_pt` of the hit
+    /// point (vertices first), if the filter wants it.
     fn near_sub(
         scene: &SceneAdapter,
         h: &crate::scene::SceneHit,
@@ -241,12 +242,17 @@ impl CpuPickService {
         filter: EntityFilter,
     ) -> Option<PickTarget> {
         let face = h.sub.index;
-        let (corners, verts) = scene.mesh_triangle(h.key, face)?;
         let r = f64::from(radius_pt) * view.world_per_point(h.world);
         let sub = |kind, index| {
             scene
                 .pick_map()
                 .target(h.key, Some(RenderSub { kind, index }))
+        };
+        let Some((corners, verts)) = scene.mesh_triangle(h.key, face) else {
+            if !filter.contains(EntityFilter::EDGE) {
+                return None;
+            }
+            return sub(RenderSubKind::Edge, scene.edge_near(h.key, h.world, r)?);
         };
         if filter.contains(EntityFilter::VERTEX)
             && let Some(k) = (0..3)
@@ -422,7 +428,7 @@ impl PickService for CpuPickService {
 }
 
 /// Distance from `p` to the segment `a`–`b`, mm.
-fn segment_distance(p: Point3, a: Point3, b: Point3) -> f64 {
+pub(crate) fn segment_distance(p: Point3, a: Point3, b: Point3) -> f64 {
     let ab = b - a;
     let len2 = ab.length_squared();
     let t = if len2 > 0.0 {

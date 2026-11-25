@@ -12,6 +12,8 @@ amg-core.workspace = true
 amg-jobs.workspace = true
 amg-doc.workspace = true
 amg-features.workspace = true
+# UI-22: solid bodies are displayed through the BREP-08 tessellation API.
+amg-brep.workspace = true
 # UI-09: sketch mode (solver jobs, queries / inference, profiles).
 amg-sketch.workspace = true
 # INS-03: density of the body material (`Design::mass_material`, default-material preference).
@@ -44,6 +46,9 @@ egui_kittest = { workspace = true, optional = true }
 testing = ["dep:egui_kittest"]
 # MESH-27: the Manifold boolean backend for the Combine dialog (forwards to amg-features).
 manifold = ["amg-features/manifold"]
+# UI-22: links the OCCT backend (like amg-app's `occt`), for tests on real solid bodies. Needs
+# AMG_OCCT_DIR.
+occt = ["amg-features/occt", "amg-brep/occt"]
 
 [dev-dependencies]
 amg-ui = { path = ".", features = ["testing"] }
