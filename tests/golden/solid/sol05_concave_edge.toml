@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol05_concave_edge (S04 SOL-05). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 12019.314165294229
+area = 3990.9867228626927
+faces = 9
+edges = 21
+vertices = 14
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [40.0, 40.0, 10.0]

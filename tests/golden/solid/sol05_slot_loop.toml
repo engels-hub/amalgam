@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol05_slot_loop (S04 SOL-05). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 11021.394226055088
+area = 3532.2498436964247
+faces = 10
+edges = 20
+vertices = 12
+bbox_min = [0.0, -10.0, 0.0]
+bbox_max = [60.0, 10.0, 10.0]

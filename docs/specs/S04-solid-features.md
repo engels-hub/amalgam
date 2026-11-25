@@ -637,7 +637,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-02 | Extrude: all starts, directions and extents (§4; note §3): offset start, start from a plane, two sides, symmetric (half/whole), taper per side, to object (plane, face, body, vertex; offset; extend faces), all; planar-face profiles; text profiles | SOL-01, CON-03, BREP-14, SK-06 | P0 | Todo | 1. ≥ 20 golden cases cover every start × direction × extent combination the dialog allows, incl. to-object on an inclined plane, a cylinder face, a body and a vertex, with and without offset and extend; analytic volumes within 1e-9 relative, curved targets within 1e-6. 2. A face that doesn't cover the profile fails `TargetMissed` with the "Extend faces" hint; extend on fixes it; a B-spline target with extend fails `ExtendUnsupported`. 3. "All" cuts through 3 stacked bodies in one direction and through both sides in two-sided mode. 4. Text "AgB" (SK-10 `regions().solid`) extrudes to 3 solids with 4 holes in total (closes SK-10 Done-when 2). 5. Editing distance, taper or extent type keeps the lateral and cap names (`Exact` resolution of a downstream fillet ref). 6. Full-mode extrude-cut of a 100-edge profile into a 200-face body, median < 80 ms (`budget/sol-extrude-cut`). |
 | SOL-03 | Revolve: profiles, axis (sketch line, edge, construction or origin axis), angle, full, two sides, symmetric, to object; profile/axis validation | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. ≥ 8 golden cases (rectangle 90° and 360°, triangle with an edge on the axis → cone, two sides 30°/60°, symmetric 90°, each axis kind) match Pappus volumes within 1e-9 relative. 2. A profile crossing the axis fails `AxisCrossesProfile` naming the profile. 3. DOC-11 TNP-22 (edit to 360° → cap refs `NotFound`) runs on `solid.revolve` and meets its `expect`. 4. Revolve to a plane through the axis at 75° equals the 75° angle case within 1e-9. |
 | SOL-04 | Primitives: box, cylinder, sphere, torus on a `PrimitiveFrame` (origin plane, construction plane, planar face), with `OpTarget` | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. Golden volume and area for each primitive (exact within 1e-9) and for a box joined to and cut from a body. 2. A box placed on a planar face follows the face after an upstream height edit (centroid within 1e-9). 3. Editing a box size keeps `XMin#0 … ZMax#0` names (`Exact`). 4. Each kind has a dialog with a distance manipulator anchor per size field. |
-| SOL-05 | Fillet (constant, chord, variable; G1 only, G2 is KH-10 per QUESTIONS #55) and chamfer (equal, two distances, distance-angle) on raw BREP-06: edge sets per body, tangent-chain propagation (R-S04-1), failing-edge highlight | SOL-01, BREP-06, BREP-09 | P0 | Todo | 1. ≥ 15 golden cases (cube edge, 4-edge tangent loop of a rounded rectangle, 3-edge vertex blend, variable 2→4 mm, chord 3 mm, all chamfer kinds, two bodies in one feature) within 1e-6 relative of reference volumes. 2. Picking one edge of a rounded-rectangle top selects all 8 tangent edges; with `tangent_chain = false` only that edge. 3. A radius larger than the adjacent face fails and `Diagnostic::entities` names exactly the failing edge(s). 4. DOC-11 TNP-11 and TNP-27 run on `solid.fillet` and meet their `expect`. 5. Preview of a 10-edge constant fillet on a 200-face body, median < 100 ms (`budget/sol-fillet-preview`). 6. KH-03 can start: S20's corpus harness drives `solid.fillet` through a public test entry point. |
+| SOL-05 | Fillet (constant, chord, variable; G1 only, G2 is KH-10 per QUESTIONS #55) and chamfer (equal, two distances, distance-angle) on raw BREP-06: edge sets per body, tangent-chain propagation (R-S04-1), failing-edge highlight | SOL-01, BREP-06, BREP-09 | P0 | Review | 1. ≥ 15 golden cases (cube edge, 4-edge tangent loop of a rounded rectangle, 3-edge vertex blend, variable 2→4 mm, chord 3 mm, all chamfer kinds, two bodies in one feature) within 1e-6 relative of reference volumes. 2. Picking one edge of a rounded-rectangle top selects all 8 tangent edges; with `tangent_chain = false` only that edge. 3. A radius larger than the adjacent face fails and `Diagnostic::entities` names exactly the failing edge(s). 4. DOC-11 TNP-11 and TNP-27 run on `solid.fillet` and meet their `expect`. 5. Preview of a 10-edge constant fillet on a 200-face body, median < 100 ms (`budget/sol-fillet-preview`). 6. KH-03 can start: S20's corpus harness drives `solid.fillet` through a public test entry point. |
 | SOL-06 | Shell (remove faces, hollow, inside/outside/both, tangent chain), draft (one side, two sides, symmetric; tangent chain), scale (uniform, non-uniform), thicken (`OpTarget`) | SOL-01, BREP-07, BREP-16, BREP-14 | P0 | Todo | 1. Shelled box (top removed, 1 mm) inside, outside and both, and a hollow box (no faces removed, R-S04-8) match analytic volumes within 1e-9 relative. 2. Shelling a filleted box with tangent chain removes the top and its fillet ring (face count checked). 3. A thickness above the smallest concave radius fails with the offending faces highlighted. 4. Draft of 4 box sides at 3°: measured angles 3° ± 1e-9 rad, analytic volume; symmetric draft about a mid-plane matches the analytic volume. 5. Uniform scale 2 → volume × 8 within 1e-12 relative; non-uniform (1, 2, 3) of a sphere r 10 → ellipsoid volume within 1e-9. 6. Thicken of a B-spline sheet by 1 mm is valid and within 0.5 % of area × t. 7. TNP-X3 and TNP-X6 meet their `expect`. 8. Shell preview of a 100-face body, median < 100 ms (`budget/sol-shell-preview`). |
 | SOL-07 | Combine (join/cut/intersect, keep tools), split body (plane, face, body; extend tool), split face (surface tool; sketch curves along a vector) | SOL-01, BREP-16, CON-03 | P0 | Todo | 1. Combine golden cases for each op, with and without keep tools; consumed tools are `Consumed { into }` (TNP-23 meets its `expect`). 2. Splitting a box by a plane gives pieces in the naming-note order (piece 0 keeps the `BodyId`); TNP-21 meets its `expect`. 3. Split face by a sketch line projected along the sketch normal and by a plane: two faces whose areas match within 1e-9. 4. A tool that doesn't cross fails `NoSplit` with the "extend the tool" hint. |
 | SOL-08 | Pattern (rectangular, circular; bodies and features; suppressed instances; identical compute) + mirror (bodies new/join, features) on `SolidTool` and `mirrored` (R-S04-6) | SOL-01, SOL-02, CON-03, BREP-14 | P0 | Todo | 1. 3×4 rectangular and 6-instance circular body patterns (incl. symmetric and 2 suppressed instances): body count and total volume exact. 2. A 10×10 feature pattern of a Ø3 cut-extrude in a 100×100×5 plate: analytic volume within 1e-9 relative, **one** boolean call (kernel call counter), instances share TShapes (`Shape::transformed` only), full recompute < 300 ms (`budget/sol-pattern-100`). 3. Mirror of a body and of an extrude boss: mirrored volume equal, BRepCheck valid (orientation). 4. TNP-17 and TNP-18 meet their `expect`. |
@@ -864,3 +864,76 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   retry policy in preview; `resolve_profile`/`region_source` on `RecomputeCtx` if another lane
   needs them; SOL-02 builds on the `Extent` data (starts, two sides, symmetric, taper, to object,
   all, planar-face profiles).
+
+### 2026-11-25 - SOL-05 implemented (lane A)
+- **Landed.** `amg_features::solid::fillet`: `solid.fillet` (`Fillet`, `FilletSet`, `FilletRadius::
+  {Constant, Chord, Variable}`, `VarRadius`, `CornerType`) and `solid.chamfer` (`Chamfer`,
+  `ChamferSet`, `ChamferKind::{Equal, TwoDistances, DistanceAngle}`) with the Interfaces shapes,
+  both `register_feature!` v1 with dialog registrations (`solid.fillet`: edges, radius type,
+  radius / start + end radius, tangent chain; `solid.chamfer`: edges, type, distance, distance 2,
+  angle, reference face, tangent chain). `solid::common::tangent_chain_edges` (R-S04-1 on
+  `edge_ends`). Public `Fillet::plan` / `Chamfer::plan` (`BodyEdges`, `PlannedEdge`: the edges
+  passed to the kernel per body, picks first with their key, then propagated edges) for the
+  UI-05 preview highlight. `solid::fillet::harness::run_fillet` (`FilletCase`, `FilletRun`,
+  `FilletRunError`) for S20's corpus harness.
+- **Behaviour.** Sets resolve with `DropMissing` and are grouped per body; one BREP-06 call per
+  body with all its edges in pick order (OCCT numbers contours that way). With `tangent_chain`
+  each pick grows along edges whose tangents continue across a shared vertex within
+  `CHAIN_ANGLE` = 1e-3 rad (only edges between two distinct faces); a propagated edge gets its
+  seed's set. Variable radii: samples sorted, positions in 0..1, a missing end held at the
+  nearest sample's radius. Chamfer reference faces resolve `AllOrError` and must border every
+  edge of their set. Failures go through `kernel_failure`, so `LocalOpFailed::offending` edges
+  become the error highlight. Naming: `from_history` of the input plus `selection(key)` for picked
+  edges only, so blends of propagated edges are named from the edge (`Topo*`), as the naming
+  note §5.2 says; corners and neighbours by the default rules.
+- **Done-when evidence** (`crates/amg-features/tests/solid_fillet.rs`, 28 tests, 24 with OCCT;
+  goldens `tests/golden/solid/sol05_*.toml`, 17 files, rel 1e-6; 2 unit tests in the module):
+  1. 16 golden cases (17 files: two bodies give two), each BRepCheck-valid; 14 also match a closed
+     form within 1e-6: cube edge, chord 3 mm (`r = 3/√2`), two sets 2 mm + 3 mm, two bodies in one
+     feature, the 3-edge vertex blend (`(1−π/4)r²(A+B+C−3r) + r³(1−π/6)`), the box top loop
+     (Pappus on the mitred loop), the slot's 4-edge tangent loop and the rounded rectangle's
+     8-edge loop from one pick (Pappus with the spandrel centroid), a concave edge, a cylinder rim,
+     chamfers equal / two distances / distance-angle (plus the top-face area showing `d1` is on the
+     reference face) and the chamfered slot loop. Variable 2 → 4 mm and the 3-edge chamfer vertex
+     are golden-only with bounds.
+  2. `dw2_*`: one pick on the rounded-rectangle top plans 8 edges (pick first with key 1, 7
+     propagated, all at z = 10); `tangent_chain = false` plans 1; a box edge stays alone.
+  3. `dw3_*`: a 7 mm radius on the top edge of a 5 mm plate fails and `Health::Error` entities are
+     exactly that edge (resolving `Exact`); with a second, workable set only the failing edge is
+     highlighted.
+  4. `dw4_tnp11_*` (inserted `solid.fillet` on the same edge → the downstream ref is
+     `NotFound`, feature in error) and `dw4_tnp27_*` (3-edge `solid.fillet`, a probe on the corner
+     patch, box height 40 → 50: `Exact`, sphere, centroid (97.5, 2.5, 47.5), area 39.26991 within
+     1e-4), both on `test.brep_box` B1 as in the corpus. Also: a blend face referenced downstream
+     stays `Exact` when the radius goes 2 → 4 mm.
+  5. `benches/sol_fillet.rs` (`budget/sol-fillet-preview`): 10 vertical edges (every 19th) of a
+     198-vertex star prism (200 faces), r 0.3 mm; release profile on the shared dev machine:
+     preview median 56.7 ms (25-run sample; criterion 59.1 ms), full mode 55.7 ms (criterion
+     62.8 ms). `AMG_STRICT_TIMING=1` asserts < 100 ms and passed. An earlier run while another
+     worker was building gave 63.9 ms (criterion 105 ms), so the budget is load-sensitive.
+  6. `dw6_*`: `harness::run_fillet` builds a one-body design from a `.brep`-style `Shape` and
+     `(EdgeId, FilletSpec)` pairs (the `KernelOp::Fillet` contents), runs `solid.fillet` with the
+     caller's kernel and mode, and returns the shape + naming, or the error with the highlighted
+     edges in the case's index space (checked on a radius-too-large case). A proptest (16 random
+     radii/edges on a box) gives a valid solid or a `Kernel` error, never a panic.
+- **Deviations.**
+  - A regular 198-gon (the SOL-01 bench body) can't be used for Done-when 5: OCCT refuses its
+    1.8° vertical edges as smooth. The bench uses a star with the same face count.
+  - `tangent_chain = false` changes only the edges we pass: OCCT's `MakeFillet` still extends a
+    contour along its tangent chain, so the geometry is the same; the flag matters for the plan,
+    the highlight and which blends carry `Selection` names.
+  - The dialog edits the first set only (S11 §B has no repeated groups); further sets are kept on
+    edit. An empty edge pick builds (the field's `min: 1` keeps OK off), so the all-registrations
+    round-trip test still passes; such a feature fails to compute with `InvalidValue { edges }`.
+  - Two-distance / distance-angle chamfers need one reference face bordering every edge of the
+    set (no per-edge flip); otherwise `InvalidValue { face }`.
+  - `CornerType::Setback` fails `NotYet` (SOL-21). Kernel warnings of the op are not copied into
+    feature warnings (as in SOL-01).
+  - `tangent_chain_faces` is still not written (first used by SOL-06).
+  - `tests/solid_common` gains `check_golden_as(wp, rel, case, shape)`; `check_golden` is
+    unchanged for SOL-01.
+- **Interface changes elsewhere.** None: only public `amg-brep` / `amg-doc` APIs are used (the
+  harness builds its input state with `Evaluated::set_body`). No new dependency.
+- **Leftovers.** SOL-20 (S20 robust chain, `FilletDiagnosis`, max radius); SOL-21 (setback);
+  G2 with KH-10; a per-edge chamfer flip or multi-set dialog UI if UI-05 wants one;
+  `tangent_chain_faces` (SOL-06).

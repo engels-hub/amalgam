@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol05_cylinder_rim (S04 SOL-05). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 6231.6594673576965
+area = 1829.2409621271993
+faces = 4
+edges = 5
+vertices = 3
+bbox_min = [-10.0, -10.0000001, 0.0]
+bbox_max = [10.0, 10.0, 20.0]

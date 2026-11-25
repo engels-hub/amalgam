@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol05_chamfer_two_distances (S04 SOL-05). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 7940.0
+area = 2366.11102550928
+faces = 7
+edges = 15
+vertices = 10
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [20.0, 20.0, 20.0]

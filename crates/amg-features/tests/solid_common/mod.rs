@@ -165,7 +165,8 @@ pub fn assert_rel(got: f64, want: f64, rel: f64) {
 // ---- goldens (tests/golden/solid/sol01_*.toml) ------------------------------------------------
 
 #[cfg(feature = "occt")]
-pub use golden::check_golden;
+#[allow(unused_imports, reason = "each test binary uses one of them")]
+pub use golden::{check_golden, check_golden_as};
 
 #[cfg(feature = "occt")]
 mod golden {
@@ -211,22 +212,30 @@ mod golden {
     /// writes it instead.
     #[track_caller]
     pub fn check_golden(case: &str, s: &amg_brep::Shape) {
+        check_golden_as("sol01", 1e-9, case, s);
+    }
+
+    /// Compares `s` with `tests/golden/solid/<wp>_<case>.toml` (`wp` lower case, e.g. `sol05`);
+    /// `AMG_BLESS=1` (never under CI) writes it instead, with tolerance `rel`.
+    #[track_caller]
+    pub fn check_golden_as(wp: &str, rel: f64, case: &str, s: &amg_brep::Shape) {
         let got = metrics(s);
         let path = amg_testkit::golden_dir()
             .join("solid")
-            .join(format!("sol01_{case}.toml"));
+            .join(format!("{wp}_{case}.toml"));
         if std::env::var("AMG_BLESS").is_ok_and(|v| v == "1") {
             assert!(
                 std::env::var_os("CI").is_none_or(|v| v.is_empty()),
                 "blessing is refused under CI"
             );
             let g = Golden {
-                tolerances: Tolerances { rel: 1e-9 },
+                tolerances: Tolerances { rel },
                 metrics: got,
             };
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let wp_id = wp.to_uppercase().replacen("SOL", "SOL-", 1);
             let text = format!(
-                "# B-rep metrics of solid/sol01_{case} (S04 SOL-01). Written by `AMG_BLESS=1`.\n\n{}",
+                "# B-rep metrics of solid/{wp}_{case} (S04 {wp_id}). Written by `AMG_BLESS=1`.\n\n{}",
                 toml::to_string(&g).unwrap()
             );
             std::fs::write(&path, text).unwrap();
