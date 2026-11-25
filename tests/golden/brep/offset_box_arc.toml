@@ -1,0 +1,12 @@
+# B-rep metrics of brep/offset_box_arc (S02 BREP-07). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 5498.985237531859
+area = 1818.1592653488567
+faces = 26
+edges = 48
+vertices = 24
+classes = "PPPPPPYYYYYYYYYYYYSSSSSSSS"

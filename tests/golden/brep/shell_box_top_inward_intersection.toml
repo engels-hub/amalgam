@@ -1,0 +1,12 @@
+# B-rep metrics of brep/shell_box_top_inward_intersection (S02 BREP-07). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 1068.0
+area = 2208.0
+faces = 11
+edges = 24
+vertices = 16
+classes = "PPPPPPPPPPP"

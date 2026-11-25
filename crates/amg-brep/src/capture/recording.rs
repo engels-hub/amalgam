@@ -16,7 +16,8 @@ use crate::geom;
 use crate::history::{FaceBuild, OpResult};
 use crate::kernel::BrepKernel;
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, PrismExtent, PrismOpts, TessQuality,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, OffsetJoin, PrismExtent, PrismOpts,
+    ShellOpts, TessQuality,
 };
 use crate::query::{
     Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
@@ -470,6 +471,62 @@ impl<K: BrepKernel> BrepKernel for RecordingKernel<K> {
             },
             || vec![s],
             || self.inner.fillet_max_radius(s, edges, hi, iterations, ctx),
+        )
+    }
+
+    fn shell(
+        &self,
+        s: &Shape,
+        remove: &[FaceId],
+        opts: &ShellOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Shell {
+                shape: one(0),
+                remove: remove.to_vec(),
+                opts: opts.clone(),
+            },
+            || vec![s],
+            || self.inner.shell(s, remove, opts, ctx),
+        )
+    }
+
+    fn offset(
+        &self,
+        s: &Shape,
+        distance: f64,
+        join: OffsetJoin,
+        tol: f64,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Offset {
+                shape: one(0),
+                distance,
+                join,
+                tol,
+            },
+            || vec![s],
+            || self.inner.offset(s, distance, join, tol, ctx),
+        )
+    }
+
+    fn thicken(
+        &self,
+        s: &Shape,
+        thickness: f64,
+        join: OffsetJoin,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        self.guarded(
+            || KernelOp::Thicken {
+                shape: one(0),
+                thickness,
+                join,
+            },
+            || vec![s],
+            || self.inner.thicken(s, thickness, join, ctx),
         )
     }
 

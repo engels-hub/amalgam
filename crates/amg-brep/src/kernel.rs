@@ -19,9 +19,11 @@ use crate::error::{KResult, KernelError};
 use crate::extract;
 use crate::geom::{self, Tag};
 use crate::history::{FaceBuild, OpResult, ShapeHistory};
+use crate::offset::{self, OffsetIn};
 use crate::ops::{self, PrimitiveKind};
 use crate::opts::{
-    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, PrismExtent, PrismOpts, TessQuality,
+    BoolOp, BoolOpts, ChamferSpec, FilletOpts, FilletSpec, OffsetJoin, PrismExtent, PrismOpts,
+    ShellOpts, TessQuality,
 };
 use crate::query::{
     self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
@@ -389,6 +391,90 @@ pub trait BrepKernel: Send + Sync {
         ctx: &JobCtx,
     ) -> KResult<f64>;
 
+    // -- shell, offset, thicken (BREP-07) --
+
+    /// The thick solid of `s` (one solid) with walls of `opts.thickness` along the outward
+    /// normal (negative: the walls grow inward and `s`'s faces stay the outside; positive: they
+    /// grow outward), open at the faces in `remove` (`BRepOffset_MakeOffset::MakeThickSolid` on
+    /// a private copy, category C). An empty `remove` gives a hollow solid with a closed inner
+    /// void (S04 R-S04-8): the input (one shell) and its offset assembled into one solid.
+    /// `opts.per_face` gives single faces their own thickness, of the same sign. `opts.join`
+    /// closes the gaps that open between offset faces at edges convex in the
+    /// offset direction: `Arc` with round pipes and spheres, `Intersection` by extending the
+    /// faces to sharp edges. `opts.tol` is the offset algorithm's confusion tolerance (0: the
+    /// kernel tolerance). Progress and cancellation reach inside the build.
+    ///
+    /// Every face that is offset is checked first: an offset of `d` towards a centre of
+    /// curvature closer than `|d|` (a convex radius smaller than an inward wall, a concave one
+    /// smaller than an outward wall) would collapse the offset face, and is refused.
+    ///
+    /// History (operand 0 = `s`): `s`'s faces, edges and vertices are `Modified` 1:1 into the
+    /// result (they pass through the private copy, so they are new TShapes); each offset face is
+    /// `Generated` from its source face, arc-join faces from their edge or vertex. A removed face
+    /// has no `Modified` relation; the rim at the opening is `Generated` from it. Offset and arc
+    /// faces have `OpRole::ShellInner` (the inner wall of an inward shell; the outer one of an
+    /// outward shell); the rims and any other new face have `OpRole::Lateral`. Face order is
+    /// canonical (S02 §7: shells rebuilt with faces by area, then centroid), so indices and
+    /// bytes repeat from run to run.
+    ///
+    /// # Errors
+    /// `InvalidInput { what: "shape" | "remove" | "opts" | "tol" }` (a face named twice or out
+    /// of range, every face removed, a zero or non-finite thickness, a per-face thickness of the
+    /// other sign or on a removed face); `LocalOpFailed { op: "shell" }` naming the faces whose
+    /// offset collapses (`message` gives the radius), or OCCT's `BRepOffset_Error` and the
+    /// faces its input check blames (`offending` may then be empty), with the result as
+    /// `partial` when OCCT made one without a solid; `InvalidResult` under the validation
+    /// policy; `Cancelled`; `Occt`.
+    fn shell(
+        &self,
+        s: &Shape,
+        remove: &[FaceId],
+        opts: &ShellOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// `s` (faces, shells, solids or a compound of them) with every face moved `distance` along
+    /// its outward normal (negative: inward), gaps closed by `join` as for
+    /// [`BrepKernel::shell`] (`BRepOffset_MakeOffset::MakeOffsetShape` on a private copy). A
+    /// solid gives a solid; the input must be connected (two loose solids fail with
+    /// `BRepOffset_NotConnectedShell`). `tol` as `ShellOpts::tol`. The collapse check, progress,
+    /// cancellation and face order as for `shell`.
+    ///
+    /// History: each face is `Modified` into its offset face, arc faces are `Generated` from
+    /// their edge or vertex; every output face has `OpRole::OffsetFace`.
+    ///
+    /// # Errors
+    /// As [`BrepKernel::shell`], with `what: "shape" | "distance" | "tol"` and
+    /// `op: "offset"`.
+    fn offset(
+        &self,
+        s: &Shape,
+        distance: f64,
+        join: OffsetJoin,
+        tol: f64,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
+    /// The solid swept by the face or shell `s` moving `thickness` along its normal (negative:
+    /// against it): `s`, its offset and the side walls between their boundaries
+    /// (`BRepOffset_MakeOffset` with thickening, on a private copy). `join` as for
+    /// [`BrepKernel::shell`]; the collapse check, progress and cancellation as for `shell`.
+    ///
+    /// History: `s`'s faces are `Modified` 1:1, their offsets `Generated` from them with
+    /// `OpRole::OffsetFace`; the side walls have `OpRole::Lateral` (and are `Generated` from
+    /// the boundary edges where OCCT says so).
+    ///
+    /// # Errors
+    /// As [`BrepKernel::shell`], with `what: "shape" | "thickness"` (a solid is refused) and
+    /// `op: "thicken"`.
+    fn thicken(
+        &self,
+        s: &Shape,
+        thickness: f64,
+        join: OffsetJoin,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult>;
+
     // -- geometry extraction (BREP-17) --
 
     /// `s` cut by `plane`: the 3D section curves (S03 SK-08/SK-09, S07 tests, S12 DXF).
@@ -754,6 +840,25 @@ impl OcctKernel {
         Ok(finished(shape, history, Vec::new()))
     }
 
+    /// Runs a lowered shell, offset or thicken and builds its result.
+    fn offset_result(
+        &self,
+        op: &'static str,
+        s: &Shape,
+        input: &OffsetIn,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        ctx.checkpoint()?;
+        let outcome = s.occ().offset(input, ctx)?;
+        ctx.checkpoint()?;
+        let (occ, raw) =
+            outcome.map_err(|(status, partial)| offset::failure(op, status, partial))?;
+        let shape = Shape::from_occ(occ);
+        self.validate_result(op, &shape)?;
+        let history = ops::history(&raw, ops::counts(s));
+        Ok(finished(shape, history, Vec::new()))
+    }
+
     /// Whether a constant-radius fillet of `edges` (lowered) at `r` gives a valid shape: `None`
     /// when it does, else why not.
     fn fillet_fails(&self, s: &Shape, edges: &[BlendEdge], r: f64) -> KResult<Option<KernelError>> {
@@ -1112,6 +1217,43 @@ impl BrepKernel for OcctKernel {
             offending,
             partial: None,
         })
+    }
+
+    fn shell(
+        &self,
+        s: &Shape,
+        remove: &[FaceId],
+        opts: &ShellOpts,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let input = offset::lower_shell(s, remove, opts, &self.cfg.tolerance)?;
+        self.offset_result("shell", s, &input, ctx)
+    }
+
+    fn offset(
+        &self,
+        s: &Shape,
+        distance: f64,
+        join: OffsetJoin,
+        tol: f64,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let input = offset::lower_offset(s, distance, join, tol, &self.cfg.tolerance)?;
+        self.offset_result("offset", s, &input, ctx)
+    }
+
+    fn thicken(
+        &self,
+        s: &Shape,
+        thickness: f64,
+        join: OffsetJoin,
+        ctx: &JobCtx,
+    ) -> KResult<OpResult> {
+        backend::require()?;
+        let input = offset::lower_thicken(s, thickness, join, &self.cfg.tolerance)?;
+        self.offset_result("thicken", s, &input, ctx)
     }
 
     fn plane_section(&self, s: &Shape, plane: &Plane) -> KResult<Vec<geom::CurveSeg>> {

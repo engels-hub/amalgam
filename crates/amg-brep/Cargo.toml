@@ -76,6 +76,11 @@ harness = false
 required-features = ["occt"]
 
 [[bench]]
+name = "offset"
+harness = false
+required-features = ["occt"]
+
+[[bench]]
 name = "ops"
 harness = false
 required-features = ["occt"]
