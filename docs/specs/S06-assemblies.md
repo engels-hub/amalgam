@@ -546,7 +546,7 @@ pub fn link() {}
 | ASM-01 | Components/occurrences in `amg-doc`: commands `AddOccurrence`, `DeleteOccurrences` (cascade), `MoveOccurrence`, `SetOccurrenceGrounded`, `SetOccurrenceName`, `SetOccurrenceTransforms`; rigid/mirror transform validation; `Placements` + `Evaluated::{placements, world_transform, body_to_world, instances}` (authored placements until ASM-04); `Document::active_component`; events | DOC-05, DOC-09, DOC-12 | P0 | Done | 1. Proptest: ≤ 100 random valid tree commands, undo all → `design.json` equals the initial one; redo all → equals the final one. 2. Deleting the last occurrence of a component holding 3 features and one sub-component removes all of them in one undo entry; a root feature that read one of its bodies gets `Error` with an upstream cause. 3. On a 3-level tree with one component placed twice, `body_to_world` equals the hand-multiplied transforms within 1e-12 and `instances` lists exactly 2 entries. 4. A scaled transform is refused with `InvalidValue`; a mirror (det −1) is accepted. 5. `MoveOccurrence { keep_world: true }` leaves the world transform unchanged within 1e-12. 6. Exact `DocEvent` sets per new command and for undo/redo (DOC-09 style). 7. Moving an occurrence recomputes no feature (engine counter). 8. criterion: `world_transform` of a depth-10 path < 1 µs; building `Placements` for 10 000 occurrences < 2 ms. |
 | ASM-09 | Create components from bodies, move bodies between components: `BodyChangeKind::Moved`, feature `assembly.bodies_to_components`, `components_from_bodies`/`move_bodies` transaction builders; geometry transformed into the target space (`Shape::transformed`, `IndexedMesh::transform`) | ASM-01, BREP-02 | P0 | Done | 1. Three bodies in the root → one transaction creates 3 components and one feature; every body keeps its `BodyId` and its world bbox within 1e-9 mm; one undo entry. 2. Moving a body into an existing component placed at a non-identity transform keeps its world bbox within 1e-9 mm and volume within 1e-9 relative (solid and mesh). 3. A later root feature that reads the moved body still resolves (same `BodyId`), and the body reports the new component. 4. `.amg` save/load keeps the tree and each body's component. |
 | ASM-13 | Pending positions, Capture Position, Revert in `amg-doc` (QUESTIONS #59): `Design::pending_positions` + `PendingPositions`, commands `SetPendingPositions`, `CapturePositions`, `RevertPositions`, layered `SetOccurrenceTransforms`, built-in feature `assembly.capture_position`, `captured_transform_at`/`seed_transform`, running position table in the timeline pass (in-context resolution and DOC-03 keys use captured transforms at the node's index), `SetMarker` drops pending, `joints::{capture_command, out_of_date}`, `DocEvent::PendingPositionsChanged` | ASM-01 | P0 | Done | 1. Move → capture → move → revert: the occurrence ends at the captured transform (1e-12); 4 undo entries; undo of the revert restores the second move; undo of the capture removes the node and restores pending. 2. Pending moves survive save/load (`design.json` equal) and crash recovery (journal replay). 3. A pending move recomputes no feature (engine counter); capturing it re-runs only the in-context features after the node whose occurrence paths include the moved occurrence. 4. Timeline `[F1 in-context on o, C1 capture o→P1, F2 in-context on o]`: F1 sees the base transform, F2 sees P1; marker before C1 → placements use base; suppressing C1 likewise. 5. `SetMarker` with pending moves clears them in the same undo entry. 6. `SetPendingPositions` on a grounded occurrence and in Direct mode is refused; in Direct mode `SetOccurrenceTransforms` writes the base. 7. `SetOccurrenceTransforms` with a capture node listing the occurrence before the marker edits that node, not the base. 8. Deleting an occurrence drops its pending entry; a capture node that lists a deleted occurrence gets `Health::Warning` and ignores it. 9. Exact `DocEvent` sets for the new commands, undo and redo. 10. criterion: `SetPendingPositions` of 100 occurrences < 1 ms; `captured_transform_at` with 50 capture nodes < 2 µs. |
-| ASM-10 | Assembly UI module `amg-ui::assembly`: browser activate radio and active styling, grounded icon, context menus (New Component, Activate, Ground/Unground, Create Components from Bodies, Copy/Paste occurrence, Delete, Move to Component), pending marker on moved occurrences, "positions out of date" badge whose action is Capture Position | ASM-01, ASM-09, ASM-13, UI-07, UI-21 | P0 | Todo | 1. Kittest: activate a sub-component, run a generic-dialog feature → its node has that context. 2. Copy/paste an occurrence → 2 render instances share 1 uploaded mesh (upload counter). 3. Ground toggle sends `SetOccurrenceGrounded`, undo restores it. 4. Delete of a component with features is one undo entry. 5. Every menu entry is reachable by label (kittest) and appears only for the right selection. 6. An occurrence with a pending move shows the pending marker; the badge appears when `out_of_date` is non-empty and its action sends one `CapturePositions`. |
+| ASM-10 | Assembly UI module `amg-ui::assembly`: browser activate radio and active styling, grounded icon, context menus (New Component, Activate, Ground/Unground, Create Components from Bodies, Copy/Paste occurrence, Delete, Move to Component), pending marker on moved occurrences, "positions out of date" badge whose action is Capture Position | ASM-01, ASM-09, ASM-13, UI-07, UI-21 | P0 | Review | 1. Kittest: activate a sub-component, run a generic-dialog feature → its node has that context. 2. Copy/paste an occurrence → 2 render instances share 1 uploaded mesh (upload counter). 3. Ground toggle sends `SetOccurrenceGrounded`, undo restores it. 4. Delete of a component with features is one undo entry. 5. Every menu entry is reachable by label (kittest) and appears only for the right selection. 6. An occurrence with a pending move shows the pending marker; the badge appears when `out_of_date` is non-empty and its action sends one `CapturePositions`. |
 | ASM-02 | Ground, move/rotate occurrences: Move/Copy tool for occurrences (triad free move, point to point, numeric fields) ending in one `SetPendingPositions` (Direct mode: `SetOccurrenceTransforms`); Position panel (Capture Position, Revert); Capture / Revert / Cancel prompt registered as the S11 position guard and used by Joint Origin | ASM-10, ASM-13, UI-06 | P0 | Todo | 1. Scripted triad drag of 12.5 mm along X and 90° about Z gives the exact pending transform (1e-12) in one undo entry. 2. A grounded occurrence cannot be moved (tool shows why). 3. Point to point puts a vertex on a vertex within 1e-9 mm. 4. Moving recomputes no feature in the moved component (counter). 5. With 100 occurrences on screen, UI frame time during the drag stays < 16 ms (tracing span). 6. Kittest: after a move the Position panel shows; Capture Position adds one timeline node and hides the panel; Revert puts the occurrence back (1e-12) and hides it. 7. Kittest: dragging the timeline marker or starting Joint Origin with a pending move shows the prompt; Cancel leaves design and pending unchanged, Revert and Capture do what their buttons say. |
 | ASM-03 | Joint origins, joint types and limits: `amg-doc::joints` data (`JointKind`, `JointEval`, `AsmItem`, `JointState`, `joint_values`, `snap_placement`), `FeatureOutput::assembly`, `ConstructionGeom::Frame`; `amg-features::assembly` `JointOrigin` + `origin_frame(_in)` + `keypoints` (snaps, x rule, align), features `assembly.joint` and `assembly.joint_origin` | ASM-01, DOC-06, CON-03 | P1 | Todo | 1. On a box-with-hole + pin fixture, every `OriginAt` variant gives the expected frame within 1e-9 (table test, ≥ 14 cases incl. the x-rule fallback and flip/angle/offset). 2. For all 7 joint types, `joint_values` recovers the values of a constructed relative pose within 1e-12 and the note §5.2 rows are zero on it. 3. `snap_placement` puts the pin in the hole: axes coincide within 1e-9 mm. 4. Editing the hole position upstream moves the joint frame with it (DOC-06 naming); deleting the hole face gives the joint an `Error` naming the ref. 5. Moving an occurrence does not re-run joint features (counter). 6. Joint offsets are model parameters: editing one changes the frame. |
 | ASM-04 | Joint solver (3D), assembly stage of recompute and drag: residuals per note §5.2 with analytic Jacobians, LM with SE(3) retraction on `amg_sketch::solve::system`, decomposition (contexts, rigid clusters, connected components), limits active set, DOF, `AsmDiagnostic` → health, `Design::joint_states` (layered per ASM-13), seed from `Design::seed_transform`, `AsmDrag`, `test.joint` feature, golden mechanisms `tests/golden/asm/` | ASM-03, ASM-13, SK-03 | P1 | Todo | 1. 4-bar linkage drags correctly: scripted crank drag through 360° in 1° steps keeps the rocker within 1e-9 rad of the closed-form solution at every step with no branch flip; drag frame p95 < 2 ms. 2. Golden mechanisms 1–6 of note §10 pass. 3. Every residual's Jacobian matches finite differences (relative error < 1e-6) on 100 random poses. 4. 100 runs give bit-identical placements. 5. Budgets of note §9 (assembly stage rows) met in criterion. 6. An over-constrained loop reports `Overconstrained` on the later joint and leaves the earlier result in place. 7. With a pending move on a jointed occurrence, editing a joint offset re-solves from the pending seed (same branch) and keeps the move pending; Revert re-solves from the captured seed. |
@@ -787,6 +787,64 @@ blocks > 16 ms):
   deleted target. `cargo nextest run -p amg-doc -p amg-features -p amg-brep`: 314 passed,
   2 skipped; `-p amg-features --features occt --test assembly_bodies`: 13 passed.
 
+### 2026-11-25 - ASM-10 (assembly UI module `amg-ui::assembly`, lane E; status Review)
+- **Landed** (`crates/amg-ui/src/assembly/{mod, actions, browser, state}.rs`, `tests/assembly.rs`):
+  - **Browser** (provider `assembly`, no nodes of its own): an activate radio button ("Activate
+    <row>") on the root and every occurrence row while the design has occurrences, the active
+    component's rows emphasised (strong, underlined); a pin marker on grounded occurrences, a
+    pending marker ("Position not captured <row>") on occurrences with a pending move; on the root
+    the badge "Positions out of date: Capture Position" while `joints::out_of_date` is non-empty.
+  - **Row menus:** root: New Component, Activate, Paste. Occurrence: New Component (inside it),
+    Activate, Ground / Unground, Copy, Paste (into it), Move to Component, Delete. Body: Create
+    Components from Bodies, Move to Component. Bodies folder: Create Components from Bodies. An
+    entry is shown only when it applies (Activate not on the active component, Paste only with a
+    copy that would not make a component contain itself). A menu on a selected row acts on all
+    selected rows of that kind.
+  - **Commands** `assembly.{new_component, activate, ground, unground, components_from_bodies,
+    copy, paste, delete, capture_position}` (S-key search, with icons and enablers) for the
+    selection; the applicable ones also go to the marking menu's overflow list. New Component
+    and Paste go into the active component.
+  - Each edit is one `CommitBatch` (one undo entry); activating is session state (no entry).
+  - `AssemblyLayer` (document layer): the occurrence clipboard and the out-of-date list, found
+    only for an evaluated state that matches the design.
+  - Timeline name and icon for `assembly.capture_position` and `assembly.bodies_to_components`
+    ("Move Bodies"; not editable).
+- **Deviations:**
+  - The generic feature dialog (S11 UI-05) does not exist yet, so Done-when 1 is tested with the
+    hand-built Mesh Repair dialog (MESH-23); Mesh and Combine dialogs now create their features
+    in the active component (was: the root; lane C code, two lines). UI-05 must do the same.
+  - Before ASM-04 solved placements equal the seeds, so `out_of_date` is always empty and the
+    badge cannot appear in the app yet. Its test replaces the source
+    (`AssemblyLayer::set_out_of_date_source`, `testing` feature) and checks that the real
+    function gives no badge for a pending move. Capture Position is also a command.
+  - Paste places the copy at the copied local transform, so it coincides with the original until
+    it is moved (ASM-02). Both rows show the component name.
+  - The commands are in search and the marking menu only (no toolbar group or shortcuts); Move
+    to Component is only a row submenu (it needs a destination).
+- **Leftovers:** `io/export.rs` "Repair first" still adds its repair features to the root (they
+  repair bodies of any component; lane G to decide). Component rows without bodies have no
+  selection target (UI-07), so the selection commands cannot reach them; their row menus can.
+  The browser has no occurrence rename for the occurrence itself (UI-07 renames the component).
+  ASM-02 adds Move, the Position panel and the prompt.
+  - Escape in an open browser row menu clears the selection but leaves the menu open (found in
+    the tests, framework behaviour from before this WP; lane D).
+- **Scene adapter fix (lane D code, S11 Interface changes):** copy / paste showed that an
+  occurrence added or deleted without a geometry change was not added to / removed from the view
+  (instances were synced only from the older placements), and that a body moved to another
+  component (ASM-09) kept its old component there.
+- **Tests** (`tests/assembly.rs`, 10 kittest tests, plus a key-parsing unit test): Done-when 1
+  `a_feature_run_with_a_sub_component_active_has_that_context`; 2
+  `copy_and_paste_of_an_occurrence_shares_one_uploaded_mesh` (2 instances, 1 mesh, 1 upload,
+  also after undo / redo); 3 `ground_sends_set_occurrence_grounded_and_undo_restores_it`; 4
+  `deleting_a_component_with_features_is_one_undo_entry` (component, sub-component and 3
+  features in one entry; undo restores the same design JSON); 5
+  `every_menu_entry_is_reachable_and_only_shown_for_the_right_rows`,
+  `move_to_component_moves_occurrences_and_bodies`,
+  `commands_are_enabled_for_the_right_selection`; 6
+  `a_pending_move_shows_its_marker_and_the_badge_captures_once`.
+  `cargo nextest run -p amg-ui`: 349 passed, 2 skipped; `cargo clippy -p amg-ui --all-targets
+  -- -D warnings` clean.
+
 ## Interface changes
 Changes this spec needs in S01 (lane E; the ASM-13 ones are copied to S01, 2026-11-10; to be copied into S01's Interface changes by the
 owning agent; all additive except where marked):
@@ -810,4 +868,7 @@ owning agent; all additive except where marked):
 - **2026-11-11, ASM-09** (all additive, recorded in S01 and S02 Interface changes the same day):
   `BodyChangeKind::Moved { component, geom, naming }` and its cache-file wire variant;
   `stub::Shape::{from_brep, brep, transformed}`; `amg_brep::Shape::volume()`.
+- **2026-11-25, ASM-10** (recorded in S11 Interface changes the same day): additive `amg-ui`
+  browser hooks and `CmdEnv` fields, and a scene adapter fix; lane C's Mesh / Combine dialogs use
+  the active component as the feature context. No change to `amg-doc` or `amg-features`.
 Requests this spec makes of other specs are listed under Interfaces → "Needed from other specs".

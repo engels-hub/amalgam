@@ -201,7 +201,7 @@ impl CombineTool {
         DocCommand::AddFeature {
             at: None,
             feature,
-            context: env.design.root(),
+            context: env.active_component,
             name: None,
         }
     }
