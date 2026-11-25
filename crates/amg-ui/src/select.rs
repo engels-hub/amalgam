@@ -29,8 +29,11 @@ use crate::scene::SceneAdapter;
 
 /// Which kinds of entity a pick or a selection accepts (a bit set).
 ///
-/// Spec: `pub use amg_features::dialog::EntityFilter` (Interfaces §B). `amg_features::dialog`
-/// does not exist yet (S04 SOL-01), so the set lives here until then and becomes a re-export.
+/// This is the pick-side set: it admits [`PickTarget`]s and has one
+/// [`EntityFilter::CONSTRUCTION`] bit and the manipulator [`EntityFilter::HANDLE`] bit. Dialog
+/// schemas use [`amg_features::dialog::EntityFilter`] (S11 Interfaces §B layout: three
+/// construction bits and `PLANAR_FACE`; admits `EntityRef`s). UI-05 converts with `From`:
+/// bits 0..=8 (body .. profile) are the same in both, the others are mapped.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EntityFilter(u32);
 
@@ -131,6 +134,26 @@ impl EntityFilter {
 impl Default for EntityFilter {
     fn default() -> Self {
         EntityFilter::ALL
+    }
+}
+
+impl From<amg_features::dialog::EntityFilter> for EntityFilter {
+    /// The pick filter of a dialog filter (UI-05): bits 0..=8 (body .. profile) carry over,
+    /// `PLANAR_FACE` picks faces (planarity is the feature's check), any construction bit
+    /// picks construction geometry and `OCCURRENCE` occurrences.
+    fn from(f: amg_features::dialog::EntityFilter) -> EntityFilter {
+        use amg_features::dialog::EntityFilter as D;
+        let mut out = EntityFilter(f.bits() & 0x1ff);
+        if f.intersects(D::PLANAR_FACE) {
+            out = out | EntityFilter::FACE;
+        }
+        if f.intersects(D::CONSTRUCTION_PLANE | D::CONSTRUCTION_AXIS | D::CONSTRUCTION_POINT) {
+            out = out | EntityFilter::CONSTRUCTION;
+        }
+        if f.intersects(D::OCCURRENCE) {
+            out = out | EntityFilter::OCCURRENCE;
+        }
+        out
     }
 }
 
@@ -638,6 +661,39 @@ impl Selection {
 mod tests {
     use super::*;
     use amg_doc::BodyId;
+
+    #[test]
+    fn dialog_filters_convert_to_pick_filters() {
+        use amg_features::dialog::EntityFilter as D;
+        let same = [
+            (D::BODY, EntityFilter::BODY),
+            (D::FACE, EntityFilter::FACE),
+            (D::EDGE, EntityFilter::EDGE),
+            (D::VERTEX, EntityFilter::VERTEX),
+            (D::MESH_FACE_GROUP, EntityFilter::MESH_FACE_GROUP),
+            (D::SKETCH, EntityFilter::SKETCH),
+            (D::SKETCH_CURVE, EntityFilter::SKETCH_CURVE),
+            (D::SKETCH_POINT, EntityFilter::SKETCH_POINT),
+            (D::PROFILE, EntityFilter::PROFILE),
+            (D::PLANAR_FACE, EntityFilter::FACE),
+            (D::CONSTRUCTION_PLANE, EntityFilter::CONSTRUCTION),
+            (D::CONSTRUCTION_AXIS, EntityFilter::CONSTRUCTION),
+            (D::CONSTRUCTION_POINT, EntityFilter::CONSTRUCTION),
+            (D::OCCURRENCE, EntityFilter::OCCURRENCE),
+        ];
+        for (d, ui) in same {
+            assert_eq!(EntityFilter::from(d), ui, "{d:?}");
+        }
+        assert_eq!(
+            EntityFilter::from(D::PROFILE | D::PLANAR_FACE),
+            EntityFilter::PROFILE | EntityFilter::FACE
+        );
+        assert_eq!(
+            EntityFilter::from(D::ALL),
+            EntityFilter::ALL.without(EntityFilter::HANDLE)
+        );
+        assert_eq!(EntityFilter::from(D::NONE), EntityFilter::NONE);
+    }
 
     fn body(n: u64) -> SelItem {
         SelItem::from_target(PickTarget::Body {
