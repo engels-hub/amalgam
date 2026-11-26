@@ -360,6 +360,11 @@ fn jobs_are_grouped_under_their_parent_and_cancel_reaches_children() {
     });
     let infos = h.app().jobs().jobs();
     assert_eq!(infos[1].parent, Some(infos[0].id));
+    // The status bar shows the count from the frame after the child spawned; under load the
+    // pump above can return before that frame is drawn.
+    pump(&mut h, "status bar shows both jobs", |h| {
+        h.kittest().query_by_label("Jobs: 2").is_some()
+    });
     h.kittest().get_by_label("Jobs: 2").click();
     pump(&mut h, "both rows shown", |h| {
         h.kittest().query_by_label("Parent job").is_some()
