@@ -24,6 +24,10 @@
 //! - [`modify`] (UI-16): the Modify tools ([`ModifyKind`]: fillet, chamfer, trim, extend,
 //!   break, offset, mirror, rectangular / circular pattern, move/copy, rotate, scale) on the S03
 //!   edit operations (SK-07, SK-16, SK-17, SK-18), one undo entry per operation.
+//! - [`project`] (UI-17): Project (`P`), Include and Intersect ([`ProjectKind`]) turn picked
+//!   edges, faces, vertices, bodies and construction geometry into SK-09 projection links
+//!   (locked entities in the locked colour that cannot be dragged); the session copies the
+//!   refreshed projections of every recompute into its working copy.
 //! - [`FINISH_SKETCH_CMD`], Esc with no sketch tool running and the palette's Finish button
 //!   leave the session.
 
@@ -34,6 +38,7 @@ pub mod glyphs;
 pub mod infer;
 pub mod modify;
 pub mod palette;
+pub mod project;
 pub mod session;
 pub mod shapes;
 pub mod solver;
@@ -51,6 +56,7 @@ pub use create::CreateTool;
 pub use dimension::{DIMENSION_DEF, DimensionEditDialog, DimensionTool, DrivenPromptDialog};
 pub use infer::{Anchor, Inference};
 pub use modify::{ModifyKind, ModifyOp, ModifyOptions, ModifyTool};
+pub use project::{ProjectKind, ProjectOutcome, ProjectTool};
 pub use session::{
     DrivenOffer, Inferred, PaletteOptions, SKETCH_LAYER, SKETCH_SELECT_CMD, SessionStats,
     SketchLayer, SketchSession,
@@ -172,6 +178,15 @@ fn start_modify(kind: ModifyKind) -> fn(&ToolInit<'_>) -> Box<dyn Tool> {
     }
 }
 
+/// The tool factory of a projection tool.
+fn start_project(kind: ProjectKind) -> fn(&ToolInit<'_>) -> Box<dyn Tool> {
+    match kind {
+        ProjectKind::Project => |init| Box::new(ProjectTool::new(ProjectKind::Project, init)),
+        ProjectKind::Include => |init| Box::new(ProjectTool::new(ProjectKind::Include, init)),
+        ProjectKind::Intersect => |init| Box::new(ProjectTool::new(ProjectKind::Intersect, init)),
+    }
+}
+
 fn start_dimension(init: &ToolInit<'_>) -> Box<dyn Tool> {
     Box::new(DimensionTool::new(init))
 }
@@ -281,6 +296,23 @@ pub fn register(r: &mut Registrar<'_>) {
         .with_enabler(Enabler::When(in_sketch))
         .placed(create_group(false, 1000)),
     );
+    for (i, kind) in (1..).zip(ProjectKind::ALL) {
+        let def = kind.def();
+        let mut cmd = CommandDef::new(
+            def.id.0,
+            def.label,
+            CmdAction::StartTool(start_project(kind)),
+        )
+        .with_icon(def.icon)
+        .with_tooltip(def.tooltip)
+        .with_keywords(def.keywords)
+        .with_enabler(Enabler::When(in_sketch))
+        .placed(create_group(def.pinned, 950 + i));
+        if let Some(shortcut) = def.shortcut {
+            cmd = cmd.with_shortcut(shortcut);
+        }
+        r.command(cmd);
+    }
     {
         let def = DIMENSION_DEF;
         let mut cmd = CommandDef::new(def.id.0, def.label, CmdAction::StartTool(start_dimension))
