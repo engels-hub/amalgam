@@ -8,8 +8,8 @@
 //! of two-sided and symmetric extrudes. Regions of one sketch that share curves, and the two
 //! sides of a profile, are fused (and unified) into one tool solid first (note §3.4).
 
-mod dialog;
-mod sides;
+pub(crate) mod dialog;
+pub(crate) mod sides;
 
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, InputSub, Relation, Shape, ShapeHistory, SubKind, SubShape,
@@ -213,7 +213,7 @@ fn moved(f: &ProfileFace, n0: Vec3, t: f64) -> Result<ProfileFace, FeatureError>
 
 /// The solids of one group fused and unified into one solid (shared caps and laterals
 /// vanish; coplanar laterals of two sides merge, primary side 0).
-fn fuse_group(
+pub(crate) fn fuse_group(
     ctx: &RecomputeCtx<'_>,
     k: &dyn BrepKernel,
     parts: Vec<(Shape, BodyNaming)>,

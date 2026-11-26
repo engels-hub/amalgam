@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol03_to_body_270 (S04 SOL-03). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 30159.289474462006
+area = 7425.840131753956
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [-30.0, -30.0, 2.0]
+bbox_max = [30.0, 30.0, 18.0]

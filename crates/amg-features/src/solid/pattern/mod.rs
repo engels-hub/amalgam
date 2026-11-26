@@ -18,7 +18,7 @@
 //! (`0x8000 | p` per rectangular field, `0x8000_0000 | p` for circular), so instance numbers
 //! stay stable when the count changes (TNP-17/18).
 
-mod dialog;
+pub(crate) mod dialog;
 mod mirror;
 
 use amg_brep::{BrepKernel, Shape};
@@ -341,7 +341,7 @@ fn count_of(ctx: &RecomputeCtx<'_>, e: &Expr, field: &'static str) -> Result<u32
 
 /// The line of a direction or axis input: a straight edge, line or axis first, else the axis
 /// of a revolved face or circular edge. A failure highlights the reference.
-fn line_input(
+pub(crate) fn line_input(
     ctx: &RecomputeCtx<'_>,
     r: &RefInput,
     field: &'static str,

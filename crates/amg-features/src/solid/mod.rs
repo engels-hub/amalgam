@@ -7,6 +7,7 @@
 //! - [`error`]: [`SolidError`] and [`kernel_failure`] (failing sub-shapes highlighted).
 //! - [`extent`]: extents and directions.
 //! - [`extrude`]: `solid.extrude` (SOL-01 framework, SOL-02 every start, direction and extent).
+//! - [`revolve`]: `solid.revolve` (SOL-03).
 //! - [`pattern`]: `solid.pattern` and `solid.mirror` (SOL-08).
 //! - [`fillet`]: `solid.fillet` and `solid.chamfer` (SOL-05), and the corpus-harness entry
 //!   point [`fillet::harness::run_fillet`].
@@ -21,6 +22,7 @@ pub mod extrude;
 pub mod fillet;
 pub mod pattern;
 pub mod profile;
+pub mod revolve;
 
 pub use common::{
     BodyOp, OpTarget, SolidTool, ToolBody, ToolRegistration, apply_body_op, input_solid, op_kernel,
@@ -41,6 +43,7 @@ pub use profile::{
     ProfileFace, ProfileSource, cap_source, face_edge_source, profile_faces, region_source, tag_of,
     tag_source, to_curve2d,
 };
+pub use revolve::Revolve;
 
 /// Forces this module's feature, tool and dialog registrations to be linked.
 pub fn link() {}
