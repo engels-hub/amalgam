@@ -14,23 +14,32 @@
 //! - **Active component.** [`Document::set_active_component`]; tools read it from
 //!   [`CmdEnv::active_component`] as the context of new features.
 //! - **Timeline.** Icons and names of the assembly feature kinds.
+//! - **Move / Copy** ([`moving`], ASM-02): triad, point to point and numeric fields; one
+//!   `SetPendingPositions` per move (`SetOccurrenceTransforms` in Direct mode).
+//! - **Position panel and prompt** ([`position`], ASM-02): Capture Position / Revert while
+//!   moves are pending, and the Capture / Revert / Cancel prompt registered as the S11
+//!   position guard ([`crate::guard`]).
 //!
 //! [`Document::set_active_component`]: amg_doc::Document::set_active_component
 
 mod actions;
 mod browser;
+pub mod moving;
+pub mod position;
 mod state;
 
 use amg_doc::DesignMode;
 
 pub use actions::{selected_bodies, selected_occurrences};
+pub use moving::{MOVE_CMD, MoveMode, MoveTool};
+pub use position::{PositionPanel, PositionPrompt, guard_tool_start, position_labels};
 pub use state::{AssemblyLayer, Clip, LAYER_ID, OutOfDateFn};
 
 use crate::app::{AppCx, CmdEnv};
 use crate::command::{CmdAction, CmdId, CommandDef, Enablement, Enabler};
 use crate::layer::DocLayerDef;
 use crate::marking::{ContextMenuProvider, ContextTarget};
-use crate::module::{IconId, Registrar, UiModule};
+use crate::module::{GroupId, IconId, Registrar, UiModule};
 use crate::timeline::{EditAction, FeatureUiInfo};
 
 inventory::submit! { UiModule { id: "assembly", register } }
@@ -56,8 +65,12 @@ pub mod cmd {
     pub const DELETE: CmdId = CmdId("assembly.delete");
     /// Capture Position.
     pub const CAPTURE: CmdId = CmdId("assembly.capture_position");
+    /// Revert the pending moves (ASM-02).
+    pub const REVERT: CmdId = CmdId("assembly.revert_position");
+    /// Move / Copy occurrences (ASM-02).
+    pub const MOVE: CmdId = super::moving::MOVE_CMD;
 
-    /// Every command of the module.
+    /// The selection and browser commands of ASM-10 (Move and Revert are separate).
     pub const ALL: [CmdId; 9] = [
         NEW_COMPONENT,
         ACTIVATE,
@@ -117,6 +130,10 @@ pub mod icon_ids {
     pub const OUT_OF_DATE: IconId = IconId("alert-triangle");
     /// Capture Position.
     pub const CAPTURE: IconId = IconId("map-pin-check");
+    /// Move / Copy.
+    pub const MOVE: IconId = IconId("arrows-move");
+    /// Revert.
+    pub const REVERT: IconId = crate::icons::ids::UNDO;
     /// Copy.
     pub const COPY: IconId = IconId("copy");
     /// Paste.
@@ -220,6 +237,13 @@ fn can_capture(env: &CmdEnv<'_>) -> Enablement {
     )
 }
 
+fn can_revert(env: &CmdEnv<'_>) -> Enablement {
+    need(
+        env.design.meta().mode == DesignMode::History && env.design.has_pending_positions(),
+        "No component was moved",
+    )
+}
+
 fn run_new_component(cx: &mut AppCx<'_>) {
     let parent = cx.env().active_component;
     actions::new_component(cx, parent);
@@ -292,6 +316,12 @@ impl ContextMenuProvider for ViewportEntries {
         if can_capture(env).is_enabled() {
             out.push(cmd::CAPTURE);
         }
+        if can_revert(env).is_enabled() {
+            out.push(cmd::REVERT);
+        }
+        if !selected_occurrences(env).is_empty() {
+            out.push(cmd::MOVE);
+        }
     }
 }
 
@@ -310,7 +340,8 @@ pub fn register(r: &mut Registrar<'_>) {
     });
     r.browser_provider(Box::new(browser::AssemblyRows));
     r.context_menu(Box::new(ViewportEntries));
-    let commands: [Row; 9] = [
+    r.position_guard(position::guard);
+    let commands: [Row; 10] = [
         (
             cmd::NEW_COMPONENT,
             labels::NEW_COMPONENT,
@@ -374,6 +405,13 @@ pub fn register(r: &mut Registrar<'_>) {
             Enabler::When(can_capture),
             actions::capture,
         ),
+        (
+            cmd::REVERT,
+            "Revert Position",
+            icon_ids::REVERT,
+            Enabler::When(can_revert),
+            position::revert,
+        ),
     ];
     for (id, label, icon, enabled, run) in commands {
         r.command(
@@ -383,6 +421,21 @@ pub fn register(r: &mut Registrar<'_>) {
                 .with_keywords(&["assembly", "component"]),
         );
     }
+    r.command(
+        CommandDef::new(MOVE_CMD.0, "Move/Copy", CmdAction::StartTool(moving::start))
+            .with_icon(icon_ids::MOVE)
+            .with_enabler(Enabler::When(moving::can_move))
+            .with_tooltip("Move or copy components: triad, point to point or values")
+            .with_keywords(&[
+                "assembly",
+                "component",
+                "move",
+                "copy",
+                "rotate",
+                "translate",
+            ])
+            .in_group(GroupId("design.solid.assemble"), 10),
+    );
     for (kind, display_name, icon) in [
         (
             amg_doc::positions::CAPTURE_POSITION_KIND,

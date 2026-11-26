@@ -201,6 +201,13 @@ impl Registrar<'_> {
         self.reg.add_doc_layer(self.module, def);
     }
 
+    /// Registers the position guard (additive, ASM-02; see [`crate::guard`]): asked before a
+    /// position-dependent action while moves are pending. One per app; a second one is a
+    /// registration conflict.
+    pub fn position_guard(&mut self, guard: crate::guard::PositionGuard) {
+        self.reg.set_position_guard(self.module, guard);
+    }
+
     /// Adds a context-menu provider (UI-21): its commands appear in the browser row menu,
     /// the timeline node menu and the marking menu's overflow list.
     pub fn context_menu(&mut self, p: Box<dyn crate::marking::ContextMenuProvider>) {

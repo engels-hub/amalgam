@@ -146,6 +146,8 @@ pub(crate) enum ShellRequest {
         crate::file::FileDialogRequest,
         std::sync::mpsc::Sender<Option<PathBuf>>,
     ),
+    /// Set or clear the scene's transient placements (additive, ASM-02).
+    PlacementOverlay(DocTabId, Option<Arc<amg_doc::Placements>>),
 }
 
 /// Read-only view for enablement, providers and panels.
@@ -353,6 +355,15 @@ impl AppCx<'_> {
     /// sketch session opens it).
     pub fn take_sketch_edit(&mut self) -> Option<amg_doc::FeatureId> {
         self.doc.sketch_edit.take()
+    }
+
+    /// Shows this document's occurrences at `placements` instead of the evaluated ones until
+    /// called again with `None` (end of frame; ignored unless the document is the active
+    /// one). For drag frames: moved instances follow without a recompute and without an
+    /// upload (additive, ASM-02; `SceneAdapter::set_placement_overlay`).
+    pub fn set_placement_overlay(&mut self, placements: Option<Arc<amg_doc::Placements>>) {
+        self.requests
+            .push(ShellRequest::PlacementOverlay(self.doc.id, placements));
     }
 
     /// Queues editing feature `id` of this document (end of frame): a sketch enters sketch
@@ -838,6 +849,15 @@ impl AmalgamApp {
                     if self.docs.get(self.active).is_some_and(|d| d.id == doc) {
                         let list = crate::tool::all_instances(&self.scene, &targets);
                         self.scene.set_highlight(layer, &list);
+                    }
+                }
+                ShellRequest::PlacementOverlay(doc, placements) => {
+                    if let Some(d) = self.docs.get(self.active).filter(|d| d.id == doc) {
+                        self.scene.set_placement_overlay(
+                            placements,
+                            d.document.design(),
+                            d.document.evaluated(),
+                        );
                     }
                 }
                 ShellRequest::OpenDialog(doc, d) => self.dialogs.push((doc, d.0)),

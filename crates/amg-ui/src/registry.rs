@@ -51,6 +51,8 @@ pub struct UiRegistry {
     doc_layers: Vec<crate::layer::DocLayerDef>,
     /// The module of each entry of `doc_layers`.
     doc_layer_modules: Vec<&'static str>,
+    /// The position guard and its module (additive, ASM-02).
+    position_guard: Option<(&'static str, crate::guard::PositionGuard)>,
 }
 
 impl fmt::Debug for UiRegistry {
@@ -279,6 +281,23 @@ impl UiRegistry {
     /// The per-document view layers in registration order (INS-09).
     pub fn doc_layers(&self) -> &[crate::layer::DocLayerDef] {
         &self.doc_layers
+    }
+
+    pub(crate) fn set_position_guard(
+        &mut self,
+        module: &'static str,
+        guard: crate::guard::PositionGuard,
+    ) {
+        if let Some((first, _)) = self.position_guard {
+            conflict("position guard", "position_guard", first, module);
+            return;
+        }
+        self.position_guard = Some((module, guard));
+    }
+
+    /// The registered position guard (additive, ASM-02; see [`crate::guard`]).
+    pub fn position_guard(&self) -> Option<crate::guard::PositionGuard> {
+        self.position_guard.map(|(_, g)| g)
     }
 
     pub(crate) fn add_context_menu(
