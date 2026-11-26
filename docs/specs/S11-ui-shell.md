@@ -3185,3 +3185,28 @@ Flagged for lane D review. All in `amg-ui`; no new third-party dependency; no ch
 - Additive `amg-ui` framework API: the `manip` module (Interfaces §A);
   `GenericFeatureTool::{manipulators, gizmo_of, dragged_field}`.
 - Possible S04 follow-up: a manipulator that drives several fields (Move / Align triads).
+
+### 2026-11-26: ASM-02 (lane E, S06 Move / Copy, Position panel, position guard) - additive framework hooks
+Flagged for lane D review. All in `amg-ui`; no new third-party dependency; no change to
+`amg-doc` or `amg-features`. Existing tests pass unchanged; the shell snapshots are unchanged.
+- **New framework module `guard`** (the S06 position guard request of 2026-11-09):
+  `GuardedAction::{SetMarker, MoveFeature, EditFeature, RunCommand}` with `describe` and `run`
+  (does the action without asking again), `type PositionGuard = fn(&mut AppCx, GuardedAction)
+  -> Option<GuardedAction>` (give the action back to run it now, or keep it and run it later),
+  and `guarded(cx, action)`. `Registrar::position_guard` (one per app; a second is a
+  registration conflict) and `UiRegistry::position_guard()`.
+  - Deviation from the requested `fn confirm_positions(&mut UiCtx) -> PositionChoice`: an
+    immediate-mode UI cannot block for an answer, so the guard keeps the action and runs it
+    after the user chose (the prompt is an `AppDialog`).
+  - **Timeline:** while `Design::has_pending_positions()` and a guard is registered, the
+    marker drag / step buttons (`SetMarker`), node reorder (`MoveFeature`) and Edit Feature go
+    to the guard first. Without pending moves or a guard the timeline does exactly what it did.
+  - Not wired yet: the generic dialog's in-context pick (UI-05) should call `guarded` with a
+    `RunCommand` / its own action when a pick is `EntityRef::InContext`; tools can use
+    `amg_ui::assembly::guard_tool_start` at the top of `Tool::start` (Joint Origin, ASM-11).
+- **`app`:** `AppCx::set_placement_overlay(Option<Arc<Placements>>)` (end of frame, active
+  document only) over the existing `SceneAdapter::set_placement_overlay` (the S06 transient
+  placement request; ASM-12 uses the same for joint-aware drags). The Move tool previews
+  through it and the assembly layer clears it once the evaluation after a commit arrives.
+- Toolbar: `assembly.move` ("Move/Copy") is placed unpinned in the Solid tab's Assemble group
+  (the group's drop-down only; the drawn toolbar is unchanged).

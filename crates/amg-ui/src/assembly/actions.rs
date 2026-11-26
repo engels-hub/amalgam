@@ -320,19 +320,30 @@ pub(super) fn move_occurrences_to(cx: &mut AppCx<'_>, occs: &[OccurrenceId], to:
 
 /// Capture Position: one `CapturePositions` for the pending and out-of-date occurrences.
 pub(super) fn capture(cx: &mut AppCx<'_>) {
+    try_capture(cx);
+}
+
+/// [`capture`]; true if the command was submitted.
+pub(super) fn try_capture(cx: &mut AppCx<'_>) -> bool {
     const LABEL: &str = "Capture Position";
     if !require_evaluated(cx, LABEL) {
-        return;
+        return false;
     }
     let command = {
         let env = cx.env();
         amg_doc::joints::capture_command(env.design, env.evaluated, None)
     };
     match command {
-        Some(c) => submit(cx, LABEL, vec![c]),
-        None => cx.notify(Notification::info(
-            LABEL,
-            "There is no position to capture.",
-        )),
+        Some(c) => {
+            submit(cx, LABEL, vec![c]);
+            true
+        }
+        None => {
+            cx.notify(Notification::info(
+                LABEL,
+                "There is no position to capture.",
+            ));
+            false
+        }
     }
 }

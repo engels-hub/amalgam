@@ -71,6 +71,7 @@ pub mod dialog;
 pub mod dock;
 pub mod feature_dialog;
 pub mod file;
+pub mod guard;
 pub mod icons;
 pub mod input;
 mod jobs;

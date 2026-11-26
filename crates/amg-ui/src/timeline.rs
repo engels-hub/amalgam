@@ -10,6 +10,8 @@
 //!   view are laid out (the node being dragged is always interacted with).
 //! - **Rollback marker:** a handle between two slots; dragging it previews the rolled-back
 //!   nodes and sends one `SetMarker` on release. The ⏮ ⏴ ⏵ ⏭ buttons step it.
+//! - **Position guard** (ASM-02): while occurrence moves are pending, marker moves, reorders
+//!   and edits are handed to the registered [`crate::guard`] first (Capture / Revert / Cancel).
 //! - **Reordering:** dragging a node shades the positions it can't take (outside
 //!   `Timeline::valid_move_range`) red and shows the drop line; a release on a valid position
 //!   sends one `MoveFeature`, a release on an invalid one sends nothing.
@@ -36,6 +38,7 @@ use amg_doc::{
 };
 
 use crate::app::{AmalgamApp, AppCx, CommitBatch};
+use crate::guard::GuardedAction;
 use crate::module::IconId;
 use crate::pick::PickTarget;
 use crate::tool::{Tool, ToolInit};
@@ -1164,8 +1167,19 @@ impl AmalgamApp {
             });
         };
         match a {
-            Action::Marker(index) => submit(self, DocCommand::SetMarker { index }),
-            Action::Move(id, to) => submit(self, DocCommand::MoveFeature { id, to }),
+            Action::Marker(index) => {
+                if let Some(index) = self.guard_timeline(GuardedAction::SetMarker { index }) {
+                    submit(self, DocCommand::SetMarker { index });
+                }
+            }
+            Action::Move(id, to) => {
+                if self
+                    .guard_timeline(GuardedAction::MoveFeature { id, to })
+                    .is_some()
+                {
+                    submit(self, DocCommand::MoveFeature { id, to });
+                }
+            }
             Action::Select { id, toggle } => {
                 if toggle {
                     if let Some(p) = state.selected.iter().position(|s| *s == id) {
@@ -1178,7 +1192,14 @@ impl AmalgamApp {
                 }
                 self.timeline_repaint();
             }
-            Action::Edit(id) => self.edit_feature(id),
+            Action::Edit(id) => {
+                if self
+                    .guard_timeline(GuardedAction::EditFeature(id))
+                    .is_some()
+                {
+                    self.edit_feature(id);
+                }
+            }
             Action::Suppress(id, suppressed) => {
                 let ids = state.targets(id);
                 submit(self, DocCommand::SetSuppressed { ids, suppressed });
@@ -1254,6 +1275,28 @@ impl AmalgamApp {
                 self.timeline_repaint();
             }
             Action::Run(cmd) => self.request_command(cmd),
+        }
+    }
+
+    /// Asks the position guard (ASM-02, [`crate::guard`]) about a timeline action while moves
+    /// are pending. `Some(marker index or 0)` means: go ahead as before; `None`: the guard
+    /// kept the action. Without pending moves or a guard nothing changes.
+    fn guard_timeline(&mut self, action: GuardedAction) -> Option<usize> {
+        let index = match action {
+            GuardedAction::SetMarker { index } => index,
+            _ => 0,
+        };
+        let pending = self.docs[self.active]
+            .document
+            .design()
+            .has_pending_positions();
+        let guard = self.registry.position_guard();
+        match guard {
+            Some(g) if pending => {
+                let back = self.with_cx(|cx| g(cx, action));
+                back.map(|_| index)
+            }
+            _ => Some(index),
         }
     }
 
