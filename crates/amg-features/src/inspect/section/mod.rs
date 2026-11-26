@@ -21,11 +21,16 @@
 //! 5. returns world-space cap triangles with plane-local `uv` (mm), the closed outlines, the
 //!    open curves (never capped) and [`SectionStats`].
 //!
+//! Solid bodies are cut on their B-rep tessellation ([`tessellate_solid`], INS-11).
+//!
 //! Open section curves of broken meshes are reported in [`Cap::open`] and
 //! [`SectionStats::open_loops`]; only closed loops bound caps.
 
+mod solid;
 #[cfg(test)]
 mod tests;
+
+pub use solid::{section_quality, tessellate_solid};
 
 use std::collections::HashMap;
 

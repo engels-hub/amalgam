@@ -30,7 +30,10 @@ use crate::tool::{Tool, ToolInit};
 pub use colors::{COMPONENT_COLORS_CMD, COMPONENT_COLORS_FLAG};
 pub use measure::{MEASURE_JOB, MeasureSnapshot, MeasureTool, measure_snapshot};
 pub use props::{PROPERTIES_CMD, PROPERTIES_JOB, PROPERTIES_PANEL};
-pub use section::{SECTION_CMD, SECTION_JOB, SECTION_PANEL, SECTION_STATS_CMD, SectionLayer};
+pub use section::{
+    SECTION_CMD, SECTION_JOB, SECTION_PANEL, SECTION_REF_JOB, SECTION_STATS_CMD, SECTION_TESS_JOB,
+    SectionLayer,
+};
 pub use section_tool::{SectionTool, section_tool_snapshot};
 pub use snap::{EDGE_SNAP_PX, MeasureFilter, VERTEX_SNAP_PX};
 pub use targets::ORIGIN_ENTITIES;
@@ -140,7 +143,7 @@ pub fn register(r: &mut Registrar<'_>) {
             "area",
             "hatch",
         ])
-        .with_enabler(Enabler::When(measure::mesh_enabled))
+        .with_enabler(Enabler::When(section::enabled))
         .placed(Placement::Toolbar {
             group: GroupId("design.inspect.inspect"),
             pinned: true,

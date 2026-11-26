@@ -17,6 +17,7 @@
 //! at most [`MAX_SECTION_PLANES`] planes ([`combine`]).
 
 pub mod assembly;
+pub mod base;
 
 use amg_core::{Plane, Point3, Tolerance};
 use amg_doc::{BodyId, Command, Design, EntityRef, ExtKey, ExtRecord};

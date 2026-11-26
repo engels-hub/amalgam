@@ -13,32 +13,50 @@
 //!   dragging the offset slider costs no geometry work on the UI thread). The bodies in the
 //!   analyses' scope are clipped (`Instance::sectioned`), with the analysis cap colour.
 //! - **Caps job.** The geometric caps (INS-02 `section_mesh`) run as one `amg-jobs` job
-//!   ([`SECTION_JOB`]) over the bodies in scope; a newer plane set or body change cancels it and
-//!   starts a new one (supersede). Its outlines and open curves are drawn as RND-07 polylines
-//!   once they match the current planes, and its [`SectionStats`] feed the panel and the dialog.
+//!   ([`SECTION_JOB`]) over the bodies in scope (every visible placement of each); a newer plane
+//!   set or body change cancels it and starts a new one (supersede). Its outlines and open
+//!   curves are drawn as RND-07 polylines once they match the current planes, and its
+//!   [`SectionStats`] feed the panel and the dialog.
+//! - **Solids** (INS-11). A solid body is cut on its B-rep tessellation: one
+//!   [`SECTION_TESS_JOB`] per shape, which plane changes do not cancel, kept while the shape is
+//!   unchanged. The caps job starts once every solid in scope is tessellated.
+//! - **Reference bases** (INS-11). `SectionBase::Ref` construction planes are resolved every
+//!   frame; faces need a kernel query, so they are resolved in a [`SECTION_REF_JOB`] whenever
+//!   the evaluated state changes. While a face resolves, its last resolved plane (else the
+//!   stored one) is used.
+//! - **Fallback.** A base that no longer resolves keeps cutting and raises a [`BaseWarning`]
+//!   (toast, panel, dialog). A face keeps the last plane it resolved to while the document was
+//!   open (the stored plane after reopening); a construction plane falls back to the stored
+//!   plane (CON-04). The record is only changed by the dialog's OK.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use amg_brep::Shape;
 use amg_core::{Aabb2, Plane, Transform};
-use amg_doc::{BodyGeom, BodyId, DocEvent, ExtKey, Revision};
+use amg_doc::{BodyGeom, BodyId, DocEvent, EntityRef, Evaluated, ExtKey, Revision};
 use amg_features::inspect::InspectError;
+use amg_features::inspect::doc::base::{BaseError, ResolvedBase, is_construction, resolve_base};
 use amg_features::inspect::doc::{
-    CapColor, HatchPattern, HatchStyle, SECTION_KIND, SectionAnalysis, analyses, combine,
-    delete_command,
+    CapColor, HatchPattern, HatchStyle, SECTION_KIND, SectionAnalysis, SectionBase, analyses,
+    combine, delete_command,
 };
-use amg_features::inspect::section::{BodySection, CapOpts, SectionPlanes, section_mesh};
+use amg_features::inspect::section::{
+    BodySection, CapOpts, SectionPlanes, section_mesh, tessellate_solid,
+};
 use amg_jobs::{JobCtx, JobError, JobHandle, JobId, SpawnOptions};
-use amg_mesh::{IndexedMesh, MeshBody};
+use amg_mesh::MeshBody;
 use amg_render::{DepthMode, LineStyle, OverlayList};
 
 use super::props::sig;
 use crate::app::{AppCx, CmdEnv, CommitBatch};
 use crate::browser::{BrowserAnchor, BrowserNode, BrowserProvider, NodeKey};
-use crate::command::CmdId;
+use crate::command::{CmdId, Enablement};
 use crate::design::DESIGN;
 use crate::layer::{DocLayer, DocLayerDef, LayerOut};
 use crate::module::PanelId;
+use crate::notify::Notification;
 use crate::panel::{DockSlot, Panel, PanelDef};
 use crate::scene::SectionStyle;
 
@@ -50,6 +68,10 @@ pub const SECTION_STATS_CMD: CmdId = CmdId("inspect.section_stats");
 pub const SECTION_PANEL: PanelId = PanelId("inspect.section_stats");
 /// Label of the caps job (jobs panel).
 pub const SECTION_JOB: &str = "Section caps";
+/// Label of the job that tessellates a solid body in scope (INS-11).
+pub const SECTION_TESS_JOB: &str = "Section tessellation";
+/// Label of the job that resolves face bases (INS-11).
+pub const SECTION_REF_JOB: &str = "Section reference";
 /// Id of the document layer.
 pub const SECTION_LAYER: &str = "inspect.section";
 /// The browser folder of the analyses.
@@ -166,13 +188,82 @@ pub struct SectionSnapshot {
     pub error: Option<String>,
     /// Outline and open-curve polylines drawn this frame.
     pub outlines_drawn: usize,
+    /// Reference bases that fell back or may have changed (INS-11).
+    pub warnings: Vec<BaseWarning>,
+    /// Solid bodies in scope still being tessellated (INS-11).
+    pub tessellating: usize,
 }
 
-/// One body to cap.
+/// A problem with the reference base of one analysis.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BaseWarning {
+    /// Its record (`None`: the dialog's new analysis).
+    pub key: Option<ExtKey>,
+    /// Display name.
+    pub name: String,
+    /// What happened, in words.
+    pub message: String,
+    /// The reference no longer resolves, so a kept plane is used.
+    pub fallback: bool,
+}
+
+/// Whether a face base resolved.
+#[derive(Clone, Debug, PartialEq)]
+enum FaceStatus {
+    Found,
+    /// Only the fingerprint matched.
+    Uncertain,
+    /// It did not resolve, with the reason.
+    Lost(String),
+}
+
+/// The state of one face base.
+#[derive(Clone, Debug)]
+struct FaceBase {
+    entity: EntityRef,
+    /// The newest plane it resolved to.
+    plane: Option<Plane>,
+    status: FaceStatus,
+}
+
+type FaceResults = Vec<(EntityRef, Result<ResolvedBase, BaseError>)>;
+
+struct Resolving {
+    handle: JobHandle<FaceResults, InspectError>,
+    entities: Vec<EntityRef>,
+}
+
+/// The section tessellation of one solid body.
+struct SolidMesh {
+    shape: Shape,
+    state: SolidState,
+}
+
+enum SolidState {
+    Running(JobHandle<MeshBody, InspectError>),
+    Ready(MeshBody),
+    Failed(String),
+}
+
+/// The geometry of a body in scope, before it is capped.
+enum Source {
+    Mesh(MeshBody),
+    Solid(Shape),
+}
+
+/// The face reference of `a`'s base, if it needs a kernel query.
+fn face_ref(a: &SectionAnalysis) -> Option<&EntityRef> {
+    match &a.base {
+        SectionBase::Ref { entity, .. } if !is_construction(entity) => Some(entity),
+        _ => None,
+    }
+}
+
+/// One placed body to cap.
 #[derive(Clone, Debug)]
 struct CapInput {
     body: BodyId,
-    mesh: Arc<IndexedMesh>,
+    mesh: MeshBody,
     world: Transform,
 }
 
@@ -217,6 +308,14 @@ pub struct SectionLayer {
     catch_up: Vec<Duration>,
     error: Option<String>,
     outlines_drawn: usize,
+    faces: Vec<FaceBase>,
+    /// The evaluated state the face bases were (or are being) resolved against.
+    faces_eval: Option<Arc<Evaluated>>,
+    resolving: Option<Resolving>,
+    solids: BTreeMap<BodyId, SolidMesh>,
+    tessellating: usize,
+    tess_errors: Vec<String>,
+    warnings: Vec<BaseWarning>,
 }
 
 impl std::fmt::Debug for SectionLayer {
@@ -248,6 +347,13 @@ impl Default for SectionLayer {
             catch_up: Vec::new(),
             error: None,
             outlines_drawn: 0,
+            faces: Vec::new(),
+            faces_eval: None,
+            resolving: None,
+            solids: BTreeMap::new(),
+            tessellating: 0,
+            tess_errors: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 }
@@ -284,9 +390,15 @@ impl SectionLayer {
         &self.records
     }
 
+    /// The newest plane the face base `entity` resolved to (`None`: not resolved yet, or not a
+    /// face base of any analysis).
+    pub fn face_plane(&self, entity: &EntityRef) -> Option<Plane> {
+        self.faces.iter().find(|f| &f.entity == entity)?.plane
+    }
+
     /// The state as of the last frame.
     pub fn snapshot(&self) -> SectionSnapshot {
-        let current = self.is_current();
+        let current = self.is_current() && self.resolving.is_none() && self.tessellating == 0;
         SectionSnapshot {
             planes: self.planes.clone(),
             stats: self.stats(),
@@ -297,8 +409,13 @@ impl SectionLayer {
             catch_up: self.catch_up.clone(),
             dropped: self.dropped.clone(),
             bad: self.bad.clone(),
-            error: self.error.clone(),
+            error: self
+                .error
+                .clone()
+                .or_else(|| self.tess_errors.first().cloned()),
             outlines_drawn: self.outlines_drawn,
+            warnings: self.warnings.clone(),
+            tessellating: self.tessellating,
         }
     }
 
@@ -333,10 +450,12 @@ impl SectionLayer {
                     extent: Aabb2::EMPTY,
                     bodies: 0,
                 };
-                for (_, b) in &r.bodies {
+                let mut bodies = BTreeSet::new();
+                for (id, b) in &r.bodies {
                     let Some(st) = b.stats.get(i) else { continue };
                     if st.area.get() > 0.0 || st.loops > 0 || st.open_loops > 0 {
-                        s.bodies += 1;
+                        bodies.insert(*id);
+                        s.bodies = bodies.len();
                     }
                     s.area += st.area.get();
                     s.perimeter += st.perimeter.get();
@@ -383,18 +502,272 @@ impl SectionLayer {
         list
     }
 
+    /// Brings the face bases up to date: resolves the references in `wanted` in a job when the
+    /// evaluated state or the set of references changed.
+    fn update_faces(&mut self, cx: &mut AppCx<'_>, wanted: &[EntityRef]) {
+        self.faces.retain(|f| wanted.contains(&f.entity));
+        if wanted.is_empty() {
+            if let Some(r) = self.resolving.take() {
+                r.handle.cancel();
+            }
+            self.faces_eval = None;
+            return;
+        }
+        let eval = Arc::clone(cx.env().evaluated);
+        let stale = self
+            .faces_eval
+            .as_ref()
+            .is_none_or(|e| !Arc::ptr_eq(e, &eval));
+        let missing = wanted.iter().any(|e| {
+            !self.faces.iter().any(|f| &f.entity == e)
+                && !self
+                    .resolving
+                    .as_ref()
+                    .is_some_and(|r| r.entities.contains(e))
+        });
+        if stale || missing {
+            if let Some(r) = self.resolving.take() {
+                r.handle.cancel();
+            }
+            let design = cx.env().design.clone();
+            let entities = wanted.to_vec();
+            let job_entities = entities.clone();
+            let job_eval = Arc::clone(&eval);
+            let handle = cx.jobs().spawn_fn(
+                SECTION_REF_JOB,
+                SpawnOptions::default(),
+                move |ctx: &JobCtx| -> Result<FaceResults, InspectError> {
+                    let mut out = Vec::with_capacity(job_entities.len());
+                    for e in job_entities {
+                        ctx.checkpoint()?;
+                        let r = resolve_base(&job_eval, &design, &e);
+                        out.push((e, r));
+                    }
+                    Ok(out)
+                },
+            );
+            self.resolving = Some(Resolving { handle, entities });
+            self.faces_eval = Some(eval);
+        }
+        let Some(r) = &mut self.resolving else { return };
+        let Some(result) = r.handle.try_take() else {
+            return;
+        };
+        let entities = std::mem::take(&mut r.entities);
+        self.resolving = None;
+        let results: Vec<(EntityRef, Result<ResolvedBase, String>)> = match result {
+            Ok(list) => list
+                .into_iter()
+                .map(|(e, r)| (e, r.map_err(|e| e.to_string())))
+                .collect(),
+            Err(JobError::Cancelled) => {
+                self.faces_eval = None;
+                return;
+            }
+            Err(e) => entities
+                .into_iter()
+                .map(|r| (r, Err(e.to_string())))
+                .collect(),
+        };
+        for (entity, result) in results {
+            if !wanted.contains(&entity) {
+                continue;
+            }
+            let i = match self.faces.iter().position(|f| f.entity == entity) {
+                Some(i) => i,
+                None => {
+                    self.faces.push(FaceBase {
+                        entity,
+                        plane: None,
+                        status: FaceStatus::Found,
+                    });
+                    self.faces.len() - 1
+                }
+            };
+            let face = &mut self.faces[i];
+            match result {
+                Ok(b) => {
+                    face.plane = Some(b.plane);
+                    face.status = if b.uncertain {
+                        FaceStatus::Uncertain
+                    } else {
+                        FaceStatus::Found
+                    };
+                }
+                Err(why) => face.status = FaceStatus::Lost(why),
+            }
+        }
+    }
+
+    /// The warning of `a`'s reference base, if any, and whether a kept plane is used.
+    fn base_warning(&self, env: &CmdEnv<'_>, a: &SectionAnalysis) -> Option<(String, bool)> {
+        let SectionBase::Ref { entity, .. } = &a.base else {
+            return None;
+        };
+        if is_construction(entity) {
+            return crate::construct::base_plane(env.design, env.evaluated, entity)
+                .is_none()
+                .then(|| {
+                    (
+                        "the base construction plane is gone; using the last plane".to_owned(),
+                        true,
+                    )
+                });
+        }
+        match &self.faces.iter().find(|f| &f.entity == entity)?.status {
+            FaceStatus::Found => None,
+            FaceStatus::Uncertain => Some((
+                "the original base face is gone; matched a face with the same shape and position"
+                    .to_owned(),
+                false,
+            )),
+            FaceStatus::Lost(why) => Some((
+                format!("the base face is gone ({why}); using the last plane"),
+                true,
+            )),
+        }
+    }
+
+    /// Replaces the warnings and shows a toast for each new one.
+    fn set_warnings(&mut self, cx: &mut AppCx<'_>, warnings: Vec<BaseWarning>) {
+        for w in &warnings {
+            let known = self
+                .warnings
+                .iter()
+                .any(|o| o.name == w.name && o.message == w.message);
+            if !known {
+                cx.notify(Notification::warning(
+                    "Section Analysis",
+                    format!("{}: {}", w.name, w.message),
+                ));
+            }
+        }
+        self.warnings = warnings;
+    }
+
+    /// The section tessellation of solid `body`, or `None` while it is being made or after it
+    /// failed. A new shape starts a new job.
+    fn solid_mesh(&mut self, cx: &mut AppCx<'_>, body: BodyId, shape: Shape) -> Option<MeshBody> {
+        if !self
+            .solids
+            .get(&body)
+            .is_some_and(|m| m.shape.ptr_eq(&shape))
+        {
+            let job_shape = shape.clone();
+            let handle = cx.jobs().spawn_fn(
+                SECTION_TESS_JOB,
+                SpawnOptions::default(),
+                move |ctx: &JobCtx| tessellate_solid(&job_shape, ctx),
+            );
+            let new = SolidMesh {
+                shape,
+                state: SolidState::Running(handle),
+            };
+            if let Some(SolidMesh {
+                state: SolidState::Running(old),
+                ..
+            }) = self.solids.insert(body, new)
+            {
+                old.cancel();
+            }
+        }
+        let entry = self.solids.get_mut(&body)?;
+        if let SolidState::Running(handle) = &mut entry.state
+            && let Some(r) = handle.try_take()
+        {
+            entry.state = match r {
+                Ok(mesh) => SolidState::Ready(mesh),
+                Err(e) => SolidState::Failed(e.to_string()),
+            };
+        }
+        match &entry.state {
+            SolidState::Running(_) => {
+                self.tessellating += 1;
+                None
+            }
+            SolidState::Ready(mesh) => Some(mesh.clone()),
+            SolidState::Failed(e) => {
+                self.tess_errors
+                    .push(format!("a solid body cannot be sectioned: {e}"));
+                None
+            }
+        }
+    }
+
+    /// Drops the tessellations of bodies that are gone or changed (all of them when `unused`).
+    fn prune_solids(&mut self, eval: &Evaluated, unused: bool) {
+        self.solids.retain(|id, m| {
+            let keep = !unused
+                && matches!(eval.body(*id).map(|b| &b.geom),
+                    Some(BodyGeom::Solid(s)) if s.brep().is_some_and(|b| b.ptr_eq(&m.shape)));
+            if !keep && let SolidState::Running(h) = &m.state {
+                h.cancel();
+            }
+            keep
+        });
+    }
+
+    /// The face references of the records and of the dialog's draft.
+    fn face_refs(&self) -> Vec<EntityRef> {
+        let mut out: Vec<EntityRef> = Vec::new();
+        let records = self.records.iter().map(|(_, a)| a);
+        for a in records.chain(self.preview.iter().map(|p| &p.analysis)) {
+            if let Some(e) = face_ref(a)
+                && !out.contains(e)
+            {
+                out.push(e.clone());
+            }
+        }
+        out
+    }
+
     fn update_inner(&mut self, cx: &mut AppCx<'_>, out: &mut LayerOut<'_>) {
         self.reload(&cx.env());
+        let wanted = self.face_refs();
+        self.update_faces(cx, &wanted);
         let env = cx.env();
         // Planes.
-        let (planes, used, dropped): (Vec<PlaneEntry>, Vec<SectionAnalysis>, Vec<String>) = {
-            let list = self.effective();
-            let refs: Vec<&SectionAnalysis> = list.iter().map(|(_, a)| *a).collect();
-            // `Ref` bases follow their construction plane through every recompute (CON-04).
+        let (planes, used, dropped, warnings) = {
+            // A face base that resolved once keeps that plane as its fallback.
+            let list: Vec<(Option<ExtKey>, SectionAnalysis)> = self
+                .effective()
+                .into_iter()
+                .map(|(k, a)| {
+                    let mut a = a.clone();
+                    if let SectionBase::Ref { entity, last } = &mut a.base
+                        && !is_construction(entity)
+                        && let Some(p) = self.face_plane(entity)
+                    {
+                        *last = p;
+                    }
+                    (k, a)
+                })
+                .collect();
+            let warnings: Vec<BaseWarning> = list
+                .iter()
+                .filter_map(|(key, a)| {
+                    let (message, fallback) = self.base_warning(&env, a)?;
+                    Some(BaseWarning {
+                        key: key.clone(),
+                        name: a.name.clone(),
+                        message,
+                        fallback,
+                    })
+                })
+                .collect();
+            let refs: Vec<&SectionAnalysis> = list.iter().map(|(_, a)| a).collect();
+            // `Ref` bases follow their entity through every recompute (CON-04, INS-11).
             let c = combine(&refs, &|e| {
-                crate::construct::base_plane(env.design, env.evaluated, e)
+                if is_construction(e) {
+                    return crate::construct::base_plane(env.design, env.evaluated, e);
+                }
+                let face = self.faces.iter().find(|f| &f.entity == e)?;
+                match face.status {
+                    FaceStatus::Lost(_) => None,
+                    FaceStatus::Found | FaceStatus::Uncertain => face.plane,
+                }
             });
-            let planes = c
+            let planes: Vec<PlaneEntry> = c
                 .owners
                 .iter()
                 .zip(&c.planes.0)
@@ -404,9 +777,9 @@ impl SectionLayer {
                     plane: *p,
                 })
                 .collect();
-            let used = c.owners.iter().map(|&i| list[i].1.clone()).collect();
-            let dropped = c.dropped.iter().map(|&i| list[i].1.name.clone()).collect();
-            (planes, used, dropped)
+            let used: Vec<SectionAnalysis> = c.owners.iter().map(|&i| list[i].1.clone()).collect();
+            let dropped: Vec<String> = c.dropped.iter().map(|&i| list[i].1.name.clone()).collect();
+            (planes, used, dropped, warnings)
         };
         self.planes = planes;
         self.dropped = dropped;
@@ -422,10 +795,10 @@ impl SectionLayer {
             })
             .collect();
         // Bodies in scope: clipped, with the first scoped analysis's uniform cap colour.
-        let mut inputs = Vec::new();
+        let mut sources: Vec<(BodyId, Source, Vec<Transform>)> = Vec::new();
         let mut style = SectionStyle::default();
         if !used.is_empty() {
-            let mut clipped = std::collections::BTreeSet::new();
+            let mut clipped = BTreeSet::new();
             for (id, b) in env.evaluated.bodies() {
                 let visible = env.design.body_props(id).visible;
                 let covering: Vec<&SectionAnalysis> = used
@@ -442,24 +815,59 @@ impl SectionLayer {
                 }) {
                     style.cap_colors.insert(id, linear_rgb(c));
                 }
-                if let BodyGeom::Mesh(m) = &b.geom {
-                    let world = env
-                        .evaluated
-                        .instances(id)
-                        .first()
-                        .map_or(Transform::IDENTITY, |i| i.world);
-                    inputs.push(CapInput {
-                        body: id,
-                        mesh: Arc::clone(m),
-                        world,
-                    });
+                let source = match &b.geom {
+                    BodyGeom::Mesh(m) => Source::Mesh(MeshBody::from_arc(Arc::clone(m))),
+                    BodyGeom::Solid(s) => match s.brep() {
+                        Some(shape) => Source::Solid(shape.clone()),
+                        None => continue,
+                    },
+                    _ => continue,
+                };
+                let instances = env.evaluated.instances(id);
+                let worlds = if instances.is_empty() {
+                    vec![Transform::IDENTITY]
+                } else {
+                    instances
+                        .into_iter()
+                        .filter(|i| {
+                            i.path
+                                .iter()
+                                .all(|o| env.design.occurrence(*o).is_some_and(|o| o.visible))
+                        })
+                        .map(|i| i.world)
+                        .collect()
+                };
+                if !worlds.is_empty() {
+                    sources.push((id, source, worlds));
                 }
             }
             style.clipped = Some(clipped);
         }
         out.sections.style = style;
+        let eval = Arc::clone(env.evaluated);
+        self.prune_solids(&eval, self.records.is_empty() && self.preview.is_none());
+        self.set_warnings(cx, warnings);
+        self.tessellating = 0;
+        self.tess_errors.clear();
+        let mut inputs = Vec::new();
+        for (body, source, worlds) in sources {
+            let mesh = match source {
+                Source::Mesh(m) => Some(m),
+                Source::Solid(shape) => self.solid_mesh(cx, body, shape),
+            };
+            if let Some(mesh) = mesh {
+                inputs.extend(worlds.into_iter().map(|world| CapInput {
+                    body,
+                    mesh: mesh.clone(),
+                    world,
+                }));
+            }
+        }
         // The caps job.
-        let key = if self.planes.is_empty() || inputs.is_empty() {
+        // While a solid is tessellated, the previous result stays (not current) and no caps
+        // job runs.
+        let waiting = !self.planes.is_empty() && self.tessellating > 0;
+        let key = if self.planes.is_empty() || inputs.is_empty() || waiting {
             None
         } else {
             let mut k = CapKey::new();
@@ -469,7 +877,7 @@ impl SectionLayer {
             for i in &inputs {
                 k.push(i.body.origin.0);
                 k.push(u64::from(i.body.slot));
-                k.push(Arc::as_ptr(&i.mesh) as usize as u64);
+                k.push(Arc::as_ptr(i.mesh.mesh()) as usize as u64);
                 for c in i.world.matrix3.to_cols_array() {
                     k.push(c.to_bits());
                 }
@@ -486,6 +894,7 @@ impl SectionLayer {
             }
             self.error = None;
             match key {
+                None if waiting => {}
                 None => self.result = None,
                 Some(key) => {
                     let planes = SectionPlanes(self.planes.iter().map(|p| p.plane).collect());
@@ -499,9 +908,8 @@ impl SectionLayer {
                             for (i, inp) in inputs.iter().enumerate() {
                                 ctx.checkpoint()?;
                                 let sub = ctx.sub(i as f32 / n, (i + 1) as f32 / n);
-                                let body = MeshBody::from_arc(Arc::clone(&inp.mesh));
                                 let s = section_mesh(
-                                    &body,
+                                    &inp.mesh,
                                     &inp.world,
                                     &planes,
                                     &CapOpts::default(),
@@ -540,12 +948,13 @@ impl SectionLayer {
                 Err(e) => self.error = Some(e.to_string()),
             }
         }
-        if self.job.is_some() {
+        if self.job.is_some() || self.resolving.is_some() || self.tessellating > 0 {
             cx.request_repaint_after(Duration::from_millis(16));
         }
         // Outlines and open curves of the current caps.
         self.outlines_drawn = 0;
         if self.is_current()
+            && self.tessellating == 0
             && let Some(r) = &self.result
         {
             self.outlines_drawn = draw_outlines(out.overlays, r);
@@ -618,6 +1027,11 @@ pub fn open_warning(s: &AnalysisStats) -> Option<String> {
     })
 }
 
+/// The text of a reference-base warning (panel and dialog).
+pub fn warning_text(w: &BaseWarning) -> String {
+    format!("Warning, {}: {}", w.name, w.message)
+}
+
 /// Draws the statistics of `s` (shared by the panel and the dialog).
 pub fn stats_ui(ui: &mut egui::Ui, s: &AnalysisStats) {
     egui::Grid::new(("section_stats", s.key.as_ref().map_or(0, |k| k.id)))
@@ -635,6 +1049,21 @@ pub fn stats_ui(ui: &mut egui::Ui, s: &AnalysisStats) {
 }
 
 // ---- commands on records ----------------------------------------------------------------------
+
+/// Section Analysis is enabled while the design has a body it can cut: a mesh, or a solid with
+/// B-rep geometry.
+pub(crate) fn enabled(env: &CmdEnv<'_>) -> Enablement {
+    let cut = env.evaluated.bodies().any(|(_, b)| match &b.geom {
+        BodyGeom::Mesh(_) => true,
+        BodyGeom::Solid(s) => s.brep().is_some(),
+        _ => false,
+    });
+    if cut {
+        Enablement::Enabled
+    } else {
+        Enablement::disabled("needs a mesh or solid body")
+    }
+}
 
 /// Submits `analysis` under `key` as one undo step labelled `label`.
 fn submit_set(cx: &mut AppCx<'_>, label: &str, key: ExtKey, analysis: &SectionAnalysis) {
@@ -780,6 +1209,9 @@ impl Panel for StatsPanel {
         };
         if s.planes.is_empty() {
             ui.label("No visible section analysis.");
+        }
+        for w in &s.warnings {
+            ui.colored_label(ui.visuals().warn_fg_color, warning_text(w));
         }
         if !s.current || s.running.is_some() {
             ui.horizontal(|ui| {

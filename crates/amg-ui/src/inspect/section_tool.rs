@@ -1,12 +1,16 @@
 //! [`SectionTool`]: the hand-built Phase 1 Section Analysis dialog (S05 §3, INS-09) on the
 //! lane-D framework (UI-03 tool, UI-04 picking, UI-15 widgets).
 //!
-//! - **Base:** an origin plane (XY / YZ / XZ), a picked planar region or a construction plane:
+//! - **Base:** an origin plane (XY / YZ / XZ), a picked planar face or a construction plane:
 //!   *Pick face* and a click on a mesh face grows its coplanar region (INS-01
 //!   `grow_planar_region`, as a job) and fits a plane, stored by value (`SectionBase::Free`);
-//!   a click on a construction plane stores its reference (`SectionBase::Ref`, CON-04), so the
-//!   section follows the plane. A face or construction plane preselected when the tool starts
-//!   is used the same way.
+//!   a click on a construction plane (CON-04) or a planar face of a solid (INS-11, resolved
+//!   in a job; curved faces are refused) stores its reference (`SectionBase::Ref`), so the
+//!   section follows it. A face or construction plane preselected when the tool starts is used
+//!   the same way.
+//! - **Manipulator** (UI-06, INS-11): an arrow along the base normal at the section plane.
+//!   Dragging it writes the offset field (`Ctrl` snaps, `Esc` restores), and the arrow follows
+//!   the field. It is hidden while a base is being picked.
 //! - **Offset:** an expression field (any length expression, `10 mm`, `0.5 in`, parameters),
 //!   a slider over the scene extent along the base normal, and − / + step buttons; tilt about the
 //!   base X / Y axes (degrees), flip, hatch pattern, cap colour (body colour or a uniform
@@ -21,9 +25,10 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use amg_core::{Aabb3, Dimension, Plane, Transform};
-use amg_doc::{BodyGeom, BodyId, EntityRef, ExtKey, TopoKind};
+use amg_core::{Aabb3, Dimension, Dir3, Plane, Point3, Transform};
+use amg_doc::{BodyGeom, BodyId, Design, EntityRef, Evaluated, ExtKey, TopoKind};
 use amg_features::inspect::InspectError;
+use amg_features::inspect::doc::base::{is_construction, resolve_base};
 use amg_features::inspect::doc::{
     CapColor, HatchPattern, OriginPlane, SectionAnalysis, SectionBase, SectionScope, next_name,
 };
@@ -31,10 +36,11 @@ use amg_features::inspect::measure::{RegionOpts, fit_plane_faces, grow_planar_re
 use amg_jobs::{JobCtx, JobError, JobHandle, SpawnOptions};
 use amg_mesh::{FaceId, IndexedMesh};
 
-use super::section::{AnalysisStats, Preview, SECTION_CMD, SectionLayer, stats_ui};
+use super::section::{AnalysisStats, Preview, SECTION_CMD, SectionLayer, stats_ui, warning_text};
 use crate::app::CommitBatch;
 use crate::command::CmdId;
 use crate::input::ViewportEvent;
+use crate::manip::{self, DragValue, GizmoPrim, ManipEvent, Manipulators};
 use crate::pick::{PickHitUi, PickMode, PickTarget, PickTicket};
 use crate::select::{EntityFilter, SelItem};
 use crate::tool::{FinishReason, InputResult, Tool, ToolCx, ToolInit};
@@ -42,16 +48,18 @@ use crate::widgets::{ChoiceField, DialogAction, DialogFrame, ExprInput, flip, to
 
 /// Step of the − / + offset buttons, mm.
 pub const OFFSET_STEP: f64 = 1.0;
-/// Label of the face-region job.
+/// Label of the job that turns a face pick into a base.
 pub const BASE_JOB: &str = "Section base";
+/// Id of the offset arrow.
+pub const OFFSET_GIZMO: u32 = 0;
 
 /// Which base the dialog uses.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BaseChoice {
     /// An origin plane.
     Origin(OriginPlane),
-    /// The picked planar region (`SectionBase::Free`) or construction plane
-    /// (`SectionBase::Ref`).
+    /// The picked mesh region (`SectionBase::Free`), or the picked construction plane or
+    /// solid face (`SectionBase::Ref`).
     Picked,
 }
 
@@ -112,6 +120,10 @@ pub struct SectionToolSnapshot {
     pub stats: Option<AnalysisStats>,
     /// The last error.
     pub error: Option<String>,
+    /// The reference-base warning of the draft (INS-11).
+    pub warning: Option<String>,
+    /// The offset arrow: its base point and direction (the base normal).
+    pub gizmo: Option<(Point3, Dir3)>,
 }
 
 fn snapshot_id() -> egui::Id {
@@ -131,6 +143,33 @@ struct FacePick {
     face: FaceId,
 }
 
+/// The base a face pick gives: the reference to store (`None`: by value) and its plane.
+type PickedBase = (Option<EntityRef>, Plane);
+
+/// The base of the planar solid face `entity`.
+fn face_base(
+    eval: &Evaluated,
+    design: &Design,
+    entity: EntityRef,
+    ctx: &JobCtx,
+) -> Result<PickedBase, InspectError> {
+    ctx.checkpoint()?;
+    let base =
+        resolve_base(eval, design, &entity).map_err(|e| InspectError::Resolve(e.to_string()))?;
+    Ok((Some(entity), base.plane))
+}
+
+/// Where the offset arrow sits: on the section plane, on the line along the base normal `n`
+/// through the middle of the scene (the plane's origin for a plane seen almost along it).
+fn arrow_origin(plane: &Plane, n: Dir3, bounds: &Aabb3) -> Point3 {
+    let along = plane.normal.get().dot(n.get());
+    if bounds.is_empty() || along.abs() < 0.1 {
+        return plane.origin;
+    }
+    let c = bounds.center();
+    c + n.get() * (plane.normal.get().dot(plane.origin - c) / along)
+}
+
 /// The world plane of the coplanar region around `p.face` (normal along the face normals).
 fn region_plane(p: &FacePick, ctx: &JobCtx) -> Result<Plane, InspectError> {
     let faces = grow_planar_region(&p.mesh, p.face, &RegionOpts::default(), ctx)?;
@@ -141,7 +180,7 @@ fn region_plane(p: &FacePick, ctx: &JobCtx) -> Result<Plane, InspectError> {
     let origin = p.to_world.transform_point3(local.origin);
     let n = p.to_world.matrix3 * local.normal.get();
     let x = p.to_world.matrix3 * local.x.get();
-    let n = amg_core::Dir3::new(n, &amg_core::Tolerance::default())
+    let n = Dir3::new(n, &amg_core::Tolerance::default())
         .ok_or(InspectError::Degenerate("picked plane normal"))?;
     Plane::from_normal_x(origin, n, x, &amg_core::Tolerance::default())
         .or_else(|_| Ok(Plane::from_normal(origin, n)))
@@ -163,7 +202,8 @@ pub struct SectionTool {
     draft: SectionAnalysis,
     base: BaseChoice,
     picked: Option<Plane>,
-    /// The construction plane `picked` stands for (CON-04); `None` for a mesh region.
+    /// The construction plane (CON-04) or solid face (INS-11) `picked` stands for; `None` for
+    /// a mesh region.
     picked_ref: Option<EntityRef>,
     offset_text: String,
     color: ColorChoice,
@@ -173,8 +213,11 @@ pub struct SectionTool {
     listed_active: bool,
     picking: bool,
     click: Option<PickTicket>,
-    job: Option<JobHandle<Plane, InspectError>>,
+    job: Option<JobHandle<PickedBase, InspectError>>,
     preselected_face: Option<PickTarget>,
+    manips: Manipulators,
+    /// The offset and its text when the arrow drag started.
+    drag: Option<(f64, String)>,
     bounds: Aabb3,
     error: Option<String>,
     started: bool,
@@ -196,6 +239,15 @@ fn mesh_of(env: &crate::app::CmdEnv<'_>, body: BodyId) -> Option<Arc<IndexedMesh
     }
 }
 
+/// Whether `body` can be sectioned: a mesh, or a solid with B-rep geometry.
+fn sectionable(env: &crate::app::CmdEnv<'_>, body: BodyId) -> bool {
+    match env.evaluated.body(body).map(|b| &b.geom) {
+        Some(BodyGeom::Mesh(_)) => true,
+        Some(BodyGeom::Solid(s)) => s.brep().is_some(),
+        _ => false,
+    }
+}
+
 fn mm_text(v: f64) -> String {
     let s = format!("{v:.4}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
@@ -203,8 +255,8 @@ fn mm_text(v: f64) -> String {
 }
 
 impl SectionTool {
-    /// A new analysis at XY + 0 of every visible body, named "Section N". Preselected mesh
-    /// bodies become the scope; a preselected mesh face becomes the base.
+    /// A new analysis at XY + 0 of every visible body, named "Section N". Preselected mesh or
+    /// solid bodies become the scope; a preselected face becomes the base.
     pub fn new(init: &ToolInit<'_>) -> SectionTool {
         let env = &init.env;
         let draft =
@@ -221,14 +273,14 @@ impl SectionTool {
             match i.target {
                 PickTarget::Body {
                     body, sub: None, ..
-                } if mesh_of(env, body).is_some() => {
+                } if sectionable(env, body) => {
                     listed.push(i.clone());
                 }
                 PickTarget::Body {
                     body,
                     sub: Some((TopoKind::Face, _)),
                     ..
-                } if mesh_of(env, body).is_some() && preselected_face.is_none() => {
+                } if sectionable(env, body) && preselected_face.is_none() => {
                     preselected_face = Some(i.target);
                 }
                 _ => {}
@@ -261,6 +313,8 @@ impl SectionTool {
             click: None,
             job: None,
             preselected_face,
+            manips: Manipulators::new(),
+            drag: None,
             bounds: Aabb3::EMPTY,
             error: None,
             started: false,
@@ -320,7 +374,7 @@ impl SectionTool {
         let n = base.normal.get();
         let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
         for i in 0..8 {
-            let p = amg_core::Point3::new(
+            let p = Point3::new(
                 if i & 1 == 0 {
                     self.bounds.min.x
                 } else {
@@ -384,7 +438,8 @@ impl SectionTool {
         }
     }
 
-    /// Starts the region job for a face pick.
+    /// Starts the base job for a face pick: the coplanar region of a mesh face, or the plane
+    /// of a solid face.
     fn resolve_face(&mut self, target: PickTarget, cx: &mut ToolCx<'_>) {
         let PickTarget::Body {
             body,
@@ -394,28 +449,57 @@ impl SectionTool {
         else {
             return;
         };
-        let Some(mesh) = mesh_of(&cx.env(), body) else {
-            return;
-        };
-        if f as usize >= mesh.face_count() {
-            return;
-        }
-        let Some(to_world) = cx.scene().instance_world(body, instance) else {
-            return;
-        };
-        let pick = FacePick {
-            mesh,
-            to_world,
-            face: FaceId(f),
-        };
         if let Some(j) = self.job.take() {
             j.cancel();
         }
-        self.job = Some(cx.app().jobs().spawn_fn(
-            BASE_JOB,
-            SpawnOptions::default(),
-            move |ctx: &JobCtx| region_plane(&pick, ctx),
-        ));
+        if let Some(mesh) = mesh_of(&cx.env(), body) {
+            if f as usize >= mesh.face_count() {
+                return;
+            }
+            let Some(to_world) = cx.scene().instance_world(body, instance) else {
+                return;
+            };
+            let pick = FacePick {
+                mesh,
+                to_world,
+                face: FaceId(f),
+            };
+            self.job = Some(cx.app().jobs().spawn_fn(
+                BASE_JOB,
+                SpawnOptions::default(),
+                move |ctx: &JobCtx| region_plane(&pick, ctx).map(|p| (None, p)),
+            ));
+        } else {
+            if !sectionable(&cx.env(), body) {
+                return;
+            }
+            let path = cx
+                .scene()
+                .occurrence_path(instance)
+                .cloned()
+                .unwrap_or_default();
+            let (eval, design) = {
+                let env = cx.env();
+                (Arc::clone(env.evaluated), env.design.clone())
+            };
+            let Some(item) = SelItem::resolve(target, &eval) else {
+                self.error = Some("this face has no persistent reference".to_owned());
+                return;
+            };
+            let entity = if path.is_empty() {
+                item.entity
+            } else {
+                EntityRef::InContext {
+                    path: path.to_vec(),
+                    target: Box::new(item.entity),
+                }
+            };
+            self.job = Some(cx.app().jobs().spawn_fn(
+                BASE_JOB,
+                SpawnOptions::default(),
+                move |ctx: &JobCtx| face_base(&eval, &design, entity, ctx),
+            ));
+        }
         self.picking = false;
     }
 
@@ -473,8 +557,8 @@ impl SectionTool {
         let Some(r) = j.try_take() else { return };
         self.job = None;
         match r {
-            Ok(p) => {
-                self.picked_ref = None;
+            Ok((entity, p)) => {
+                self.picked_ref = entity;
                 self.picked = Some(p);
                 self.base = BaseChoice::Picked;
                 self.error = None;
@@ -492,7 +576,85 @@ impl SectionTool {
         s.stats.into_iter().find(|st| st.key == self.editing)
     }
 
-    fn snapshot(&self, stats: Option<AnalysisStats>) -> SectionToolSnapshot {
+    /// The warning of the draft's reference base.
+    fn warning(&self, cx: &mut ToolCx<'_>) -> Option<String> {
+        let s = cx.app().doc_layer::<SectionLayer>()?.snapshot();
+        s.warnings
+            .iter()
+            .find(|w| w.key == self.editing)
+            .map(warning_text)
+    }
+
+    /// Places the offset arrow on the draft's plane.
+    fn refresh_gizmo(&mut self) {
+        let gizmo = match self.base_plane() {
+            Some(base) if !self.picking => {
+                let (plane, _) = self.draft.plane(&|_| None);
+                Some(GizmoPrim::Arrow {
+                    origin: arrow_origin(&plane, base.normal, &self.bounds),
+                    dir: base.normal,
+                    id: OFFSET_GIZMO,
+                    hot: false,
+                })
+            }
+            _ => None,
+        };
+        self.manips.set(gizmo.into_iter().collect());
+    }
+
+    /// Applies an arrow event to the offset and its text.
+    fn on_manip(&mut self, ev: ManipEvent, cx: &mut ToolCx<'_>) {
+        match ev {
+            ManipEvent::Begin { .. } => {
+                self.drag = Some((self.draft.offset, self.offset_text.clone()));
+            }
+            ManipEvent::Drag { value, snap, .. } => self.apply_drag(value, snap, cx),
+            ManipEvent::End { value, snap, .. } => {
+                if let Some(v) = value {
+                    self.apply_drag(v, snap, cx);
+                }
+                self.drag = None;
+            }
+            ManipEvent::Cancel { .. } => {
+                if let Some((offset, text)) = self.drag.take() {
+                    self.draft.offset = offset;
+                    self.offset_text = text;
+                }
+            }
+        }
+        self.sync_draft();
+        self.push_preview(cx);
+        cx.app().request_repaint();
+    }
+
+    /// Writes `start + change` (snapped with `Ctrl`) into the offset field; the offset is the
+    /// value of the written text, in the document's units.
+    fn apply_drag(&mut self, value: DragValue, snap: bool, cx: &mut ToolCx<'_>) {
+        let (Some((start, _)), Some(base)) = (&self.drag, self.base_plane()) else {
+            return;
+        };
+        let Some(change) = value.along(base.normal.get()) else {
+            return;
+        };
+        let mut v = start + change;
+        let env = cx.env();
+        let prefs = &env.design.meta().default_units;
+        if snap {
+            v = manip::snap(v, manip::snap_step(Dimension::LENGTH, prefs));
+        }
+        self.offset_text = manip::field_text(v, Dimension::LENGTH, prefs);
+        self.draft.offset = env
+            .design
+            .params()
+            .try_eval(&self.offset_text, Some(Dimension::LENGTH), prefs)
+            .map_or(v, |q| q.value);
+    }
+
+    fn snapshot(
+        &self,
+        stats: Option<AnalysisStats>,
+        warning: Option<String>,
+    ) -> SectionToolSnapshot {
         SectionToolSnapshot {
             editing: self.editing.clone(),
             draft: self.draft.clone(),
@@ -502,6 +664,11 @@ impl SectionTool {
             resolving: self.job.is_some(),
             stats,
             error: self.error.clone(),
+            warning,
+            gizmo: self.manips.gizmo(OFFSET_GIZMO).and_then(|g| match g {
+                GizmoPrim::Arrow { origin, dir, .. } => Some((*origin, *dir)),
+                _ => None,
+            }),
         }
     }
 
@@ -535,8 +702,8 @@ impl SectionTool {
             if ui
                 .add(egui::Button::new("Pick face").selected(self.picking))
                 .on_hover_text(
-                    "Click a construction plane, or a planar face of a mesh body (its coplanar \
-                     region is the base)",
+                    "Click a construction plane, a planar face of a solid, or a planar face of \
+                     a mesh body (its coplanar region is the base)",
                 )
                 .clicked()
             {
@@ -696,6 +863,19 @@ impl Tool for SectionTool {
     }
 
     fn input(&mut self, ev: &ViewportEvent, cx: &mut ToolCx<'_>) -> InputResult {
+        // Manipulators first (routing priority: manipulator → tool).
+        if let Some(cam) = cx.camera().cloned() {
+            let r = self.manips.input(ev, &cam);
+            if r.changed {
+                cx.app().request_repaint();
+            }
+            if let Some(e) = r.event {
+                self.on_manip(e, cx);
+            }
+            if r.result == InputResult::Consumed {
+                return InputResult::Consumed;
+            }
+        }
         match ev {
             ViewportEvent::Click {
                 button: egui::PointerButton::Primary,
@@ -717,15 +897,30 @@ impl Tool for SectionTool {
             self.on_hits(hits, cx);
         }
         self.poll_job();
-        // A referenced base moves with its construction plane (slider range, fallback plane).
-        if let Some(e) = &self.picked_ref {
-            let env = cx.env();
-            if let Some(p) = crate::construct::base_plane(env.design, env.evaluated, e) {
+        // A referenced base moves with its construction plane or face (slider range, arrow,
+        // fallback plane).
+        if let Some(e) = self.picked_ref.clone() {
+            let plane = if is_construction(&e) {
+                let env = cx.env();
+                crate::construct::base_plane(env.design, env.evaluated, &e)
+            } else {
+                cx.app()
+                    .doc_layer::<SectionLayer>()
+                    .and_then(|l| l.face_plane(&e))
+            };
+            if let Some(p) = plane {
                 self.picked = Some(p);
             }
         }
+        self.bounds = cx.scene().bounds();
         self.sync_draft();
         self.push_preview(cx);
+        self.refresh_gizmo();
+        if self.manips.dragging().is_some() {
+            cx.set_cursor(egui::CursorIcon::Grabbing);
+        } else if self.manips.hot().is_some() {
+            cx.set_cursor(egui::CursorIcon::Grab);
+        }
         if self.job.is_some() || self.click.is_some() {
             cx.app()
                 .request_repaint_after(std::time::Duration::from_millis(30));
@@ -733,11 +928,9 @@ impl Tool for SectionTool {
     }
 
     fn overlay(&mut self, out: &mut amg_render::OverlayList, cx: &ToolCx<'_>) {
-        // The draft's plane as a translucent square over the scene.
-        let env = cx.env();
-        let (plane, _) = self
-            .draft
-            .plane(&|e| crate::construct::base_plane(env.design, env.evaluated, e));
+        // The draft's plane as a translucent square over the scene (a `Ref` base's `last` is
+        // kept up to date by `update`).
+        let (plane, _) = self.draft.plane(&|_| None);
         let half = if self.bounds.is_empty() {
             50.0
         } else {
@@ -755,6 +948,9 @@ impl Tool for SectionTool {
             },
             None,
         );
+        if let Some(cam) = cx.camera() {
+            self.manips.draw(out, cam);
+        }
     }
 
     fn dialog_ui(&mut self, ui: &mut egui::Ui, cx: &mut ToolCx<'_>) -> bool {
@@ -766,6 +962,7 @@ impl Tool for SectionTool {
         let valid = self.draft.validate().is_ok()
             && !(self.scope == ScopeChoice::Listed && self.listed.is_empty());
         let stats = self.current_stats(cx);
+        let warning = self.warning(cx);
         let action = DialogFrame::new(title)
             .ok_enabled(if valid {
                 crate::command::Enablement::Enabled
@@ -774,6 +971,9 @@ impl Tool for SectionTool {
             })
             .show_inside(ui, |ui| {
                 self.body_ui(ui, cx);
+                if let Some(w) = &warning {
+                    ui.colored_label(ui.visuals().warn_fg_color, w);
+                }
                 ui.separator();
                 match &stats {
                     Some(s) => stats_ui(ui, s),
@@ -787,7 +987,8 @@ impl Tool for SectionTool {
             });
         self.sync_draft();
         self.push_preview(cx);
-        let snap = self.snapshot(stats);
+        self.refresh_gizmo();
+        let snap = self.snapshot(stats, warning);
         ui.ctx().data_mut(|d| d.insert_temp(snapshot_id(), snap));
         match action {
             DialogAction::Ok => cx.request_finish(FinishReason::Commit),
@@ -818,6 +1019,8 @@ impl Tool for SectionTool {
         if let Some(j) = self.job.take() {
             j.cancel();
         }
+        self.manips.reset();
+        self.drag = None;
         if let Some(l) = cx.app().doc_layer::<SectionLayer>() {
             l.set_preview(None);
         }
