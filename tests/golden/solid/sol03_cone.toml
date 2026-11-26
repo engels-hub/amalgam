@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol03_cone (S04 SOL-03). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 2094.3951023931954
+area = 1016.6407384630515
+faces = 2
+edges = 3
+vertices = 2
+bbox_min = [-10.0, -10.0, 0.0]
+bbox_max = [10.0, 10.0, 20.000000000000004]

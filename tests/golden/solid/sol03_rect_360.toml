@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol03_rect_360 (S04 SOL-03). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 50265.48245743668
+area = 10053.096491487338
+faces = 4
+edges = 6
+vertices = 4
+bbox_min = [-30.0, -30.0, 0.0]
+bbox_max = [30.0, 30.0, 20.0]

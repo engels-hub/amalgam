@@ -39,7 +39,7 @@ const FLIP: &str = "flip";
 const OPERATION: &str = "operation";
 const BODIES: &str = "bodies";
 
-const OPS: [(&str, BodyOp, &str); 4] = [
+pub(crate) const OPS: [(&str, BodyOp, &str); 4] = [
     ("new_body", BodyOp::NewBody, "New body"),
     ("join", BodyOp::Join, "Join"),
     ("cut", BodyOp::Cut, "Cut"),
@@ -67,15 +67,15 @@ const DEFAULT_DISTANCE: &str = "10 mm";
 const ZERO_MM: &str = "0 mm";
 const ZERO_DEG: &str = "0 deg";
 
-fn is(key: &'static str, v: &'static str) -> Condition {
+pub(crate) fn is(key: &'static str, v: &'static str) -> Condition {
     Condition::Is(FieldKey(key), FieldValue::Choice(v))
 }
 
-fn not(c: Condition) -> Condition {
+pub(crate) fn not(c: Condition) -> Condition {
     Condition::Not(Box::new(c))
 }
 
-fn choice(key: &'static str, label: &str, opts: &[(&'static str, &str)]) -> FieldSpec {
+pub(crate) fn choice(key: &'static str, label: &str, opts: &[(&'static str, &str)]) -> FieldSpec {
     FieldSpec::new(
         key,
         label,
@@ -89,11 +89,11 @@ fn choice(key: &'static str, label: &str, opts: &[(&'static str, &str)]) -> Fiel
     )
 }
 
-fn expr(key: &'static str, label: &str, dim: Dim, default: &'static str) -> FieldSpec {
+pub(crate) fn expr(key: &'static str, label: &str, dim: Dim, default: &'static str) -> FieldSpec {
     FieldSpec::new(key, label, FieldKind::Expr { dim, default })
 }
 
-fn target_filter() -> EntityFilter {
+pub(crate) fn target_filter() -> EntityFilter {
     EntityFilter::CONSTRUCTION_PLANE
         | EntityFilter::FACE
         | EntityFilter::PLANAR_FACE
@@ -364,7 +364,11 @@ fn read(f: &dyn Feature, design: &Design) -> Option<FieldValues> {
     Some(values_of(e, design))
 }
 
-fn one_ref(v: &FieldValues, key: &'static str, errs: &mut FieldErrors) -> Option<EntityRef> {
+pub(crate) fn one_ref(
+    v: &FieldValues,
+    key: &'static str,
+    errs: &mut FieldErrors,
+) -> Option<EntityRef> {
     match v.selection(key) {
         Ok([r]) => Some(r.clone()),
         Ok(_) => {
@@ -378,11 +382,15 @@ fn one_ref(v: &FieldValues, key: &'static str, errs: &mut FieldErrors) -> Option
     }
 }
 
-fn take_expr(v: &FieldValues, key: &'static str, errs: &mut FieldErrors) -> Option<Expr> {
+pub(crate) fn take_expr(
+    v: &FieldValues,
+    key: &'static str,
+    errs: &mut FieldErrors,
+) -> Option<Expr> {
     v.expr(key).map_err(|e| errs.0.push(e)).ok()
 }
 
-fn take_choice(
+pub(crate) fn take_choice(
     v: &FieldValues,
     key: &'static str,
     default: &'static str,

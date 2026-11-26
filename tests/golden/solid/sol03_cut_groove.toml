@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol03_cut_groove (S04 SOL-03). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 47909.28796724436
+area = 10838.494654884787
+faces = 7
+edges = 9
+vertices = 6
+bbox_min = [-30.0, -30.0, 0.0]
+bbox_max = [30.0, 30.0, 20.0]

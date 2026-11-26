@@ -114,6 +114,21 @@ fn prism_named(
             other => other,
         }
     })?;
+    let naming = name_sweep(ctx, k, f, s.index, &r, out)?;
+    Ok((r, naming))
+}
+
+/// The names of a sweep (prism or revol) of `f` for naming side `side` (naming note §5.2):
+/// laterals from the profile edge tags (`Lateral#side`), `StartCap#side` / `EndCap#side` from
+/// the profile's cap source. Shared by extrude and revolve (SOL-03).
+pub(crate) fn name_sweep(
+    ctx: &RecomputeCtx<'_>,
+    k: &dyn BrepKernel,
+    f: &ProfileFace,
+    side: u32,
+    r: &OpResult,
+    out: &mut FeatureOutput,
+) -> Result<BodyNaming, FeatureError> {
     let mut b = ctx.naming_builder();
     b.from_history(&[(0, OperandNaming::Tagged(&f.edge_tags))], &r.history);
     match &f.source {
@@ -130,25 +145,24 @@ fn prism_named(
             }
         }
     }
-    if s.index != 0 {
-        b.role(OpRole::Lateral, Role::new("Lateral", s.index));
+    if side != 0 {
+        b.role(OpRole::Lateral, Role::new("Lateral", side));
     }
     let cap = cap_source(ctx, f)?;
     for (sub, role) in &r.history.roles {
         let role = match role {
-            OpRole::StartCap => Role::new("StartCap", s.index),
-            OpRole::EndCap => Role::new("EndCap", s.index),
+            OpRole::StartCap => Role::new("StartCap", side),
+            OpRole::EndCap => Role::new("EndCap", side),
             _ => continue,
         };
         if sub.kind == SubKind::Face {
             b.generated(TopoKind::Face, sub.index, role, Some(cap.clone()));
         }
     }
-    let naming = finish_naming(b, k, &r.shape, out)?;
-    Ok((r, naming))
+    finish_naming(b, k, &r.shape, out)
 }
 
-fn corners(b: &Aabb3) -> [Point3; 8] {
+pub(crate) fn corners(b: &Aabb3) -> [Point3; 8] {
     let (a, c) = (b.min, b.max);
     [
         Point3::new(a.x, a.y, a.z),
@@ -163,7 +177,7 @@ fn corners(b: &Aabb3) -> [Point3; 8] {
 }
 
 /// The farthest point of `b` along `dir` from `o` (−∞ for an empty box).
-fn far_along(b: &Aabb3, o: Point3, dir: Vec3) -> f64 {
+pub(crate) fn far_along(b: &Aabb3, o: Point3, dir: Vec3) -> f64 {
     if b.is_empty() {
         return f64::NEG_INFINITY;
     }
@@ -174,7 +188,7 @@ fn far_along(b: &Aabb3, o: Point3, dir: Vec3) -> f64 {
 }
 
 /// Whether `x` is a finite distance beyond `tol` (NaN is not).
-fn ahead(x: f64, tol: f64) -> bool {
+pub(crate) fn ahead(x: f64, tol: f64) -> bool {
     x.is_finite() && x > tol
 }
 
@@ -213,12 +227,12 @@ fn all_length(ctx: &RecomputeCtx<'_>, f: &ProfileFace, dir: Vec3) -> Result<f64,
 }
 
 /// `TargetMissed` with its hint, the target highlighted.
-fn missed(ctx: &RecomputeCtx<'_>, r: &EntityRef) -> FeatureError {
+pub(crate) fn missed(ctx: &RecomputeCtx<'_>, r: &EntityRef) -> FeatureError {
     ctx.highlight([r.clone()]);
     with_hint(&SolidError::TargetMissed)
 }
 
-fn behind(ctx: &RecomputeCtx<'_>, r: &EntityRef) -> FeatureError {
+pub(crate) fn behind(ctx: &RecomputeCtx<'_>, r: &EntityRef) -> FeatureError {
     ctx.highlight([r.clone()]);
     invalid(
         "extent",
@@ -349,7 +363,7 @@ fn work_box(fb: &Aabb3, u: Vec3, l: f64) -> Aabb3 {
 }
 
 /// A square face on `plane` that covers `w` (seen along the plane normal).
-fn plane_face(
+pub(crate) fn plane_face(
     k: &dyn BrepKernel,
     plane: &Plane,
     w: &Aabb3,
@@ -388,7 +402,7 @@ fn axial_range(frame: &Plane, w: &Aabb3) -> (f64, f64) {
 /// The untrimmed surface of a face target over the region `w` (note §3.2, "extend faces"):
 /// planes, cylinders and cones over `w`, spheres and tori whole. B-spline and other surfaces
 /// fail [`SolidError::ExtendUnsupported`].
-fn extended_face(
+pub(crate) fn extended_face(
     ctx: &RecomputeCtx<'_>,
     k: &dyn BrepKernel,
     bf: &BodyFace<'_>,
@@ -482,7 +496,29 @@ fn split_keep(
     r: &EntityRef,
     out: &mut FeatureOutput,
 ) -> Result<(Shape, BodyNaming), FeatureError> {
-    let (prism, naming) = prism_named(ctx, k, f, s, l, out)?;
+    let sweep = prism_named(ctx, k, f, s, l, out)?;
+    split_sweep(ctx, k, f, s.index, sweep, tool, r, out)
+}
+
+/// A named sweep of `f` (with start and end caps) split by `tool`; the piece holding the start
+/// cap is kept and the faces the target leaves on it are `EndCap#side`. One piece, or a kept
+/// piece that still holds the end cap, is `TargetMissed`; several pieces with the start cap
+/// mean the target crosses the profile. Shared by extrude and revolve (SOL-03).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the side's pieces, unpacked once by the caller"
+)]
+pub(crate) fn split_sweep(
+    ctx: &RecomputeCtx<'_>,
+    k: &dyn BrepKernel,
+    f: &ProfileFace,
+    side: u32,
+    sweep: (OpResult, BodyNaming),
+    tool: Shape,
+    r: &EntityRef,
+    out: &mut FeatureOutput,
+) -> Result<(Shape, BodyNaming), FeatureError> {
+    let (prism, naming) = sweep;
     let start = role_face(&prism.history, &OpRole::StartCap);
     let end = role_face(&prism.history, &OpRole::EndCap);
     let split = with_job(ctx, |job| {
@@ -530,7 +566,7 @@ fn split_keep(
             b.generated(
                 TopoKind::Face,
                 face,
-                Role::new("EndCap", s.index),
+                Role::new("EndCap", side),
                 Some(cap.clone()),
             );
         }

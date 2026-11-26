@@ -29,7 +29,7 @@ const BODIES: &str = "bodies";
 const FEATURES: &str = "features";
 
 const OBJECT_TYPES: [(&str, &str); 2] = [("bodies", "Bodies"), ("features", "Features")];
-const AXES: [(&str, &str); 4] = [
+pub(crate) const AXES: [(&str, &str); 4] = [
     ("x", "X axis"),
     ("y", "Y axis"),
     ("z", "Z axis"),
@@ -182,7 +182,7 @@ fn object_values(o: &PatternObjects) -> FieldValues {
 }
 
 /// An axis choice plus its selection field: `RefInput`.
-fn read_axis(
+pub(crate) fn read_axis(
     v: &FieldValues,
     choice_key: &'static str,
     ref_key: &'static str,
@@ -207,7 +207,7 @@ fn read_axis(
 
 /// The choice id and selection of a `RefInput` (`default` and none for an origin entity the
 /// choice doesn't list).
-fn axis_values(r: &RefInput, default: &'static str) -> (&'static str, Vec<EntityRef>) {
+pub(crate) fn axis_values(r: &RefInput, default: &'static str) -> (&'static str, Vec<EntityRef>) {
     match r {
         RefInput::Origin(OriginEntity::XAxis) => ("x", Vec::new()),
         RefInput::Origin(OriginEntity::YAxis) => ("y", Vec::new()),

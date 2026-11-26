@@ -635,7 +635,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 |---|---|---|---|---|---|
 | SOL-01 | Feature framework: `amg_features::dialog` (S11 §B + `new_component`, `DispatchRegistration`), `BodyOp`/`OpTarget`/`apply_body_op` (§3 incl. unify + compose, per-solid split, `Consumed`), `SolidTool` + `ToolRegistration`, `profile_faces`/`to_curve2d`, `SolidError` + `kernel_failure` highlight, preview behaviour; `solid.extrude` minimal (one side, distance, start at profile) end-to-end | DOC-06, BREP-03, BREP-04, BREP-05, BREP-10, SK-19 | P0 | Done | 1. `solid.extrude` (one side, distance) on a sketch rectangle 10×20, h 30: NewBody volume 6000 within 1e-9 relative; Join onto a box, Cut through a box, Intersect with a box each give the analytic volume and the face count expected after unify (golden `sol01_*`). 2. BodyOp rules, one test each: join touching 2 participants keeps the first `BodyId` and marks the second `Consumed`; a cut that splits a bar keeps piece 0's id and creates `BodyId{self,1}` with `derived_from`; a cut touching nothing fails `NothingToCut`; a mesh participant fails `WrongBodyKind`; join touching nothing creates a body and warns. 3. Two adjacent regions of one sketch (a rectangle split by a line) extrude to one body with 6 faces. 4. DOC-11 corpus cases TNP-01, TNP-02 and TNP-03 run on `solid.extrude` (instead of `test.brep_prism`) and meet their `expect`. 5. A kernel failure with `offending` edges (injected failing kernel) gives `Diagnostic::entities` resolving to those edges. 6. Preview: an extrude-cut of a 20-edge profile into a 200-face body, `ComputeMode::Preview`, median < 100 ms (criterion `budget/sol-extrude-preview`); full mode recorded. 7. `dialog::registration("solid.extrude")` exists and its `build(defaults)` round-trips through `read`. |
 | SOL-02 | Extrude: all starts, directions and extents (§4; note §3): offset start, start from a plane, two sides, symmetric (half/whole), taper per side, to object (plane, face, body, vertex; offset; extend faces), all; planar-face profiles; text profiles | SOL-01, CON-03, BREP-14, SK-06 | P0 | Review | 1. ≥ 20 golden cases cover every start × direction × extent combination the dialog allows, incl. to-object on an inclined plane, a cylinder face, a body and a vertex, with and without offset and extend; analytic volumes within 1e-9 relative, curved targets within 1e-6. 2. A face that doesn't cover the profile fails `TargetMissed` with the "Extend faces" hint; extend on fixes it; a B-spline target with extend fails `ExtendUnsupported`. 3. "All" cuts through 3 stacked bodies in one direction and through both sides in two-sided mode. 4. Text "AgB" (SK-10 `regions().solid`) extrudes to 3 solids with 4 holes in total (closes SK-10 Done-when 2). 5. Editing distance, taper or extent type keeps the lateral and cap names (`Exact` resolution of a downstream fillet ref). 6. Full-mode extrude-cut of a 100-edge profile into a 200-face body, median < 80 ms (`budget/sol-extrude-cut`). |
-| SOL-03 | Revolve: profiles, axis (sketch line, edge, construction or origin axis), angle, full, two sides, symmetric, to object; profile/axis validation | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. ≥ 8 golden cases (rectangle 90° and 360°, triangle with an edge on the axis → cone, two sides 30°/60°, symmetric 90°, each axis kind) match Pappus volumes within 1e-9 relative. 2. A profile crossing the axis fails `AxisCrossesProfile` naming the profile. 3. DOC-11 TNP-22 (edit to 360° → cap refs `NotFound`) runs on `solid.revolve` and meets its `expect`. 4. Revolve to a plane through the axis at 75° equals the 75° angle case within 1e-9. |
+| SOL-03 | Revolve: profiles, axis (sketch line, edge, construction or origin axis), angle, full, two sides, symmetric, to object; profile/axis validation | SOL-01, CON-03, BREP-14 | P0 | Review | 1. ≥ 8 golden cases (rectangle 90° and 360°, triangle with an edge on the axis → cone, two sides 30°/60°, symmetric 90°, each axis kind) match Pappus volumes within 1e-9 relative. 2. A profile crossing the axis fails `AxisCrossesProfile` naming the profile. 3. DOC-11 TNP-22 (edit to 360° → cap refs `NotFound`) runs on `solid.revolve` and meets its `expect`. 4. Revolve to a plane through the axis at 75° equals the 75° angle case within 1e-9. |
 | SOL-04 | Primitives: box, cylinder, sphere, torus on a `PrimitiveFrame` (origin plane, construction plane, planar face), with `OpTarget` | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. Golden volume and area for each primitive (exact within 1e-9) and for a box joined to and cut from a body. 2. A box placed on a planar face follows the face after an upstream height edit (centroid within 1e-9). 3. Editing a box size keeps `XMin#0 … ZMax#0` names (`Exact`). 4. Each kind has a dialog with a distance manipulator anchor per size field. |
 | SOL-05 | Fillet (constant, chord, variable; G1 only, G2 is KH-10 per QUESTIONS #55) and chamfer (equal, two distances, distance-angle) on raw BREP-06: edge sets per body, tangent-chain propagation (R-S04-1), failing-edge highlight | SOL-01, BREP-06, BREP-09 | P0 | Done | 1. ≥ 15 golden cases (cube edge, 4-edge tangent loop of a rounded rectangle, 3-edge vertex blend, variable 2→4 mm, chord 3 mm, all chamfer kinds, two bodies in one feature) within 1e-6 relative of reference volumes. 2. Picking one edge of a rounded-rectangle top selects all 8 tangent edges; with `tangent_chain = false` only that edge. 3. A radius larger than the adjacent face fails and `Diagnostic::entities` names exactly the failing edge(s). 4. DOC-11 TNP-11 and TNP-27 run on `solid.fillet` and meet their `expect`. 5. Preview of a 10-edge constant fillet on a 200-face body, median < 100 ms (`budget/sol-fillet-preview`). 6. KH-03 can start: S20's corpus harness drives `solid.fillet` through a public test entry point. |
 | SOL-06 | Shell (remove faces, hollow, inside/outside/both, tangent chain), draft (one side, two sides, symmetric; tangent chain), scale (uniform, non-uniform), thicken (`OpTarget`) | SOL-01, BREP-07, BREP-16, BREP-14 | P0 | Todo | 1. Shelled box (top removed, 1 mm) inside, outside and both, and a hollow box (no faces removed, R-S04-8) match analytic volumes within 1e-9 relative. 2. Shelling a filleted box with tangent chain removes the top and its fillet ring (face count checked). 3. A thickness above the smallest concave radius fails with the offending faces highlighted. 4. Draft of 4 box sides at 3°: measured angles 3° ± 1e-9 rad, analytic volume; symmetric draft about a mid-plane matches the analytic volume. 5. Uniform scale 2 → volume × 8 within 1e-12 relative; non-uniform (1, 2, 3) of a sphere r 10 → ellipsoid volume within 1e-9. 6. Thicken of a B-spline sheet by 1 mm is valid and within 0.5 % of area × t. 7. TNP-X3 and TNP-X6 meet their `expect`. 8. Shell preview of a 100-face body, median < 100 ms (`budget/sol-shell-preview`). |
@@ -1135,3 +1135,99 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
 - **Leftovers.** SOL-23 (path, faces, adjust compute), SOL-24 (occurrences, new component);
   manipulator anchors for spacing and angle (UI-06); the cache-key gap above; timeline-feature
   and instance picks in the dialog (S11).
+
+### 2026-11-26 - SOL-03 implemented (lane A)
+- **Landed.** `amg_features::solid::revolve`: `solid.revolve` (`Revolve`, the Interfaces shape:
+  `profiles`, `axis: RefInput`, `direction`, `side1`, `side2`, `flip`, `thin`, `target`;
+  constructors `Revolve::angle` / `Revolve::full`), `register_feature!` v1 + `register_tool!`
+  (so it can be a pattern/mirror seed), and its dialog registration (`revolve/dialog.rs`:
+  profiles; axis = X/Y/Z or "Selected axis" with a pick of a sketch line, edge, construction
+  axis or revolved face; direction; extent per side "Full turn" / "Fixed angle" / "To object"
+  with object, offset and extend; side 2 fields; flip; operation; objects; group "create",
+  order 20, pinned; angle manipulator anchors about origin axes). Extra public item:
+  `revolve::SPLIT_GAP`.
+- **Behaviour.** The axis resolves through CON-03 (`line_of`, else `axis_of`, i.e. SOL-08's
+  `line_input`), reversed by `flip`; side 1 turns counter-clockwise about it, side 2 the other
+  way, a negative angle reverses its side. `Distance` is an angle in (0°, 360°]; 360° and
+  `Extent::Full` are a full turn without caps; "All" is refused (validate and compute). Two
+  sides together may not exceed 360°; `Full` is one-sided only; symmetric takes half the angle
+  each way (or the whole with `whole_length`). Each profile face × side is one
+  `BrepKernel::revol`; the solids of a region group are fused and unified with SOL-02's
+  `fuse_group` (two sides of one profile merge into one block, 6 faces for a rectangle), groups
+  go into one compound (`compound_of`). **Validation** per profile face, before any sweep: an
+  axis along the profile normal fails "perpendicular"; for an axis in the profile plane the
+  boundary (analytic edges sampled 64×, others `tessellate_edge`) must stay on one side
+  (touching is fine: the cone case); for an oblique axis its plane intersection must not be
+  inside the face (even-odd test). A crossing fails `InvalidValue { field: "axis" }` with
+  `SolidError::AxisCrossesProfile`'s text plus "profile i of n" and a hint, and highlights that
+  profile's reference (and the axis reference). **To object:** a point, or a plane through the
+  axis (construction plane, or a planar face with `extend`), gives the exact angle from the
+  profile's radial direction (the first of the plane's two half-planes); every other target (a
+  plane not through the axis, a bounded planar face, a curved face, a body; offsets) splits a
+  `360° − SPLIT_GAP` (0.5°) sweep with SOL-02's `split_sweep` and keeps the piece holding the
+  start cap (`TargetMissed` with the "Extend faces" hint otherwise), with SOL-02's
+  `plane_face` / `extended_face` / offset handling. Naming as the naming note's Revolve row:
+  laterals `Lateral#side` from the sketch tags, caps `StartCap#side` / `EndCap#side` (shared
+  `name_sweep`), target faces on a split sweep `EndCap#side`; a full turn has no caps.
+  `inputs()` lists profiles, sketches, the axis (`Dependency::Construction` for construction
+  axes), to-object targets, and `Dependency::Body` for a body target (read whole), so the
+  SOL-02/08 cache-key gap does not apply here.
+- **Done-when evidence** (`crates/amg-features/tests/solid_revolve.rs` + `solid_revolve/occt.rs`,
+  23 tests, 18 with OCCT; 2 unit tests in the module; goldens `tests/golden/solid/sol03_*.toml`,
+  12 files, rel 1e-9; every result BRepCheck-valid):
+  1. 12 golden cases, each within 1e-9 relative of Pappus (`A · r̄ · θ`): rectangle 10..30 ×
+     0..20 on XZ about Z at 90° (12566.3706 mm³, 6 faces, bbox in the +X+Y quadrant) and 360°
+     (50265.4825, 4 faces; `Distance(360°)` gives the same); the triangle (0,0)-(10,0)-(0,20)
+     with an edge on the axis → cone π·100·20/3 = 2094.3951 (2 faces); two sides 30°/60° (90°
+     total, bbox −60°..+30°, 6 faces); symmetric 90° (±45°, 6 faces; whole angle = 180°); each
+     axis kind: an origin axis (Z; X at 180° for a 20 × 10 profile at r̄ 7), a sketch line
+     x = 5 in the profile's sketch (r̄ 15, 9424.7780), a B-rep edge of a box on the Z axis, a
+     construction axis (YZ ∩ XZ, directed −Z, so 90° goes to −Y); flip; a revolve-cut groove
+     into a revolved cylinder (47909.2880, 7 faces); to a body at 270°; to the 75° plane.
+  2. `dw2_a_profile_crossing_the_axis_fails_naming_the_profile`: of two regions, the one
+     spanning x −10..10 fails "the profile crosses the axis: profile k of 2 …", its
+     `EntityRef::Profile` is in the `Health::Error` entities and the other region's is not; an
+     axis moved out of the profile fixes it. Also: an axis along the profile normal fails
+     "perpendicular"; the X axis along a profile edge is accepted.
+  3. `dw3_tnp22_editing_to_360_makes_the_cap_edge_not_found`: TNP-22 rebuilt on sketch +
+     `solid.revolve` (rectangle x 10..30, z 0..20 on XZ, origin Z, 270°, 1 mm `solid.fillet` on
+     the edge at (0, −30, 10)); the edit to 360° gives `ResolveError::NotFound { Edge }` and the
+     fillet in error, as `expect` says.
+  4. `dw4_revolve_to_a_plane_through_the_axis_at_75_equals_the_75_angle`: to a construction
+     plane `AtAngle { Z axis, zero XZ, 75° }` vs `Distance(75°)`: volume, area and bbox equal
+     within 1e-9 (volume 10471.9755 = Pappus), same face count.
+  Also: an angle edit 90° → 120° → 45° keeps a fillet on the end-cap edge `Exact`; two sides:
+  the side-2 cap edge (`EndCap#1`) stays `Exact` when side 1 changes; to a body, its face and
+  its vertex all stop at 270° (30159.2895 mm³, 1e-9); a 1 mm high face fails "does not cover
+  the profile … Turn on Extend faces" with the face highlighted; zero, > 360° and overlapping
+  two-sided angles, a negative angle (reverses), thin (`NotYet`); dialog tests (conditional
+  fields hidden for the defaults, unique labels, option labels distinct from field labels, a
+  preselected sketch line becomes the axis, `read(build(v)) == v` for every axis, extent and
+  direction, field errors for a two-sided full turn and a missing axis pick); data tests
+  (inputs incl. `Dependency::Body`, expression dimensions, JSON round trip, static checks).
+- **Deviations.**
+  - `SolidError::AxisCrossesProfile` stays a unit variant; the profile is named in the
+    `InvalidValue` message ("profile i of n") and highlighted, not carried in the error value.
+  - To-object angles are measured from the profile's radial direction: exact for profiles in
+    the axis plane (the usual case); for profiles off the axis plane the mean radial direction
+    of the boundary is used. A target within `SPLIT_GAP` (0.5°) before the profile's own
+    half-plane is missed; a point target takes no offset (`Invalid`), and a plane through the
+    axis with an offset uses the split path.
+  - Two sides are two revolves fused and unified (as SOL-02 does for extrudes), not one sweep
+    from −θ2; the names are SOL-02's (`EndCap#1` for side 2's cap, laterals merged under side 0).
+  - Lane-A-internal reuse, no behaviour change: `extrude::sides` is `pub(crate)` with
+    `name_sweep` and `split_sweep` factored out of `prism_named` / `split_keep`, and
+    `plane_face`, `extended_face` and a few helpers `pub(crate)`; `extrude::fuse_group`, the
+    `extrude::dialog` helpers (`OPS`, `choice`, `expr`, `is`, `not`, `target_filter`,
+    `one_ref`, `take_expr`, `take_choice`), `pattern::line_input` and `pattern::dialog::{AXES,
+    read_axis, axis_values}` are `pub(crate)`. The SOL-01/02/05/08 tests pass unchanged.
+  - The angle manipulator anchors exist only for origin axes (others resolve only inside a
+    recompute).
+- **Interface changes elsewhere.** None: only public `amg-brep` (`revol`, `split`,
+  `tessellate_edge`), `amg-doc` and `amg-features::construct` APIs are used; no new
+  dependency. The new pinned `solid.revolve` registration adds a "Revolve" button to the Solid
+  "create" group, so the UI shell snapshots (`crates/amg-ui/tests/snapshots/shell_*.png`) will
+  likely change (amg-ui was not run in this WP; regenerate at merge).
+- **Leftovers.** Thin revolve (SOL-18); manipulator anchors for non-origin axes and the
+  side-2 / to-object fields (UI-06); a Fusion check of revolve offset semantics on to-object
+  targets (SOL-29).

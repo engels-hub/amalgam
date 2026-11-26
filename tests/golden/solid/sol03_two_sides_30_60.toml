@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol03_two_sides_30_60 (S04 SOL-03). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 12566.370614359173
+area = 3313.274122871835
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [5.000000000000001, -25.980762113533157, 0.0]
+bbox_max = [30.0, 14.999999999999998, 20.0]
