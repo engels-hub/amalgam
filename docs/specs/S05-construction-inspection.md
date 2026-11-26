@@ -788,7 +788,7 @@ pub mod display {
 | CON-04 | Construct UI: commands in the Construct menu (`amg-ui::construct`), UI-05 dialog schemas for all variants, construction display via `display::display_extent` + RND-07 with pick ids, browser "Construction" / "Origin" folders | CON-02, CON-03, UI-05, UI-07, RND-07 | P0 | Done | Each of the 20 variants can be created from the menu and S-key search, edited and deleted, all undoable. `display_extent` unit tests follow the note §6 sizing rules. Construction planes are pickable as sketch planes and as section-analysis bases. Manual script: offset plane → sketch on it → extrude → edit the offset → the extrude follows. |
 | INS-07 | Measure on B-rep, construction, origin and sketch entities: `Operand::Ref`/`Operand::Brep`, exact B-rep distance/length/area via S02, analytic radius/angle via `RefGeom`, mixed mesh–B-rep via tessellation (`Exactness::Tessellated`), tool filters extended | INS-01, INS-08, CON-03, BREP-08, BREP-09 | P0 | Done | On analytic solids: box edge length, face area, distance between parallel faces within 1e-9; cylinder face radius exact; circular edge diameter exact; angle between two planar faces at 30° ± 1e-12 rad. Distance from a sphere (r = 10, centre 25 mm away) to a plane: 15 ± 1e-7. Distance between a construction plane and a vertex is exact. A mesh–solid distance is marked "≈" and lies within the tessellation deflection of the exact value. |
 | INS-10 | Properties on solids + assemblies: B-rep `mass_props` (S02), per-component/occurrence totals with transforms, mixed selections, "Display component colours" | INS-03, BREP-09, ASM-01, RND-03 | P0 | Done (solid colours visible after UI-22; GPU colour check pending owner) | Box, cylinder and sphere solids: volume, CoM and inertia within 1e-9 relative of analytic. The same part as a mesh (fine tessellation) agrees within the tessellation error bound. A two-occurrence assembly total equals the sum with the parallel-axis rule within 1e-9 relative. The component-colour toggle colours each component distinctly and restores the appearances. |
-| INS-11 | Section analysis on solids + reference bases: caps from B-rep tessellation, `SectionBase::Ref` (construction planes, planar B-rep faces) with fallback warning, plane drag manipulator (UI-06) | INS-09, CON-03, BREP-08, UI-06 | P0 | Todo | The INS-02 watertight test passes on tessellations of 20 solid test parts. A section based on a construction plane follows a parameter edit of that plane. A deleted base face keeps the last plane and shows a warning. Dragging the manipulator updates the offset field both ways. |
+| INS-11 | Section analysis on solids + reference bases: caps from B-rep tessellation, `SectionBase::Ref` (construction planes, planar B-rep faces) with fallback warning, plane drag manipulator (UI-06) | INS-09, CON-03, BREP-08, UI-06 | P0 | Review | The INS-02 watertight test passes on tessellations of 20 solid test parts. A section based on a construction plane follows a parameter edit of that plane. A deleted base face keeps the last plane and shows a warning. Dragging the manipulator updates the offset field both ways. |
 | INS-04 | Interference: `interfere::interference` (broad phase, mesh BVH pair test, Manifold intersection volume, B-rep common volume, mixed via tessellation), dialog with pair table, highlight, include-coincident option, "Create bodies" via Combine features | INS-01, INS-08, MESH-05, BREP-04, BREP-09, ASM-01 | P1 | Todo | Two cubes overlapping by 2 mm: volume 2·10·10 = 200 ± 1e-6 mm³ (mesh and solid paths). Face-touching cubes → `Touching` (or omitted unless include-coincident). Disjoint → omitted. A 20-body random scene matches the brute-force pair list. "Create bodies" is one undo step. 50 bodies × 100 k tris < 2 s. |
 | INS-05 | Mesh analysis fields + overlays: draft (pull direction, ±θ), accessibility (direction), discrete curvature (mean/Gaussian/min/max), legends, Analysis-folder entries | INS-08, MESH-03, RND-08 | P1 | Todo | Draft on a cylinder wall along its axis = 0 ± 1e-9 rad, and a 5° tapered frustum = 5° ± 0.01° away from edges. Accessibility from +Z of a box with a blind pocket: pocket floor accessible, undercut slot faces not, matching ray-cast ground truth exactly. Curvature on icosphere r = 10 (level 6): mean 0.1 ± 2 %, Gaussian 0.01 ± 3 %; plane 0 ± 1e-9. 1 M-vertex field < 200 ms (curvature), accessibility 1 M < 1 s. |
 | INS-06 | B-rep curvature: exact curvature map at tessellation vertices, curvature comb on edges and sketch curves (RND-07 polylines, auto scale), minimum radius analysis with threshold | INS-05, INS-07, BREP-09 | P1 | Todo | Torus R = 10, r = 2: min radius 2 ± 1e-6, curvature map k1 = 1/2 ± 1e-9. Fillet r = 1 on a box is flagged with threshold 1.5 mm. Comb on a circle r = 5 has constant tooth length within 1e-9 relative. Comb on a B-spline matches finite-difference curvature within 1e-6. |
@@ -1791,6 +1791,74 @@ click a face of the box, then the plane beside the box. The table shows the mini
 - S02 `distance` and `mass_props` can't be cancelled midway (checked before and after).
 - `amg-ui` tests that need real solids run only with `--features occt`.
 
+### 2026-11-26 - INS-11 section analysis on solids and reference bases (lane A)
+
+*Landed* in `amg-features::inspect` and `amg-ui::inspect` (no new dependency; no change in another
+lane's crate or in the `amg-ui` framework; `amg-brep`, `amg-doc`, CON-03 and `amg_ui::manip` only
+through their public APIs).
+- **Solid caps** (`inspect::section::{tessellate_solid, section_quality}`): a solid body is cut on
+  its welded BREP-08 tessellation (`TessQuality::export`: 0.01 % of the diagonal, at most 0.01 mm,
+  0.2 rad) in component space, then goes through `section_mesh` like a mesh body. In the app each
+  shape is tessellated in its own "Section tessellation" job, which plane changes do not cancel,
+  and the mesh is kept while the shape is unchanged; the "Section caps" job starts when every
+  solid in scope is ready. Surface bodies report open curves. Section Analysis is now enabled
+  and preselectable for solid bodies.
+- **Reference bases** (`inspect::doc::base::{resolve_base, ResolvedBase, BaseError,
+  is_construction}`): construction planes (resolved every frame) and planar B-rep faces (CON-03,
+  in a "Section reference" job after each recompute); curved faces are refused (`NotPlanar`).
+  *Pick face* or a preselected face stores `SectionBase::Ref` with a `TopoRef` (wrapped in
+  `InContext` for a face seen in an occurrence).
+- **Fallback.** A base that no longer resolves keeps cutting and raises a warning: a toast, the
+  Section Statistics panel and the dialog. A face keeps the **last plane it resolved to** while
+  the document is open; the record is not edited (no hidden undo step), so after reopening the
+  plane stored at the last OK is used. OK in the dialog stores the kept plane. A construction
+  plane falls back to the stored plane, as CON-04 landed and tests. A fingerprint-only face match
+  is followed, with a different warning.
+- **Manipulator:** a UI-06 arrow along the base normal, on the section plane over the middle of
+  the scene. Dragging writes the offset field in the document's unit (`Ctrl` snaps, `Esc`
+  restores); the field, slider and +/- move the arrow. Hidden while a base is being picked.
+- Caps are now computed for every visible placement of a body (before: the first one only);
+  `AnalysisStats::bodies` counts bodies, not placements.
+
+*Done-when evidence* (OCCT 8.0.1; test profile, shared machine):
+1. **Watertight on solid parts** (`amg-features/tests/inspect_section_solids.rs::
+   section_caps_of_solid_parts_are_watertight`, `AMG_REQUIRE_TESTDATA=1`): 25 solid parts (9
+   `testdata/brep` fixtures, 12 solids of 9 STEP fixtures, 4 kernel-built), 720 166 triangles,
+   3 seeded random planes + vertex + edge + 3 axis planes = 200 cuts (192 with a cap):
+   **200 / 200 closed, manifold, oriented**, no exception. `cap_areas_match_the_analytic_sections`
+   checks a cylinder's area against the deflection bound, also placed.
+2. **Construction plane follows a parameter edit:**
+   `a_construction_plane_base_follows_a_parameter_edit` (features) and
+   `a_construction_base_follows_a_parameter_edit_and_warns_when_deleted` (app: 25 -> 12 mm, cap
+   400 mm^2).
+3. **Deleted base face keeps the last plane + warning:**
+   `a_face_base_follows_its_face_and_stops_resolving_when_it_is_deleted` (features) and
+   `a_solid_face_base_follows_its_face_and_keeps_the_last_plane_when_deleted` (app: boss face
+   16 -> 22.5 mm, boss deleted: the plane stays at 22.5 - 2 mm, warning in toast, panel and
+   dialog; undo clears it). `a_face_in_a_placed_component_is_cut_where_it_is_seen`.
+4. **Manipulator <-> offset field:** `the_offset_arrow_and_the_offset_field_follow_each_other`.
+
+`cargo nextest run -p amg-features -p amg-ui`: 754 pass, 3 skipped; with
+`--features amg-features/occt,amg-ui/occt`: 936 pass, 3 skipped; clippy `-D warnings` clean in
+both; fmt clean. Existing tests and shell snapshots are unchanged.
+
+*Deviations / leftovers:*
+- Cap areas of solids are those of the tessellation (not marked "approximate" in the panel). The
+  tessellation of the 262 k-triangle perforated plate takes 16 s (all other test parts < 0.4 s,
+  test profile): the GPU clip follows at once, the geometric caps and statistics after that.
+  Sharing the display or export (`TessCache`) tessellation could remove it.
+- The last resolved face plane is not persisted (above). Persisting it needs a document change
+  that is not an undo step (lane E).
+- The browser "Analysis" row shows no warning badge: browser providers cannot read view layers
+  and are rebuilt only on record changes.
+- The arrow has no heads-up value box (the UI-05 dialog's is private to it).
+- No golden file (no new geometry; expected values are analytic) and no new benchmark (no S05
+  budget for tessellation).
+- *Owner check* (`cargo app` with the `occt` feature): Construct ▸ Offset Plane 10 mm above XY;
+  extrude a box through it; INSPECT ▸ Section Analysis, *Pick face*, click the plane; drag the
+  blue arrow and watch the offset field and the caps follow; type an offset and watch the arrow
+  move; OK; edit the plane's offset.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1856,3 +1924,14 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **To lane A/S02 (`amg-brep`), requests, not changed here:** an edge's length in `MassProps`;
   whether a zero `distance` is an inner solution (containment); distance to an unbounded plane or
   line; cancellation of `distance`.
+
+### 2026-11-26: INS-11 additions
+- **`amg-features::inspect`** (additive): `section::{tessellate_solid, section_quality}`;
+  `doc::base::{resolve_base, ResolvedBase, BaseError, is_construction}`.
+- **`amg-ui::inspect`** (lane A): `SectionSnapshot` gains `warnings` (`section::BaseWarning`) and
+  `tessellating`; `SectionLayer::face_plane`; `section::warning_text`; `SECTION_TESS_JOB`,
+  `SECTION_REF_JOB`; `SectionToolSnapshot` gains `warning` and `gizmo`;
+  `section_tool::OFFSET_GIZMO`. No framework change (nothing under S11).
+- **To lane E (`amg-doc`), request, not changed here:** a way to update a record's cached values
+  (the `last` plane of `SectionBase::Ref`) with the recompute that changes them, without an undo
+  step.
