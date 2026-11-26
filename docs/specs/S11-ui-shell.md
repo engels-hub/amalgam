@@ -717,6 +717,25 @@ pub enum GizmoPrim {
     PlaneHandle { origin: amg_core::Point3, normal: amg_core::Dir3, id: u32, hot: bool },
 }
 #[derive(Copy, Clone, Debug, PartialEq, Eq)] pub enum TriadPart { AxisX, AxisY, AxisZ, PlaneXY, PlaneYZ, PlaneZX, RotX, RotY, RotZ, Free }
+// Landed (UI-06): drawn with `draw(&mut amg_render::OverlayList, &GizmoPrim, &CameraView)` (no
+// framework-side `OverlayList::gizmo`; tools draw into RND-07's list directly).
+pub const GIZMO_SIZE_PT: f32 = 90.0; pub const HIT_TOLERANCE_PT: f32 = 6.0;
+pub const SNAP_LENGTH: f64 = 1.0 /* display unit */; pub const SNAP_ANGLE: f64 /* 5° */;
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)] pub enum GizmoPart { Arrow, Ring, Plane, Triad(TriadPart) }
+pub fn shape(g: &GizmoPrim, cam: &CameraView) -> GizmoShape;                 // projected hit geometry
+pub fn hit_test(gizmos: &[GizmoPrim], cam: &CameraView, pos: egui::Pos2) -> Option<(u32, GizmoPart)>;
+pub fn facing_frame(frame: &amg_core::Mat3, cam: &CameraView) -> amg_core::Mat3; // triad axes towards the viewer
+pub struct GizmoDrag { pub id: u32, pub part: GizmoPart, /* start geometry */ }
+impl GizmoDrag { pub fn begin(g: &GizmoPrim, part: GizmoPart, cam: &CameraView, pos: egui::Pos2) -> Option<GizmoDrag>;
+                 pub fn update(&mut self, cam: &CameraView, pos: egui::Pos2) -> Option<DragValue>; }
+#[derive(Copy, Clone, Debug, PartialEq)] pub enum DragValue { Along(f64), Angle(f64), Move(amg_core::Vec3) }
+pub enum ManipEvent { Begin { id: u32, part: GizmoPart }, Drag { id: u32, value: DragValue, snap: bool, pos: egui::Pos2 },
+                      End { id: u32, value: Option<DragValue>, snap: bool }, Cancel { id: u32 } }
+#[derive(Default)] pub struct Manipulators { /* gizmos, hot, armed press, drag */ }   // per-tool controller
+impl Manipulators { pub fn set(&mut self, g: Vec<GizmoPrim>); pub fn input(&mut self, ev: &ViewportEvent, cam: &CameraView) -> ManipResponse;
+                    pub fn draw(&self, out: &mut amg_render::OverlayList, cam: &CameraView); /* gizmos, hot, dragging, cursor, reset */ }
+pub fn snap(value: f64, step: f64) -> f64; pub fn snap_step(dim: Dimension, prefs: &UnitPrefs) -> f64;
+pub fn field_text(value: f64, dim: Dimension, prefs: &UnitPrefs) -> String;   // `12.5 mm`, `35 deg`
 
 // ===== amg_ui::browser (UI-07) =====
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -905,7 +924,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-04 | Selection system: `Selection`, `SelItem`, `EntityFilter` bar, select priority, click/Ctrl/Shift rules, window/crossing box (S10 region pick), select-through list, selection sets (`ExtRecord ui.selection_sets`), revalidation on events | UI-03, UI-20 | P0 | Done | 1. Kittest on a fixture with 3 mesh bodies: window select left→right picks only fully enclosed bodies, and right→left also picks touching ones. 2. With the filter set to faces only, a click on an edge selects the adjacent face. 3. Select-through lists all 3 stacked bodies in depth order. 4. Save a selection set → reload the file → restore gives the same `EntityRef`s, and undo removes the set. 5. Deleting a selected body drops it from the selection without error. |
 | UI-15 | Dialog widgets: `ExprInput` (live parse via `ParamTable::try_eval`, error spans, autocomplete of params/functions/units, nudge, bound-param display), `SelectionField`, `ChoiceField`, toggle/int/flip, `DialogFrame` (banner, OK enablement), quantity formatting per `UnitPrefs` | UI-04, DOC-04 | P0 | Done | 1. Kittest: typing `d1 + 5` in a length field with `d1 = 10 mm` shows `15.00 mm`. `12 kg` shows a unit-mismatch error underlined at the right span, and OK is disabled. 2. Typing `d` offers every parameter starting with `d`, and Tab completes. 3. `12,5` shows the `DecimalComma` hint (QUESTIONS #11). 4. Only one `SelectionField` is active at a time, and the active one sets the pick filter. 5. All widgets are queryable by label (AccessKit). |
 | UI-05 | Generic feature dialog renderer: `GenericFeatureTool` from `DialogRegistration` (conditions, auto-focus, live preview with debounce, preview-health banner), edit mode (preview rollback, `EditFeature` + `SetParamExpr` in one transaction), automatic `feature.<kind>` commands + toolbar placement + `FeatureUiInfo` | UI-15, SOL-01, DOC-12 | P0 | Done (app extrude/edit check pending owner) | 1. The Extrude dialog is generated entirely from SOL-01's schema (no extrude-specific UI code; grep test). Changing extent type shows/hides the right fields. 2. Kittest: select a profile, type a distance → the preview appears ≤ debounce + 100 ms on a typical part. OK yields one undo entry with `AddFeature`. 3. Edit mode: changing the distance of an existing extrude keeps its model parameter `dN` and changes its expression. 4. An invalid input disables OK with the field error. Cancel leaves the document unchanged (revision equal). |
-| UI-06 | Manipulators: Distance, Angle, Triad, Plane gizmos via overlays (constant 90 px), CPU hit test, drag ↔ field binding both ways, Ctrl snapping, heads-up value | UI-05, RND-07 | P0 | Todo | 1. Dragging the extrude arrow by a scripted world delta of 12.5 mm writes `12.5 mm` into the field (prefs precision), and editing the field moves the arrow (kittest via `world_to_screen`). 2. Ctrl-drag snaps to 1 mm / 5°. 3. Triad: each of 10 parts hit-tests correctly in a 6-view matrix (unit test on `CameraView`). 4. Gizmo screen size stays 90 ± 2 px across a 1000× zoom range. |
+| UI-06 | Manipulators: Distance, Angle, Triad, Plane gizmos via overlays (constant 90 px), CPU hit test, drag ↔ field binding both ways, Ctrl snapping, heads-up value | UI-05, RND-07 | P0 | Review | 1. Dragging the extrude arrow by a scripted world delta of 12.5 mm writes `12.5 mm` into the field (prefs precision), and editing the field moves the arrow (kittest via `world_to_screen`). 2. Ctrl-drag snaps to 1 mm / 5°. 3. Triad: each of 10 parts hit-tests correctly in a 6-view matrix (unit test on `CameraView`). 4. Gizmo screen size stays 90 ± 2 px across a 1000× zoom range. |
 | UI-07 | Browser tree: framework nodes (settings, named views, origin, components/bodies/sketches/construction, selection sets), `BrowserProvider` API, virtualised rows, eye toggles (`SetBodyProps`, `SetOccurrenceVisible`, `ui.visibility` ExtRecord), rename, context menu, hover highlight, click select, double-click edit | UI-04, DOC-09 | P0 | Done | 1. Kittest on a fixture with 2 components × 3 bodies: hiding a body hides it in the scene, and undo shows it again. Renaming a body persists through save/load. 2. A test provider adds a node under Root without framework changes. 3. 10 000 synthetic bodies: browser frame cost < 1 ms (criterion), and the tree is rebuilt only on affecting events (counter). 4. Hovering a row highlights the body (highlight layer contains it). |
 | UI-08 | Timeline panel: node icons via `FeatureUiInfo`, groups, rollback marker drag (`SetMarker`), drag reorder with valid-range shading (`MoveFeature`), context menu, health badges + tooltips, hover highlight of outputs and error entities, recompute progress ring, hidden in Direct mode | UI-04, DOC-05, DOC-12 | P0 | Done | 1. Kittest on a 20-node test timeline: dragging the marker to index 5 sends `SetMarker{5}`, and nodes ≥ 5 render as rolled back. 2. Dragging a node before its input is refused (no command sent, red shading shown). A valid move sends one `MoveFeature`. 3. An erroring test feature shows an error badge with the diagnostic message as tooltip. 4. Suppress/rename/delete/group via the context menu each give one undo entry. 5. 500 nodes render < 1 ms (criterion). |
 | UI-10 | Job/progress panel (`JobSystem::jobs()`, grouped, cancel), status-bar recompute/job indicators, toasts from `Diagnostic` (severity, hint, details via `report`, copy, open log folder), cancelled-is-not-error rule, GPU device-lost banner | UI-01, FND-04, FND-07 | P0 | Done | 1. Kittest: a 2 s test job shows progress; pressing Cancel resolves it as `Cancelled` within 200 ms and no error toast appears. 2. A failing job with an `amg_core::Error::InvalidArgument` shows the user message and hint, and "Details" contains the `report` chain. 3. Info toasts auto-hide after 6 s, and errors stay. 4. Simulated `is_lost()` shows the banner and Save stays enabled. |
@@ -2610,6 +2629,109 @@ profile). Done-when 2 now says so; the UI-16 tutorial test already checks all 6 
   - `MeshOpTool` and `CombineTool` (lane C) forward events to a `SelectTool` without calling
     its `update`, so their viewport click picks are never polled; flagged for lane C.
 
+### 2026-11-26 - UI-06 manipulators (lane D; status Review)
+
+*Landed in `amg-ui` (new framework module `manip`; hookup in `feature_dialog`; no change outside
+`amg-ui`, no new dependency):*
+- **`manip`**: `GizmoPrim::{Arrow, Ring, Triad, PlaneHandle}` and `TriadPart` as Interfaces §A,
+  plus `GizmoPart`, `shape` / `GizmoShape` / `PartForm` (projected screen geometry), `hit_test`,
+  `draw`, `GizmoDrag` / `DragValue`, `Manipulators` (per-tool controller) / `ManipEvent` /
+  `ManipResponse`, `snap`, `snap_step`, `field_text`, `world_size`, `facing_frame`,
+  `frame_from`, `rotate`, `perpendicular`, `TriadPart::{ALL, grab_point}`.
+  - **Constant size**: world size = `90 pt × CameraView::world_per_point(origin)` per frame; the
+    size is the arrow length, ring diameter, triad arm length and plane-handle side. Drawing goes
+    to RND-07 (`OverlayList::{arrow, ring, polyline, plane_quad, points}`, always on top; the
+    renderer's constant-pixel arrow / ring use the same `pixel_size_at`), so the drawn gizmo and
+    the hit geometry agree. Hot part in amber.
+  - **CPU hit test** against the projected geometry with 6 pt tolerance; the nearest part wins,
+    plane squares / the plane handle / the triad's free centre count as 0 inside. Triad layout
+    (fractions of the size): arms 0.2–1.0, plane squares 0.3–0.5 between two axes, rotation
+    quarter arcs at 0.75, free-centre disc 7 pt. **The triad's axes are flipped towards the
+    viewer** (`facing_frame`) so the ten parts never overlap on screen in any octant view
+    (without it, e.g. from (−1, 1, 1), the YZ square and the X rotation arc lie on the X arm).
+    Moves are vectors and rotations are read about the original axes, so the flip does not change
+    what a drag means.
+  - **Drags** read against the geometry at drag start: closest point on the axis line (arrows,
+    triad arms), unwrapped angle in the ring plane (rings, triad arcs; more than half a turn
+    works), point in the plane (plane squares, plane handle, free centre in the view plane).
+    `Manipulators::input` takes the primary Press on a gizmo and its DragStart / Drag / DragEnd /
+    Release / Click (so the tool's selection and navigation never see them), tracks hover
+    (returned as ignored, so the tool still sees it) and turns `Esc` during a drag into `Cancel`.
+- **Binding (`GenericFeatureTool`)**: every frame the schema fields with `manipulator` (Expr
+  fields, shown and enabled) get their anchors from `anchors(feature, design, evaluated)` on the
+  latest Ready preview, else on the document's evaluation (the extrude anchor is on the evaluated
+  sketch, so it works without a kernel), and a gizmo placed at the field's current value: arrow at
+  `origin + axis·(v − base)`; ring at `origin` with its pointer turned by `v − base` from
+  `ref_dir`; triad moved along `axis` (length fields) or turned about it (angle fields); plane
+  handle moved along `ref_dir` in the plane normal to `axis`.
+  - **Field → gizmo**: editing the field (any expression) moves the gizmo in the next frame.
+  - **Gizmo → field**: a drag writes `start + change` (lengths: the change along the drive
+    direction; angles: the rotation) as `manip::field_text` into the field, replacing any
+    expression; a bound model parameter stays bound (OK then emits `SetParamExpr` as in UI-05).
+    `Ctrl` snaps the value to 1 display unit (1 mm) / 5°. `Esc` during a drag restores the text
+    from before it and keeps the dialog open.
+  - The manipulators run first in `GenericFeatureTool::input` (the "manipulator → tool" slot of
+    §6). Cursor: grab over a gizmo, grabbing while dragging.
+- **Heads-up value**: while a drag runs, an editable `ExprInput` (`Heads-up <label>`) in an
+  `egui::Area` follows the cursor, 18 pt below-right of it; it goes away with the drag.
+- Additive `GenericFeatureTool` API: `manipulators()`, `gizmo_of(key)`, `dragged_field()`.
+
+*Evidence (Done-when; `crates/amg-ui/tests/manipulators.rs`, 9 tests, plus 4 unit tests in
+`manip`; all pass with and without `--features occt`):*
+1. `dw1_dragging_the_extrude_arrow_writes_the_field_and_editing_the_field_moves_it`: Extrude on a
+   preselected 20 × 10 profile, oblique camera; the arrow sits at the centroid + 10 mm along +Z.
+   A kittest drag (press, 6 moves, release) from the middle of the shaft to the screen point
+   12.5 mm further along the axis (`world_to_screen`) writes `22.5 mm` (the default `10 mm` +
+   12.5 mm); the heads-up field is shown mid-drag and gone after; the document revision is
+   unchanged and the arrow follows to z = 22.5. A 3.3333 mm drag writes `25.83 mm` (two decimals,
+   zeros trimmed). Retyping `30 mm` moves the arrow: its projected base equals `world_to_screen`
+   of (10, 5, 30) within 0.01 pt; `2 * 4 mm` puts it at 8 mm and a 2 mm drag then replaces the
+   expression with `10 mm`. `a_drag_commits_with_ok_and_esc_during_a_drag_restores_the_value`:
+   Esc mid-drag restores `10 mm` with the dialog still open; a click on the arrow keeps the
+   profile selection; drag + OK is one undo entry whose extrude evaluates to 15 mm.
+2. `dw2_ctrl_drag_snaps_the_arrow_to_1_mm`: a Ctrl-drag of 12.3 mm writes `22 mm`; an unsnapped
+   1.7 mm drag then writes `23.7 mm`. `dw2_ctrl_drag_snaps_the_ring_to_5_degrees` (test
+   registration `uitest.ui06_manips`): the ring's pointer shows the field's 30°; Ctrl-dragging
+   the ring from 30° to 67° writes `65 deg`, an unsnapped drag to 33.5° writes `33.5 deg`.
+   `triad_and_plane_handle_drive_length_fields`: the triad's z arm dragged 4 mm writes `4 mm`
+   and the triad follows; the plane handle dragged by (6, 3, 0) writes `6 mm` (along `ref_dir`).
+3. `dw3_each_triad_part_hit_tests_as_itself_in_six_views`: 6 views (perspective and
+   orthographic, ppp 1 / 1.5 / 2, identity and a tilted frame, an off-centre target) × 10 parts =
+   60 hits, each at the part's `grab_point`; a point (90 + 18, 90) pt off the centre is a miss;
+   5 pt beyond an arm's tip hits it, 7 pt does not. `triad_drags_move_and_rotate`: arm,
+   plane-square, arc (20° ± 0.05°) and free-centre drags.
+4. `dw4_gizmo_screen_size_stays_90_pt_over_a_1000x_zoom`: arrow length, ring diameter and triad
+   arm, perspective and orthographic, 13 distances from 20 mm to 20 m, gizmo on and off the view
+   centre, ppp 1.25: worst deviation **0.00008 pt**.
+   `dw4_the_extrude_arrow_keeps_its_screen_size_in_the_app`: the dialog's arrow at camera
+   distances 60 mm / 1.9 m / 60 m is 90.0 / 90.0 / 90.0 pt.
+- `cargo nextest run -p amg-ui`: 391 passed (2 skipped); the shell snapshots are unchanged (the
+  test registration lives in the `manipulators` test binary only).
+
+*Deviations:*
+- Sizes are logical points (90 pt = 90 px at 100 % scaling); the overlays get `pt × ppp` pixels.
+- Manipulators are owned by the tool (`manip::Manipulators`, called first in its `input`), not a
+  separate router slot: only tools have manipulators, and this gives the same priority without a
+  new `Tool` hook. A framework slot can wrap the same controller later.
+- No `OverlayList::gizmo`: `manip::draw` writes RND-07 primitives into the tool's
+  `amg_render::OverlayList` (as UI-03 already passes it).
+- The field text uses `DISPLAY_PRECISION` (2) with trailing zeros trimmed (`22.5 mm`, `10 mm`),
+  not `format_quantity`'s fixed `22.50 mm`; the evaluated value next to the field still shows
+  `22.50 mm`.
+- Done-when 1 is tested as a 12.5 mm *change* (10 → 22.5 mm): the default distance is 10 mm and
+  `0 mm` is not a valid extrude, so the field cannot start at 0.
+- The snap step is 1 display unit (1 in in an inch document) / 5° until UI-11 has preferences.
+
+*Leftovers:*
+- **Owner check in `cargo app`** (tested headless only): extrude a sketch, drag the distance
+  arrow, Ctrl-drag it, edit the field; look at the arrow / ring / triad drawing and where the
+  heads-up field sits.
+- Multi-field manipulators (a Move triad driving x / y / z / rotation fields) need a schema
+  extension in S04 (`ManipAnchor` binds one field); a triad drives one field now.
+- The arrow does not flip for negative values (it stays along `axis` at the negative position).
+- Typing a number while dragging (`ViewportEvent::Text` into the heads-up field) is not wired;
+  the heads-up field is shown and editable, but only during the drag.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -3054,3 +3176,12 @@ Flagged for lane D review. All in `amg-ui`; no new third-party dependency; no ch
   timeline infos after the modules.
 - Flagged for lane C: `mesh::{tool, combine}` never call their forwarded `SelectTool`'s
   `update`, so viewport clicks in those dialogs are not polled.
+
+### 2026-11-26: UI-06 (lane D)
+- No change outside `amg-ui`, no new third-party dependency. `amg_render::OverlayList` (RND-07)
+  and `amg_features::dialog` (`FieldSpec::manipulator`, `ManipKind`, `ManipAnchor`,
+  `DialogRegistration::anchors`) are used through their public API; nothing is requested from
+  S04 or S10.
+- Additive `amg-ui` framework API: the `manip` module (Interfaces §A);
+  `GenericFeatureTool::{manipulators, gizmo_of, dragged_field}`.
+- Possible S04 follow-up: a manipulator that drives several fields (Move / Align triads).

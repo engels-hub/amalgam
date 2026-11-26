@@ -50,6 +50,10 @@
 //! from every `amg_features::dialog::DialogRegistration`, with its `feature.<kind>` command,
 //! toolbar placement and timeline info.
 //!
+//! UI-06 adds [`manip`]: Distance / Angle / Triad / Plane gizmos drawn as constant-size (90 pt)
+//! overlays, CPU hit tests, drags with `Ctrl` snapping; the generic feature dialog binds them to
+//! the schema fields that declare a manipulator (both ways) and shows a heads-up value.
+//!
 //! ASM-10 adds [`assembly`] (lane E): the active component, grounding, pending positions and the
 //! assembly menus in the browser.
 //!
@@ -71,6 +75,7 @@ pub mod icons;
 pub mod input;
 mod jobs;
 pub mod layer;
+pub mod manip;
 pub mod marking;
 pub mod module;
 pub mod nav;

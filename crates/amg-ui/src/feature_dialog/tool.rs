@@ -9,13 +9,14 @@ use amg_doc::{
 };
 use amg_features::dialog::{
     DialogInit, DialogRegistration, DialogSchema, FieldKey, FieldKind, FieldSpec, FieldValue,
-    FieldValues,
+    FieldValues, ManipAnchor, ManipKind,
 };
 
 use super::profiles;
 use crate::app::{CmdEnv, CommitBatch};
 use crate::command::{CmdId, Enablement};
 use crate::input::ViewportEvent;
+use crate::manip::{self, DragValue, GizmoPrim, ManipEvent, Manipulators};
 use crate::notify::Notification;
 use crate::pick::PickTarget;
 use crate::preview::PreviewState;
@@ -59,6 +60,30 @@ struct Checked {
     feature: Option<FeatureBox>,
 }
 
+/// A schema field driven by a manipulator (UI-06): its anchor from `anchors`. The gizmo id is
+/// the binding's index.
+#[derive(Clone, Debug)]
+struct Binding {
+    field: FieldKey,
+    kind: ManipKind,
+    dim: amg_doc::Dim,
+    anchor: ManipAnchor,
+}
+
+/// The drag in progress: the bound field and its value and text before the drag.
+#[derive(Clone, Debug)]
+struct FieldDrag {
+    id: u32,
+    field: FieldKey,
+    start: f64,
+    start_src: String,
+    /// Cursor, points (the heads-up value follows it).
+    pos: egui::Pos2,
+}
+
+/// Offset of the heads-up value from the cursor, points.
+const HEADS_UP_OFFSET: egui::Vec2 = egui::vec2(18.0, 18.0);
+
 /// The dialog tool of one feature kind, generated from its [`DialogRegistration`].
 pub struct GenericFeatureTool {
     cmd: CmdId,
@@ -77,6 +102,10 @@ pub struct GenericFeatureTool {
     hover_profile: Option<EntityRef>,
     /// OK's state from the last update.
     ok: Enablement,
+    /// The gizmos of the fields that declare a manipulator (UI-06).
+    manips: Manipulators,
+    bindings: Vec<Binding>,
+    field_drag: Option<FieldDrag>,
 }
 
 impl std::fmt::Debug for GenericFeatureTool {
@@ -203,6 +232,9 @@ impl GenericFeatureTool {
             focused: false,
             hover_profile: None,
             ok: Enablement::disabled("starting"),
+            manips: Manipulators::new(),
+            bindings: Vec::new(),
+            field_drag: None,
         })
     }
 
@@ -248,6 +280,203 @@ impl GenericFeatureTool {
     /// Whether OK is enabled, with the reason when not (as of the last frame).
     pub fn ok_state(&self) -> &Enablement {
         &self.ok
+    }
+
+    /// The manipulators of this frame (UI-06; tests and scripting read their gizmos).
+    pub fn manipulators(&self) -> &Manipulators {
+        &self.manips
+    }
+
+    /// The gizmo that drives field `key`, as placed for the current value.
+    pub fn gizmo_of(&self, key: &str) -> Option<GizmoPrim> {
+        let id = self.bindings.iter().position(|b| b.field.0 == key)?;
+        let id = u32::try_from(id).ok()?;
+        self.manips.gizmos().into_iter().find(|g| g.id() == id)
+    }
+
+    /// The field a manipulator drag is changing, if one is in progress.
+    pub fn dragged_field(&self) -> Option<FieldKey> {
+        self.field_drag.as_ref().map(|d| d.field)
+    }
+
+    /// The value (canonical units) of expression field `key` as typed now.
+    fn expr_value(&self, env: &CmdEnv<'_>, key: FieldKey, dim: amg_doc::Dim) -> Option<f64> {
+        let Some(FieldValue::Expr { src, .. }) = self.values.0.get(&key) else {
+            return None;
+        };
+        let prefs = &env.design.meta().default_units;
+        env.design
+            .params()
+            .try_eval(src, Some(dim), prefs)
+            .ok()
+            .map(|q| q.value)
+    }
+
+    /// Re-reads the anchors of the fields that declare a manipulator (on the latest preview,
+    /// else the document) and places their gizmos at the current values.
+    fn refresh_manipulators(&mut self, cx: &mut ToolCx<'_>) {
+        let preview = match cx.preview().state() {
+            PreviewState::Ready(ev) => Some(std::sync::Arc::clone(ev)),
+            _ => None,
+        };
+        let env = cx.env();
+        let anchors = self.check(&env, &self.values).feature.map(|f| {
+            let mut a = preview
+                .as_ref()
+                .map(|ev| (self.reg.anchors)(f.get(), env.design, ev))
+                .unwrap_or_default();
+            if a.is_empty() {
+                a = (self.reg.anchors)(f.get(), env.design, env.evaluated);
+            }
+            a
+        });
+        let mut bindings = Vec::new();
+        for a in anchors.unwrap_or_default() {
+            let Some(spec) = self.spec(a.field) else {
+                continue;
+            };
+            let (Some(kind), FieldKind::Expr { dim, .. }) = (spec.manipulator, &spec.kind) else {
+                continue;
+            };
+            if !visible(spec, &self.values) || !enabled(spec, &self.values) {
+                continue;
+            }
+            bindings.push(Binding {
+                field: a.field,
+                kind,
+                dim: *dim,
+                anchor: a,
+            });
+        }
+        // A drag keeps its binding while the values cannot be built for a moment.
+        if bindings.is_empty() && self.field_drag.is_some() {
+            bindings.clone_from(&self.bindings);
+        }
+        let mut gizmos = Vec::new();
+        for (i, b) in bindings.iter().enumerate() {
+            let Ok(id) = u32::try_from(i) else {
+                break;
+            };
+            if let Some(v) = self.expr_value(&env, b.field, b.dim) {
+                gizmos.push(place(b, v, id));
+            }
+        }
+        self.bindings = bindings;
+        self.manips.set(gizmos);
+    }
+
+    /// Applies a gizmo event to its bound field: a drag writes the formatted value (replacing
+    /// any expression), `Esc` restores the text from before the drag.
+    fn on_manip(&mut self, ev: ManipEvent, cx: &mut ToolCx<'_>) {
+        match ev {
+            ManipEvent::Begin { id, .. } => {
+                let Some(b) = usize::try_from(id).ok().and_then(|i| self.bindings.get(i)) else {
+                    return;
+                };
+                let (field, dim, base) = (b.field, b.dim, b.anchor.base);
+                let start = self.expr_value(&cx.env(), field, dim).unwrap_or(base);
+                let start_src = match self.values.0.get(&field) {
+                    Some(FieldValue::Expr { src, .. }) => src.clone(),
+                    _ => String::new(),
+                };
+                let pos = self.manips.cursor().unwrap_or_default();
+                self.field_drag = Some(FieldDrag {
+                    id,
+                    field,
+                    start,
+                    start_src,
+                    pos,
+                });
+            }
+            ManipEvent::Drag {
+                id,
+                value,
+                snap,
+                pos,
+            } => {
+                if let Some(d) = &mut self.field_drag {
+                    d.pos = pos;
+                }
+                self.apply_drag(id, value, snap, cx);
+            }
+            ManipEvent::End { id, value, snap } => {
+                if let Some(v) = value {
+                    self.apply_drag(id, v, snap, cx);
+                }
+                self.field_drag = None;
+            }
+            ManipEvent::Cancel { .. } => {
+                if let Some(d) = self.field_drag.take() {
+                    self.set_field_text(d.field, d.start_src);
+                }
+            }
+        }
+        cx.app().request_repaint();
+    }
+
+    /// Writes `start + change` (snapped with `Ctrl`) into the dragged field.
+    fn apply_drag(&mut self, id: u32, value: DragValue, snap: bool, cx: &mut ToolCx<'_>) {
+        let Some(d) = self.field_drag.as_ref().filter(|d| d.id == id) else {
+            return;
+        };
+        let Some(b) = usize::try_from(id).ok().and_then(|i| self.bindings.get(i)) else {
+            return;
+        };
+        let change = if b.dim == amg_doc::Dim::ANGLE {
+            match value {
+                DragValue::Angle(a) => Some(a),
+                _ => None,
+            }
+        } else {
+            value.along(drive_dir(b))
+        };
+        let Some(change) = change else {
+            return;
+        };
+        let env = cx.env();
+        let prefs = &env.design.meta().default_units;
+        let mut v = d.start + change;
+        if snap {
+            v = manip::snap(v, manip::snap_step(b.dim, prefs));
+        }
+        let text = manip::field_text(v, b.dim, prefs);
+        let field = d.field;
+        self.set_field_text(field, text);
+    }
+
+    /// Replaces the text of expression field `key` (a bound model parameter stays bound).
+    fn set_field_text(&mut self, key: FieldKey, text: String) {
+        if let Some(FieldValue::Expr { src, .. }) = self.values.0.get_mut(&key) {
+            *src = text;
+        }
+    }
+
+    /// The heads-up value next to the cursor while a manipulator is dragged.
+    fn heads_up(&mut self, ctx: &egui::Context, params: &ParamTable, prefs: &UnitPrefs) {
+        let Some(d) = self.field_drag.clone() else {
+            return;
+        };
+        let Some(spec) = self.spec(d.field) else {
+            return;
+        };
+        let FieldKind::Expr { dim, .. } = spec.kind else {
+            return;
+        };
+        let Some(FieldValue::Expr { src, .. }) = self.values.0.get_mut(&d.field) else {
+            return;
+        };
+        egui::Area::new(egui::Id::new(("amg_heads_up", d.field.0)))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(d.pos + HEADS_UP_OFFSET)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    let _ = ExprInput::new(src, dim, params, prefs)
+                        .accessible_name(format!("Heads-up {}", spec.label))
+                        .id_salt(("amg_heads_up_field", d.field.0))
+                        .desired_width(90.0)
+                        .show(ui);
+                });
+            });
     }
 
     /// Writes the selection items into the values.
@@ -510,6 +739,68 @@ impl GenericFeatureTool {
     }
 }
 
+/// The direction a length drag is read along: the anchor axis (arrow, triad), or the in-plane
+/// reference direction (plane handle).
+fn drive_dir(b: &Binding) -> amg_core::Vec3 {
+    match b.kind {
+        ManipKind::Plane => manip::frame_from(b.anchor.axis, b.anchor.ref_dir).x_axis,
+        _ => b.anchor.axis.get(),
+    }
+}
+
+/// The gizmo of binding `b` for the field value `v` (canonical units): the anchor shows
+/// `anchor.base` at `anchor.origin`.
+fn place(b: &Binding, v: f64, id: u32) -> GizmoPrim {
+    let a = &b.anchor;
+    let d = v - a.base;
+    let angle = b.dim == amg_doc::Dim::ANGLE;
+    let frame = manip::frame_from(a.axis, a.ref_dir);
+    match b.kind {
+        ManipKind::Distance => GizmoPrim::Arrow {
+            origin: a.origin + a.axis.get() * d,
+            dir: a.axis,
+            id,
+            hot: false,
+        },
+        ManipKind::Angle => GizmoPrim::Ring {
+            center: a.origin,
+            axis: a.axis,
+            ref_dir: amg_core::Dir3::new_unchecked(manip::rotate(
+                frame.x_axis,
+                a.axis.get(),
+                if angle { d } else { 0.0 },
+            )),
+            id,
+            hot: false,
+        },
+        ManipKind::Triad => GizmoPrim::Triad {
+            origin: if angle {
+                a.origin
+            } else {
+                a.origin + a.axis.get() * d
+            },
+            frame: if angle {
+                let r = |c: amg_core::Vec3| manip::rotate(c, a.axis.get(), d);
+                amg_core::Mat3::from_cols(r(frame.x_axis), r(frame.y_axis), frame.z_axis)
+            } else {
+                frame
+            },
+            id,
+            hot_part: None,
+        },
+        ManipKind::Plane => GizmoPrim::PlaneHandle {
+            origin: if angle {
+                a.origin
+            } else {
+                a.origin + frame.x_axis * d
+            },
+            normal: a.axis,
+            id,
+            hot: false,
+        },
+    }
+}
+
 /// Draws the fields. Returns the selection fields that became active and those whose clear
 /// button emptied them while active.
 struct FieldsUi<'a> {
@@ -696,6 +987,19 @@ impl Tool for GenericFeatureTool {
     }
 
     fn input(&mut self, ev: &ViewportEvent, cx: &mut ToolCx<'_>) -> InputResult {
+        // Manipulators first (routing priority: manipulator → tool).
+        if let Some(cam) = cx.camera().cloned() {
+            let r = self.manips.input(ev, &cam);
+            if r.changed {
+                cx.app().request_repaint();
+            }
+            if let Some(e) = r.event {
+                self.on_manip(e, cx);
+            }
+            if r.result == InputResult::Consumed {
+                return InputResult::Consumed;
+            }
+        }
         match ev {
             ViewportEvent::Click {
                 button: egui::PointerButton::Primary,
@@ -768,6 +1072,12 @@ impl Tool for GenericFeatureTool {
             (self.preview_command(&env), ok)
         };
         self.ok = ok;
+        self.refresh_manipulators(cx);
+        if self.manips.dragging().is_some() {
+            cx.set_cursor(egui::CursorIcon::Grabbing);
+        } else if self.manips.hot().is_some() {
+            cx.set_cursor(egui::CursorIcon::Grab);
+        }
         match cmd {
             Some(cmd) => {
                 if self.previewed.as_ref() != Some(&self.values) {
@@ -837,6 +1147,7 @@ impl Tool for GenericFeatureTool {
                 }
             });
         let (activated, cleared) = (fields.activated, fields.cleared);
+        self.heads_up(ui.ctx(), &params, &prefs);
         if let Some(k) = activated {
             // The newly active field shows its items as the document selection.
             let items: Vec<SelItem> = self
@@ -879,6 +1190,9 @@ impl Tool for GenericFeatureTool {
     }
 
     fn overlay(&mut self, out: &mut amg_render::OverlayList, cx: &ToolCx<'_>) {
+        if let Some(cam) = cx.camera() {
+            self.manips.draw(out, cam);
+        }
         if !self.shows_profiles() {
             return;
         }
@@ -903,6 +1217,8 @@ impl Tool for GenericFeatureTool {
     }
 
     fn finish(&mut self, reason: FinishReason, cx: &mut ToolCx<'_>) -> Option<CommitBatch> {
+        self.manips.reset();
+        self.field_drag = None;
         if reason != FinishReason::Commit {
             return None;
         }
