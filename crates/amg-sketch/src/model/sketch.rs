@@ -19,6 +19,8 @@ use crate::geom::{
 };
 use crate::ids::{ConstraintId, EntityId, ParamId};
 
+mod projected;
+
 /// Process-wide revision counter: every bump of any sketch gets a fresh number, so a revision
 /// never repeats across sketches, clones that diverge, or reloads.
 static NEXT_REV: AtomicU64 = AtomicU64::new(1);

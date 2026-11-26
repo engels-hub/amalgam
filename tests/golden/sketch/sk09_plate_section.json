@@ -1,0 +1,1110 @@
+[
+  {
+    "name": "base",
+    "sketches": [
+      [
+        {
+          "id": 2,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            16.127016654,
+            8.0,
+            0.0,
+            8.0
+          ]
+        },
+        {
+          "id": 5,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            40.0,
+            8.0,
+            23.872983346,
+            8.0
+          ]
+        },
+        {
+          "id": 8,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0,
+            40.0,
+            8.0
+          ]
+        },
+        {
+          "id": 11,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            8.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 14,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            16.127016654,
+            0.0,
+            16.127016654,
+            8.0
+          ]
+        },
+        {
+          "id": 17,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            23.872983346,
+            8.0,
+            23.872983346,
+            0.0
+          ]
+        },
+        {
+          "id": 20,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0,
+            16.127016654,
+            0.0
+          ]
+        },
+        {
+          "id": 23,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            23.872983346,
+            0.0,
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 27,
+          "kind": "line",
+          "projected": false,
+          "values": [
+            31.936491673,
+            8.0,
+            31.936491673,
+            11.0
+          ]
+        },
+        {
+          "id": 0,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            16.127016654,
+            8.0
+          ]
+        },
+        {
+          "id": 1,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            8.0
+          ]
+        },
+        {
+          "id": 3,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            8.0
+          ]
+        },
+        {
+          "id": 4,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            23.872983346,
+            8.0
+          ]
+        },
+        {
+          "id": 6,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            8.0
+          ]
+        },
+        {
+          "id": 9,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            8.0
+          ]
+        },
+        {
+          "id": 10,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 12,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            16.127016654,
+            0.0
+          ]
+        },
+        {
+          "id": 13,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            16.127016654,
+            8.0
+          ]
+        },
+        {
+          "id": 15,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            23.872983346,
+            8.0
+          ]
+        },
+        {
+          "id": 16,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            23.872983346,
+            0.0
+          ]
+        },
+        {
+          "id": 18,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 19,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            16.127016654,
+            0.0
+          ]
+        },
+        {
+          "id": 21,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            23.872983346,
+            0.0
+          ]
+        },
+        {
+          "id": 22,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 24,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            31.936491673,
+            8.0
+          ]
+        },
+        {
+          "id": 25,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            31.936491673,
+            8.0
+          ]
+        },
+        {
+          "id": 26,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            31.936491673,
+            11.0
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "name": "thickness 12",
+    "sketches": [
+      [
+        {
+          "id": 2,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            16.127016654,
+            12.0,
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 5,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            40.0,
+            12.0,
+            23.872983346,
+            12.0
+          ]
+        },
+        {
+          "id": 8,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0,
+            40.0,
+            12.0
+          ]
+        },
+        {
+          "id": 11,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 14,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            16.127016654,
+            0.0,
+            16.127016654,
+            12.0
+          ]
+        },
+        {
+          "id": 17,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            23.872983346,
+            12.0,
+            23.872983346,
+            0.0
+          ]
+        },
+        {
+          "id": 20,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0,
+            16.127016654,
+            0.0
+          ]
+        },
+        {
+          "id": 23,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            23.872983346,
+            0.0,
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 27,
+          "kind": "line",
+          "projected": false,
+          "values": [
+            31.936491673,
+            12.0,
+            31.936491673,
+            15.0
+          ]
+        },
+        {
+          "id": 0,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            16.127016654,
+            12.0
+          ]
+        },
+        {
+          "id": 1,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 3,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            12.0
+          ]
+        },
+        {
+          "id": 4,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            23.872983346,
+            12.0
+          ]
+        },
+        {
+          "id": 6,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            12.0
+          ]
+        },
+        {
+          "id": 9,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 10,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 12,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            16.127016654,
+            0.0
+          ]
+        },
+        {
+          "id": 13,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            16.127016654,
+            12.0
+          ]
+        },
+        {
+          "id": 15,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            23.872983346,
+            12.0
+          ]
+        },
+        {
+          "id": 16,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            23.872983346,
+            0.0
+          ]
+        },
+        {
+          "id": 18,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 19,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            16.127016654,
+            0.0
+          ]
+        },
+        {
+          "id": 21,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            23.872983346,
+            0.0
+          ]
+        },
+        {
+          "id": 22,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 24,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            31.936491673,
+            12.0
+          ]
+        },
+        {
+          "id": 25,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            31.936491673,
+            12.0
+          ]
+        },
+        {
+          "id": 26,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            31.936491673,
+            15.0
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "name": "hole 6",
+    "sketches": [
+      [
+        {
+          "id": 2,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            14.083920217,
+            12.0,
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 5,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            40.0,
+            12.0,
+            25.916079783,
+            12.0
+          ]
+        },
+        {
+          "id": 8,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0,
+            40.0,
+            12.0
+          ]
+        },
+        {
+          "id": 11,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 14,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            14.083920217,
+            0.0,
+            14.083920217,
+            12.0
+          ]
+        },
+        {
+          "id": 17,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            25.916079783,
+            12.0,
+            25.916079783,
+            0.0
+          ]
+        },
+        {
+          "id": 20,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0,
+            14.083920217,
+            0.0
+          ]
+        },
+        {
+          "id": 23,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            25.916079783,
+            0.0,
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 27,
+          "kind": "line",
+          "projected": false,
+          "values": [
+            32.958039892,
+            12.0,
+            32.958039892,
+            15.0
+          ]
+        },
+        {
+          "id": 0,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            14.083920217,
+            12.0
+          ]
+        },
+        {
+          "id": 1,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 3,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            12.0
+          ]
+        },
+        {
+          "id": 4,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            25.916079783,
+            12.0
+          ]
+        },
+        {
+          "id": 6,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            12.0
+          ]
+        },
+        {
+          "id": 9,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 10,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 12,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            14.083920217,
+            0.0
+          ]
+        },
+        {
+          "id": 13,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            14.083920217,
+            12.0
+          ]
+        },
+        {
+          "id": 15,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            25.916079783,
+            12.0
+          ]
+        },
+        {
+          "id": 16,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            25.916079783,
+            0.0
+          ]
+        },
+        {
+          "id": 18,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 19,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            14.083920217,
+            0.0
+          ]
+        },
+        {
+          "id": 21,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            25.916079783,
+            0.0
+          ]
+        },
+        {
+          "id": 22,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 24,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            32.958039892,
+            12.0
+          ]
+        },
+        {
+          "id": 25,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            32.958039892,
+            12.0
+          ]
+        },
+        {
+          "id": 26,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            32.958039892,
+            15.0
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "name": "width 52",
+    "sketches": [
+      [
+        {
+          "id": 2,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            14.083920217,
+            12.0,
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 5,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            52.0,
+            12.0,
+            25.916079783,
+            12.0
+          ]
+        },
+        {
+          "id": 8,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            52.0,
+            0.0,
+            52.0,
+            12.0
+          ]
+        },
+        {
+          "id": 11,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 14,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            14.083920217,
+            0.0,
+            14.083920217,
+            12.0
+          ]
+        },
+        {
+          "id": 17,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            25.916079783,
+            12.0,
+            25.916079783,
+            0.0
+          ]
+        },
+        {
+          "id": 20,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0,
+            14.083920217,
+            0.0
+          ]
+        },
+        {
+          "id": 23,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            25.916079783,
+            0.0,
+            52.0,
+            0.0
+          ]
+        },
+        {
+          "id": 27,
+          "kind": "line",
+          "projected": false,
+          "values": [
+            38.958039892,
+            12.0,
+            38.958039892,
+            15.0
+          ]
+        },
+        {
+          "id": 0,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            14.083920217,
+            12.0
+          ]
+        },
+        {
+          "id": 1,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 3,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            52.0,
+            12.0
+          ]
+        },
+        {
+          "id": 4,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            25.916079783,
+            12.0
+          ]
+        },
+        {
+          "id": 6,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            52.0,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            52.0,
+            12.0
+          ]
+        },
+        {
+          "id": 9,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 10,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 12,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            14.083920217,
+            0.0
+          ]
+        },
+        {
+          "id": 13,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            14.083920217,
+            12.0
+          ]
+        },
+        {
+          "id": 15,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            25.916079783,
+            12.0
+          ]
+        },
+        {
+          "id": 16,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            25.916079783,
+            0.0
+          ]
+        },
+        {
+          "id": 18,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "id": 19,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            14.083920217,
+            0.0
+          ]
+        },
+        {
+          "id": 21,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            25.916079783,
+            0.0
+          ]
+        },
+        {
+          "id": 22,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            52.0,
+            0.0
+          ]
+        },
+        {
+          "id": 24,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            38.958039892,
+            12.0
+          ]
+        },
+        {
+          "id": 25,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            38.958039892,
+            12.0
+          ]
+        },
+        {
+          "id": 26,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            38.958039892,
+            15.0
+          ]
+        }
+      ]
+    ]
+  }
+]

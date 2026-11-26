@@ -2032,3 +2032,12 @@ Four `RecomputeCtx` methods and one engine line, needed by `amg_features::solid`
   `ProfileSet::match_fingerprint` with a `FingerprintOnly` warning via `warn`) and builds
   `NameSource::Profile { sketch, outer }` itself (`solid::region_source`); the methods can move
   here unchanged when another lane needs them.
+
+### 2026-11-26: optional feature inputs (added by lane B for S03 SK-09)
+Additive; lane E to confirm.
+- `Feature::input_is_optional(&self, dep: &Dependency) -> bool`, default `false`. For an optional input whose producer
+  failed, is suppressed or rolled back, or was deleted, the recompute engine does not fail the node: it runs `compute`,
+  with a cache key that marks the input missing and covers every body, sketch and construction key of the input state (the
+  feature may find the entity through lineage). `Design::check_inputs` accepts a deleted producer of an optional input, so
+  the feature stays editable (load already allowed it); the ordering rule is unchanged for existing producers.
+- Used by `sketch.sketch` for projection sources ("unresolvable reference → `Warning`").

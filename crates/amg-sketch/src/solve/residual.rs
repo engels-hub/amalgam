@@ -47,7 +47,7 @@ use crate::error::SketchError;
 use crate::geom::{Curve2, EllipseArc2, FitMap};
 use crate::ids::{EntityId, ParamId};
 use crate::model::{
-    ConstraintKind, DimensionKind, EntityKind, HvTarget, Side, Sketch, TangentKind,
+    ConstraintKind, DimensionKind, EntityKind, EntityOrigin, HvTarget, Side, Sketch, TangentKind,
 };
 
 type P2 = [ParamId; 2];
@@ -1164,11 +1164,19 @@ pub(crate) fn build_system_polled(
     cancel: &dyn Fn() -> bool,
 ) -> Option<Result<SketchSystem, SketchError>> {
     let mut system = EquationSystem::new();
-    for (i, (id, _)) in sketch.entities().enumerate() {
+    let fixed = fixed_params(sketch);
+    for (i, (id, e)) in sketch.entities().enumerate() {
         if i % 64 == 63 && cancel() {
             return None;
         }
         if let Some(r) = entity_residual(sketch, id) {
+            // A projected curve is exact by construction: with nothing left to solve, its
+            // internal equations would only count as redundant rows (SK-09).
+            if matches!(e.origin, EntityOrigin::Projected(_))
+                && r.params().iter().all(|p| fixed.contains(p))
+            {
+                continue;
+            }
             system.push(EquationOwner::Entity(id), Box::new(r));
         }
     }
@@ -1182,7 +1190,6 @@ pub(crate) fn build_system_polled(
             Err(e) => return Some(Err(e)),
         }
     }
-    let fixed = fixed_params(sketch);
     let mut free: Vec<ParamId> = sketch
         .entities()
         .flat_map(|(_, e)| e.kind.own_params())
