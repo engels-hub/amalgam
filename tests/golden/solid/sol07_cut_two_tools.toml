@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol07_cut_two_tools (S04 SOL-07). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 3400.000000000001
+area = 2120.0
+faces = 14
+edges = 36
+vertices = 24
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [40.0, 10.0, 10.0]

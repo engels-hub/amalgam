@@ -71,7 +71,8 @@ impl SolidError {
             SolidError::NotYet { .. } => Some("options"),
             SolidError::UnknownThread(_) => Some("size"),
             SolidError::Invalid { field, .. } => Some(field),
-            SolidError::NothingToCut | SolidError::NothingToIntersect | SolidError::NoSplit => None,
+            SolidError::NoSplit => Some("tool"),
+            SolidError::NothingToCut | SolidError::NothingToIntersect => None,
         }
     }
 }
