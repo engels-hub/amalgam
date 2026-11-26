@@ -851,6 +851,7 @@ open request.
 | KH-09 | Upstream OCCT bug reports/patches for isolated issues found by the harnesses | KH-02 | P3 | Todo | Ongoing. Each report links a minimal Draw script or a C++ reproducer and its corpus case id; the list is kept in `kernel-metrics.md`. |
 | KH-10 | **Phase 7:** Rust fillet engine, including G2 (curvature-continuous) blends as a continuity option (QUESTIONS #55; placeholder, refine into 1–3-day WPs before Phase 7) | KH-04, KH-19, KH-15 | P3 | Todo | 1. Beats KH-03 + KH-04 + KH-19 success rate on the full corpus with zero regressions. 2. G2 option: on constant and variable radius corpus cases the curvature across both blend boundaries is continuous (max jump < 1e-3 of the local 1/R on 50 samples per boundary), blend volumes match the exact-volume oracle where one exists, and G1 results are unchanged. |
 | KH-11 | **Phase 7:** corpus-driven replacement of further OCCT ops (booleans, offset, SSI) with Rust (placeholder; refine before Phase 7) | KH-10 | P3 | Todo | each replacement beats OCCT on its corpus |
+| KH-20 | Kernel speed for interactive solid ops: profile and speed up the OCCT boolean behind extrude-cut and the offset behind shell (parallel mode, fuzzy/glue options, local operation on the faces the tool touches, simple-offset path for previews where valid), with no change in results on the existing goldens | SOL-02, SOL-06, KH-17 | P1 | Todo | 1. `budget/sol-extrude-cut` (100-edge profile into a 200-face body, full mode) median < 80 ms; today 121 ms, of which the boolean is about 105 ms. 2. `budget/sol-shell-preview` (100-face body) median < 100 ms; today 369 ms, of which `BrepKernel::shell` is 363 ms. 3. All BREP-04, BREP-07, SOL-02 and SOL-06 goldens still pass with the same tolerances, and `HardenedKernel` results stay deterministic. 4. Before/after numbers recorded in `kernel-metrics.md`, measured on an idle machine. |
 
 Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Review`, `Done`, `Blocked (reason)`.
 KH-01 (Phase 1 background) and KH-07 (`amg-nurbs`, not gated by ADR-002) are specified first and
@@ -1089,6 +1090,9 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   KH-13 `arc_length`, `param_at_length`, `closest_point` (curve and surface). `ruled` on
   non-matching knots returns `Incompatible` until KH-12/KH-14 add compatibility.
   `nalgebra` not needed yet (no dense solves in KH-07).
+
+### 2026-11-26 - KH-20 added (owner decision)
+- SOL-02 Done-when 6 (extrude-cut 121 ms vs 80 ms) and SOL-06 Done-when 8 (shell preview 369 ms vs 100 ms) missed only inside OCCT (`BRepAlgoAPI_Cut` about 105 ms, `BRepOffset_MakeOffset` 363 ms). The owner accepted both misses and closed the two WPs; the budgets move to the new KH-20. Measurements are in the SOL-02 and SOL-06 entries of S04 and in the handoff reports.
 
 ## Interface changes
 
