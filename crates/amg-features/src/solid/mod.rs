@@ -13,12 +13,16 @@
 //! - [`split`]: `solid.split_body` and `solid.split_face` (SOL-07).
 //! - [`fillet`]: `solid.fillet` and `solid.chamfer` (SOL-05), and the corpus-harness entry
 //!   point [`fillet::harness::run_fillet`].
+//! - [`shell`]: `solid.shell` and `solid.thicken` (SOL-06).
+//! - [`draft`]: `solid.draft` (SOL-06).
+//! - [`transform`]: `solid.scale` (SOL-06).
 //!
 //! Without the `occt` feature every kernel call fails with "geometry kernel is not available
 //! in this build", so solid features compute to a clear `Kernel` error.
 
 pub mod combine;
 pub mod common;
+pub mod draft;
 pub mod error;
 pub mod extent;
 pub mod extrude;
@@ -26,13 +30,16 @@ pub mod fillet;
 pub mod pattern;
 pub mod profile;
 pub mod revolve;
+pub mod shell;
 pub mod split;
+pub mod transform;
 
 pub use combine::Combine;
 pub use common::{
     BodyOp, OpTarget, SolidTool, ToolBody, ToolRegistration, apply_body_op, input_solid, op_kernel,
-    resolve_subs, simplify, tangent_chain_edges, tool_of,
+    resolve_subs, simplify, tangent_blend_faces, tangent_chain_edges, tangent_chain_faces, tool_of,
 };
+pub use draft::{Draft, DraftSides};
 pub use error::{SolidError, kernel_failure};
 pub use extent::{Direction, Extent, ExtentSide, Start, ThinSide, ThinSpec};
 pub use extrude::Extrude;
@@ -49,7 +56,9 @@ pub use profile::{
     tag_source, to_curve2d,
 };
 pub use revolve::Revolve;
+pub use shell::{BodyFaces, PlannedFace, Shell, ShellDirection, Thicken};
 pub use split::{SplitBody, SplitFace, SplitFaceTool};
+pub use transform::{Scale, ScaleKind};
 
 /// Forces this module's feature, tool and dialog registrations to be linked.
 pub fn link() {}

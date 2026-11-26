@@ -357,6 +357,122 @@ pub fn tangent_chain_edges(
     Ok(chain)
 }
 
+/// Whether faces `a` and `b` meet G1 along their shared edge `e`: the outward normals of both
+/// faces agree within `angular` rad at the edge's two ends and its middle (normals that can't
+/// be evaluated, at a pole, are skipped; all skipped → not tangent).
+fn faces_tangent_along(
+    k: &dyn BrepKernel,
+    s: &amg_brep::Shape,
+    e: amg_brep::EdgeId,
+    a: amg_brep::FaceId,
+    b: amg_brep::FaceId,
+    cos: f64,
+) -> bool {
+    let mut points: Vec<amg_core::Point3> = Vec::with_capacity(3);
+    if let Ok(ends) = k.edge_ends(s, e) {
+        points.push(ends.p0);
+        points.push(ends.p1);
+    }
+    if let Some((c, t0, t1)) = s.curve(e)
+        && let Some(p) = c.point_at(0.5 * (t0 + t1))
+    {
+        points.push(p);
+    }
+    let normal = |f: amg_brep::FaceId, p: amg_core::Point3| {
+        let (uv, _) = k.project_point_on_face(s, f, p).ok()?;
+        k.eval_surface(s, f, uv).ok().map(|sp| sp.normal.get())
+    };
+    let mut checked = 0;
+    for p in points {
+        let (Some(na), Some(nb)) = (normal(a, p), normal(b, p)) else {
+            continue;
+        };
+        if na.dot(nb) < cos {
+            return false;
+        }
+        checked += 1;
+    }
+    checked > 0
+}
+
+/// The faces reached from `seeds` across G1 edges; with `through_planar` false a planar face
+/// joins only as a seed (blend propagation, see [`tangent_blend_faces`]).
+fn grow_faces(
+    k: &dyn BrepKernel,
+    s: &amg_brep::Shape,
+    seeds: &[amg_brep::FaceId],
+    angular: f64,
+    through_planar: bool,
+) -> KResult<Vec<amg_brep::FaceId>> {
+    use amg_brep::geom::Surface;
+    let n = s.count(SubKind::Face);
+    let mut chain: Vec<amg_brep::FaceId> = Vec::new();
+    for &f in seeds {
+        if f.0 >= n {
+            return Err(amg_brep::KernelError::InvalidInput {
+                what: "faces",
+                reason: format!("face {} is out of range ({n} faces)", f.0),
+                offending: Vec::new(),
+            });
+        }
+        if !chain.contains(&f) {
+            chain.push(f);
+        }
+    }
+    let cos = angular.cos();
+    let mut next = 0;
+    while next < chain.len() {
+        let f = chain[next];
+        next += 1;
+        for &e in s.face_edges(f) {
+            for &g in s.edge_faces(e) {
+                if g == f || chain.contains(&g) || s.is_seam(e, g) {
+                    continue;
+                }
+                if !through_planar && matches!(s.surface(g), Surface::Plane(_)) {
+                    continue;
+                }
+                if faces_tangent_along(k, s, e, f, g, cos) {
+                    chain.push(g);
+                }
+            }
+        }
+    }
+    Ok(chain)
+}
+
+/// Faces G1-continuous with `seeds` across shared edges (S04 Interfaces): starting from the
+/// seeds, a face joins when the outward normals of it and a chain face agree within `angular`
+/// rad at three points of their shared edge (its ends and middle). Transitive. Returns the
+/// seeds first (input order, duplicates removed), then the propagated faces breadth-first.
+///
+/// # Errors
+/// `InvalidInput { what: "faces" }` for a seed out of range.
+pub fn tangent_chain_faces(
+    k: &dyn BrepKernel,
+    s: &amg_brep::Shape,
+    seeds: &[amg_brep::FaceId],
+    angular: f64,
+) -> KResult<Vec<amg_brep::FaceId>> {
+    grow_faces(k, s, seeds, angular, true)
+}
+
+/// [`tangent_chain_faces`] restricted to blends: the chain grows through curved faces only,
+/// and a planar face joins only as a seed. Picking the top of a box with filleted top edges
+/// gives the top and its fillet ring, not the side walls the fillets are also tangent to
+/// (shell and draft tangent chains, SOL-06; Fusion removes the ring only).
+///
+/// # Errors
+/// As [`tangent_chain_faces`].
+pub fn tangent_blend_faces(
+    k: &dyn BrepKernel,
+    s: &amg_brep::Shape,
+    seeds: &[amg_brep::FaceId],
+    angular: f64,
+) -> KResult<Vec<amg_brep::FaceId>> {
+    grow_faces(k, s, seeds, angular, false)
+}
+
 /// A participant as it is just before this feature: itself, or its live successor (a body
 /// consumed or split since the reference was stored), `None` if it is gone.
 pub(crate) fn follow(ctx: &RecomputeCtx<'_>, id: BodyId) -> Option<BodyId> {

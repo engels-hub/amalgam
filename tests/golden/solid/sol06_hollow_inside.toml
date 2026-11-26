@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol06_hollow_inside (S04 SOL-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 4847.999999999998
+area = 9704.0
+faces = 12
+edges = 24
+vertices = 16
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [40.0, 30.0, 20.0]

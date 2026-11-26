@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol06_thicken_bspline_center (S04 SOL-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 1603.5942476322662
+area = 3367.1891337833667
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [-0.0558974865339326, -0.0558974865339326, -0.5000001]
+bbox_max = [40.05589748653394, 40.05589748653394, 1.6250001]

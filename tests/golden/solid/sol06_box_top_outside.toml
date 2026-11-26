@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol06_box_top_outside (S04 SOL-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 4224.0000000000055
+area = 8596.0
+faces = 11
+edges = 24
+vertices = 16
+bbox_min = [-1.0, -1.0, -1.0]
+bbox_max = [41.0, 31.0, 20.0]
