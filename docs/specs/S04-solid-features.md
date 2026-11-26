@@ -638,7 +638,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-03 | Revolve: profiles, axis (sketch line, edge, construction or origin axis), angle, full, two sides, symmetric, to object; profile/axis validation | SOL-01, CON-03, BREP-14 | P0 | Done | 1. ≥ 8 golden cases (rectangle 90° and 360°, triangle with an edge on the axis → cone, two sides 30°/60°, symmetric 90°, each axis kind) match Pappus volumes within 1e-9 relative. 2. A profile crossing the axis fails `AxisCrossesProfile` naming the profile. 3. DOC-11 TNP-22 (edit to 360° → cap refs `NotFound`) runs on `solid.revolve` and meets its `expect`. 4. Revolve to a plane through the axis at 75° equals the 75° angle case within 1e-9. |
 | SOL-04 | Primitives: box, cylinder, sphere, torus on a `PrimitiveFrame` (origin plane, construction plane, planar face), with `OpTarget` | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. Golden volume and area for each primitive (exact within 1e-9) and for a box joined to and cut from a body. 2. A box placed on a planar face follows the face after an upstream height edit (centroid within 1e-9). 3. Editing a box size keeps `XMin#0 … ZMax#0` names (`Exact`). 4. Each kind has a dialog with a distance manipulator anchor per size field. |
 | SOL-05 | Fillet (constant, chord, variable; G1 only, G2 is KH-10 per QUESTIONS #55) and chamfer (equal, two distances, distance-angle) on raw BREP-06: edge sets per body, tangent-chain propagation (R-S04-1), failing-edge highlight | SOL-01, BREP-06, BREP-09 | P0 | Done | 1. ≥ 15 golden cases (cube edge, 4-edge tangent loop of a rounded rectangle, 3-edge vertex blend, variable 2→4 mm, chord 3 mm, all chamfer kinds, two bodies in one feature) within 1e-6 relative of reference volumes. 2. Picking one edge of a rounded-rectangle top selects all 8 tangent edges; with `tangent_chain = false` only that edge. 3. A radius larger than the adjacent face fails and `Diagnostic::entities` names exactly the failing edge(s). 4. DOC-11 TNP-11 and TNP-27 run on `solid.fillet` and meet their `expect`. 5. Preview of a 10-edge constant fillet on a 200-face body, median < 100 ms (`budget/sol-fillet-preview`). 6. KH-03 can start: S20's corpus harness drives `solid.fillet` through a public test entry point. |
-| SOL-06 | Shell (remove faces, hollow, inside/outside/both, tangent chain), draft (one side, two sides, symmetric; tangent chain), scale (uniform, non-uniform), thicken (`OpTarget`) | SOL-01, BREP-07, BREP-16, BREP-14 | P0 | Todo | 1. Shelled box (top removed, 1 mm) inside, outside and both, and a hollow box (no faces removed, R-S04-8) match analytic volumes within 1e-9 relative. 2. Shelling a filleted box with tangent chain removes the top and its fillet ring (face count checked). 3. A thickness above the smallest concave radius fails with the offending faces highlighted. 4. Draft of 4 box sides at 3°: measured angles 3° ± 1e-9 rad, analytic volume; symmetric draft about a mid-plane matches the analytic volume. 5. Uniform scale 2 → volume × 8 within 1e-12 relative; non-uniform (1, 2, 3) of a sphere r 10 → ellipsoid volume within 1e-9. 6. Thicken of a B-spline sheet by 1 mm is valid and within 0.5 % of area × t. 7. TNP-X3 and TNP-X6 meet their `expect`. 8. Shell preview of a 100-face body, median < 100 ms (`budget/sol-shell-preview`). |
+| SOL-06 | Shell (remove faces, hollow, inside/outside/both, tangent chain), draft (one side, two sides, symmetric; tangent chain), scale (uniform, non-uniform), thicken (`OpTarget`) | SOL-01, BREP-07, BREP-16, BREP-14 | P0 | Review | 1. Shelled box (top removed, 1 mm) inside, outside and both, and a hollow box (no faces removed, R-S04-8) match analytic volumes within 1e-9 relative. 2. Shelling a filleted box with tangent chain removes the top and its fillet ring (face count checked). 3. A thickness above the smallest concave radius fails with the offending faces highlighted. 4. Draft of 4 box sides at 3°: measured angles 3° ± 1e-9 rad, analytic volume; symmetric draft about a mid-plane matches the analytic volume. 5. Uniform scale 2 → volume × 8 within 1e-12 relative; non-uniform (1, 2, 3) of a sphere r 10 → ellipsoid volume within 1e-9. 6. Thicken of a B-spline sheet by 1 mm is valid and within 0.5 % of area × t. 7. TNP-X3 and TNP-X6 meet their `expect`. 8. Shell preview of a 100-face body, median < 100 ms (`budget/sol-shell-preview`). |
 | SOL-07 | Combine (join/cut/intersect, keep tools), split body (plane, face, body; extend tool), split face (surface tool; sketch curves along a vector) | SOL-01, BREP-16, CON-03 | P0 | Done | 1. Combine golden cases for each op, with and without keep tools; consumed tools are `Consumed { into }` (TNP-23 meets its `expect`). 2. Splitting a box by a plane gives pieces in the naming-note order (piece 0 keeps the `BodyId`); TNP-21 meets its `expect`. 3. Split face by a sketch line projected along the sketch normal and by a plane: two faces whose areas match within 1e-9. 4. A tool that doesn't cross fails `NoSplit` with the "extend the tool" hint. |
 | SOL-08 | Pattern (rectangular, circular; bodies and features; suppressed instances; identical compute) + mirror (bodies new/join, features) on `SolidTool` and `mirrored` (R-S04-6) | SOL-01, SOL-02, CON-03, BREP-14 | P0 | Done | 1. 3×4 rectangular and 6-instance circular body patterns (incl. symmetric and 2 suppressed instances): body count and total volume exact. 2. A 10×10 feature pattern of a Ø3 cut-extrude in a 100×100×5 plate: analytic volume within 1e-9 relative, **one** boolean call (kernel call counter), instances share TShapes (`Shape::transformed` only), full recompute < 300 ms (`budget/sol-pattern-100`). 3. Mirror of a body and of an extrude boss: mirrored volume equal, BRepCheck valid (orientation). 4. TNP-17 and TNP-18 meet their `expect`. |
 | SOL-09 | Move/copy (free, translate, rotate, point-to-point), align, offset face (R-S04-5), replace face, delete face (heal / remove), press-pull dispatch | SOL-01, BREP-07, BREP-16, CON-03 | P0 | Todo | 1. Move keeps names: a fillet ref on a moved body resolves `Exact`; a copy is a new body named `instanced(self, slot)`. 2. Align face-to-face makes the faces coplanar within 1e-9 mm. 3. Offset of a box top by +2 mm changes the height by 2 within 1e-9; a cylinder face +1 mm changes the radius by 1 within 1e-9. 4. Replace face onto an offset plane matches the analytic volume. 5. Delete of a fillet face with heal gives the pre-fillet volume within 1e-6; without heal gives an open body with the expected free edges. 6. `dispatch` maps a face, an edge and a profile selection to `solid.offset_face`, `solid.fillet` and `solid.extrude`. |
@@ -1358,3 +1358,130 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   (extrude/revolve targets and participants), ideally as an engine default for B-rep
   references (S01); a Fusion check (SOL-29) that a combine cut which severs the target makes
   separate bodies; "New component" for combine (SOL-24).
+
+### 2026-11-26 - SOL-06 implemented (lane A)
+- **Landed.** `amg_features::solid::shell` (`solid.shell` / `Shell`, `ShellDirection`; module
+  `shell::thicken` with `solid.thicken` / `Thicken`), `amg_features::solid::draft` (`solid.draft`
+  / `Draft`, `DraftSides`) and `amg_features::solid::transform` (`solid.scale` / `Scale`,
+  `ScaleKind`), all `register_feature!` v1 with the Interfaces shapes, and dialog registrations
+  (`shell/dialog.rs`, `draft/dialog.rs`, `transform/dialog.rs`; group "modify", orders 24
+  shell, 25 draft, 26 scale, 27 thicken, not pinned, no manipulator anchors). `solid.thicken`
+  also registers a `ToolRegistration` (it is an `OpTarget` tool, so pattern/mirror can use it).
+  `solid::common::tangent_chain_faces` (Interfaces: transitive, normals compared at the shared
+  edge's two ends and middle) and the extra `tangent_blend_faces` (see Deviations). Extra
+  public items: `Shell::plan` / `Draft::plan` with `BodyFaces` / `PlannedFace` (the faces passed
+  to the kernel per body, picks first with their keys, for the UI-05 preview highlight),
+  `shell::FACE_CHAIN_ANGLE` (1e-3 rad), `Scale::transform`, constructors `Shell::inside`,
+  `Draft::one_side`, `Scale::{uniform, non_uniform}`, `Thicken::new_body`.
+- **Behaviour.**
+  - Shell: the bodies of the removed faces (`DropMissing`, grouped per body) plus `bodies`
+    (hollowed, R-S04-8). Joins are sharp (`OffsetJoin::Intersection`). `Inside` / `Outside` are
+    one `BrepKernel::shell` (−inside / +outside). `Both` moves every kept face out by `outside`
+    with `offset_faces` (removed faces stay, neighbours re-intersected) and shells that body
+    inward by `inside + outside`, so the opening stays on the original face and no coincident
+    boolean is needed. Naming per the note: inner walls `ShellInner#0` from the offset face's
+    name (`Topo*`), the rim `ShellRim#0` from the removed face (`Sel(key)` for picks), arc-join
+    faces `ShellJoin#0` from their edge; the body's faces keep their names.
+  - Draft: the neutral plane is any plane input (`resolve_plane_input`); pull = its normal,
+    `flip` reverses it; a positive angle narrows the part along the pull (S02's convention).
+    One side: one `draft` call with the picks. Two sides / symmetric: `split_faces` with
+    SOL-02's `plane_face` over the body box (faces the plane misses stay whole), then the pieces
+    on the pull side drafted by `angle` with the pull and the others by `angle2` (or `angle`)
+    against it, so both halves narrow away from the parting plane; histories composed and the
+    split order re-applied; offending faces of the later steps mapped back to the input
+    (`error::remap_offending`). Names by history only (split faces `name + Split`).
+  - Scale: `Shape::gtransformed` of `T(p) · S · T(−p)` about a point input (`point_of`), factors
+    finite and > 0 (a negative factor is a mirror); bodies modified in place, names by the 1:1
+    history.
+  - Thicken: per body, the whole sheet when every face of a sheet body is picked, one face as
+    itself (`sub_shape`), else a compound of the picked faces; their names are mapped from the
+    body by TShape identity (`is_same`). `Side1` / `Side2` = `thicken(±t)`, `Center` = `offset`
+    by −t/2 then `thicken(t)` (histories composed, the offset role dropped). Far faces
+    `Offset#0`, side walls `ThickenSide#0` (both `Topo*`); then `apply_body_op` with the target.
+  - `inputs()` list every body the features read (`Dependency::Body` once per body of a pick and
+    per listed body, `Dependency::Entity` per face pick, the plane / point dependency, the
+    thicken participants), so the SOL-02/08 cache-key gap doesn't apply. Picks are
+    lineage-optional as SOL-07's (`fillet::lineage_optional`); thicken participants stay strict.
+- **Done-when evidence** (`crates/amg-features/tests/solid_shell.rs` + `solid_shell/occt.rs`,
+  18 tests, 13 of them with OCCT; 4 unit tests in the modules; goldens
+  `tests/golden/solid/sol06_*.toml`, 14 files, rel 1e-9; every result BRepCheck-valid):
+  1. `dw1_shelled_and_hollow_boxes_match_analytic_volumes`: 40 × 30 × 20 box, top removed,
+     1 mm: inside 3784 (`abc − (a−2)(b−2)(c−1)`), outside 4224, both 8008 mm³; hollow (no face
+     removed, `bodies`) inside 4848, outside 5568, both 10 416 mm³, 12 faces each; all within
+     1e-9 relative (goldens `box_top_*`, `hollow_*`). Also both with 1 mm in / 2 mm out:
+     `(a+4)(b+4)(c+2) − (a−2)(b−2)(c−1)`, opening still at z = 20.
+  2. `dw2_*`: the box with its 4 top edges filleted (r 3, 10 faces): picking the top plans 5
+     faces (top with key 1, then the 4 fillets); the shell has 14 faces (5 outer, 5 inner, 4 rim
+     pieces), the only cylinders are the 4 rims, all named `ShellRim`, the top is open (golden
+     `filleted_box_chain`). With `tangent_chain = false` the feature fails "a removed face is
+     tangent to faces that stay. Turn on Tangent chain …" with exactly the 4 fillets
+     highlighted.
+  3. `dw3_*`: a plate with a boss and a concave 1 mm fillet at the boss base, shelled outward
+     2 mm (bottom removed): `Health::Error` from the kernel's collapse check; the highlighted
+     entities are faces that resolve to the concave fillet cylinder. 0.5 mm works.
+  4. `dw4_*`: 4 sides of the box drafted 3° about XY: every side `asin(n·z)` = 3° within 1e-9
+     rad, volume `abh − (a+b) t h² + 4t²h³/3` within 1e-9; symmetric about a construction plane
+     at z = 10: 10 faces, upper pieces +3°, lower −3° (1e-9 rad), volume twice the half-height
+     formula (1e-9); two sides 3° / 5° the sum of the two halves (1e-9); a flipped draft about
+     z = 20 narrows downwards (goldens `draft_*`).
+  5. `dw5_*`: uniform 2 → 8 × volume within 1e-12, bbox (80, 60, 40); sphere r 10 scaled
+     (1, 2, 3) → `4/3 π·10·20·30` within 7.97e-11 relative, measured with
+     `volume_adaptive(1e-14)` (the default `mass_props` quadrature gives 1.1e-9 on this
+     rational B-spline; the sphere itself measures 6.5e-16). Also scale 0.5 about a picked
+     vertex keeps it fixed; factors 0 and −1 fail.
+  6. `dw6_*`: a bicubic Bézier sheet (40 × 40 mm, middle poles raised 2 mm, area
+     1603.594 mm²) thickened 1 mm: valid single solids; side 1 +0.373 %, side 2 −0.373 %,
+     centre 1.2e-7 of area × t (goldens `thicken_bspline_*`); the two sides' mean and the
+     centred slab within 1e-5 (Steiner); 4 `ThickenSide` walls and one `Offset` face; the sheet
+     is kept. Also a box top thickened 2 mm and joined: one 6-face body of `ab(c+2)`.
+  7. `dw7_tnp_x3_*`: shell (top removed, 1 mm), 0.5 mm fillet on the inner floor edge
+     (1, 15, 1); extrude height 20 → 30: `Exact`, centroid (1, 15, 1), length 28; 5
+     `ShellInner` and 1 `ShellRim` names. `dw7_tnp_x6_*`: 4-side draft 3°, 2 mm fillet on the
+     (0, 0) vertical edge; angle 3° → 5°: `Exact`, edge centroid on the 5° corner line.
+  8. `benches/sol_shell.rs` (`budget/sol-shell-preview`): **not met**. Body: a 98-vertex star
+     prism (radii 50 / 46, height 20; 100 faces, as SOL-05's bench), top removed, 0.3 mm
+     inward; release profile on the shared dev machine (another worker building, 3.5–10 GB free
+     RAM): preview median 369 ms over 25 runs (runs of 395–454 ms earlier; criterion
+     [354, 372, 390] ms), full mode 390 ms. `AMG_STRICT_TIMING=1` asserts < 100 ms and fails.
+     The bare `BrepKernel::shell` call alone takes 363 ms, so the kernel is the whole cost
+     (naming, plan and resolution are within the run-to-run noise). Probes
+     (`AMG_SOL06_PROBE=1`): the same body shelled outward 89 ms, hollowed inward 312 ms, arc
+     join 465 ms, `offset` −0.3 mm 293 ms; a 120 × 120 × 10 plate with 94 holes (100 faces)
+     933 ms. OCCT's `BRepOffset_MakeOffset` inward (gap and intersection handling,
+     `BRepOffset_Inter3d`) dominates; meeting the budget needs kernel work (S02/S20: a faster
+     offset path or caching for preview), not feature code.
+  Data and dialog tests: the four kinds round-trip `read(build(defaults))` with and without a
+  preselection (faces → shell / draft / thicken picks, bodies → shell / scale bodies), unique
+  labels, inputs, JSON round trips, edge picks refused by `validate`; `tangent_chain_faces` is
+  transitive (top + 4 fillets + 4 sides = 9 on the filleted box) and `tangent_blend_faces`
+  stops at planes (5).
+- **Deviations.**
+  - Shell tangent chain grows through **curved faces only** (`tangent_blend_faces`): the fully
+    transitive chain of the Interfaces helper also reaches the side walls the top fillets are
+    tangent to and would leave only the bottom. `tangent_chain_faces` itself is as specified.
+  - OCCT closes an opening on the removed faces' own surfaces: removing a fillet ring leaves 4
+    rim pieces on the fillet cylinders (not a flat rim), so Done-when 2 counts 14 faces.
+  - OCCT's `MakeThickSolid` returns the body **unchanged** (no error) when a removed planar face
+    is tangent to fillets that stay. The feature detects a result without `ShellInner` faces
+    and fails with the tangent neighbours highlighted (or a kernel error if there are none).
+    Request for S02 (BREP-07, not blocking): make `shell` fail with `LocalOpFailed` naming those
+    faces.
+  - Draft `tangent_chain` only changes `plan` (OCCT always carries a draft on to tangent
+    faces), as SOL-05's fillet flag; only the picks go to the kernel.
+  - Done-when 5's ellipsoid volume is measured with adaptive integration (above).
+  - Done-when 6 uses a flatter, larger sheet than BREP-07's 20 × 20 / 3 mm bump: on that one a
+    one-sided slab differs from area × t by 2.2 % (the mean-curvature term), beyond 0.5 %.
+  - The draft dialog edits `flip` with `FieldKind::FlipDirection`; the shell dialog's faces and
+    bodies both have `min: 0` (either may be empty); no manipulator anchors yet.
+- **Interface changes elsewhere.** None to shared crates or other lanes' code; only public
+  `amg-brep` (`shell`, `offset`, `offset_faces`, `thicken`, `draft`, `split_faces`,
+  `Shape::gtransformed`, `sub_shape`, `is_same`, `make_compound`, `eval_surface`,
+  `project_point_on_face`, `edge_ends`), `amg-doc` and `amg-features::construct` APIs. No new
+  dependency. Four new unpinned "modify" commands (Shell, Draft, Scale, Thicken): UI shell
+  snapshots that list unpinned commands may change (amg-ui was not run in this WP; regenerate
+  at merge).
+- **Leftovers.** Done-when 8 (`budget/sol-shell-preview`, kernel-bound, above); the S02 request
+  above (shell returning its input); shell per-face thickness
+  (`ShellOpts::per_face`) has no field yet; draft by a parting line / split line; manipulator
+  anchors (UI-06); thicken of a partial multi-face selection of a solid is a compound of loose
+  faces (sew first if OCCT needs a shell); "New component" for thicken (SOL-24).

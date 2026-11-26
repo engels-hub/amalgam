@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol06_scale_uniform_2 (S04 SOL-06). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 192000.0
+area = 20800.0
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [80.0, 60.0, 40.0]

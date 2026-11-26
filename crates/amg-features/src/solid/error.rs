@@ -164,6 +164,56 @@ pub(crate) fn with_hint(e: &SolidError) -> FeatureError {
     FeatureError::InvalidValue { field, msg }
 }
 
+/// `e` with its offending sub-shapes, given in the result space of an earlier step whose
+/// history is `h`, mapped back to that step's input (operand 0) space, so [`kernel_failure`]
+/// can highlight them on the input body (multi-step features: shell both, two-sided draft,
+/// thicken). A sub-shape with no input is dropped.
+pub(crate) fn remap_offending(e: KernelError, h: &amg_brep::ShapeHistory) -> KernelError {
+    let map = |subs: Vec<amg_brep::SubShape>| -> Vec<amg_brep::SubShape> {
+        let mut out: Vec<amg_brep::SubShape> = Vec::new();
+        for s in subs {
+            for (i, _) in h.sources_of(s) {
+                if i.operand == 0 && i.sub.kind == s.kind && !out.contains(&i.sub) {
+                    out.push(i.sub);
+                }
+            }
+        }
+        out
+    };
+    match e {
+        KernelError::InvalidInput {
+            what,
+            reason,
+            offending,
+        } => KernelError::InvalidInput {
+            what,
+            reason,
+            offending: map(offending),
+        },
+        KernelError::OpFailed {
+            op,
+            message,
+            offending,
+        } => KernelError::OpFailed {
+            op,
+            message,
+            offending: map(offending),
+        },
+        KernelError::LocalOpFailed {
+            op,
+            message,
+            offending,
+            partial,
+        } => KernelError::LocalOpFailed {
+            op,
+            message,
+            offending: map(offending),
+            partial,
+        },
+        other => other,
+    }
+}
+
 /// A kernel error without sub-shapes worth highlighting.
 pub(crate) fn kerr(e: KernelError) -> FeatureError {
     if matches!(e, KernelError::Cancelled) {
