@@ -18,7 +18,8 @@ amg-mesh.workspace = true
 amg-implicit.workspace = true
 amg-subd.workspace = true
 amg-materials.workspace = true
-amg-io.workspace = true
+# IO-06: STEP exchange (`amg_io::brep`; amg-brep is already a dependency).
+amg-io = { workspace = true, features = ["brep"] }
 amg-fem.workspace = true
 amg-topopt.workspace = true
 amg-am.workspace = true

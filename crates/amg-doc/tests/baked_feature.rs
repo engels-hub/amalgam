@@ -212,3 +212,96 @@ fn bad_requests_change_nothing() {
         Err(CommandError::WrongMode(_))
     ));
 }
+
+/// S01 Interface changes from S12 (IO-06): `Document::baked_transaction` puts components,
+/// occurrences and several baked features in one undo entry; dropping it changes nothing.
+#[test]
+fn baked_transaction_is_one_undo_entry() {
+    let jobs = jobs();
+    let mut doc = Document::new("baked");
+    let root = doc.design().root();
+    let applied = doc.history().stack().applied();
+    let mut tx = doc.baked_transaction("Insert assembly");
+    let created = tx
+        .apply(Command::NewComponent {
+            parent: root,
+            name: "part".to_owned(),
+            transform: amg_core::Transform::IDENTITY,
+        })
+        .unwrap();
+    let CreatedId::Component(part) = created[0] else {
+        panic!("{created:?}")
+    };
+    let f1 = tx
+        .add_feature_baked(
+            Command::AddFeature {
+                at: None,
+                feature: FeatureBox::new(BakedReader { slots: 1 }),
+                context: part,
+                name: None,
+            },
+            vec![(0, tri(0.0))],
+            vec![(0, named("A"))],
+        )
+        .unwrap();
+    // A failing step leaves the transaction usable.
+    let err = tx
+        .add_feature_baked(add_in(root, 1), vec![(0, tri(1.0)), (0, tri(2.0))], vec![])
+        .unwrap_err();
+    assert!(matches!(err, CommandError::Invalid(_)), "{err:?}");
+    let f2 = tx
+        .add_feature_baked(add_in(root, 1), vec![(0, tri(5.0))], vec![])
+        .unwrap();
+    assert_eq!(tx.design().timeline().len(), 2);
+    tx.commit();
+    assert_eq!(doc.history().stack().applied(), applied + 1);
+    assert_eq!(doc.history().undo_label(), Some("Insert assembly"));
+    doc.recompute_blocking(&jobs).unwrap();
+    let CreatedId::Feature(f1) = f1[0] else {
+        panic!()
+    };
+    let CreatedId::Feature(f2) = f2[0] else {
+        panic!()
+    };
+    let b1 = doc
+        .evaluated()
+        .body(BodyId {
+            origin: f1,
+            slot: 0,
+        })
+        .unwrap();
+    assert_eq!(b1.component, part);
+    assert!(
+        doc.evaluated()
+            .body(BodyId {
+                origin: f2,
+                slot: 0
+            })
+            .is_some()
+    );
+    assert!(doc.undo());
+    assert_eq!(doc.design().timeline().len(), 0);
+    assert_eq!(doc.design().components().count(), 1);
+    assert_eq!(doc.design().baked_bodies().count(), 0);
+    assert!(doc.redo());
+    assert_eq!(doc.design().baked_bodies().count(), 2);
+
+    // Dropped without commit: nothing changes.
+    let before = doc.history().stack().applied();
+    {
+        let mut tx = doc.baked_transaction("dropped");
+        tx.add_feature_baked(add_in(root, 1), vec![(0, tri(9.0))], vec![])
+            .unwrap();
+    }
+    assert_eq!(doc.history().stack().applied(), before);
+    assert_eq!(doc.design().timeline().len(), 2);
+}
+
+fn add_in(context: amg_doc::ComponentId, slots: u32) -> Command {
+    Command::AddFeature {
+        at: None,
+        feature: FeatureBox::new(BakedReader { slots }),
+        context,
+        name: None,
+    }
+}

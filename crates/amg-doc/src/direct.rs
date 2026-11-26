@@ -460,6 +460,60 @@ impl Document {
         baked: Vec<(u32, BodyGeom)>,
         props: Vec<(u32, BodyProps)>,
     ) -> Result<CommandOutcome, CommandError> {
+        let mut tx = self.baked_transaction(label);
+        let created = tx.add_feature_baked(add, baked, props)?;
+        let revision = tx.commit();
+        Ok(CommandOutcome { created, revision })
+    }
+
+    /// Starts a [`BakedTransaction`]: commands and features with baked payloads, published as
+    /// one undo entry (S01 Interface changes, from S12 IO-06: a STEP assembly import creates
+    /// components, occurrences and one baked feature per part in one "Insert" entry).
+    pub fn baked_transaction(&mut self, label: &str) -> BakedTransaction<'_> {
+        BakedTransaction {
+            work: (*self.snapshot()).clone(),
+            doc: self,
+            label: label.to_owned(),
+            commands: Vec::new(),
+        }
+    }
+}
+
+/// Several commands and baked features as one undo entry ([`Document::baked_transaction`]).
+/// Edits go to a private copy; nothing changes until [`BakedTransaction::commit`], and dropping
+/// it discards everything. Like [`Document::add_feature_baked`], the commit is opaque to crash
+/// recovery (a snapshot instead of a journal entry).
+#[derive(Debug)]
+pub struct BakedTransaction<'d> {
+    doc: &'d mut Document,
+    label: String,
+    work: Design,
+    commands: Vec<Command>,
+}
+
+impl BakedTransaction<'_> {
+    /// Applies a command to the working copy; returns what it created. A failing command
+    /// changes nothing.
+    ///
+    /// # Errors
+    /// Whatever the command returns.
+    pub fn apply(&mut self, cmd: Command) -> Result<Vec<CreatedId>, CommandError> {
+        let created = apply_command(&mut self.work, cmd.clone())?;
+        self.commands.push(cmd);
+        Ok(created)
+    }
+
+    /// [`Document::add_feature_baked`] inside this transaction. Atomic: on `Err` the working
+    /// copy is unchanged.
+    ///
+    /// # Errors
+    /// As [`Document::add_feature_baked`].
+    pub fn add_feature_baked(
+        &mut self,
+        add: Command,
+        baked: Vec<(u32, BodyGeom)>,
+        props: Vec<(u32, BodyProps)>,
+    ) -> Result<Vec<CreatedId>, CommandError> {
         let Command::AddFeature { context, .. } = &add else {
             return Err(CommandError::Invalid(
                 "add_feature_baked needs an AddFeature command".to_owned(),
@@ -472,7 +526,7 @@ impl Document {
                 "baked slot {slot} is given twice"
             )));
         }
-        let mut work = (*self.snapshot()).clone();
+        let mut work = self.work.clone();
         work.ensure_ids(baked.len() as u64 + 1)?;
         let created = apply_command(&mut work, add.clone())?;
         let Some(CreatedId::Feature(fid)) = created.first().cloned() else {
@@ -493,9 +547,24 @@ impl Document {
         for (slot, p) in props {
             work.set_body_props(BodyId { origin: fid, slot }, p)?;
         }
-        let revision = self
-            .history_mut()
-            .push_design(label.to_owned(), work, vec![add]);
-        Ok(CommandOutcome { created, revision })
+        self.work = work;
+        self.commands.push(add);
+        Ok(created)
+    }
+
+    /// The working design, including everything applied so far.
+    pub fn design(&self) -> &Design {
+        &self.work
+    }
+
+    /// Publishes everything as one undo entry and returns the new revision.
+    pub fn commit(self) -> Revision {
+        let BakedTransaction {
+            doc,
+            label,
+            work,
+            commands,
+        } = self;
+        doc.history_mut().push_design(label, work, commands)
     }
 }

@@ -10,6 +10,8 @@
 
 #![warn(missing_docs)]
 
+#[cfg(feature = "brep")]
+pub mod brep;
 mod endpoint;
 mod error;
 mod format;
