@@ -255,9 +255,11 @@ fn unsupported_options_fail_with_not_yet() {
         FeatureBox::new(rect_sketch(&[[0.0, 0.0, 10.0, 20.0]])),
     );
     let mut e = Extrude::distance(profiles(&doc, s), "30 mm", OpTarget::default());
-    e.direction = amg_features::solid::Direction::Symmetric {
-        whole_length: false,
-    };
+    // Symmetric extrudes landed with SOL-02; thin extrudes are SOL-18.
+    e.thin = Some(amg_features::solid::ThinSpec {
+        thickness: amg_doc::Expr::Inline(amg_doc::ExprSrc("1 mm".into())),
+        side: amg_features::solid::ThinSide::Side1,
+    });
     let id = add(&mut doc, FeatureBox::new(e));
     let Health::Error(d) = health(&doc, id) else {
         panic!("{:?}", health(&doc, id));

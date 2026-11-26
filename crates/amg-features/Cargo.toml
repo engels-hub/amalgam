@@ -78,6 +78,12 @@ name = "sol_extrude"
 harness = false
 required-features = ["occt"]
 
+# SOL-02: full extrude-cut budget (`budget/sol-extrude-cut`).
+[[bench]]
+name = "sol_extrude_cut"
+harness = false
+required-features = ["occt"]
+
 # SOL-05: fillet preview budget (`budget/sol-fillet-preview`).
 [[bench]]
 name = "sol_fillet"

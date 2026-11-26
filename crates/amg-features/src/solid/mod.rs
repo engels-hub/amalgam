@@ -6,7 +6,7 @@
 //! - [`profile`]: profile regions → planar faces ([`profile_faces`], [`to_curve2d`]).
 //! - [`error`]: [`SolidError`] and [`kernel_failure`] (failing sub-shapes highlighted).
 //! - [`extent`]: extents and directions.
-//! - [`extrude`]: `solid.extrude` (SOL-01: one side, a distance, starting at the profile).
+//! - [`extrude`]: `solid.extrude` (SOL-01 framework, SOL-02 every start, direction and extent).
 //! - [`fillet`]: `solid.fillet` and `solid.chamfer` (SOL-05), and the corpus-harness entry
 //!   point [`fillet::harness::run_fillet`].
 //!
@@ -32,8 +32,8 @@ pub use fillet::{
     PlannedEdge, VarRadius,
 };
 pub use profile::{
-    ProfileFace, ProfileSource, cap_source, profile_faces, region_source, tag_of, tag_source,
-    to_curve2d,
+    ProfileFace, ProfileSource, cap_source, face_edge_source, profile_faces, region_source, tag_of,
+    tag_source, to_curve2d,
 };
 
 /// Forces this module's feature, tool and dialog registrations to be linked.

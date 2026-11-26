@@ -166,14 +166,15 @@ fn parallel(a: &Plane, b: &Plane) -> bool {
     a.normal.get().dot(b.normal.get()).abs() >= 1.0 - 1e-9
 }
 
-/// Resolves profile regions (and, from SOL-02, planar faces), converts their loops
-/// ([`to_curve2d`], tags [`tag_of`]) and builds the faces with one `make_planar_faces` call per
-/// sketch. Faces come back in reference order; a region listed twice is used once.
+/// Resolves profile regions and planar faces of bodies, converts the regions' loops
+/// ([`to_curve2d`], tags [`tag_of`]) and builds their faces with one `make_planar_faces` call
+/// per sketch. Regions come first (per sketch, in first-reference order), then the planar
+/// faces in reference order (each its own group); an entity listed twice is used once.
 ///
 /// # Errors
-/// [`SolidError::Invalid`] for an empty list, an unsupported reference or a lost region;
-/// [`SolidError::NonParallelProfiles`]; [`SolidError::NotYet`] for planar-face profiles
-/// (SOL-02); the kernel's face-builder errors.
+/// [`SolidError::Invalid`] for an empty list, an unsupported reference, a non-planar face or a
+/// lost region; [`SolidError::NonParallelProfiles`]; resolution errors of face references;
+/// the kernel's face-builder errors.
 pub fn profile_faces(
     ctx: &RecomputeCtx<'_>,
     refs: &[EntityRef],
@@ -185,8 +186,9 @@ pub fn profile_faces(
         }
         .into());
     }
-    // Resolved regions per sketch, in first-reference order.
+    // Resolved regions per sketch, in first-reference order; planar faces in reference order.
     let mut sketches: Vec<(SketchId, Plane, Vec<&Profile>)> = Vec::new();
+    let mut faces: Vec<ProfileFace> = Vec::new();
     for r in refs {
         match r {
             EntityRef::Profile {
@@ -205,11 +207,15 @@ pub fn profile_faces(
                     None => sketches.push((*sketch, plane, vec![p])),
                 }
             }
-            EntityRef::Topo(_) => {
-                return Err(SolidError::NotYet {
-                    what: "planar-face profiles",
+            EntityRef::Topo(t) => {
+                let f = face_profile(ctx, r, t, faces.len())?;
+                if !faces.iter().any(|g: &ProfileFace| {
+                    matches!((&g.source, &f.source),
+                        (ProfileSource::Face { body: b0, face: f0, .. }, ProfileSource::Face { body: b1, face: f1, .. })
+                            if b0 == b1 && f0 == f1)
+                }) {
+                    faces.push(f);
                 }
-                .into());
             }
             _ => {
                 return Err(SolidError::Invalid {
@@ -220,8 +226,17 @@ pub fn profile_faces(
             }
         }
     }
-    let first_plane = sketches[0].1;
-    if sketches.iter().any(|(_, p, _)| !parallel(p, &first_plane)) {
+    let first_plane = sketches
+        .first()
+        .map(|s| s.1)
+        .or_else(|| faces.first().map(|f| f.plane))
+        .ok_or_else(|| SolidError::Invalid {
+            field: "profiles",
+            msg: "select at least one profile".into(),
+        })?;
+    if sketches.iter().any(|(_, p, _)| !parallel(p, &first_plane))
+        || faces.iter().any(|f| !parallel(&f.plane, &first_plane))
+    {
         return Err(SolidError::NonParallelProfiles.into());
     }
     let k = super::common::op_kernel(ctx);
@@ -255,7 +270,104 @@ pub fn profile_faces(
             });
         }
     }
+    // Each planar face is a group of its own.
+    for mut f in faces {
+        f.group = next_group;
+        next_group += 1;
+        out.push(f);
+    }
     Ok(out)
+}
+
+/// A planar face of a body as a profile (note §3.4): the face itself (it shares TShapes with
+/// the body), its plane pointing out of the material, and every edge tagged with the body
+/// edge's index (so laterals take the edge's name, [`face_edge_source`]).
+fn face_profile(
+    ctx: &RecomputeCtx<'_>,
+    r: &EntityRef,
+    t: &amg_doc::TopoRef,
+    pos: usize,
+) -> Result<ProfileFace, FeatureError> {
+    let not_planar = || -> FeatureError {
+        ctx.highlight([r.clone()]);
+        SolidError::Invalid {
+            field: "profiles",
+            msg: "a face profile must be a planar face".into(),
+        }
+        .into()
+    };
+    if t.kind != amg_doc::TopoKind::Face {
+        return Err(not_planar());
+    }
+    let res = ctx.resolve(t)?;
+    let (shape, _) = super::common::input_solid(ctx, res.body)?;
+    let face = FaceId(res.index);
+    let amg_brep::geom::Surface::Plane(plane) = shape.surface(face) else {
+        return Err(not_planar());
+    };
+    let plane = if shape.face_reversed(face) {
+        plane.flipped()
+    } else {
+        plane
+    };
+    let sheet = shape
+        .sub_shape(amg_brep::SubShape {
+            kind: amg_brep::SubKind::Face,
+            index: face.0,
+        })
+        .map_err(kerr)?;
+    // Body edge of each sheet edge (same TShape).
+    let body_edges: Vec<(EdgeId, amg_brep::Shape)> = shape
+        .face_edges(face)
+        .iter()
+        .map(|e| {
+            shape
+                .sub_shape(amg_brep::SubShape {
+                    kind: amg_brep::SubKind::Edge,
+                    index: e.0,
+                })
+                .map(|s| (*e, s))
+        })
+        .collect::<Result<_, _>>()
+        .map_err(kerr)?;
+    let mut edge_tags = Vec::new();
+    for e in sheet.edges() {
+        let se = sheet
+            .sub_shape(amg_brep::SubShape {
+                kind: amg_brep::SubKind::Edge,
+                index: e.0,
+            })
+            .map_err(kerr)?;
+        if let Some((be, _)) = body_edges.iter().find(|(_, s)| s.is_same(&se)) {
+            edge_tags.push((e, Tag(u64::from(be.0))));
+        }
+    }
+    let key = if t.key != 0 {
+        t.key
+    } else {
+        u32::try_from(pos + 1).unwrap_or(u32::MAX)
+    };
+    Ok(ProfileFace {
+        face: sheet,
+        plane,
+        edge_tags,
+        source: ProfileSource::Face {
+            body: res.body,
+            face,
+            key,
+        },
+        group: 0,
+    })
+}
+
+/// The name source of a face-profile edge tag: the body edge's current name (propagated,
+/// `NameSource::Topo`), `None` if the body has no name for it.
+pub fn face_edge_source(ctx: &RecomputeCtx<'_>, body: BodyId, tag: Tag) -> Option<NameSource> {
+    let index = u32::try_from(tag.0).ok()?;
+    ctx.naming(body)?
+        .name_of(amg_doc::TopoKind::Edge, index)
+        .cloned()
+        .map(NameSource::Topo)
 }
 
 /// Connected components of "shares a boundary curve", numbered in region order.

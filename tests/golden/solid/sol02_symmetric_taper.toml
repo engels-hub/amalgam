@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol02_symmetric_taper (S04 SOL-02). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 4432.600229070619
+area = 1746.8323121256199
+faces = 10
+edges = 20
+vertices = 12
+bbox_min = [-0.6992681194351066, -0.6992681194351079, -10.0]
+bbox_max = [10.699268119435107, 20.699268119435107, 10.0]
