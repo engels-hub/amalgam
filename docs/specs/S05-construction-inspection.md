@@ -786,7 +786,7 @@ pub mod display {
 | CON-02 | Axes (6 variants) and points (6 variants): math + `ConstructAxis`/`ConstructPoint` features | CON-01 | P0 | Done | Same table-driven standard as CON-01 (≥ 5 analytic cases per variant, all errors). Point through three planes on random non-degenerate triples matches a 3×3 solve within 1e-9. Line–line on skew lines with a 0.01 mm gap → `Skew { distance: 0.01 ± 1e-12 }`. The features register, serialise and recompute. |
 | CON-03 | Reference resolution: `EntityRef`/`RefInput` → `ResolvedRef` for origin entities (with component transform), construction geometry, B-rep faces/edges/vertices (S02 analytic types, `CurveEval`/`SurfaceEval` adapters, context plane), sketch curves/points (S03 world mapping), planar mesh face groups (plane fit); `resolve_in` for tools; health mapping (FingerprintOnly → warning) | CON-01, DOC-06, BREP-09, SK-01, MESH-16 | P0 | Done | On a test part (box with a hole, built with S04 or with direct `BrepKernel` calls): the planar face resolves to a `Plane` matching the face within 1e-9; the hole face resolves to a `Cylinder` with the exact radius; a circular edge resolves to a `Circle`; a sketch line resolves to a `Line` with `context_plane` = the sketch plane. Offset plane on a face survives an upstream extrude-distance edit (with DOC-06 naming) and moves with the face. A deleted referenced face gives a feature `Error` whose `Diagnostic.entities` contains the ref. |
 | CON-04 | Construct UI: commands in the Construct menu (`amg-ui::construct`), UI-05 dialog schemas for all variants, construction display via `display::display_extent` + RND-07 with pick ids, browser "Construction" / "Origin" folders | CON-02, CON-03, UI-05, UI-07, RND-07 | P0 | Done | Each of the 20 variants can be created from the menu and S-key search, edited and deleted, all undoable. `display_extent` unit tests follow the note §6 sizing rules. Construction planes are pickable as sketch planes and as section-analysis bases. Manual script: offset plane → sketch on it → extrude → edit the offset → the extrude follows. |
-| INS-07 | Measure on B-rep, construction, origin and sketch entities: `Operand::Ref`/`Operand::Brep`, exact B-rep distance/length/area via S02, analytic radius/angle via `RefGeom`, mixed mesh–B-rep via tessellation (`Exactness::Tessellated`), tool filters extended | INS-01, INS-08, CON-03, BREP-08, BREP-09 | P0 | Todo | On analytic solids: box edge length, face area, distance between parallel faces within 1e-9; cylinder face radius exact; circular edge diameter exact; angle between two planar faces at 30° ± 1e-12 rad. Distance from a sphere (r = 10, centre 25 mm away) to a plane: 15 ± 1e-7. Distance between a construction plane and a vertex is exact. A mesh–solid distance is marked "≈" and lies within the tessellation deflection of the exact value. |
+| INS-07 | Measure on B-rep, construction, origin and sketch entities: `Operand::Ref`/`Operand::Brep`, exact B-rep distance/length/area via S02, analytic radius/angle via `RefGeom`, mixed mesh–B-rep via tessellation (`Exactness::Tessellated`), tool filters extended | INS-01, INS-08, CON-03, BREP-08, BREP-09 | P0 | Review | On analytic solids: box edge length, face area, distance between parallel faces within 1e-9; cylinder face radius exact; circular edge diameter exact; angle between two planar faces at 30° ± 1e-12 rad. Distance from a sphere (r = 10, centre 25 mm away) to a plane: 15 ± 1e-7. Distance between a construction plane and a vertex is exact. A mesh–solid distance is marked "≈" and lies within the tessellation deflection of the exact value. |
 | INS-10 | Properties on solids + assemblies: B-rep `mass_props` (S02), per-component/occurrence totals with transforms, mixed selections, "Display component colours" | INS-03, BREP-09, ASM-01, RND-03 | P0 | Done (solid colours visible after UI-22; GPU colour check pending owner) | Box, cylinder and sphere solids: volume, CoM and inertia within 1e-9 relative of analytic. The same part as a mesh (fine tessellation) agrees within the tessellation error bound. A two-occurrence assembly total equals the sum with the parallel-axis rule within 1e-9 relative. The component-colour toggle colours each component distinctly and restores the appearances. |
 | INS-11 | Section analysis on solids + reference bases: caps from B-rep tessellation, `SectionBase::Ref` (construction planes, planar B-rep faces) with fallback warning, plane drag manipulator (UI-06) | INS-09, CON-03, BREP-08, UI-06 | P0 | Todo | The INS-02 watertight test passes on tessellations of 20 solid test parts. A section based on a construction plane follows a parameter edit of that plane. A deleted base face keeps the last plane and shows a warning. Dragging the manipulator updates the offset field both ways. |
 | INS-04 | Interference: `interfere::interference` (broad phase, mesh BVH pair test, Manifold intersection volume, B-rep common volume, mixed via tessellation), dialog with pair table, highlight, include-coincident option, "Create bodies" via Combine features | INS-01, INS-08, MESH-05, BREP-04, BREP-09, ASM-01 | P1 | Todo | Two cubes overlapping by 2 mm: volume 2·10·10 = 200 ± 1e-6 mm³ (mesh and solid paths). Face-touching cubes → `Touching` (or omitted unless include-coincident). Disjoint → omitted. A 20-body random scene matches the brute-force pair list. "Create bodies" is one undo step. 50 bodies × 100 k tris < 2 s. |
@@ -1704,6 +1704,93 @@ their public APIs):
   no handles). The display layer's per-frame cost is not benchmarked.
 
 
+### 2026-11-26 - INS-07 measure on B-rep, construction, origin and sketch geometry (lane A)
+
+*Landed* in `amg-features::inspect::measure` and `amg-ui::inspect` (no new dependency; no change in
+another lane's crate or in the `amg-ui` framework; `amg-brep`, `amg-doc` and CON-03 only through
+their public APIs).
+- **Operands:** `Operand::Ref(ResolvedRef)` and `Operand::Brep(BrepOperand { shape, sub:
+  Option<SubShape>, to_world })`, with the `OperandKind`s `Construction`, `Sketch` (a reference
+  with a context plane) and `Brep{Face,Edge,Vertex,Body}`.
+- **Entity results** (`measure/brep.rs`, `measure_ref`): face area and centroid, body area, volume
+  and centroid from S02 `mass_props`; edge length analytic for lines and circles, else S02
+  `sub_geom` (`mass_props` reports no length); cylinder / sphere face radius and circle edge
+  circle straight from the analytic surface / curve; planar faces give their outward plane.
+- **Distance** (`measure/pair.rs`):
+
+  | Pair | Method | Exactness |
+  |---|---|---|
+  | point (free, vertex, surface, reference, B-rep) × reference geometry | closed form (`measure/analytic.rs`) | exact |
+  | point × B-rep | S02 `closest_point` (boundary, also from inside) | exact |
+  | line / segment / plane pairs, circle × plane | closed form | exact |
+  | other curve pairs, curve × mesh | polylines (deflection ≤ 0.01 mm) | tessellated |
+  | mesh × plane / line / segment | nearest corner or crossing; INS-01 engine | exact |
+  | B-rep × B-rep | S02 `distance` (BRepExtrema) | exact |
+  | B-rep × plane / line / segment / circle | `distance` against a finite stand-in that covers the shape's projection | exact |
+  | B-rep × free-form reference curve | the curve as a polyline wire | tessellated |
+  | mesh × B-rep | BREP-08 fine preset (0.01 % of the diagonal, <= 0.01 mm, 0.2 rad), INS-01 engine, `contained` | tessellated |
+
+- **"≈":** `report_rows` prefixes `APPROXIMATE` ("≈ ") to every value that comes from a
+  tessellation (distance and Δ of an approximate pair); the dialog states the deflection.
+- **Measure tool** (`inspect/measure.rs`, new `inspect/targets.rs`): B-rep faces and edges are
+  picked in the view, a vertex of them within 8 px wins, then edge, point, face, body by the
+  dialog filter; construction geometry through CON-04's display (resolved by CON-03 for the
+  occurrence clicked); sketch points and curves by intersecting the pick ray with each visible
+  sketch plane; origin entities from the dialog's *Add origin* menu. New check boxes
+  *Construction* and *Sketch*. 3-point circle also takes B-rep vertices, points on analytic
+  edges / faces, construction and sketch points. Preselected solids, their sub-entities and
+  construction geometry fill Selection 1 / 2. Measure is enabled by any mesh or solid body,
+  construction geometry or sketch (Section Analysis keeps "needs a mesh body").
+- Kernel queries only run in the "Measure" job: every B-rep operand except a vertex has
+  `estimated_cost == Job`, and a free point on a free-form face is projected in the job.
+
+*Done-when evidence:* (`amg-features/tests/inspect_measure_geom.rs`, OCCT 8.0.1; solids on
+the identity and on a frame tilted off every axis)
+1. Box 10 x 20 x 30: all 12 edge lengths, the face areas and the three parallel-face distances have
+   error 0 (bound 1e-9); the face angle is 180 deg.
+2. Cylinder r 6.3: face radius and both rim circle radii bit-equal; diameter row 12.6 mm.
+3. Planar faces at 30 deg: errors 0 and 1.1e-16 rad (bound 1e-12).
+4. Sphere r 10 with its centre 25 mm above: to a construction plane (body and face) and to a planar
+   face of another solid, error 0 (bound 1e-7).
+5. Construction plane to B-rep vertices and to a mesh vertex: equal (`==`) to the plane's offset
+   difference, computed inline.
+6. Mesh cube to the sphere (body and face), deflection 3.46e-3 mm: errors 1.27e-3, 2.17e-3 and
+   1.69e-3 mm, all within it; the rows start with "≈".
+
+Tool tests: `amg-ui/tests/measure_solid.rs` (construction, origin, sketch and mesh picks in both
+builds; solid face, edge, vertex, body, rim diameter, face to construction plane, mesh to solid and
+preselection with OCCT). `cargo nextest run -p amg-features -p amg-ui`: 729 pass, 3 skipped; with
+`--features amg-features/occt,amg-ui/occt`: 880 pass, 3 skipped; clippy `-D warnings` clean in
+both; fmt clean. No golden file (no new geometry) and no new benchmark (S05 has no budget for these
+queries).
+
+*Owner check* (`cargo app`): extrude a box; Construct ▸ Offset Plane 10 mm below XY; press `I`;
+click a face of the box, then the plane beside the box. The table shows the minimum distance,
+Δ and the angle; no "≈".
+
+*Deviations:*
+- Touching or overlapping solids, also one solid inside another, give distance 0 and
+  `contained == None` (BRepExtrema's convention; S02 does not say which of the two it was).
+- Analytic surfaces of *reference* geometry (cylinder, cone, sphere, torus, free-form) measure
+  against points only (`Unsupported` otherwise). The tool picks such faces as B-rep operands,
+  which are measured exactly.
+- Smart selection does not apply to solids (a B-rep face is already whole; no tangent chains).
+- Radii and circles of B-rep faces and edges are read from the S02 analytic surface and curve
+  (the values CON-03 puts into `RefGeom`), without building a naming reference. Cylinder and cone
+  faces give no axis direction, so there is no angle to them; cone and torus faces give no radius.
+- A sketch entity picked inside a plane is chosen over a face at or behind it; the plane-space
+  distance (not the screen distance) is compared with the pixel radius.
+- Every sketch that is not hidden can be picked, also its points, which the view does not draw
+  for finished sketches.
+
+*Leftovers:*
+- Sketch entities and B-rep vertices have no hover highlight from the pick service (sketch
+  entities show their marker and polyline once picked).
+- In a design with both mesh and solid bodies the pick filter includes edges, so hovering a mesh
+  edge may show no snap marker (clicking works).
+- S02 `distance` and `mass_props` can't be cancelled midway (checked before and after).
+- `amg-ui` tests that need real solids run only with `--features occt`.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1761,3 +1848,11 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **S02 (`amg-brep`):** evaluation with derivatives for edge curves reported as `Curve3::Other`
   (offset, parabola, hyperbola), so they can be construction inputs.
 
+### 2026-11-26: INS-07 additions and requests
+- **`amg-features::inspect::measure`** (additive): `BrepOperand`, `Operand::{Ref, Brep}`,
+  `APPROXIMATE`.
+- **`amg-ui::inspect`**: new module `targets`; `snap::Resolved` gains `target`, `label` and
+  `marked`; `MeasureSnapshot` gains `construction` and `sketch`; `ORIGIN_ENTITIES`.
+- **To lane A/S02 (`amg-brep`), requests, not changed here:** an edge's length in `MassProps`;
+  whether a zero `distance` is an inner solution (containment); distance to an unbounded plane or
+  line; cancellation of `distance`.

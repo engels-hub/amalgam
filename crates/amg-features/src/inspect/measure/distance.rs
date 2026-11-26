@@ -90,8 +90,13 @@ impl Lowered {
         }
     }
 
+    /// Primitive `i` in world space.
+    pub(crate) fn world_prim(&self, i: u32) -> Prim {
+        self.prim(i).transformed(&self.to_world)
+    }
+
     /// The mesh feature of primitive `i` holding a witness on `feat`.
-    fn witness_feature(&self, i: u32, feat: PrimFeature) -> WitnessFeature {
+    pub(crate) fn witness_feature(&self, i: u32, feat: PrimFeature) -> WitnessFeature {
         match &self.src {
             Src::Mesh { mesh, faces } => {
                 let f = faces.as_ref().map_or(i, |f| f[i as usize]);
@@ -236,7 +241,15 @@ pub(crate) fn polyline_segments(
     Ok(segs)
 }
 
-/// Lowers `op` to a primitive set (note §2.1).
+/// A primitive set of free world-space geometry (the stand-ins of INS-07); witnesses on it
+/// report [`WitnessFeature::Point`].
+pub(crate) fn lower_prims(prims: Vec<Prim>, ctx: &JobCtx) -> Result<Lowered, InspectError> {
+    let meta = vec![Meta::Point(WitnessFeature::Point); prims.len()];
+    let src = Src::List { prims, meta };
+    finish(Transform::IDENTITY, src, None, ctx)
+}
+
+/// Lowers `op` (a point or a mesh element) to a primitive set (note §2.1).
 pub(crate) fn lower(op: &Operand, ctx: &JobCtx) -> Result<Lowered, InspectError> {
     let (to_world, src, body) = match op {
         Operand::Point(p) => (
@@ -318,7 +331,21 @@ pub(crate) fn lower(op: &Operand, ctx: &JobCtx) -> Result<Lowered, InspectError>
                 }
             }
         }
+        // The callers (`min_distance`) handle these without a primitive set.
+        Operand::Ref(_) | Operand::Brep(_) => {
+            return Err(InspectError::Degenerate("not a mesh or point operand"));
+        }
     };
+    finish(to_world, src, body, ctx)
+}
+
+/// Builds the bounding volumes of a primitive set.
+fn finish(
+    to_world: Transform,
+    src: Src,
+    body: Option<Arc<Derived>>,
+    ctx: &JobCtx,
+) -> Result<Lowered, InspectError> {
     let mut low = Lowered {
         to_world,
         src,

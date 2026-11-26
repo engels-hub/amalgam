@@ -2,7 +2,10 @@
 
 use amg_core::{Dimension, FormatSpec, LengthUnit, Quantity, Unit, format_quantity};
 
-use super::{EntityMeasure, MeasureReport};
+use super::{EntityMeasure, Exactness, MeasureReport};
+
+/// What precedes the text of a value computed on a tessellation.
+pub const APPROXIMATE: &str = "≈ ";
 
 /// Display settings of the measure tool.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,7 +62,8 @@ pub struct MeasureRow {
     pub label: String,
     /// The value.
     pub value: Quantity,
-    /// Formatted value (what Copy writes).
+    /// Formatted value (what Copy writes); starts with [`APPROXIMATE`] if the value comes
+    /// from a tessellation.
     pub text: String,
 }
 
@@ -91,7 +95,7 @@ const LABELS: [&str; 8] = [
 /// first entity's rows, then the second's.
 pub fn report_rows(r: &MeasureReport, prefs: &DisplayPrefs) -> Vec<MeasureRow> {
     let len_unit = Unit::from(prefs.length);
-    let row = |key: &'static str, label: String, value: Quantity| {
+    let row = |key: &'static str, label: String, value: Quantity, exactness: Exactness| {
         let unit = if value.dim == Dimension::ANGLE {
             prefs.angle
         } else if value.dim == Dimension::AREA {
@@ -105,7 +109,10 @@ pub fn report_rows(r: &MeasureReport, prefs: &DisplayPrefs) -> Vec<MeasureRow> {
             precision: prefs.precision.min(6),
             ..FormatSpec::for_unit(unit)
         };
-        let text = format_quantity(value, unit, &spec).unwrap_or_else(|_| "—".to_owned());
+        let mut text = format_quantity(value, unit, &spec).unwrap_or_else(|_| "—".to_owned());
+        if exactness != Exactness::Exact {
+            text.insert_str(0, APPROXIMATE);
+        }
         MeasureRow {
             key,
             label,
@@ -117,21 +124,32 @@ pub fn report_rows(r: &MeasureReport, prefs: &DisplayPrefs) -> Vec<MeasureRow> {
     let mut rows = Vec::new();
     if let Some(p) = &r.pair {
         let d = p.min_distance.delta();
+        let found = p.min_distance.exactness;
         rows.push(row(
             "distance",
             "Minimum distance".into(),
             len(p.min_distance.distance.to_mm()),
+            found,
         ));
-        rows.push(row("dx", "ΔX".into(), len(d.x)));
-        rows.push(row("dy", "ΔY".into(), len(d.y)));
-        rows.push(row("dz", "ΔZ".into(), len(d.z)));
+        rows.push(row("dx", "ΔX".into(), len(d.x), found));
+        rows.push(row("dy", "ΔY".into(), len(d.y), found));
+        rows.push(row("dz", "ΔZ".into(), len(d.z), found));
+        // The angle and the centres come from the entities, not from the witness points.
+        let entities = match (r.first.exactness, &r.second) {
+            (Exactness::Exact, Some(s)) => s.exactness,
+            (first, _) => first,
+        };
         if let Some(a) = &p.angle {
-            rows.push(row("angle", "Angle".into(), a.angle.into()));
+            rows.push(row("angle", "Angle".into(), a.angle.into(), entities));
         }
+        // Without two centres the centre distance is the minimum distance.
+        let centres =
+            r.first.center().is_some() && r.second.as_ref().is_some_and(|e| e.center().is_some());
         rows.push(row(
             "center_distance",
             "Center distance".into(),
             len(p.center_distance.to_mm()),
+            if centres { entities } else { found },
         ));
     }
     let entity =
@@ -143,27 +161,28 @@ pub fn report_rows(r: &MeasureReport, prefs: &DisplayPrefs) -> Vec<MeasureRow> {
                     LABELS[i].to_owned()
                 }
             };
+            let x = e.exactness;
             if let Some(p) = e.position {
                 for (i, v) in [p.x, p.y, p.z].into_iter().enumerate() {
-                    rows.push(row(keys[i], label(i), len(v)));
+                    rows.push(row(keys[i], label(i), len(v), x));
                 }
             }
             if let Some(l) = e.length {
-                rows.push(row(keys[3], label(3), l.into()));
+                rows.push(row(keys[3], label(3), l.into(), x));
             }
             if let Some(a) = e.area {
-                rows.push(row(keys[4], label(4), a.into()));
+                rows.push(row(keys[4], label(4), a.into(), x));
             }
             if let Some(v) = e.volume {
-                rows.push(row(keys[5], label(5), v.into()));
+                rows.push(row(keys[5], label(5), v.into(), x));
             }
             let radius = e
                 .circle
                 .map(|c| c.circle.radius)
                 .or(e.radius.map(|r| r.to_mm()));
             if let Some(rad) = radius {
-                rows.push(row(keys[6], label(6), len(2.0 * rad)));
-                rows.push(row(keys[7], label(7), len(rad)));
+                rows.push(row(keys[6], label(6), len(2.0 * rad), x));
+                rows.push(row(keys[7], label(7), len(rad), x));
             }
         };
     entity(&r.first, &FIRST, 1, &mut rows);

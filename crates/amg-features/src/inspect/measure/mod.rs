@@ -1,5 +1,5 @@
-//! Measurement on mesh bodies (S05 §2, INS-01; conventions in
-//! `docs/notes/inspection-geometry.md` §2).
+//! Measurement on mesh bodies (S05 §2, INS-01), B-rep solids and construction, origin and
+//! sketch geometry (INS-07); conventions in `docs/notes/inspection-geometry.md` §2.
 //!
 //! - [`measure_one`] / [`measure`]: per-entity results and pair results (minimum distance,
 //!   angle, centre distance), all in world space.
@@ -13,13 +13,22 @@
 //! - Picking support: [`snap_on_face`]. Display: [`report_rows`], [`area_unit`],
 //!   [`volume_unit`].
 //!
+//! **Other geometry** (INS-07). [`Operand::Ref`] carries a CON-03 [`ResolvedRef`] (planes and
+//! lines are unbounded) and [`Operand::Brep`] a B-rep shape, face, edge or vertex. B-rep
+//! values and distances are exact (S02 mass properties, `BRepExtrema`); a mesh against a B-rep
+//! uses the fine tessellation, and curve pairs without a closed form use polylines, both marked
+//! [`Exactness::Tessellated`].
+//!
 //! A whole-body operand uses the body's BVH. Until S07 adds `MeshBody::spatial()`, the BVH
 //! and the watertight flag are cached per mesh inside this module; [`prepare_body`] builds
 //! them ahead of time.
 
+mod analytic;
+mod brep;
 mod display;
 mod distance;
 mod fit;
+mod pair;
 pub mod prims;
 mod select;
 #[cfg(test)]
@@ -33,11 +42,13 @@ use amg_core::{
 use amg_jobs::JobCtx;
 use amg_mesh::{FaceGroupId, FaceId, IndexedMesh, MeshBody};
 
-pub use display::{DisplayPrefs, MeasureRow, area_unit, report_rows, volume_unit};
+pub use brep::BrepOperand;
+pub use display::{APPROXIMATE, DisplayPrefs, MeasureRow, area_unit, report_rows, volume_unit};
 pub use fit::{circle_through, fit_circle, fit_plane_faces};
 pub use select::{grow_feature_chain, grow_planar_region, snap_on_face};
 
 use super::InspectError;
+use crate::construct::{RefGeom, ResolvedRef};
 use distance::{Lowered, closest, element_faces, lower, polyline_segments, surface_point, vertex};
 
 /// Sub-element of a mesh body; indices are body-local.
@@ -94,7 +105,11 @@ pub enum Operand {
     Point(Point3),
     /// A mesh element.
     Mesh(MeshOperand),
-    // INS-07 adds `Ref(construct::ResolvedRef)` and `Brep(BrepOperand)`.
+    /// Construction, origin, sketch or analytic geometry in world space (CON-03). A
+    /// reference with a context plane (a sketch entity) is reported as a sketch entity.
+    Ref(ResolvedRef),
+    /// A B-rep shape or one of its faces, edges or vertices.
+    Brep(BrepOperand),
 }
 
 /// Tolerances of a measurement (S05 §8).
@@ -174,6 +189,14 @@ impl Operand {
                 MeshElement::Vertex(_) => OperandKind::Vertex,
                 MeshElement::SurfacePoint { .. } => OperandKind::SurfacePoint,
             },
+            Operand::Ref(r) if r.context_plane.is_some() => OperandKind::Sketch,
+            Operand::Ref(_) => OperandKind::Construction,
+            Operand::Brep(b) => match b.sub.map(|s| s.kind) {
+                None => OperandKind::BrepBody,
+                Some(amg_brep::SubKind::Face) => OperandKind::BrepFace,
+                Some(amg_brep::SubKind::Edge) => OperandKind::BrepEdge,
+                Some(amg_brep::SubKind::Vertex) => OperandKind::BrepVertex,
+            },
         }
     }
 }
@@ -242,7 +265,7 @@ pub struct EntityMeasure {
     pub direction: Option<Dir3>,
     /// Accepted circle fit of a closed chain.
     pub circle: Option<CircleFit>,
-    /// INS-07: cylinder / sphere face, circular edge.
+    /// Radius of a cylinder or sphere face, a circular edge or a reference circle.
     pub radius: Option<Length>,
     /// World bounds (bodies).
     pub bbox: Option<Aabb3>,
@@ -292,7 +315,7 @@ pub enum WitnessFeature {
     Edge(u32, u32),
     /// The interior of a face.
     Face(FaceId),
-    /// INS-07.
+    /// A B-rep shape (or its tessellation).
     Brep,
 }
 
@@ -398,10 +421,22 @@ fn inline_prims(op: &Operand) -> Option<usize> {
             // A group needs a scan of the face → group map, a body its BVH.
             MeshElement::FaceGroup(_) | MeshElement::Body => None,
         },
+        // Closed forms; curves and surfaces iterate or are sampled.
+        Operand::Ref(r) => matches!(
+            r.geom,
+            RefGeom::Point(_) | RefGeom::Line(_) | RefGeom::Segment(_) | RefGeom::Plane(_)
+        )
+        .then_some(1),
+        // Only a vertex needs no kernel query.
+        Operand::Brep(b) => b
+            .sub
+            .is_some_and(|s| s.kind == amg_brep::SubKind::Vertex)
+            .then_some(1),
     }
 }
 
-/// `Inline` only for work proven < 0.1 ms: no BVH traversal and ≤ 64 primitives per operand.
+/// `Inline` only for work proven < 0.1 ms: no BVH traversal, no B-rep kernel query and ≤ 64
+/// primitives per operand.
 pub fn estimated_cost(a: &Operand, b: Option<&Operand>) -> Cost {
     let ok = |o: &Operand| inline_prims(o).is_some_and(|n| n <= INLINE_MAX);
     if ok(a) && b.is_none_or(ok) {
@@ -427,7 +462,8 @@ pub fn prepare_body(body: &MeshBody, ctx: &JobCtx) -> Result<(), InspectError> {
 ///
 /// # Errors
 /// [`InspectError::NonRigidTransform`], [`InspectError::BadElement`],
-/// [`InspectError::Cancelled`].
+/// [`InspectError::Cancelled`]; for B-rep operands also [`InspectError::Brep`] and
+/// [`InspectError::BackendUnavailable`].
 pub fn measure_one(
     a: &Operand,
     opts: &MeasureOpts,
@@ -440,6 +476,14 @@ pub fn measure_one(
             return Ok(e);
         }
         Operand::Mesh(mo) => mo,
+        Operand::Ref(r) => {
+            measure_ref(&r.geom, &mut e);
+            return Ok(e);
+        }
+        Operand::Brep(b) => {
+            brep::measure_one(b, &mut e, ctx)?;
+            return Ok(e);
+        }
     };
     distance::check_mesh(mo)?;
     let m: &IndexedMesh = mo.body.mesh();
@@ -514,6 +558,52 @@ pub fn measure_one(
     Ok(e)
 }
 
+/// The single-entity results of reference geometry (analytic; a line and a plane are
+/// unbounded and have no centre).
+fn measure_ref(g: &RefGeom, e: &mut EntityMeasure) {
+    match g {
+        RefGeom::Point(p) => e.position = Some(*p),
+        RefGeom::Line(l) => e.direction = Some(l.dir),
+        RefGeom::Segment(s) => {
+            e.length = Some(Length::mm(s.a.distance(s.b)));
+            e.centroid = Some((s.a + s.b) * 0.5);
+            e.direction = Dir3::new(s.b - s.a, &Tolerance::DEFAULT);
+        }
+        RefGeom::Circle {
+            center,
+            normal,
+            radius,
+            arc,
+        } => {
+            let sweep = arc.map_or(std::f64::consts::TAU, |(a, b)| b - a);
+            e.length = Some(Length::mm(radius * sweep));
+            e.radius = Some(Length::mm(*radius));
+            e.circle = Some(CircleFit {
+                circle: Circle3 {
+                    center: *center,
+                    normal: *normal,
+                    radius: *radius,
+                },
+                rms: 0.0,
+                max_residual: 0.0,
+            });
+        }
+        RefGeom::Plane(plane) => {
+            e.plane = Some(PlaneFit {
+                plane: *plane,
+                max_deviation: 0.0,
+            });
+        }
+        RefGeom::Cylinder { radius, .. } => e.radius = Some(Length::mm(*radius)),
+        RefGeom::Sphere { center, radius } => {
+            e.radius = Some(Length::mm(*radius));
+            e.centroid = Some(*center);
+        }
+        RefGeom::Curve(c) => e.length = Some(Length::mm(c.length())),
+        RefGeom::Cone { .. } | RefGeom::Torus { .. } | RefGeom::Surface(_) => {}
+    }
+}
+
 /// Vertices referenced by a face, ascending.
 fn used_vertices(m: &IndexedMesh) -> Vec<u32> {
     let mut used = vec![false; m.vertex_count()];
@@ -563,17 +653,25 @@ fn straight_direction(pts: &[Point3], opts: &MeasureOpts) -> Option<Dir3> {
         .then_some(dir)
 }
 
-/// Exact minimum distance between two operands (note §2.2), with witnesses in world space.
+/// Minimum distance between two operands (note §2.2), with witnesses in world space. Exact
+/// unless [`MinDistance::exactness`] says otherwise. Touching or overlapping B-rep solids
+/// (also one inside another) give 0 and `contained == None`.
 ///
 /// # Errors
 /// [`InspectError::NonRigidTransform`], [`InspectError::BadElement`],
-/// [`InspectError::Degenerate`] (empty body), [`InspectError::Cancelled`].
+/// [`InspectError::Degenerate`] (empty body), [`InspectError::Unsupported`] (a surface of
+/// reference geometry against anything but a point), [`InspectError::Cancelled`]; for B-rep
+/// operands also [`InspectError::Brep`] and [`InspectError::BackendUnavailable`].
 pub fn min_distance(
     a: &Operand,
     b: &Operand,
     opts: &MeasureOpts,
     ctx: &JobCtx,
 ) -> Result<MinDistance, InspectError> {
+    let other = |o: &Operand| matches!(o, Operand::Ref(_) | Operand::Brep(_));
+    if other(a) || other(b) {
+        return pair::min_distance(a, b, opts, ctx);
+    }
     let la = lower(a, ctx)?;
     let lb = lower(b, ctx)?;
     let c = closest(&la, &lb, ctx)?.ok_or(InspectError::Degenerate("an operand is empty"))?;
