@@ -777,7 +777,8 @@ impl Tool for MoveTool {
     }
 
     fn pick_filter(&self) -> EntityFilter {
-        EntityFilter::ALL
+        // Not construction geometry (CON-04 draws it): it would hide the bodies behind it.
+        EntityFilter::ALL.without(EntityFilter::CONSTRUCTION)
     }
 
     fn status_hint(&self) -> Option<Cow<'static, str>> {

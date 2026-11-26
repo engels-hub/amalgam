@@ -413,15 +413,23 @@ fn with_state<R>(app: &mut AmalgamApp, f: impl FnOnce(&mut AmalgamApp, &mut Tool
     r
 }
 
+/// What the document layers fill besides the overlays.
+#[derive(Default)]
+struct LayerResults {
+    sections: crate::layer::ViewSections,
+    body_views: Option<std::sync::Arc<crate::scene::BodyViews>>,
+    body_tints: Option<std::sync::Arc<crate::scene::BodyTints>>,
+    construction_picks: Vec<crate::scene::ConstructionPick>,
+}
+
 /// Runs the active document's layers (created on first use) in registration order.
 fn run_doc_layers(
     app: &mut AmalgamApp,
     overlays: &mut amg_render::OverlayList,
-    sections: &mut crate::layer::ViewSections,
-    body_views: &mut Option<std::sync::Arc<crate::scene::BodyViews>>,
     active_tool: Option<CmdId>,
-    body_tints: &mut Option<std::sync::Arc<crate::scene::BodyTints>>,
-) {
+    preview: Option<&amg_doc::Evaluated>,
+) -> LayerResults {
+    let mut r = LayerResults::default();
     let active = app.active;
     app.docs[active].layers.ensure(app.registry.doc_layers());
     for i in 0..app.docs[active].layers.list.len() {
@@ -429,18 +437,22 @@ fn run_doc_layers(
             continue;
         };
         {
-            let (mut cx, _, _) = app.tool_parts();
+            let (mut cx, _, scene) = app.tool_parts();
             let mut out = crate::layer::LayerOut {
                 overlays: &mut *overlays,
-                sections: &mut *sections,
-                body_views: &mut *body_views,
+                sections: &mut r.sections,
+                body_views: &mut r.body_views,
                 active_tool,
-                body_tints: &mut *body_tints,
+                body_tints: &mut r.body_tints,
+                scene,
+                construction_picks: &mut r.construction_picks,
+                preview,
             };
             layer.update(&mut cx, &mut out);
         }
         app.docs[active].layers.list[i].1 = Some(layer);
     }
+    r
 }
 
 /// Finishes the active tool with `reason`; a commit's batch is submitted (one undo entry at
@@ -628,18 +640,15 @@ impl AmalgamApp {
                 }
             }
             // Document layers (INS-09): overlays and the view's section planes.
-            let mut sections = crate::layer::ViewSections::default();
-            let mut body_views = None;
             let active_tool = ts.active.as_ref().map(|a| a.id);
-            let mut body_tints = None;
-            run_doc_layers(
-                app,
-                &mut overlay,
-                &mut sections,
-                &mut body_views,
-                active_tool,
-                &mut body_tints,
-            );
+            let preview = ts.frame.preview.shown().cloned();
+            let LayerResults {
+                sections,
+                body_views,
+                body_tints,
+                construction_picks,
+            } = run_doc_layers(app, &mut overlay, active_tool, preview.as_deref());
+            app.scene.set_construction_picks(construction_picks);
             // Body colours (INS-10): compared with what the scene shows, like the views.
             let same_tints = match (&body_tints, app.scene.body_tints()) {
                 (None, None) => true,

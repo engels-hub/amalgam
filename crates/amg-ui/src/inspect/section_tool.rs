@@ -1,10 +1,12 @@
 //! [`SectionTool`]: the hand-built Phase 1 Section Analysis dialog (S05 §3, INS-09) on the
 //! lane-D framework (UI-03 tool, UI-04 picking, UI-15 widgets).
 //!
-//! - **Base:** an origin plane (XY / YZ / XZ) or a picked planar region: *Pick face* and a
-//!   click on a mesh face grows its coplanar region (INS-01 `grow_planar_region`, as a job) and
-//!   fits a plane, stored by value (`SectionBase::Free`). A face preselected when the tool
-//!   starts is used the same way.
+//! - **Base:** an origin plane (XY / YZ / XZ), a picked planar region or a construction plane:
+//!   *Pick face* and a click on a mesh face grows its coplanar region (INS-01
+//!   `grow_planar_region`, as a job) and fits a plane, stored by value (`SectionBase::Free`);
+//!   a click on a construction plane stores its reference (`SectionBase::Ref`, CON-04), so the
+//!   section follows the plane. A face or construction plane preselected when the tool starts
+//!   is used the same way.
 //! - **Offset:** an expression field (any length expression, `10 mm`, `0.5 in`, parameters),
 //!   a slider over the scene extent along the base normal, and − / + step buttons; tilt about the
 //!   base X / Y axes (degrees), flip, hatch pattern, cap colour (body colour or a uniform
@@ -20,7 +22,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use amg_core::{Aabb3, Dimension, Plane, Transform};
-use amg_doc::{BodyGeom, BodyId, ExtKey, TopoKind};
+use amg_doc::{BodyGeom, BodyId, EntityRef, ExtKey, TopoKind};
 use amg_features::inspect::InspectError;
 use amg_features::inspect::doc::{
     CapColor, HatchPattern, OriginPlane, SectionAnalysis, SectionBase, SectionScope, next_name,
@@ -48,7 +50,8 @@ pub const BASE_JOB: &str = "Section base";
 pub enum BaseChoice {
     /// An origin plane.
     Origin(OriginPlane),
-    /// The picked planar region (`SectionBase::Free`).
+    /// The picked planar region (`SectionBase::Free`) or construction plane
+    /// (`SectionBase::Ref`).
     Picked,
 }
 
@@ -144,12 +147,24 @@ fn region_plane(p: &FacePick, ctx: &JobCtx) -> Result<Plane, InspectError> {
         .or_else(|_| Ok(Plane::from_normal(origin, n)))
 }
 
+/// The reference and world plane of construction geometry `c`, if it is a plane.
+fn construction_base(
+    env: &crate::app::CmdEnv<'_>,
+    c: amg_doc::ConstructionId,
+) -> Option<(EntityRef, Plane)> {
+    let entity = crate::construct::world_ref(env.design, c);
+    let plane = crate::construct::base_plane(env.design, env.evaluated, &entity)?;
+    Some((entity, plane))
+}
+
 /// The Section Analysis tool (see the module docs).
 pub struct SectionTool {
     editing: Option<ExtKey>,
     draft: SectionAnalysis,
     base: BaseChoice,
     picked: Option<Plane>,
+    /// The construction plane `picked` stands for (CON-04); `None` for a mesh region.
+    picked_ref: Option<EntityRef>,
     offset_text: String,
     color: ColorChoice,
     uniform: amg_mesh::Rgba8,
@@ -196,7 +211,13 @@ impl SectionTool {
             SectionAnalysis::new(next_name(env.design), SectionBase::Origin(OriginPlane::XY));
         let mut listed = Vec::new();
         let mut preselected_face = None;
+        let mut construction = None;
         for i in init.preselection {
+            if construction.is_none()
+                && let PickTarget::Construction(c) = i.target
+            {
+                construction = construction_base(env, c);
+            }
             match i.target {
                 PickTarget::Body {
                     body, sub: None, ..
@@ -218,12 +239,19 @@ impl SectionTool {
         } else {
             ScopeChoice::Listed
         };
+        let base = if construction.is_some() {
+            BaseChoice::Picked
+        } else {
+            BaseChoice::Origin(OriginPlane::XY)
+        };
+        let (picked_ref, picked) = construction.unzip();
         SectionTool {
             editing: None,
             offset_text: mm_text(draft.offset),
             draft,
-            base: BaseChoice::Origin(OriginPlane::XY),
-            picked: None,
+            base,
+            picked,
+            picked_ref,
             color: ColorChoice::Body,
             uniform: DEFAULT_CAP,
             scope,
@@ -241,6 +269,10 @@ impl SectionTool {
 
     /// Loads the record under `key` for editing.
     fn load(&mut self, key: ExtKey, a: SectionAnalysis) {
+        self.picked_ref = match &a.base {
+            SectionBase::Ref { entity, .. } => Some(entity.clone()),
+            _ => None,
+        };
         self.base = match &a.base {
             SectionBase::Origin(o) => BaseChoice::Origin(*o),
             SectionBase::Free(p) | SectionBase::Ref { last: p, .. } => {
@@ -317,7 +349,13 @@ impl SectionTool {
     fn sync_draft(&mut self) {
         self.draft.base = match (self.base, self.picked) {
             (BaseChoice::Origin(o), _) => SectionBase::Origin(o),
-            (BaseChoice::Picked, Some(p)) => SectionBase::Free(p),
+            (BaseChoice::Picked, Some(p)) => match &self.picked_ref {
+                Some(entity) => SectionBase::Ref {
+                    entity: entity.clone(),
+                    last: p,
+                },
+                None => SectionBase::Free(p),
+            },
             (BaseChoice::Picked, None) => self.draft.base.clone(),
         };
         self.draft.cap_color = match self.color {
@@ -383,16 +421,31 @@ impl SectionTool {
 
     fn on_hits(&mut self, hits: Vec<PickHitUi>, cx: &mut ToolCx<'_>) {
         if self.picking {
-            if let Some(t) = hits.iter().map(|h| h.target).find(|t| {
-                matches!(
-                    t,
+            // The front-most face or construction plane.
+            for t in hits.iter().map(|h| h.target) {
+                match t {
                     PickTarget::Body {
                         sub: Some((TopoKind::Face, _)),
                         ..
+                    } => {
+                        self.resolve_face(t, cx);
+                        break;
                     }
-                )
-            }) {
-                self.resolve_face(t, cx);
+                    PickTarget::Construction(c) => {
+                        if let Some((entity, plane)) = construction_base(&cx.env(), c) {
+                            if let Some(j) = self.job.take() {
+                                j.cancel();
+                            }
+                            self.picked_ref = Some(entity);
+                            self.picked = Some(plane);
+                            self.base = BaseChoice::Picked;
+                            self.picking = false;
+                            self.error = None;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
             }
             return;
         }
@@ -421,6 +474,7 @@ impl SectionTool {
         self.job = None;
         match r {
             Ok(p) => {
+                self.picked_ref = None;
                 self.picked = Some(p);
                 self.base = BaseChoice::Picked;
                 self.error = None;
@@ -481,14 +535,15 @@ impl SectionTool {
             if ui
                 .add(egui::Button::new("Pick face").selected(self.picking))
                 .on_hover_text(
-                    "Click a planar face of a mesh body: its coplanar region is the base",
+                    "Click a construction plane, or a planar face of a mesh body (its coplanar \
+                     region is the base)",
                 )
                 .clicked()
             {
                 self.picking = !self.picking;
             }
             if self.picking {
-                ui.weak("Click a face in the viewport…");
+                ui.weak("Click a face or construction plane in the viewport…");
             } else if self.job.is_some() {
                 ui.spinner();
                 ui.weak("Fitting the plane…");
@@ -662,6 +717,13 @@ impl Tool for SectionTool {
             self.on_hits(hits, cx);
         }
         self.poll_job();
+        // A referenced base moves with its construction plane (slider range, fallback plane).
+        if let Some(e) = &self.picked_ref {
+            let env = cx.env();
+            if let Some(p) = crate::construct::base_plane(env.design, env.evaluated, e) {
+                self.picked = Some(p);
+            }
+        }
         self.sync_draft();
         self.push_preview(cx);
         if self.job.is_some() || self.click.is_some() {
@@ -670,9 +732,12 @@ impl Tool for SectionTool {
         }
     }
 
-    fn overlay(&mut self, out: &mut amg_render::OverlayList, _cx: &ToolCx<'_>) {
+    fn overlay(&mut self, out: &mut amg_render::OverlayList, cx: &ToolCx<'_>) {
         // The draft's plane as a translucent square over the scene.
-        let (plane, _) = self.draft.plane(&|_| None);
+        let env = cx.env();
+        let (plane, _) = self
+            .draft
+            .plane(&|e| crate::construct::base_plane(env.design, env.evaluated, e));
         let half = if self.bounds.is_empty() {
             50.0
         } else {
@@ -734,7 +799,7 @@ impl Tool for SectionTool {
 
     fn pick_filter(&self) -> EntityFilter {
         if self.picking {
-            EntityFilter::FACE
+            EntityFilter::FACE.union(EntityFilter::CONSTRUCTION)
         } else {
             EntityFilter::BODY
         }
@@ -742,7 +807,8 @@ impl Tool for SectionTool {
 
     fn status_hint(&self) -> Option<Cow<'static, str>> {
         Some(if self.picking {
-            "Section Analysis: click a planar face for the base; Esc cancels".into()
+            "Section Analysis: click a planar face or construction plane for the base; Esc cancels"
+                .into()
         } else {
             "Section Analysis: set the offset; Enter applies, Esc cancels".into()
         })

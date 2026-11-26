@@ -785,7 +785,7 @@ pub mod display {
 | CON-01 | Construction framework + planes: `RefInput`/`OriginEntity`/`RefGeom`/`ConstructError`, `construct::math` plane functions (all 8 variants) and helpers, `ConstructPlane` feature registered (`construct.plane` v1) with inputs, `exprs`, compute against pre-resolved `RefGeom` (test resolver) | DOC-02, DOC-03, DOC-04 | P0 | Done | Table-driven tests: ≥ 5 analytic cases per variant plus every error in note §6. Examples: offset XY by 5 → z = 5. At-angle 30° about +X from XY → normal (0, −sin 30°, cos 30°) (right-hand rule). Tangent to cylinder r = 3 on Z at 0° from XZ → normal +Y, through (0, 3, 0). Midplane of z = 0 and z = 10 → z = 5. Three collinear points → `Collinear`. Results within 1e-12. The same inputs give a bit-identical frame. The feature serialises round-trip, recomputes from the cache, and an `Expr` parameter edit recomputes only it and its dependants (DOC-03 counter). |
 | CON-02 | Axes (6 variants) and points (6 variants): math + `ConstructAxis`/`ConstructPoint` features | CON-01 | P0 | Done | Same table-driven standard as CON-01 (≥ 5 analytic cases per variant, all errors). Point through three planes on random non-degenerate triples matches a 3×3 solve within 1e-9. Line–line on skew lines with a 0.01 mm gap → `Skew { distance: 0.01 ± 1e-12 }`. The features register, serialise and recompute. |
 | CON-03 | Reference resolution: `EntityRef`/`RefInput` → `ResolvedRef` for origin entities (with component transform), construction geometry, B-rep faces/edges/vertices (S02 analytic types, `CurveEval`/`SurfaceEval` adapters, context plane), sketch curves/points (S03 world mapping), planar mesh face groups (plane fit); `resolve_in` for tools; health mapping (FingerprintOnly → warning) | CON-01, DOC-06, BREP-09, SK-01, MESH-16 | P0 | Done | On a test part (box with a hole, built with S04 or with direct `BrepKernel` calls): the planar face resolves to a `Plane` matching the face within 1e-9; the hole face resolves to a `Cylinder` with the exact radius; a circular edge resolves to a `Circle`; a sketch line resolves to a `Line` with `context_plane` = the sketch plane. Offset plane on a face survives an upstream extrude-distance edit (with DOC-06 naming) and moves with the face. A deleted referenced face gives a feature `Error` whose `Diagnostic.entities` contains the ref. |
-| CON-04 | Construct UI: commands in the Construct menu (`amg-ui::construct`), UI-05 dialog schemas for all variants, construction display via `display::display_extent` + RND-07 with pick ids, browser "Construction" / "Origin" folders | CON-02, CON-03, UI-05, UI-07, RND-07 | P0 | Todo | Each of the 20 variants can be created from the menu and S-key search, edited and deleted, all undoable. `display_extent` unit tests follow the note §6 sizing rules. Construction planes are pickable as sketch planes and as section-analysis bases. Manual script: offset plane → sketch on it → extrude → edit the offset → the extrude follows. |
+| CON-04 | Construct UI: commands in the Construct menu (`amg-ui::construct`), UI-05 dialog schemas for all variants, construction display via `display::display_extent` + RND-07 with pick ids, browser "Construction" / "Origin" folders | CON-02, CON-03, UI-05, UI-07, RND-07 | P0 | Review | Each of the 20 variants can be created from the menu and S-key search, edited and deleted, all undoable. `display_extent` unit tests follow the note §6 sizing rules. Construction planes are pickable as sketch planes and as section-analysis bases. Manual script: offset plane → sketch on it → extrude → edit the offset → the extrude follows. |
 | INS-07 | Measure on B-rep, construction, origin and sketch entities: `Operand::Ref`/`Operand::Brep`, exact B-rep distance/length/area via S02, analytic radius/angle via `RefGeom`, mixed mesh–B-rep via tessellation (`Exactness::Tessellated`), tool filters extended | INS-01, INS-08, CON-03, BREP-08, BREP-09 | P0 | Todo | On analytic solids: box edge length, face area, distance between parallel faces within 1e-9; cylinder face radius exact; circular edge diameter exact; angle between two planar faces at 30° ± 1e-12 rad. Distance from a sphere (r = 10, centre 25 mm away) to a plane: 15 ± 1e-7. Distance between a construction plane and a vertex is exact. A mesh–solid distance is marked "≈" and lies within the tessellation deflection of the exact value. |
 | INS-10 | Properties on solids + assemblies: B-rep `mass_props` (S02), per-component/occurrence totals with transforms, mixed selections, "Display component colours" | INS-03, BREP-09, ASM-01, RND-03 | P0 | Done (solid colours visible after UI-22; GPU colour check pending owner) | Box, cylinder and sphere solids: volume, CoM and inertia within 1e-9 relative of analytic. The same part as a mesh (fine tessellation) agrees within the tessellation error bound. A two-occurrence assembly total equals the sum with the parallel-axis rule within 1e-9 relative. The component-colour toggle colours each component distinctly and restores the appearances. |
 | INS-11 | Section analysis on solids + reference bases: caps from B-rep tessellation, `SectionBase::Ref` (construction planes, planar B-rep faces) with fallback warning, plane drag manipulator (UI-06) | INS-09, CON-03, BREP-08, UI-06 | P0 | Todo | The INS-02 watertight test passes on tessellations of 20 solid test parts. A section based on a construction plane follows a parameter edit of that plane. A deleted base face keeps the last plane and shows a warning. Dragging the manipulator updates the offset field both ways. |
@@ -1630,6 +1630,79 @@ follows a moved occurrence. `cargo nextest run -p amg-features`: 246 pass, 1 ski
 - `SketchFeature` still refuses planar-face planes; S03 can use `resolve_plane_input`.
 - INS-07 / INS-11 use `resolve_in_at`; CON-04 does the UI and `display`.
 
+### 2026-11-26 - CON-04 construction UI (lane A)
+
+*Landed* (no new dependency, no new icon file; `amg-doc` and the CON-01..03 math only through
+their public APIs):
+- `amg-features::construct::display`: `display_extent` (signature as in Interfaces, note §6),
+  `ConstructionDisplay` (+ `center`, `corners`) and `placed` (component space → occurrence).
+  Without visible bodies a plane is centred at its own origin and an axis at its own point, both
+  20 mm (the note does not say).
+- `amg-features::construct::dialog`: one UI-05 `DialogRegistration` per feature kind, with a
+  "Type" chooser over the 20 variants (`VARIANTS`); only the chosen variant's inputs show. Each
+  input is a selection field plus, where origin entities fit, a "<input> from" chooser ("Picked
+  geometry" or an origin entity; "Default" for the zero plane of "at angle"). `variant_values`
+  fills the inputs from the preselection by kind. Manipulators: the offset arrow and the angle
+  ring, only for origin and construction bases (`anchors` runs on the UI thread, so it makes no
+  kernel query).
+- `amg-ui::construct`: the 20 commands (`COMMANDS`) in SOLID ▸ Construct, SURFACE ▸ Construct
+  and S-key search, none pinned (the shell snapshots are unchanged); `ConstructionLayer` draws
+  each visible construction plane / axis / point, once per visible occurrence, as RND-07
+  overlays with the geometry's pick id as handle, draws the dialog's preview (unpickable) and
+  feeds the CPU pick service; "Delete" on the browser's construction rows; `base_plane`,
+  `world_ref`.
+- Browser: the "Construction" and "Origin" folders are UI-07's. The construction eyes now hide
+  the drawn and picked geometry.
+- Section Analysis (`amg-ui::inspect`): a construction plane is picked or preselected as the
+  base and stored as `SectionBase::Ref`; the section follows the plane, and a lost plane falls
+  back to the stored one. B-rep faces as `Ref` bases and the fallback warning stay with INS-11.
+
+*Done-when evidence* (`cargo nextest run -p amg-ui -p amg-features`, default and with
+`amg-ui/occt,amg-features/occt`, OCCT 8.0.1; clippy `-D warnings` clean in both):
+1. **20 variants, menu and S-key search, edit, delete, undo:**
+   `every_variant_is_created_edited_deleted_and_undone` (`amg-ui/tests/construct.rs`) creates
+   each from the Construct menu, checks one undo step, undo and redo, edits it in its dialog,
+   deletes it, undoes and redoes each step, and creates it again from S-key search. With OCCT
+   all 20 nodes are `Ok`; without it the four variants that take a face use a reference that
+   cannot resolve (node error; deleted from the timeline).
+2. **`display_extent`:** unit tests in `construct::display` (projected centre, 1.2 × the extent
+   in the plane frame, 20 mm minimum, 1.2 × diagonal for axes, empty bounds, point, placement).
+3. **Sketch plane and section base:** picked in the viewport with Create Sketch and with Section
+   Analysis (also preselected); both follow an offset edit (sketch z 15 → 40; section z 25 →
+   12, cap area 400 mm²). A GPU test (skipped without an adapter) picks a plane, an axis and a
+   point through their overlay handles with `GpuPickService`; run here on an RTX 5060 Ti, DX12.
+4. **Manual script**, automated with OCCT
+   (`offset_plane_sketch_extrude_edit_the_offset_and_the_extrude_follows`): offset XY 10 mm →
+   sketch on it → rectangle → extrude 10 mm → offset 30 mm: the solid spans z = 30 .. 40 mm.
+   The same test picks a solid edge and face in the viewport as construction inputs. The run in
+   `cargo app` is the owner's check.
+
+*Deviations:*
+- Origin planes, axes and the origin point are not `EntityRef`s, so they are chosen in the
+  dialog, not picked, and Origin geometry is not drawn.
+- The three generated `feature.construct.*` commands ("Construction Plane" / "Axis" / "Point",
+  needed for editing) also appear at the end of the Construct menu. Every variant's dialog is
+  titled after its kind; the variant is in "Type".
+- Existing icons are reused (one per kind).
+- In the automated script the rectangle is added with `EditFeature` (the sketch tools have
+  their own tests).
+
+*Leftovers:*
+- The single construction bit of `amg_ui::select::EntityFilter` cannot tell planes from axes
+  and points: a plane in front of an edge is picked first even for a line input (the feature
+  then reports the wrong kind). Hide it with its eye, or pick from another angle.
+- Sketch curves and points cannot be picked in the viewport yet (only whole sketches), so the
+  construction dialogs cannot take them from the user; B-rep vertex picking needs the display
+  side (S10); mesh face groups cannot be picked as inputs either. The variants that need points
+  work with construction points and the origin point.
+- Dialogs with several inputs do not advance to the next field after a pick.
+- A construction feature in error has no browser row (the UI-07 folder lists evaluated
+  geometry); edit and delete it in the timeline.
+- A construction plane of a moved component picked as a sketch plane or feature input is stored
+  without its occurrence path (component space); only section bases use `world_ref`.
+- Window / crossing selection does not select construction geometry (S10 rectangle picks have
+  no handles). The display layer's per-frame cost is not benchmarked.
+
 
 ## Interface changes
 
@@ -1669,6 +1742,16 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - **`amg-ui::inspect::props`**: `BodyEntry` gains `path` and `mesh`; `PropsResult.total` is now
   optional, with new `failed` and `scopes` (`FailedBody`, `ScopeTotal`).
 - Framework hooks: S11 Interface changes 2026-11-25.
+
+### 2026-11-26: CON-04 additions and requests
+- **`amg-features`** (additive): `construct::{display, dialog}`; `dialog::registrations` links
+  `construct` (one line).
+- **`amg-ui::inspect`** (lane A): the section layer and tool resolve `SectionBase::Ref`
+  construction planes; while picking a base the tool's pick filter is faces and construction
+  geometry.
+- Framework and lane E changes: S11 Interface changes 2026-11-26 (CON-04).
+- **To lane E (S01), request:** `EntityRef::Origin { component, which }` (already listed above),
+  so origin entities can be picked in the view and the browser.
 
 ### 2026-11-25: requests from CON-03 (not changed here)
 - **S01 (`amg-doc`, DOC-03):** when a node fails because an input's producer did not deliver it

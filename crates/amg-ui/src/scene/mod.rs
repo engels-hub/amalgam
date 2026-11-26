@@ -32,6 +32,7 @@ use amg_doc::{
     BodyGeom, BodyId, ComponentId, ConstructionId, Design, DocEvent, EvalBody, Evaluated, OccPath,
     Placements, SketchId, TopoKind,
 };
+use amg_features::construct::display::ConstructionDisplay;
 use amg_jobs::{JobError, JobHandle, JobSystem, SpawnOptions};
 use amg_render::{EdgeData, Layer, Material, RenderError};
 
@@ -696,6 +697,8 @@ impl Core {
 
 /// `DocEvent` → render scene (spec §7). One per app; it shows the active document.
 pub struct SceneAdapter {
+    /// Construction geometry as drawn (CON-04; the CPU pick service hits it).
+    construction_picks: Vec<ConstructionPick>,
     core: Core,
     bodies: BTreeMap<BodyId, Entry>,
     preview: BTreeMap<BodyId, Entry>,
@@ -723,6 +726,16 @@ impl std::fmt::Debug for SceneAdapter {
     }
 }
 
+/// A construction plane, axis or point as the view draws it this frame, for CPU picking
+/// (additive, CON-04). The GPU pick pass hits the RND-07 overlay handles instead.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConstructionPick {
+    /// The construction geometry.
+    pub id: ConstructionId,
+    /// What is drawn, world space.
+    pub shape: ConstructionDisplay,
+}
+
 fn rgba(c: egui::Color32, alpha: f32) -> [f32; 4] {
     let l = egui::Rgba::from(c);
     [l.r(), l.g(), l.b(), alpha]
@@ -737,6 +750,7 @@ impl SceneAdapter {
     ) -> SceneAdapter {
         let uploader = backend.uploader();
         let mut a = SceneAdapter {
+            construction_picks: Vec::new(),
             core: Core {
                 backend,
                 uploader,
@@ -906,6 +920,7 @@ impl SceneAdapter {
             self.core.drop_entry(Set::Preview, id, e);
         }
         self.preview_src = None;
+        self.construction_picks.clear();
         self.core.pick.clear();
         self.flush();
     }
@@ -1338,6 +1353,18 @@ impl SceneAdapter {
             }
         }
         out
+    }
+
+    /// Replaces the construction geometry drawn this frame (additive, CON-04; the framework
+    /// passes what the document layers put into
+    /// [`LayerOut::construction_picks`](crate::layer::LayerOut::construction_picks)).
+    pub fn set_construction_picks(&mut self, picks: Vec<ConstructionPick>) {
+        self.construction_picks = picks;
+    }
+
+    /// The construction geometry drawn this frame.
+    pub fn construction_picks(&self) -> &[ConstructionPick] {
+        &self.construction_picks
     }
 
     /// The whole-body targets of every displayed instance seen through occurrence `occ`

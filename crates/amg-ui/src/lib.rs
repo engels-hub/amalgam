@@ -54,6 +54,9 @@
 //! overlays, CPU hit tests, drags with `Ctrl` snapping; the generic feature dialog binds them to
 //! the schema fields that declare a manipulator (both ways) and shows a heads-up value.
 //!
+//! CON-04 adds [`construct`] (lane A): the 20 Construct commands on the generic dialog, the
+//! construction geometry display with pick ids and "Delete" on its browser rows.
+//!
 //! ASM-10 adds [`assembly`] (lane E): the active component, grounding, pending positions and the
 //! assembly menus in the browser.
 //!
@@ -101,6 +104,7 @@ pub mod widgets;
 // Domain-lane modules (stubs from UI-01; each lane owns its file).
 pub mod am;
 pub mod assembly;
+pub mod construct;
 pub mod form;
 pub mod generative;
 pub mod inspect;
@@ -125,11 +129,12 @@ pub use tool::{FinishReason, InputResult, Tool, ToolCx, ToolInit};
 /// Keeps every module's `inventory::submit!` in the final binary (the S01 linker caveat: an
 /// object file nothing references may be dropped). [`UiRegistry::build`] calls it.
 pub fn link() {
-    let registers: [fn(&mut module::Registrar<'_>); 13] = [
+    let registers: [fn(&mut module::Registrar<'_>); 14] = [
         builtin::register,
         design::register,
         am::register,
         assembly::register,
+        construct::register,
         form::register,
         generative::register,
         inspect::register,

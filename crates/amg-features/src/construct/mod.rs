@@ -14,10 +14,15 @@
 //! through [`ConstructInputs`], so tests can evaluate any [`PlaneDef`], [`AxisDef`] or
 //! [`PointDef`] against pre-resolved geometry (cylinders, curves, ...) without a B-rep kernel.
 //!
+//! [`dialog`] registers the UI-05 dialog schemas of all 20 variants and [`display`] sizes
+//! what the viewport draws (CON-04).
+//!
 //! Call [`link`] from a binary or test so the registrations are linked in.
 
 mod axis;
 pub mod curves;
+pub mod dialog;
+pub mod display;
 pub mod math;
 mod plane;
 mod point;

@@ -3210,3 +3210,23 @@ Flagged for lane D review. All in `amg-ui`; no new third-party dependency; no ch
   through it and the assembly layer clears it once the evaluation after a commit arrives.
 - Toolbar: `assembly.move` ("Move/Copy") is placed unpinned in the Solid tab's Assemble group
   (the group's drop-down only; the drawn toolbar is unchanged).
+
+### 2026-11-26: CON-04 (lane A, S05 construction UI) - additive framework hooks
+Flagged for lane D review. No new third-party dependency; no change to `amg-render` or
+`amg-doc`. Existing tests pass unchanged; the shell snapshots are unchanged.
+- **`layer::LayerOut`:** new `scene: &SceneAdapter`, `construction_picks: &mut
+  Vec<scene::ConstructionPick>` and `preview: Option<&Evaluated>` (the shown preview).
+- **`scene`:** `ConstructionPick { id, shape }`, `SceneAdapter::{set_construction_picks,
+  construction_picks}`.
+- **`pick::CpuPickService`:** point picks with `EntityFilter::CONSTRUCTION` also hit those
+  shapes (planes by their square; axes and points within the pick radius, ahead of what they lie
+  on). The GPU service needed no change (overlay handles).
+- **`feature_dialog`:** `GenericFeatureTool::with_defaults(reg, init, values)`; when auto-focus
+  goes to an empty selection field while another field already holds preselected items, the
+  document selection is cleared, so the empty field does not take them too.
+- **`amg-ui::assembly` (lane E), flagged:** the Move tool's pick filter is everything except
+  construction geometry, which would otherwise hide the bodies behind it.
+- **Requests (not implemented):** construction kinds in `select::EntityFilter` (plane / axis /
+  point) so that picks skip the wrong kind; pick targets for sketch curves and points; the
+  UI-07 "Construction" folder listing features in error; auto-advance to the next selection
+  field.
