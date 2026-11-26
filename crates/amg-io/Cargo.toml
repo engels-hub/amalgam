@@ -30,6 +30,8 @@ png = "0.18.1"
 default = []
 # STEP/IGES exchange through the OCCT-backed kernel (S12 §3). On in `amg-app` / `amg-cli`.
 brep = ["dep:amg-brep"]
+# IO-06 tests on real STEP files: links the OCCT backend of amg-brep (needs AMG_OCCT_DIR).
+occt = ["brep", "amg-brep/occt"]
 
 [dev-dependencies]
 amg-testkit.workspace = true

@@ -104,6 +104,15 @@ pub enum IoWarning {
         /// What is missing.
         what: String,
     },
+    /// A note of the B-rep kernel's read (IO-06: missing 3D curves built, unknown unit, ...).
+    KernelNote(String),
+    /// A B-rep part failed to heal or is not valid after healing (IO-06 health report).
+    ShapeInvalid {
+        /// Part name.
+        object: String,
+        /// The healing error and the `BRepCheck` problems.
+        problems: Vec<String>,
+    },
 }
 
 impl IoWarning {
@@ -165,6 +174,15 @@ impl IoWarning {
             IoWarning::MissingReference { what } => {
                 format!("A referenced file is missing: {what}.")
             }
+            IoWarning::KernelNote(note) => format!("Geometry kernel: {note}."),
+            IoWarning::ShapeInvalid { object, problems } => format!(
+                "Part \"{object}\" is not a valid solid after healing ({}).",
+                if problems.is_empty() {
+                    "no details".to_owned()
+                } else {
+                    problems.join(", ")
+                }
+            ),
         }
     }
 }
@@ -583,6 +601,11 @@ mod tests {
             IoWarning::PrecisionLoss { max_error_mm: 1e-7 },
             IoWarning::MissingReference {
                 what: "a.mtl".into(),
+            },
+            IoWarning::KernelNote("unknown unit".into()),
+            IoWarning::ShapeInvalid {
+                object: "a".into(),
+                problems: vec!["NotClosed".into()],
             },
         ];
         for w in &ws {

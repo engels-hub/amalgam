@@ -12,14 +12,24 @@
 //!   [`amg_io::Scene`] for `amg_io::export`. Solid bodies are tessellated with an
 //!   [`ExportRefinement`] preset through a [`TessCache`] (IO-09; needs the `occt` feature);
 //!   [`scene_from_document_with_report`] also returns the [`DeviationReport`].
+//! - STEP (IO-06): [`ImportBrepFeature`] (`io.import_brep` v1) holds imported B-rep parts as
+//!   baked shapes; [`import_brep_commands`] maps an `amg_io::brep::BrepImport` to components
+//!   and occurrences (ASM-01) or plain bodies, applied as one undo entry by
+//!   [`BrepImportPlan::apply`]; [`brep_scene_from_document`] maps the component tree back for
+//!   `amg_io::brep::export_step`.
 //!
 //! Call [`link`] from a binary or test so the feature registration is linked in.
 
+mod brep;
 mod export;
 mod feature;
 mod import;
 mod tessellate;
 
+pub use brep::{
+    BrepFaceColors, BrepImportOutcome, BrepImportPlan, IMPORT_BREP_KIND, ImportBrepFeature,
+    brep_scene_from_document, import_brep_commands,
+};
 pub use export::{
     BodyDeviation, DeviationReport, ExportPrep, ExportRefinement, ExportSelection,
     scene_from_document, scene_from_document_with_report,

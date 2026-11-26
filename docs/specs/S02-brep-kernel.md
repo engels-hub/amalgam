@@ -3557,3 +3557,8 @@ and `testdata/brep/iges/`. No other lane's files changed.
   for the shared bodies, and note that part nodes already carry their prototype's `Shape` and
   face colours.
 - No new dependency; `THIRD_PARTY.md` unchanged (OCCT's row covers TKService).
+
+### 2026-11-26: requests from S12 IO-06 (lane G; no S02 file other than this entry changed)
+- **Unnamed products.** `write_step` of a `ForeignNode`/`ForeignPrototype` without a name (or with `Some("")`) gives `PRODUCT('Product <n>', ...)`: OCCT's STEP writer invents the name, so a re-read reports `Product <n>` where the source had none. Request: keep such products unnamed (empty `PRODUCT` name and id), for example by setting the `StepBasic_Product` names after the transfer. IO-06's round-trip tests accept the generated pattern until then.
+- **Note, no request:** STEP has no per-edge or per-vertex tolerance, so parts with tolerances above the kernel's change within that tolerance on a write/read (NIST files: up to 6.2e-6 relative volume at 0.0096 mm tolerances). `Shape::volume` (fixed-order quadrature) also differs by ~1e-7 relative between a part and its re-read; IO-06 compares with `volume_adaptive`, which is `#[doc(hidden)]`; a public precise volume (BREP-09 `mass_props`) would be the better entry point.
+- IO-06 heals through `BrepKernel::heal` itself (read with `ImportOpts { heal: false }`) to report the number of fixes per part; BREP-13's API is used unchanged.

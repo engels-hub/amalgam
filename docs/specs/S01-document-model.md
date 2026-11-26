@@ -2041,3 +2041,8 @@ Additive; lane E to confirm.
   feature may find the entity through lineage). `Design::check_inputs` accepts a deleted producer of an optional input, so
   the feature stays editable (load already allowed it); the ordering rule is unchanged for existing producers.
 - Used by `sketch.sketch` for projection sources ("unresolvable reference → `Warning`").
+
+### 2026-11-26: baked transactions (added by lane G for S12 IO-06; additive)
+- `Document::baked_transaction(label) -> BakedTransaction<'_>`: commands (`apply`, returns the created ids) and features with baked payloads (`add_feature_baked(add, baked, props)`, the same rules as `Document::add_feature_baked`) on a private copy, published by `commit` as **one** undo entry; dropping it discards everything. Like `add_feature_baked` the commit is opaque to crash recovery (snapshot, not journal). A STEP assembly import creates components, occurrences and one baked feature per part in one "Insert" entry.
+- `Document::add_feature_baked` is now a one-step baked transaction; behaviour and errors are unchanged (`tests/baked_feature.rs` passes unchanged, plus `baked_transaction_is_one_undo_entry`).
+- Re-exported from the crate root: `BakedTransaction`. No change to `design.json`.
