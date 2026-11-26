@@ -640,7 +640,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-05 | Fillet (constant, chord, variable; G1 only, G2 is KH-10 per QUESTIONS #55) and chamfer (equal, two distances, distance-angle) on raw BREP-06: edge sets per body, tangent-chain propagation (R-S04-1), failing-edge highlight | SOL-01, BREP-06, BREP-09 | P0 | Done | 1. ≥ 15 golden cases (cube edge, 4-edge tangent loop of a rounded rectangle, 3-edge vertex blend, variable 2→4 mm, chord 3 mm, all chamfer kinds, two bodies in one feature) within 1e-6 relative of reference volumes. 2. Picking one edge of a rounded-rectangle top selects all 8 tangent edges; with `tangent_chain = false` only that edge. 3. A radius larger than the adjacent face fails and `Diagnostic::entities` names exactly the failing edge(s). 4. DOC-11 TNP-11 and TNP-27 run on `solid.fillet` and meet their `expect`. 5. Preview of a 10-edge constant fillet on a 200-face body, median < 100 ms (`budget/sol-fillet-preview`). 6. KH-03 can start: S20's corpus harness drives `solid.fillet` through a public test entry point. |
 | SOL-06 | Shell (remove faces, hollow, inside/outside/both, tangent chain), draft (one side, two sides, symmetric; tangent chain), scale (uniform, non-uniform), thicken (`OpTarget`) | SOL-01, BREP-07, BREP-16, BREP-14 | P0 | Todo | 1. Shelled box (top removed, 1 mm) inside, outside and both, and a hollow box (no faces removed, R-S04-8) match analytic volumes within 1e-9 relative. 2. Shelling a filleted box with tangent chain removes the top and its fillet ring (face count checked). 3. A thickness above the smallest concave radius fails with the offending faces highlighted. 4. Draft of 4 box sides at 3°: measured angles 3° ± 1e-9 rad, analytic volume; symmetric draft about a mid-plane matches the analytic volume. 5. Uniform scale 2 → volume × 8 within 1e-12 relative; non-uniform (1, 2, 3) of a sphere r 10 → ellipsoid volume within 1e-9. 6. Thicken of a B-spline sheet by 1 mm is valid and within 0.5 % of area × t. 7. TNP-X3 and TNP-X6 meet their `expect`. 8. Shell preview of a 100-face body, median < 100 ms (`budget/sol-shell-preview`). |
 | SOL-07 | Combine (join/cut/intersect, keep tools), split body (plane, face, body; extend tool), split face (surface tool; sketch curves along a vector) | SOL-01, BREP-16, CON-03 | P0 | Todo | 1. Combine golden cases for each op, with and without keep tools; consumed tools are `Consumed { into }` (TNP-23 meets its `expect`). 2. Splitting a box by a plane gives pieces in the naming-note order (piece 0 keeps the `BodyId`); TNP-21 meets its `expect`. 3. Split face by a sketch line projected along the sketch normal and by a plane: two faces whose areas match within 1e-9. 4. A tool that doesn't cross fails `NoSplit` with the "extend the tool" hint. |
-| SOL-08 | Pattern (rectangular, circular; bodies and features; suppressed instances; identical compute) + mirror (bodies new/join, features) on `SolidTool` and `mirrored` (R-S04-6) | SOL-01, SOL-02, CON-03, BREP-14 | P0 | Todo | 1. 3×4 rectangular and 6-instance circular body patterns (incl. symmetric and 2 suppressed instances): body count and total volume exact. 2. A 10×10 feature pattern of a Ø3 cut-extrude in a 100×100×5 plate: analytic volume within 1e-9 relative, **one** boolean call (kernel call counter), instances share TShapes (`Shape::transformed` only), full recompute < 300 ms (`budget/sol-pattern-100`). 3. Mirror of a body and of an extrude boss: mirrored volume equal, BRepCheck valid (orientation). 4. TNP-17 and TNP-18 meet their `expect`. |
+| SOL-08 | Pattern (rectangular, circular; bodies and features; suppressed instances; identical compute) + mirror (bodies new/join, features) on `SolidTool` and `mirrored` (R-S04-6) | SOL-01, SOL-02, CON-03, BREP-14 | P0 | Review | 1. 3×4 rectangular and 6-instance circular body patterns (incl. symmetric and 2 suppressed instances): body count and total volume exact. 2. A 10×10 feature pattern of a Ø3 cut-extrude in a 100×100×5 plate: analytic volume within 1e-9 relative, **one** boolean call (kernel call counter), instances share TShapes (`Shape::transformed` only), full recompute < 300 ms (`budget/sol-pattern-100`). 3. Mirror of a body and of an extrude boss: mirrored volume equal, BRepCheck valid (orientation). 4. TNP-17 and TNP-18 meet their `expect`. |
 | SOL-09 | Move/copy (free, translate, rotate, point-to-point), align, offset face (R-S04-5), replace face, delete face (heal / remove), press-pull dispatch | SOL-01, BREP-07, BREP-16, CON-03 | P0 | Todo | 1. Move keeps names: a fillet ref on a moved body resolves `Exact`; a copy is a new body named `instanced(self, slot)`. 2. Align face-to-face makes the faces coplanar within 1e-9 mm. 3. Offset of a box top by +2 mm changes the height by 2 within 1e-9; a cylinder face +1 mm changes the radius by 1 within 1e-9. 4. Replace face onto an offset plane matches the analytic volume. 5. Delete of a fillet face with heal gives the pre-fillet volume within 1e-6; without heal gives an open body with the expected free edges. 6. `dispatch` maps a face, an edge and a profile selection to `solid.offset_face`, `solid.fillet` and `solid.extrude`. |
 | SOL-10 | Sweep: path (chain), guide rail (none/scale/stretch), guide surface (R-S04-7), distance, taper, twist, orientation | SOL-01, BREP-15, CON-03 | P1 | Todo | 1. Circle swept along a line and along an arc within 1e-6 of the analytic volume; along a 3D spline within 0.1 % of the reference. 2. Twist 90° and taper 5° match reference volumes within 1e-4 relative. 3. Guide-rail scale vs stretch give the reference volumes; a guide-surface sweep stays normal to the surface (sampled angle < 0.1°). 4. Distance 0.5 gives half the length (volume within 1e-6). 5. A self-intersecting sweep fails with a clean error. 6. Lateral faces of a multi-edge path have the naming-note names (`Split{self, i, m}` or spine tags). |
 | SOL-11 | Loft feature + dialog (profiles, rails, centerline, end conditions, point mapping) on the S20 loft builder (`robust::loft::build`), not raw `ThruSections`; live correspondence lines from `loft::prepare`; `LoftDiagnostics` in the dialog | SOL-01, KH-08, KH-18, SK-06 | P1 | Todo | 1. ≥ 98 % success on the loft corpus (KH-05) driven through `solid.loft` (matches KH-18 Done-when 1). 2. Preview uses `RetryPolicy::interactive()`; correspondence lines come from `prepare` in < 20 ms on corpus median. 3. Warnings (`HighTwist`, `CrossingCorrespondence`) appear as feature warnings. 4. TNP-X4 meets its `expect`. |
@@ -1041,3 +1041,97 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   Projected starts on inclined or curved faces; the sign convention of offsets on
   curved targets (outward normal) against Fusion (check with the owner's designs in SOL-29); thin
   extrude (SOL-18); manipulator anchors for the start offset and side-2 taper (UI-06).
+
+### 2026-11-26 - SOL-08 implemented (lane A)
+- **Landed.** `amg_features::solid::pattern`: `solid.pattern` (`Pattern`, `PatternObjects`,
+  `PatternKind`, `PatternDir`, `Spacing`, `AngleSpan`, `PathOrientation`, `ComputeType`, the
+  Interfaces shapes) and `solid.mirror` (`Mirror`), both `register_feature!` v1, with dialog
+  registrations (`pattern/dialog.rs`; group "create", order 60/61, not pinned). Extra public
+  items: `Pattern::instances(ctx)` (the produced `(k, Transform)` list, used by tests and the
+  bench) and `pattern::MAX_INSTANCES` (10 000).
+- **Behaviour.** Instance numbers follow the naming note §5.2: rectangular `k = i + (j << 16)`,
+  circular `k` = position; the seed is `k = 0` and is never produced again. Counts are
+  integral and ≥ 1 (`Invalid` otherwise) and include the seed; `symmetric` puts `count`
+  instances on each side (`2 count − 1` in all), the negative side setting the field's top
+  bit (`0x8000 | p` per rectangular field, `0x8000_0000 | p` circular) so numbers stay stable
+  under count edits. `Spacing::Extent` / `AngleSpan::Extent` is seed-to-last; `AngleSpan::Full`
+  is `360°/count` (symmetric ignored). Directions and axes resolve through CON-03: `line_of`
+  (straight edges, axes, sketch lines), else `axis_of` (cylinder/cone/torus faces, circles).
+  Suppressed numbers are removed from the list (`0` ignored).
+  - Body patterns: `Shape::transformed` per instance, `BodyNaming::instanced(self, k)`, new body
+    `BodyId { self, k }` (several source bodies: slots in order instead, since `k` uses all 32
+    bits). Body patterns take no `target`.
+  - Feature patterns (identical compute): each seed's tool is built once through `tool_of` in a
+    sub-`RecomputeCtx` whose feature is the seed (so tool names are the seed's) against the
+    state just before the pattern; instances are `Shape::transformed` + `instanced(self, k)`,
+    gathered in one compound (`compound_of`, no copy) and applied with **one**
+    `apply_body_op` (one boolean per participant). Target: the override, else the seeds' own
+    (which must agree). Highlights of a failing seed tool are copied to the pattern.
+    `ComputeType::Adjust`, path patterns, faces and occurrences fail `NotYet` (SOL-23/24).
+  - Mirror: `BrepKernel::mirrored` (R-S04-6), named by `from_history` over its 1:1 history
+    then `instanced_names(self, 1)`. Bodies: `NewBody` (new bodies in order) or `Join` (one
+    `apply_body_op` of the mirrored compound with the sources as participants; a copy that
+    doesn't touch becomes a new body with SOL-01's warning). Features: the seeds' tools
+    mirrored, then their target (or the override). The plane is any plane input
+    (`resolve_plane_input`).
+  - Empty selections build and validate (the dialog's `min: 1` keeps OK off, as for fillet
+    edges) and fail in compute.
+- **Done-when evidence** (`crates/amg-features/tests/solid_pattern.rs` + `solid_pattern/occt.rs`,
+  25 tests, 19 of them with OCCT; 7 unit tests in the module; goldens
+  `tests/golden/solid/sol08_*.toml`, 7 files, rel 1e-9; every result BRepCheck-valid):
+  1. `dw1_*`: 3×4 rectangular (20 / 15 mm) of a 10 mm cube: 12 bodies, 12 000 mm³, each copy
+     centred at its `(i, j)` position; 6-instance full circular: 6 bodies, 6000 mm³, centres
+     rotated by `k·60°`; symmetric rectangular (3 per side × 2) with 2 suppressed: 8 bodies,
+     8000 mm³, suppressed slots absent, instance `0x8001` at −20 mm; symmetric circular (40°,
+     4 per side) with 2 suppressed: 5 bodies, 5000 mm³ (relative 1e-12 everywhere).
+  2. `dw2_*`: 10×10 pattern of a Ø3 "All" cut in a 100×100×5 plate: 46 465.708 mm³ =
+     50 000 − 100·π·1.5²·5 within 1e-9, 106 faces (golden). With a counting kernel
+     (`tests/solid_common/counting.rs`, every trait method forwarded): **1** `boolean` call
+     for 99 instances; its tool is one compound of 99 solids at the instance positions whose
+     binary form is 13 573 B against 130 018 B for 99 geometry copies (shared TShapes are
+     written once). `benches/sol_pattern.rs` (`budget/sol-pattern-100`, full-mode pattern
+     compute, release profile on the shared dev machine): median 103.1 ms (25 runs; criterion
+     110–120 ms), budget < 300 ms, `AMG_STRICT_TIMING=1` passed; OCCT boolean 89.1 ms, unify
+     8.7 ms, the rest (seed tool, 99 transforms, names) 5.3 ms.
+  3. `dw3_*`: mirror of an L prism about YZ as a new body: volume equal (1e-12) and positive
+     (faces still outward), BRepCheck valid, bbox mirrored, every face name carries
+     `Inst { self, 1 }`; mirror-join of an L touching the plane: one body, 2× volume, 10 faces
+     (coplanar faces merged); mirror of an extrude boss (feature) joined to its plate:
+     54 000 mm³, valid. Also a mirrored "All" cut cuts the other side (1e-9) and its edge
+     resolves `Exact`.
+  4. `dw4_tnp17_*` / `dw4_tnp18_*` on script S17 (plate, r 4 "All" hole at (30, 0), circular
+     feature pattern of 6 about Z, 0.5 mm chamfer on instance 3's top edge): count 6 → 8 keeps
+     the chamfer `Exact` on a circle centred (−21.2132, 21.2132, 10), length 25.13274 (1e-4);
+     count 6 → 3 gives `NotFound` and the chamfer in error.
+  Also: suppressed feature instances (2 holes left out, 1e-9), a seed-depth edit flowing into
+  the pattern, a join boss pattern (golden), non-patternable seeds (`can't be patterned`), bad
+  counts (0, 2.5, 20 000) and empty selections as clean errors, and a proptest (16 random
+  counts incl. 0 / fractions, spacings ±30 mm / ±30°, rectangular or circular, symmetric):
+  a valid solid or a clean error.
+- **Deviations.**
+  - Feature patterns and mirrors with `target: None` read the seeds' participants in compute,
+    but `inputs()` can't list them (it doesn't see the seeds), so the cache key covers them
+    only through `Dependency::Feature(seed)`. A feature between the seed and the pattern that
+    changes a participant doesn't invalidate the pattern (the same gap as SOL-02's "All"
+    extent, which reads context bodies it doesn't list). Setting `target` explicitly avoids
+    it; the dialog keeps an existing `target` but can't fill it (`build` doesn't see the
+    design). Leftover.
+  - The seed's tool is built against the state just before the pattern (S04 §5 "in the
+    pattern's context"), not the seed's own input state; its resolution records and naming
+    warnings stay in the sub-context (only highlights are copied).
+  - Dialog: S11 §B has no field kind for timeline features, so seed features and suppressed
+    instances are text fields of ids (`"12, 15"`); directions, axes and the mirror plane are an
+    origin choice plus a "Selected …" pick. No manipulator anchors yet (`anchors` is empty).
+    Faces, occurrences and path patterns have no fields (`read` returns `None` for a path
+    pattern).
+  - Mirror of features ignores `op` (the dialog stores `NewBody`); the seeds' target applies.
+  - `PatternKind` allows `clippy::large_enum_variant` (the Interfaces shape).
+- **Interface changes elsewhere.** None to shared crates or other lanes' code; no new
+  dependency. Requests (not blocking): S11/UI-05 a timeline-feature pick (`EntityFilter` bit or
+  a field kind) and viewport instance suppression to replace the two text fields; S01 a way for
+  a feature to depend on bodies chosen by another feature (first deviation). Two new dialog
+  registrations (`solid.pattern`, `solid.mirror`) add commands to the Solid "create" group, so
+  UI shell snapshots that list commands may change (amg-ui was not run in this WP).
+- **Leftovers.** SOL-23 (path, faces, adjust compute), SOL-24 (occurrences, new component);
+  manipulator anchors for spacing and angle (UI-06); the cache-key gap above; timeline-feature
+  and instance picks in the dialog (S11).

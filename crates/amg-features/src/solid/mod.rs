@@ -7,6 +7,7 @@
 //! - [`error`]: [`SolidError`] and [`kernel_failure`] (failing sub-shapes highlighted).
 //! - [`extent`]: extents and directions.
 //! - [`extrude`]: `solid.extrude` (SOL-01 framework, SOL-02 every start, direction and extent).
+//! - [`pattern`]: `solid.pattern` and `solid.mirror` (SOL-08).
 //! - [`fillet`]: `solid.fillet` and `solid.chamfer` (SOL-05), and the corpus-harness entry
 //!   point [`fillet::harness::run_fillet`].
 //!
@@ -18,6 +19,7 @@ pub mod error;
 pub mod extent;
 pub mod extrude;
 pub mod fillet;
+pub mod pattern;
 pub mod profile;
 
 pub use common::{
@@ -30,6 +32,10 @@ pub use extrude::Extrude;
 pub use fillet::{
     BodyEdges, Chamfer, ChamferKind, ChamferSet, CornerType, Fillet, FilletRadius, FilletSet,
     PlannedEdge, VarRadius,
+};
+pub use pattern::{
+    AngleSpan, ComputeType, Mirror, PathOrientation, Pattern, PatternDir, PatternKind,
+    PatternObjects, Spacing,
 };
 pub use profile::{
     ProfileFace, ProfileSource, cap_source, face_edge_source, profile_faces, region_source, tag_of,
