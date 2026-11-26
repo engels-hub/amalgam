@@ -14,18 +14,28 @@
 //! **Solver.** One [`SolverState`] per session moves into each [`SolverJob`] and back, so at
 //! most one solver call is in flight. Every edit asks for a solve (latest wins: edits made
 //! while one runs fold into the next); drag targets are coalesced (latest wins).
+//!
+//! **Projections (UI-17).** Projected entities (SK-09) are locked and refreshed from their
+//! sources by the document's recompute, which the working copy does not see: the stored
+//! feature keeps the values of its last edit. Whenever a recompute of the current design
+//! revision gives the sketch new projected values (an upstream edit, or on opening the sketch),
+//! the session copies them into the working copy and solves again, so the geometry constrained
+//! to them follows. The copy is not an undo entry of its own: the next edit of the session
+//! stores it with everything else (SK-09's `commit_solved` would otherwise be the newest undo
+//! entry, and undoing it would only bring it back at the next recompute).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use amg_core::{Plane, Point2};
+use amg_doc::stub::SketchGeom;
 use amg_doc::{Command, Expr, ExprSrc, Feature, FeatureBox, FeatureId, SketchId};
 use amg_features::sketch::{SketchEdit, SketchFeature};
 use amg_jobs::{JobHandle, JobState, Priority, SpawnOptions};
 use amg_sketch::solve::{ConstraintCheck, ConstraintState, DofReport, DragSpec, SolveStatus};
 use amg_sketch::{
-    ConstraintId, ConstraintKind, EditResult, EntityId, EntityKind, ProfileSet, Quantity, Sketch,
-    SketchError,
+    ConstraintId, ConstraintKind, EditResult, EntityId, EntityKind, EntityOrigin, ProfileSet,
+    Quantity, Sketch, SketchError,
 };
 
 use super::dimension::dimension_text_expr;
@@ -79,6 +89,8 @@ pub struct SessionStats {
     pub commits: u32,
     /// Working-copy reloads from the document (undo / redo / external edits).
     pub reloads: u32,
+    /// Refreshed projections copied from the document's recompute (UI-17).
+    pub projection_refreshes: u32,
 }
 
 /// Follow-up edits of a [`SketchSession::commit_op`].
@@ -156,6 +168,8 @@ pub struct SketchSession {
     working: SketchFeature,
     /// The design's feature this working copy was loaded from (pointer identity).
     synced: Option<Arc<dyn Feature>>,
+    /// The recomputed sketch whose projected values were last compared with the working copy.
+    projections_seen: Option<Arc<SketchGeom>>,
     /// The newest solved (or, right after an edit, the edited) sketch: drawn and queried.
     display: Arc<Sketch>,
     dof: Option<DofReport>,
@@ -247,6 +261,7 @@ impl SketchSession {
             display: Arc::new(display),
             working,
             synced,
+            projections_seen: None,
             dof: None,
             status: None,
             profiles: Arc::new(ProfileSet::default()),
@@ -606,6 +621,60 @@ impl SketchSession {
         !changed.is_empty()
     }
 
+    /// Copies the projected values of the document's newest recompute of this sketch into the
+    /// working copy; true if one changed (the sketch then re-solves). Only a recompute of the
+    /// current design revision of the feature the working copy was loaded from counts, and
+    /// only entities that are the same projected entity there.
+    fn refresh_projections(&mut self, cx: &AppCx<'_>) -> bool {
+        if self.synced.is_none() || self.working.links.is_empty() {
+            return false;
+        }
+        let env = cx.env();
+        if env.evaluated.revision != env.design.revision() {
+            return false;
+        }
+        let Some(geom) = env.evaluated.sketch(SketchId(self.feature)) else {
+            return false;
+        };
+        if self
+            .projections_seen
+            .as_ref()
+            .is_some_and(|g| Arc::ptr_eq(g, geom))
+        {
+            return false;
+        }
+        self.projections_seen = Some(Arc::clone(geom));
+        let solved = &geom.sketch;
+        let mut values = Vec::new();
+        for (id, e) in self.working.sketch.entities() {
+            if !matches!(e.origin, EntityOrigin::Projected(_)) {
+                continue;
+            }
+            let Some(src) = solved.entity(id) else {
+                continue;
+            };
+            if src.origin != e.origin
+                || std::mem::discriminant(&src.kind) != std::mem::discriminant(&e.kind)
+            {
+                continue;
+            }
+            for (p, q) in e.kind.own_params().into_iter().zip(src.kind.own_params()) {
+                if !solved.params().contains(q) {
+                    continue;
+                }
+                let v = solved.params().get(q);
+                if v.is_finite() && v.to_bits() != self.working.sketch.params().get(p).to_bits() {
+                    values.push((p, v));
+                }
+            }
+        }
+        let params = self.working.sketch.params_mut();
+        for (p, v) in &values {
+            params.set(*p, *v);
+        }
+        !values.is_empty()
+    }
+
     /// A drag is open.
     pub fn is_dragging(&self) -> bool {
         self.drag.is_some()
@@ -730,10 +799,23 @@ impl SketchSession {
         Ok(())
     }
 
+    /// Whether `e` is projected geometry (SK-09; locked, drawn in the locked colour).
+    pub fn is_projected(&self, e: EntityId) -> bool {
+        self.display
+            .entity(e)
+            .is_some_and(|x| matches!(x.origin, EntityOrigin::Projected(_)))
+    }
+
     /// Starts dragging `entity` grabbed at `grab` (sketch coordinates). False if the entity
-    /// cannot be dragged or the session is busy.
+    /// cannot be dragged (projected geometry is locked: [`notice`](Self::notice) says so) or
+    /// the session is busy.
     pub fn begin_drag(&mut self, entity: EntityId, grab: Point2) -> bool {
         if self.is_busy() {
+            return false;
+        }
+        if self.is_projected(entity) {
+            self.notice =
+                Some("projected geometry is locked; edit its source to move it".to_owned());
             return false;
         }
         let draggable = matches!(
@@ -796,6 +878,7 @@ impl SketchSession {
                     w.sketch.set_plane(self.plane);
                     self.working = w;
                     self.synced = Some(node_feature);
+                    self.projections_seen = None;
                     self.stats.reloads += 1;
                     self.edited();
                 }
@@ -807,6 +890,14 @@ impl SketchSession {
             && self.probe.is_none()
             && self.refresh_dimension_values(cx)
         {
+            self.edited();
+        }
+        if self.pending.is_none()
+            && self.drag.is_none()
+            && self.probe.is_none()
+            && self.refresh_projections(cx)
+        {
+            self.stats.projection_refreshes += 1;
             self.edited();
         }
         self.collect(cx);

@@ -937,7 +937,7 @@ All lane D. Phases are proposals (roadmap not edited here; see the Refinement lo
 | UI-13 | Sketch creation tools: rectangles (2pt/3pt/centre), circles (centre/2pt/3pt/2-tangent), arcs (3pt/centre/tangent), polygon, slots ×4, point, ellipse, construction toggle (`X`), all with inference + heads-up dimensions | UI-09, SK-21, SK-22 | P0 | Done (visual check of each tool pending owner) | 1. One kittest per tool: the created entities and constraint set equal the SK-21 builder output for the same picks. Typed heads-up values create driving dimensions with those values. 2. Each tool is reachable via toolbar, S-key and (where Fusion has one) its shortcut. 3. Esc mid-tool leaves the sketch unchanged. |
 | UI-14 | Constraint & dimension UX: 12 constraint tools, smart sketch dimension (linear/aligned/angular/radial/diameter by pick), glyph rendering with hover-related highlight and delete, inline dimension editing (`ExprInput` at label), label drag (needs R5/R6), over-constraint "create as driven?" flow, fix/unfix | UI-09 | P0 | Done (app check pending owner; R6 label-drag recompute leftover) | 1. Kittest: dimensioning a fully constrained rectangle's side offers "driven" and creates a driven dimension on Yes. 2. Double-click a dimension → typing `w/2` (with user param `w`) sets the expression, the sketch re-solves, and DOF is unchanged. 3. Each constraint tool applies to a valid selection and refuses invalid kinds with a status hint. 4. Glyph hover highlights exactly the constrained entities. |
 | UI-16 | Sketch modify tools: trim, extend, break, fillet, chamfer, offset, mirror, rect/circ pattern, move/copy/rotate/scale; **sketch tutorial acceptance script** | UI-13, UI-14, SK-07, SK-16, SK-17, SK-18 | P0 | Done (by-hand tutorial check pending owner) | 1. One kittest per tool matching the S03 edit op's fixture outcome. 2. The scripted "Fusion sketch basics" scenario passes: a bracket profile with outer rectangle, filleted corners, two concentric hole pairs, a slot, mirror about a centreline and dimensions driven by 3 user parameters reaches **DOF 0**, with all entities `Full`, 6 profiles (plate with holes, 4 hole discs, slot; SK-06 makes each inner loop its own profile) and the expected areas within 1e-9 relative. Changing a parameter keeps DOF 0. ≤ 60 scripted UI actions; script in `crates/amg-ui/tests/sketch_tutorial.rs`. |
-| UI-17 | Project / include / intersect tool: pick edges, faces or bodies → `ProjectionLink`s, locked projected entities in the "locked" colour, refresh on upstream edits | UI-09, SK-09 | P0 | Todo | 1. Kittest: project the edges of an extruded box face into a sketch, dimension to them, edit the extrude → the projected edges and dependent geometry move. 2. Projected entities cannot be dragged. |
+| UI-17 | Project / include / intersect tool: pick edges, faces or bodies → `ProjectionLink`s, locked projected entities in the "locked" colour, refresh on upstream edits | UI-09, SK-09 | P0 | Review | 1. Kittest: project the edges of an extruded box face into a sketch, dimension to them, edit the extrude → the projected edges and dependent geometry move. 2. Projected entities cannot be dragged. |
 | UI-11 | Preferences: `prefs.toml` (versioned, unknown keys kept), pages (general, navigation presets SolidWorks/Blender/custom, shortcuts editor with conflicts, graphics), module pages | UI-02, UI-03 | P1 | Todo | 1. Every preference round-trips through `prefs.toml`, and an unknown module key survives a save. 2. Switching to the Blender preset makes middle-drag orbit and Shift+middle pan (kittest on camera deltas). 3. Assigning an in-use shortcut shows the conflict and keeps the old binding until confirmed. |
 | UI-18 | Advanced sketch tools: spline (fit/control), conic, text, insert DXF/SVG, canvas image, intersection curve, project to surface | UI-13, SK-08, SK-10, SK-11 | P1 | Todo | 1. One kittest per tool on the S03 fixtures. 2. A text block "AgB" creates 3 outer + 4 hole profiles. 3. DXF insert of a sample file shows the expected entity count. |
 
@@ -2732,6 +2732,54 @@ profile). Done-when 2 now says so; the UI-16 tutorial test already checks all 6 
 - Typing a number while dragging (`ViewportEvent::Text` into the heads-up field) is not wired;
   the heads-up field is shown and editable, but only during the drag.
 
+### 2026-11-26 - UI-17 sketch Project / Include / Intersect (lane D; status Review)
+
+*Landed in `amg-ui::sketch`: a new `sketch/project.rs` module, plus small changes in `sketch.rs`, `sketch/session.rs` and `sketch/view.rs`, and a new test file `tests/sketch_project.rs`. `amg-sketch`, `amg-features`, `amg-doc`, `amg-render` and the `amg-ui` framework are unchanged; SK-09 is used through its public API only.*
+- **Three commands** (`ProjectKind`, one `ProjectTool`), in SKETCH ▸ Create (dropdown) and in S-key search:
+  - Project (`sketch:P`, Fusion's shortcut; no registered shortcut is taken);
+  - Include;
+  - Intersect.
+- **What each tool picks.** Project and Include take B-rep faces (all their edges), edges and vertices, plus construction points. Intersect also takes whole bodies. The pick filter follows the tool. Intersect maps edges, vertices and construction axes to `ProjectionMode::Intersect` (points), and faces and bodies to `IntersectionCurve` (section curves); this is Fusion's Intersect.
+- **How a pick becomes a projection.**
+  - A click runs a point pick. `ToolCx::item_for` turns the hit into a `SelItem` with its persistent `EntityRef`. A model selection made before the tool started is projected first.
+  - `amg_features::sketch::project_reference` runs in an `amg-jobs` job, one at a time, on clones of `Design` and the `Arc<Evaluated>`. OCCT projection and sections never run on the UI thread.
+  - The result goes through `SketchSession::commit` as `SketchEdit::AddProjection`: one undo entry per pick, labelled with the tool. The tool stays active; Esc leaves it.
+- **Refused picks** say why in the status hint and the session notice:
+  - a link with the same source and mode already exists (the selection key does not count);
+  - the source comes at or after the sketch in the timeline;
+  - a whole body under Project or Include (no silhouettes yet);
+  - kernel or SK-09 errors (`ProjectionError`), for example Include off the plane.
+- **Locked colour.** `view::colors::LOCKED` is Fusion's purple. Projected entities and their points are drawn in it; selection, hover and over-constrained (red) take precedence. `view::color_of(session, entity)` exposes the colour for tests.
+- **No drag.** `SketchSession::begin_drag` refuses entities with `EntityOrigin::Projected`. The notice says "projected geometry is locked; edit its source to move it", and no drag job or undo entry is made. `SketchSession::is_projected` is new.
+- **Refresh on upstream edits.** Recompute refreshes the projected entities in the evaluated sketch, but not in the session's working copy. The session now checks every newest `Evaluated` sketch. It counts only when its revision is the design's revision, the working copy is in sync with the stored feature, and no edit, check or drag is pending. It then copies the projected entities' own parameters into the working copy (same entity, same origin link, same kind) and solves again, so the geometry constrained to them follows. This runs on opening a sketch, after undo/redo reloads, and after any upstream edit while the sketch is open. `SessionStats::projection_refreshes` counts it.
+
+*Evidence (Done-when):*
+1. `tests/sketch_project.rs::occt::dw1_projected_box_face_edges_and_dimensioned_geometry_follow_the_extrude` (`occt` feature). The steps:
+   - A 40 × 20 rectangle on XY is extruded 30 mm (SOL-01/02 `Extrude`), and a sketch is opened on XZ, the plane of the front face.
+   - The Project tool clicks the middle of the front face. Four locked lines come in, in the locked colour, with one undo entry "Project". Clicking the face again is refused ("already projected").
+   - A circle is drawn with Ctrl (no inference). Sketch Dimension, through clicks and the value editor, sets the centre 8 mm below the projected top edge, 10 mm left of the projected right edge, and the diameter to 6 mm: DOF 0.
+   - The extrude is edited while the sketch is open (30 → 45 mm). The session display, the working copy and the document's evaluated sketch all show the top edge at z = 45 and the circle centre at (30, 37), within 1e-5. There is no extra undo entry, and `projection_refreshes` ≥ 1.
+   - After Finish Sketch, the extrude is edited through its dialog (UI-05: Distance "12 mm", OK). The evaluated sketch has the top edge at z = 12 and the centre at (30, 4).
+   - Re-opening the sketch starts from the refreshed projections: display and working copy match, DOF 0.
+   - `occt::include_takes_an_edge_in_the_sketch_plane`: Include on the face's bottom edge gives one locked line (0,0)-(40,0).
+2. Dragging the projected top edge and a projected corner on the box makes no undo entry and leaves the edge in place (same test). `dw2_projected_sketch_line_is_locked_coloured_and_follows_its_source` runs in the default build: it projects a line of an earlier sketch (no kernel needed). It checks:
+   - the line and its points are drawn in the locked colour;
+   - dragging the line or its end gives no drag frame, no commit and the "locked" notice;
+   - changing the upstream length parameter while the sketch is open moves the projected line to (0,0)-(42,0) without an undo entry.
+- `sketch::project` unit tests (3): unique command ids, the mode of each pick target, and the filter of each tool.
+
+`cargo fmt --all --check`; `cargo clippy -p amg-ui --all-targets -- -D warnings`, default and `--features occt`; `cargo nextest run -p amg-ui`: 425 passed, 2 skipped in the default build, 436 passed, 2 skipped with `--features occt`. Existing tests pass unchanged, and the shell snapshots are unchanged (the new commands are unpinned dropdown entries of the sketch tab).
+
+*Deviations:*
+- **No separate `commit_solved` undo entry.** SK-09 asks the UI to commit `commit_solved` after recomputes. If that were an undo entry of its own, Ctrl+Z would undo it first and the next recompute would bring it back. So the refreshed values live in the working copy and are stored with the session's next edit. The stored feature can therefore hold old projected values until the sketch is edited again; recompute refreshes them while the source resolves.
+- Only parameters are copied, not knot vectors, so a refreshed projected spline keeps its old knots in the session until it is stored again (`commit_solved` carries knots through `SetProjected`).
+
+*Leftovers:*
+- Owner check in `cargo app`: project a box face's edges into a sketch, dimension to them, edit the extrude. This was tested headless only.
+- Not done: sketch curves and points of other sketches cannot be picked yet (no pick targets; CON-04 request), so projecting earlier sketch geometry from the UI waits for them. The API path works (default-build test).
+- Not done: re-project on a "changed shape" warning, a "break link" edit (SK-09 leftover), the Fusion "Projection link" off option, body silhouettes (S04 R-S04-4), and a live preview before commit.
+- The timeline check uses the source body's creating feature. A body that a later feature modifies is still projected from the final evaluated state.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -3230,3 +3278,13 @@ Flagged for lane D review. No new third-party dependency; no change to `amg-rend
   point) so that picks skip the wrong kind; pick targets for sketch curves and points; the
   UI-07 "Construction" folder listing features in error; auto-advance to the next selection
   field.
+
+### 2026-11-26: UI-17 (lane D)
+- No change outside `amg-ui::sketch`, no new third-party dependency, no new icon (the commands reuse the vendored `arrow-bar-to-down`, `layers-union` and `section`). The `amg-ui` framework (pick filters, `ToolCx`) is used as is.
+- `amg-features::sketch` is used through `project_reference`, `SketchEdit::AddProjection`, `ProjectionLink`, `ProjectionMode` and `ProjectionError`; `amg-sketch` through `EntityOrigin::Projected`, `EntityKind::own_params` and `ParamStore`. Nothing is requested from S03.
+- Additive `amg-ui` API:
+  - `sketch::project` (`ProjectKind`, `ProjectTool`, `ProjectOutcome`);
+  - `SketchSession::is_projected`;
+  - `SessionStats::projection_refreshes`;
+  - `view::colors::LOCKED` and `view::color_of`.
+- Requests (not implemented): pick targets for sketch curves and points (repeats CON-04's request), so that Project can take earlier sketch geometry from the view.

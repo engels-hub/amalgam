@@ -3,7 +3,7 @@
 //! Everything is drawn as RND-07 overlays, always on top of the model while the session is
 //! open: curves (construction dashed), points, shaded profiles, constraint glyphs and
 //! dimension labels, coloured by the DOF report (`Under` blue, `Full` foreground, `Over` red;
-//! selection and hover override).
+//! selection and hover override). Projected geometry (UI-17) is drawn in the locked colour.
 
 use amg_core::{Plane, Point2, Point3, Ray3};
 use amg_render::{DepthMode, LabelStyle, LineStyle, OverlayList, PointStyle};
@@ -25,6 +25,8 @@ pub mod colors {
     pub const SELECTED: [f32; 4] = [0.0, 0.70, 1.0, 1.0];
     /// Geometry under the cursor.
     pub const HOVER: [f32; 4] = [0.45, 0.85, 1.0, 1.0];
+    /// Projected (locked) geometry, UI-17: Fusion's purple.
+    pub const LOCKED: [f32; 4] = [0.55, 0.12, 0.78, 1.0];
     /// Construction geometry.
     pub const CONSTRUCTION: [f32; 4] = [0.95, 0.45, 0.05, 1.0];
     /// Profile shading.
@@ -159,12 +161,23 @@ fn entity_color(
     if s.hovered == Some(e) || hl.contains(&e) {
         return colors::HOVER;
     }
-    match s.entity_state(e) {
+    let state = s.entity_state(e);
+    if state != Some(ConstraintState::Over) && s.is_projected(e) {
+        return colors::LOCKED;
+    }
+    match state {
         Some(ConstraintState::Over) => colors::OVER,
         Some(ConstraintState::Full) if !construction => colors::FULL,
         _ if construction => colors::CONSTRUCTION,
         _ => colors::UNDER,
     }
+}
+
+/// The colour entity `e` of the open session is drawn in now (selection, hover, DOF state,
+/// projected geometry in [`colors::LOCKED`]); `None` for an unknown entity.
+pub fn color_of(s: &SketchSession, e: EntityId) -> Option<[f32; 4]> {
+    let construction = s.display().entity(e)?.construction;
+    Some(entity_color(s, &s.highlighted(), e, construction))
 }
 
 /// Draws a polyline in sketch coordinates.
