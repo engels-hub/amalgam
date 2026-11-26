@@ -10,6 +10,7 @@
 //! - [`profile`]: profile/region detection ([`detect_profiles`], [`ProfileSet`]).
 //! - [`error`]: the [`SketchError`] enum.
 //! - [`solve`]: residual equations with analytic Jacobians (SK-02); the solver from SK-03.
+//! - [`project`]: projected geometry of 3D references, locked entities (SK-09).
 //! - [`transform`]: mirror, patterns and move/copy/rotate/scale (SK-18).
 //! - [`text`]: text blocks of locked spline outlines (SK-10).
 //! - [`import`]: DXF/SVG import into entities (SK-11).
@@ -34,6 +35,7 @@ pub mod import;
 pub mod model;
 pub mod offset;
 pub mod profile;
+pub mod project;
 pub mod query;
 pub mod sketch3d;
 pub mod solve;
@@ -55,6 +57,7 @@ pub use profile::{
     Loop, Profile, ProfileEdge, ProfileFingerprint, ProfileId, ProfileIssue, ProfileMatch,
     ProfileOptions, ProfileSet, VertexKey, detect_profiles,
 };
+pub use project::ProjectedGeom;
 
 /// Evaluated geometry is keyed by entity id (replaces S01's `amg_doc::stub::SketchEntityKey`).
 pub type SketchEntityKey = EntityId;

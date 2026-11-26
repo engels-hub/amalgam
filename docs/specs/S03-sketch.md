@@ -779,8 +779,8 @@ the coordinator should add to the roadmap is in the Refinement log.
 | SK-18 | Mirror, rectangular/circular pattern, move/copy/rotate/scale, with optional symmetric/pattern constraints | SK-02 | P0 | Done | 1. A constrained mirror/pattern follows its source when the source is edited (re-solve test). 2. An unconstrained copy is independent. 3. Scale about a point scales dimension values. |
 | SK-22 | Ellipse & elliptical arc: entities, internal equations, point-on/tangent/axis dimensions, `Curve2::Ellipse` intersections for profiles | SK-02, SK-06 | P0 | Done | 1. FD Jacobian checks pass for all ellipse rows. 2. An ellipse-in-rectangle (tangent ×4) solves. 3. A profile fixture with an ellipse hole has area within 1e-9 relative. |
 | SK-08 | Splines (control-point + fit-point, rational weights) and conics: entities, point-on-curve / tangent / curvature (G2) constraints, intersectors, offset approximation | SK-02, SK-06 | P1 | Done | 1. FD checks for spline/conic rows. 2. Spline tangent-to-line and G2-to-arc fixtures solve. 3. A spline profile area agrees with a 10⁴-segment polyline within 1e-6 relative. |
-| SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Todo | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
-| SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Review | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test (met by SOL-02, 2026-11-26: `solid_extrude_sol02::dw4_text_agb_*`, goldens `sol02_text_agb_{0,1,2}`). |
+| SK-09 | Projection / include / intersect / intersection curve: locked `Projected` entities refreshed from `EntityRef` at recompute | SK-19, BREP-17, DOC-06 | P0 | Review | 1. Editing the upstream extrude height/sketch moves the projected edges and the dependent constrained geometry (golden test on 3 models). 2. An unresolvable ref → `Warning`, and the entities keep their last geometry. |
+| SK-10 | Text (font, size, bold/italic, along path) as text blocks of locked spline outlines | SK-08 | P1 | Review | 1. A text string produces profiles whose glyph count and hole count (e.g. "AgB" → 3 outer, 4 holes) match. 2. Extrudes via SOL-02 in a golden test. |
 | SK-11 | DXF/SVG import → entities (scale, units, layers → construction toggle, near-coincident endpoint merge with coincident constraints) | SK-08 | P1 | Done | 1. 10 sample files (≥ 3 DXF R12/2000+, ≥ 3 SVG with transforms) import at the correct scale (bbox within 1e-6 relative). 2. The expected profile counts are produced. |
 | SK-12 | 3D sketch: 3D points/lines/splines, 3D constraints on the shared `system` layer | SK-04, SK-19 | P2 | Done | 1. A 3D polyline with lengths/angles/coincidence to model vertices solves. 2. DOF analysis is correct on 10 3D cases. |
 | SK-23 | `detect_profiles` performance on spline boundaries (SK-06 with SK-08 spline intersectors): found by MESH-14, a closed loop of two cubic splines (tilted ellipse section) takes 264 s | SK-06, SK-08 | P1 | Done | 1. The MESH-14 `tilted_ellipse_closes_into_one_profile` case runs in < 50 ms and is un-ignored. 2. A bench of 100 spline edges in one loop is detected in < 100 ms (criterion bench). 3. SK-06 golden fixtures still pass. |
@@ -1966,3 +1966,54 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 ### 2026-11-26 - SK-10 Done-when 2 met by SOL-02 (lane A)
 - `crates/amg-features/tests/solid_extrude_sol02.rs` (`occt::dw4_text_agb_extrudes_to_three_solids_with_four_holes`): "AgB" (Noto Sans Regular subset, 10 mm cap height) as a `TextBlock` in a `SketchFeature` on XY; the 3 `regions().solid` profiles extruded 2 mm with `solid.extrude` give 3 BRepCheck-valid solids with 4 holes in total (inner wires of the bottom caps: A 1, g 1, B 2) and a total volume of 2 × the net profile area within 1e-6 relative. Goldens `tests/golden/solid/sol02_text_agb_0..2.toml`.
 - The SK-10 row can move to Done once the coordinator accepts SOL-02; no amg-sketch change was needed.
+
+### 2026-11-26 - SK-09 (projected geometry, lane B)
+- **Landed.**
+  - `amg-sketch`: `project::ProjectedGeom` (serde plain data: point, line, circle, arc, ellipse (arc), B-spline) and
+    `Sketch::{add_projected, refresh_projected, release_projected}`. Projected entities and their child points have
+    `EntityOrigin::Projected(link)` and locked params. A refresh keeps every id, is all-or-nothing and writes only changed
+    values; arcs are stored CCW, an ellipse stays on the axis frame nearest its present one (no jump of the major point when
+    the kernel flips or swaps the axes). `solve::build_system` skips the internal equations of a projected arc or elliptical
+    arc whose params are all fixed (they made every such sketch `ConvergedRedundant`).
+  - `amg-features::sketch`: new `project.rs`; `compute` resolves the plane, refreshes every `ProjectionLink`, then solves.
+    A link that fails gives one `Warning` (message, `ErrorCause::Resolve` when naming failed, the source and the link's
+    entities highlighted) and keeps the stored geometry; DOC-06 resolution warnings are added by the engine. A failed solve
+    keeps the stored user geometry with the refreshed projections.
+  - API: `project_reference(design, before, sketch, plane, source, mode) -> Result<Vec<ProjectedGeom>, ProjectionError>`
+    (tools); `SketchEdit::{AddProjection { source, mode, geometry }, RemoveProjection(link), SetProjected { entity,
+    geometry }}`; `commit_solved` also stores refreshed projections (knots of refreshed splines through `SetProjected`).
+    `AddProjection` gives a topological source the next free selection `key` of the feature (naming note §5.1).
+- **Modes and sources.** `Project`: B-rep edge, face (all its edges), vertex, earlier sketch curve/point, construction
+  point. `Include`: the same, refused unless the source lies in the plane. `Intersect`: the points of an edge or sketch
+  curve (also a point or vertex on the plane, a construction axis). `IntersectionCurve`: a face or a body cut by the plane.
+  `InContext` references go through the occurrence transform. Sketch lines and points need no geometry kernel.
+- **Matching.** `ProjectionLink::entities` is one entity per piece, in order: face edges sorted by persistent edge name,
+  section curves by face name then position. A removed entity keeps its slot (so the others still match); a link with no
+  entity left is dropped with its orphaned points (a point still used elsewhere becomes unlocked user geometry). Recompute
+  never adds or removes entities: a changed piece count or curve kind is a "changed shape" warning.
+- **Done-when.** 1: goldens `tests/golden/sketch/sk09_{box,cylinder,plate_section}.json`, tests `occt::dw1_golden_*`
+  (box: projected and included edges, 4 states over height and width; cylinder: projected rim circle and the two section
+  lines of the side face, 3 states over height and radius; plate with a hole: 8 section lines of the body, 4 states over
+  thickness, hole radius and width), each with analytic checks to 1e-6 and constrained user geometry following. 2: `dw2_*`
+  tests (deleted source curve, suppressed and deleted source sketch/extrude, edge removed by an inserted cut): `Warning`,
+  entity ids and geometry kept, downstream features compute, the sketch stays editable, saves and loads.
+- **Gates.** `cargo fmt --all --check`; clippy `-D warnings` on `amg-sketch`, `amg-features` (default also `amg-doc`),
+  default and with `occt`; `cargo nextest run -p amg-sketch -p amg-features -p amg-doc`: 1066 pass (3 skipped) in the
+  default build, 1146 pass (3 skipped) with `amg-features/occt`.
+- **Deviations.**
+  - `ProjectionMode` meanings follow the SK-19 doc comments (`Include` = in-plane geometry of a 2D sketch).
+  - "Keep their last geometry" means the geometry stored in the feature, as for a failed solve (SK-19): recompute is pure,
+    so the application keeps it current with `commit_solved` after a recompute (without that, the geometry is that of the
+    last stored edit).
+- **Left over.**
+  - UI-17: build per-pick `AddProjection` edits with `project_reference`; commit `commit_solved` after upstream edits (the
+    sketch session's working copy otherwise keeps the old projected values); offer "re-project" on a changed-shape
+    warning; no "break link" edit yet.
+  - A dimension without a side (`Length`, `Distance` point-point) on geometry hanging from a projection can solve mirrored
+    when the source jumps far past the stored warm start; signed dimensions (horizontal/vertical distance, point-line) keep
+    their side. Committing solved values after each recompute narrows this.
+  - Sketch planes on planar faces (`PlaneInput::Ref(Topo)`, SK-19 leftover) are still refused; CON-03
+    `resolve_plane_input` can now provide them. Projecting a whole body (silhouette) needs S04 R-S04-4; mesh bodies and
+    face groups are not sources. An `InContext` source whose occurrence is deleted behaves as for every other feature.
+  - 3D sketch model-vertex links (SK-12 leftover) are not covered.
+- **Interface changes.** `amg-doc` (additive, S01 2026-11-26): `Feature::input_is_optional`. No change to `amg-brep`.

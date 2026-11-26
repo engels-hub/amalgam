@@ -1,0 +1,454 @@
+[
+  {
+    "name": "base",
+    "sketches": [
+      [
+        {
+          "id": 2,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            30.0,
+            40.0,
+            30.0
+          ]
+        },
+        {
+          "id": 5,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0,
+            40.0,
+            30.0
+          ]
+        },
+        {
+          "id": 8,
+          "kind": "line",
+          "projected": false,
+          "values": [
+            40.0,
+            30.0,
+            40.0,
+            35.0
+          ]
+        },
+        {
+          "id": 10,
+          "kind": "circle",
+          "projected": false,
+          "values": [
+            40.0,
+            35.0,
+            2.0
+          ]
+        },
+        {
+          "id": 0,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            30.0
+          ]
+        },
+        {
+          "id": 1,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            30.0
+          ]
+        },
+        {
+          "id": 3,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            30.0
+          ]
+        },
+        {
+          "id": 6,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            40.0,
+            30.0
+          ]
+        },
+        {
+          "id": 7,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            40.0,
+            35.0
+          ]
+        },
+        {
+          "id": 9,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            40.0,
+            35.0
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "name": "height 45",
+    "sketches": [
+      [
+        {
+          "id": 2,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            45.0,
+            40.0,
+            45.0
+          ]
+        },
+        {
+          "id": 5,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0,
+            40.0,
+            45.0
+          ]
+        },
+        {
+          "id": 8,
+          "kind": "line",
+          "projected": false,
+          "values": [
+            40.0,
+            45.0,
+            40.0,
+            50.0
+          ]
+        },
+        {
+          "id": 10,
+          "kind": "circle",
+          "projected": false,
+          "values": [
+            40.0,
+            50.0,
+            2.0
+          ]
+        },
+        {
+          "id": 0,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            45.0
+          ]
+        },
+        {
+          "id": 1,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            45.0
+          ]
+        },
+        {
+          "id": 3,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            40.0,
+            45.0
+          ]
+        },
+        {
+          "id": 6,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            40.0,
+            45.0
+          ]
+        },
+        {
+          "id": 7,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            40.0,
+            50.0
+          ]
+        },
+        {
+          "id": 9,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            40.0,
+            50.0
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "name": "width 55",
+    "sketches": [
+      [
+        {
+          "id": 2,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            45.0,
+            55.0,
+            45.0
+          ]
+        },
+        {
+          "id": 5,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            55.0,
+            0.0,
+            55.0,
+            45.0
+          ]
+        },
+        {
+          "id": 8,
+          "kind": "line",
+          "projected": false,
+          "values": [
+            55.0,
+            45.0,
+            55.0,
+            50.0
+          ]
+        },
+        {
+          "id": 10,
+          "kind": "circle",
+          "projected": false,
+          "values": [
+            55.0,
+            50.0,
+            2.0
+          ]
+        },
+        {
+          "id": 0,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            45.0
+          ]
+        },
+        {
+          "id": 1,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            55.0,
+            45.0
+          ]
+        },
+        {
+          "id": 3,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            55.0,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            55.0,
+            45.0
+          ]
+        },
+        {
+          "id": 6,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            55.0,
+            45.0
+          ]
+        },
+        {
+          "id": 7,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            55.0,
+            50.0
+          ]
+        },
+        {
+          "id": 9,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            55.0,
+            50.0
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "name": "height 12",
+    "sketches": [
+      [
+        {
+          "id": 2,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0,
+            55.0,
+            12.0
+          ]
+        },
+        {
+          "id": 5,
+          "kind": "line",
+          "projected": true,
+          "values": [
+            55.0,
+            0.0,
+            55.0,
+            12.0
+          ]
+        },
+        {
+          "id": 8,
+          "kind": "line",
+          "projected": false,
+          "values": [
+            55.0,
+            12.0,
+            55.0,
+            17.0
+          ]
+        },
+        {
+          "id": 10,
+          "kind": "circle",
+          "projected": false,
+          "values": [
+            55.0,
+            17.0,
+            2.0
+          ]
+        },
+        {
+          "id": 0,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            0.0,
+            12.0
+          ]
+        },
+        {
+          "id": 1,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            55.0,
+            12.0
+          ]
+        },
+        {
+          "id": 3,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            55.0,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "kind": "point",
+          "projected": true,
+          "values": [
+            55.0,
+            12.0
+          ]
+        },
+        {
+          "id": 6,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            55.0,
+            12.0
+          ]
+        },
+        {
+          "id": 7,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            55.0,
+            17.0
+          ]
+        },
+        {
+          "id": 9,
+          "kind": "point",
+          "projected": false,
+          "values": [
+            55.0,
+            17.0
+          ]
+        }
+      ]
+    ]
+  }
+]

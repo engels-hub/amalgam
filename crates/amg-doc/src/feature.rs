@@ -62,6 +62,15 @@ pub trait Feature: FeatureMeta + Send + Sync + fmt::Debug + Any {
     /// timeline (ordering rule, S01 §2).
     fn inputs(&self) -> Vec<Dependency>;
 
+    /// True if the feature can compute without `dep` (one of its [`inputs`](Feature::inputs)):
+    /// the engine then runs [`compute`](Feature::compute) even when the producer of `dep`
+    /// failed, is suppressed or rolled back, or was deleted, and the feature copes with the
+    /// missing input itself (a sketch's projection sources, S03 SK-09). The ordering rule still
+    /// holds for a producer that exists. The default is `false` for every input.
+    fn input_is_optional(&self, _dep: &Dependency) -> bool {
+        false
+    }
+
     /// Every parameter expression this feature uses (S01 §5). The recompute engine (DOC-03)
     /// hashes their values into the cache key, and DOC-05 uses it to refuse deleting a
     /// parameter that a feature still reads, so a feature must list all of its `Expr` fields.

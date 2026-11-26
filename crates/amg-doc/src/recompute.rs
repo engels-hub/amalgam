@@ -538,7 +538,12 @@ impl<'a> Pass<'a> {
         let inputs = f.inputs();
         h.u64(u64::try_from(inputs.len()).unwrap_or(u64::MAX));
         for dep in &inputs {
-            self.hash_input(&mut h, dep)?;
+            if let Err(d) = self.hash_input(&mut h, dep) {
+                if !f.input_is_optional(dep) {
+                    return Err(d);
+                }
+                self.hash_missing_input(&mut h);
+            }
         }
 
         h.u64(node.context.0);
@@ -614,6 +619,27 @@ impl<'a> Pass<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Marks an optional input whose producer didn't deliver. The feature may still find the
+    /// entity elsewhere (body lineage), so the key then covers the whole input state.
+    fn hash_missing_input(&self, h: &mut KeyHasher) {
+        h.tag(0xff);
+        for (id, key) in &self.body_key {
+            h.u64(id.origin.0);
+            h.u64(u64::from(id.slot));
+            h.key(key);
+        }
+        h.tag(0xfe);
+        for (id, key) in &self.sketch_key {
+            h.u64(id.0.0);
+            h.key(key);
+        }
+        h.tag(0xfd);
+        for (id, key) in &self.construction_key {
+            h.u64(id.0.0);
+            h.key(key);
+        }
     }
 
     fn producer_of_body(&self, b: BodyId) -> Result<&CacheKey, Diagnostic> {

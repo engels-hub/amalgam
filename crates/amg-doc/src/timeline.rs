@@ -637,6 +637,12 @@ impl Design {
                         input: p,
                     });
                 }
+                // A deleted producer of an optional input: the feature copes with it, and must
+                // stay editable (as on load, below).
+                None if f.0.input_is_optional(&dep)
+                    && p.0 != 0
+                    && p.0 < self.meta.next_id
+                    && self.owner_of(p.0).is_none_or(|o| o == "feature") => {}
                 None => {
                     return Err(ModelError::NotFound {
                         what: "feature",

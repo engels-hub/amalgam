@@ -11,10 +11,15 @@
 //!   (length → mm, angle → rad), solves warm-started from the stored values and detects
 //!   profiles. A solve that fails keeps the stored geometry and reports a `Warning` with the
 //!   diagnosis; it never fails downstream features.
+//! - **Projections.** Every [`ProjectionLink`] is resolved again before the solve and its
+//!   locked entities move to the new geometry (SK-09, [`project_reference`]). A source that
+//!   does not resolve, or no longer gives the same pieces, is a `Warning`, and its entities
+//!   keep the stored geometry ([`SketchFeature::commit_solved`] keeps that geometry current).
 //! - **Edits.** [`SketchFeature::apply`] edits a clone of the feature ([`SketchEdit`]); the
 //!   caller commits it with `Command::EditFeature`, so one edit is one undo entry.
 
 mod edit;
+mod project;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -27,12 +32,13 @@ use amg_doc::{
 };
 use amg_sketch::solve::{NativeSolver, SolveOptions, SolveReport, SolveStatus, SolverBackend};
 use amg_sketch::{
-    ConstraintId, ConstraintKind, EntityId, EntityKind, ExternalLinkId, ProfileOptions, ProfileSet,
-    Quantity, Sketch, detect_profiles,
+    ConstraintId, ConstraintKind, EntityId, EntityKind, EntityOrigin, ExternalLinkId,
+    ProfileOptions, ProfileSet, Quantity, Sketch, detect_profiles,
 };
 use serde::{Deserialize, Serialize};
 
 pub use edit::SketchEdit;
+pub use project::{ProjectionError, project_reference};
 
 /// Forces this module's feature registration to be linked (registry `link()` convention).
 pub fn link() {}
@@ -71,7 +77,8 @@ pub struct ProjectionLink {
     pub source: EntityRef,
     /// How it is projected.
     pub mode: ProjectionMode,
-    /// The locked sketch entities that carry the result.
+    /// The locked sketch entities that carry the result, one per piece of the source in
+    /// projection order. A removed entity keeps its place, so the others still match.
     pub entities: Vec<EntityId>,
 }
 
@@ -86,7 +93,7 @@ pub struct SketchFeature {
     pub sketch: Sketch,
     /// Value expression of every driving dimension. Kept in step with the sketch by every edit.
     pub dims: BTreeMap<ConstraintId, Expr>,
-    /// Projected geometry (SK-09).
+    /// Projected geometry (SK-09): the source of every [`EntityOrigin::Projected`] entity.
     #[serde(default)]
     pub links: BTreeMap<ExternalLinkId, ProjectionLink>,
 }
@@ -147,6 +154,15 @@ impl Feature for SketchFeature {
         deps
     }
 
+    /// Projection sources: a lost one is a warning, and the sketch keeps its last geometry.
+    fn input_is_optional(&self, dep: &Dependency) -> bool {
+        let Dependency::Entity(e) = dep else {
+            return false;
+        };
+        let is_plane = matches!(&self.plane, PlaneInput::Ref(r) if r == e);
+        !is_plane && self.links.values().any(|l| l.source == *e)
+    }
+
     fn exprs(&self) -> Vec<&Expr> {
         self.dims.values().collect()
     }
@@ -177,6 +193,19 @@ impl Feature for SketchFeature {
                 });
             }
         }
+        for (link, l) in &self.links {
+            let foreign = l.entities.iter().any(|&e| {
+                self.sketch
+                    .entity(e)
+                    .is_some_and(|e| e.origin != EntityOrigin::Projected(*link))
+            });
+            if foreign {
+                return Err(FeatureError::InvalidValue {
+                    field: "links",
+                    msg: format!("projection {} lists geometry it did not project", link.0),
+                });
+            }
+        }
         if let PlaneInput::Ref(EntityRef::InContext { .. }) = &self.plane {
             return Err(FeatureError::InvalidValue {
                 field: "plane",
@@ -188,8 +217,11 @@ impl Feature for SketchFeature {
 
     fn compute(&self, ctx: &mut RecomputeCtx<'_>) -> Result<FeatureOutput, FeatureError> {
         let plane = self.resolve_plane(ctx)?;
-        let mut work = self.sketch.clone();
-        work.set_plane(plane);
+        // The stored geometry on the resolved plane, with the projections brought up to date.
+        let mut base = self.sketch.clone();
+        base.set_plane(plane);
+        let mut warnings = project::refresh(ctx, &plane, &mut base, &self.links)?;
+        let mut work = base.clone();
         for (id, expr) in &self.dims {
             let value = match self.quantity(*id) {
                 Some(Quantity::Length) => ctx.eval_length(expr)?,
@@ -215,7 +247,6 @@ impl Feature for SketchFeature {
         }
 
         let sketch_id = SketchId(ctx.feature_id());
-        let mut warnings = Vec::new();
         let solved = if report.status.is_converged() {
             for (id, v) in &report.driven {
                 // A measured value outside the dimension's input domain is only displayed.
@@ -227,10 +258,8 @@ impl Feature for SketchFeature {
             work
         } else {
             warnings.push(diagnose(sketch_id, &work, &report));
-            // Fusion behaviour: keep the last good geometry.
-            let mut kept = self.sketch.clone();
-            kept.set_plane(plane);
-            kept
+            // Fusion behaviour: keep the last good geometry (projections stay current).
+            base
         };
 
         let profiles = detect_profiles(&solved, &ProfileOptions::default());
