@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol09_delete_fillet_remove (S04 SOL-09). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 0.0
+area = 918.2831853071796
+faces = 6
+edges = 15
+vertices = 10
+bbox_min = [0.0, -0.0000000000000004440892098500626, 0.0]
+bbox_max = [20.0, 10.0, 10.0]

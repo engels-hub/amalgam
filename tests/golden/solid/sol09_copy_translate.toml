@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol09_copy_translate (S04 SOL-09). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 2000.0000000000005
+area = 1000.0
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [30.0, 0.0, 0.0]
+bbox_max = [50.0, 10.0, 10.0]

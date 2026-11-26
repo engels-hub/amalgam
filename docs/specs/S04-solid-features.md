@@ -410,14 +410,14 @@ pub struct Mirror { pub objects: PatternObjects, pub plane: RefInput, pub op: Bo
 
 /// solid.move (SOL-09).
 pub enum MoveSpec {
-    Free { matrix: [[f64; 4]; 4] },                      // from a triad drag; not parametric
+    Free { matrix: [[f64; 4]; 4] },                      // from a triad drag; not parametric; row-major, translation in column 3
     Translate([Expr; 3]),
     Rotate { axis: RefInput, angle: Expr },
     PointToPoint { from: RefInput, to: RefInput },
 }
 pub struct Move { pub bodies: Vec<BodyId>, pub spec: MoveSpec, pub copy: bool }
 /// solid.align (SOL-09).
-pub struct Align { pub bodies: Vec<BodyId>, pub from: RefInput, pub to: RefInput, pub flip: bool, pub angle: Expr }
+pub struct Align { pub bodies: Vec<BodyId>, pub from: Option<RefInput> /* None until picked */, pub to: RefInput, pub flip: bool, pub angle: Expr }
 /// solid.offset_face (SOL-09; R-S04-5).
 pub struct OffsetFace { pub faces: Vec<TopoRef>, pub distance: Expr }
 /// solid.replace_face (SOL-09).
@@ -641,7 +641,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-06 | Shell (remove faces, hollow, inside/outside/both, tangent chain), draft (one side, two sides, symmetric; tangent chain), scale (uniform, non-uniform), thicken (`OpTarget`) | SOL-01, BREP-07, BREP-16, BREP-14 | P0 | Todo | 1. Shelled box (top removed, 1 mm) inside, outside and both, and a hollow box (no faces removed, R-S04-8) match analytic volumes within 1e-9 relative. 2. Shelling a filleted box with tangent chain removes the top and its fillet ring (face count checked). 3. A thickness above the smallest concave radius fails with the offending faces highlighted. 4. Draft of 4 box sides at 3°: measured angles 3° ± 1e-9 rad, analytic volume; symmetric draft about a mid-plane matches the analytic volume. 5. Uniform scale 2 → volume × 8 within 1e-12 relative; non-uniform (1, 2, 3) of a sphere r 10 → ellipsoid volume within 1e-9. 6. Thicken of a B-spline sheet by 1 mm is valid and within 0.5 % of area × t. 7. TNP-X3 and TNP-X6 meet their `expect`. 8. Shell preview of a 100-face body, median < 100 ms (`budget/sol-shell-preview`). |
 | SOL-07 | Combine (join/cut/intersect, keep tools), split body (plane, face, body; extend tool), split face (surface tool; sketch curves along a vector) | SOL-01, BREP-16, CON-03 | P0 | Done | 1. Combine golden cases for each op, with and without keep tools; consumed tools are `Consumed { into }` (TNP-23 meets its `expect`). 2. Splitting a box by a plane gives pieces in the naming-note order (piece 0 keeps the `BodyId`); TNP-21 meets its `expect`. 3. Split face by a sketch line projected along the sketch normal and by a plane: two faces whose areas match within 1e-9. 4. A tool that doesn't cross fails `NoSplit` with the "extend the tool" hint. |
 | SOL-08 | Pattern (rectangular, circular; bodies and features; suppressed instances; identical compute) + mirror (bodies new/join, features) on `SolidTool` and `mirrored` (R-S04-6) | SOL-01, SOL-02, CON-03, BREP-14 | P0 | Done | 1. 3×4 rectangular and 6-instance circular body patterns (incl. symmetric and 2 suppressed instances): body count and total volume exact. 2. A 10×10 feature pattern of a Ø3 cut-extrude in a 100×100×5 plate: analytic volume within 1e-9 relative, **one** boolean call (kernel call counter), instances share TShapes (`Shape::transformed` only), full recompute < 300 ms (`budget/sol-pattern-100`). 3. Mirror of a body and of an extrude boss: mirrored volume equal, BRepCheck valid (orientation). 4. TNP-17 and TNP-18 meet their `expect`. |
-| SOL-09 | Move/copy (free, translate, rotate, point-to-point), align, offset face (R-S04-5), replace face, delete face (heal / remove), press-pull dispatch | SOL-01, BREP-07, BREP-16, CON-03 | P0 | Todo | 1. Move keeps names: a fillet ref on a moved body resolves `Exact`; a copy is a new body named `instanced(self, slot)`. 2. Align face-to-face makes the faces coplanar within 1e-9 mm. 3. Offset of a box top by +2 mm changes the height by 2 within 1e-9; a cylinder face +1 mm changes the radius by 1 within 1e-9. 4. Replace face onto an offset plane matches the analytic volume. 5. Delete of a fillet face with heal gives the pre-fillet volume within 1e-6; without heal gives an open body with the expected free edges. 6. `dispatch` maps a face, an edge and a profile selection to `solid.offset_face`, `solid.fillet` and `solid.extrude`. |
+| SOL-09 | Move/copy (free, translate, rotate, point-to-point), align, offset face (R-S04-5), replace face, delete face (heal / remove), press-pull dispatch | SOL-01, BREP-07, BREP-16, CON-03 | P0 | Review | 1. Move keeps names: a fillet ref on a moved body resolves `Exact`; a copy is a new body named `instanced(self, slot)`. 2. Align face-to-face makes the faces coplanar within 1e-9 mm. 3. Offset of a box top by +2 mm changes the height by 2 within 1e-9; a cylinder face +1 mm changes the radius by 1 within 1e-9. 4. Replace face onto an offset plane matches the analytic volume. 5. Delete of a fillet face with heal gives the pre-fillet volume within 1e-6; without heal gives an open body with the expected free edges. 6. `dispatch` maps a face, an edge and a profile selection to `solid.offset_face`, `solid.fillet` and `solid.extrude`. |
 | SOL-10 | Sweep: path (chain), guide rail (none/scale/stretch), guide surface (R-S04-7), distance, taper, twist, orientation | SOL-01, BREP-15, CON-03 | P1 | Todo | 1. Circle swept along a line and along an arc within 1e-6 of the analytic volume; along a 3D spline within 0.1 % of the reference. 2. Twist 90° and taper 5° match reference volumes within 1e-4 relative. 3. Guide-rail scale vs stretch give the reference volumes; a guide-surface sweep stays normal to the surface (sampled angle < 0.1°). 4. Distance 0.5 gives half the length (volume within 1e-6). 5. A self-intersecting sweep fails with a clean error. 6. Lateral faces of a multi-edge path have the naming-note names (`Split{self, i, m}` or spine tags). |
 | SOL-11 | Loft feature + dialog (profiles, rails, centerline, end conditions, point mapping) on the S20 loft builder (`robust::loft::build`), not raw `ThruSections`; live correspondence lines from `loft::prepare`; `LoftDiagnostics` in the dialog | SOL-01, KH-08, KH-18, SK-06 | P1 | Todo | 1. ≥ 98 % success on the loft corpus (KH-05) driven through `solid.loft` (matches KH-18 Done-when 1). 2. Preview uses `RetryPolicy::interactive()`; correspondence lines come from `prepare` in < 20 ms on corpus median. 3. Warnings (`HighTwist`, `CrossingCorrespondence`) appear as feature warnings. 4. TNP-X4 meets its `expect`. |
 | SOL-12 | Hole: placements (sketch points, on face with two edge distances, at point), types (simple, counterbore, countersink), tap types (simple, clearance, tapped, taper tapped), drill point, extents; ISO metric coarse + fine table (`standards`); cosmetic threads (`cosmetic_threads`) and modeled tapped threads via the BREP-11 helper | SOL-02, BREP-11 | P1 | Todo | 1. Golden cases for every hole type × {simple, clearance, tapped} × {flat, 118°}, on distance, to-object and all extents, within 1e-9 relative (analytic). 2. Holes at 3 sketch points; deleting point 1 keeps the names of the others (TNP-X5 meets its `expect`). 3. The ISO metric table covers ISO 261 M1.6–M64 coarse and fine; the test recomputes D1, D2, d3 from ISO 68-1 within 1e-3 mm and checks tap drills and ISO 273 clearances against the source table. 4. A modeled M6 tapped hole is valid and its minor diameter measures 4.917 ± 1e-3 mm. 5. `cosmetic_threads` lists a tapped hole with its size and length. 6. `clearance` = 0.2 on an M6 clearance hole and a modeled thread enlarges the hole radius / thread diameters by exactly 0.2 mm (measured); a parameter-driven `clearance` recomputes; default 0 reproduces pure ISO values (QUESTIONS #53). |
@@ -1358,3 +1358,129 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   (extrude/revolve targets and participants), ideally as an engine default for B-rep
   references (S01); a Fusion check (SOL-29) that a combine cut which severs the target makes
   separate bodies; "New component" for combine (SOL-24).
+
+### 2026-11-26 - SOL-09 implemented (lane A)
+- **Landed.** `amg_features::solid::moves`: `solid.move` (`Move`, `MoveSpec::{Free, Translate,
+  Rotate, PointToPoint}`) and `solid.align` (`Align`); `amg_features::solid::face_ops`:
+  `solid.offset_face` (`OffsetFace`, R-S04-5), `solid.replace_face` (`ReplaceFace`) and
+  `solid.delete_face` (`DeleteFace`), all `register_feature!` v1, with dialog registrations
+  (`moves/dialog.rs`, `face_ops/dialog.rs`; group "modify": Move/Copy order 50 pinned with
+  shortcut M, Align 51, Offset Face 53, Replace Face 54, Delete Face 55) and the press-pull
+  `DispatchRegistration` `solid.press_pull` (order 10, pinned, shortcut Q; public
+  `face_ops::press_pull`). Extra public items: `Move::{translate, rotate, copied, transform}`,
+  `Align::{new, transform}`, `moves::IDENTITY_MATRIX`, `OffsetFace::new`, `ReplaceFace::new`,
+  `DeleteFace::new`. The modules are named `moves` and `face_ops` (not `transform`) so they
+  can't collide with SOL-06's scale module.
+- **Behaviour.**
+  - Move: bodies are followed through successors and deduplicated (`common::live_body`). The
+    motion is `Shape::transformed` (shared TShapes, every index kept), so the body is
+    `Modified` with its element map unchanged and every reference into it resolves `Exact`.
+    `Free` is a row-major rigid matrix (translation in column 3; `validate` checks that it is
+    finite and affine, compute refuses a scale, shear or reflection as "not rigid").
+    `Translate` takes three lengths. `Rotate` takes an axis through `pattern::line_input`
+    (edges, sketch lines, axes, axes of revolved faces and circles) and an angle.
+    `PointToPoint` takes two points (vertex, sketch or construction point, or a circle, sphere
+    or torus centre). `copy` makes `BodyId { self, i }` (`i` = position among the live selected
+    bodies) as plain `Created` (not lineage), named `instanced(self, i)`; the sources stay.
+  - Align: `from` and `to` resolve through CON-03 into a point, a directed line (straight
+    edges, axes, circles and cylinder faces by their axis) or an outward plane (planar faces,
+    origin and construction planes; a face's pivot is its bounding-box centre on the plane).
+    Plane → plane turns `from` about its pivot by the shortest arc so the normals oppose
+    (`flip`: agree), then shifts along the target normal only (no in-plane slide). Line → line
+    turns the directions together (`flip`: reversed) and shifts onto the target line. A point
+    goes to the nearest point of a line or plane, and a plane or line is moved through a target
+    point. Plane ↔ line is refused. `angle` then turns about the target's normal or direction
+    through the moved pivot (refused when neither element has a direction). Bodies as for Move.
+  - Offset face: picks resolve with `DropMissing`, grouped per body; one `offset_faces` call per
+    body with the same distance for every face (outward positive). A zero distance changes
+    nothing and warns. Names come through the `Modified` history.
+  - Replace face: `with` is a face (its untrimmed surface, `Shape::surface`) or any plane input
+    (`resolve_plane_input`). Faces are replaced one `replace_face` call at a time, each later
+    face found through the composed history. `tangent_chain` first grows the picks with the
+    new crate-private `face_ops::tangent_faces` (neighbours across two-face edges whose outward
+    normals agree within 1e-3 rad at both edge ends and the middle). The replaced face keeps its
+    name (BREP-16 history).
+  - Delete face: `heal` → `defeature` per body (neighbours keep their names, deleted faces get
+    tombstones). Without heal (`face_ops::remove_faces`) the kept faces go into a compound
+    (`make_compound`, shared TShapes, sub-shapes matched with `is_same`), which is sewn (`sew`,
+    `make_solid: false`) into an open shell. The history (removed faces, and edges and vertices
+    only they used, `Deleted`; the rest `Kept`) is composed with the sewing's. The body stays a
+    `BodyGeom::Solid` holding a shell (a surface body).
+  - Press-pull: a selection of only faces → `solid.offset_face`, only edges → `solid.fillet`,
+    only profiles → `solid.extrude`; an empty, mixed or other selection disables it (`None`).
+  - `inputs()` lists every body read (`Dependency::Body` per moved or aligned body, per body of
+    a face pick, and the body of a `with` face) plus `Dependency::Entity` / `Construction` for
+    every reference. Body and B-rep entity inputs are lineage-optional (the SOL-07 rule).
+- **Done-when evidence** (`crates/amg-features/tests/solid_moves.rs` + `solid_moves/occt.rs`,
+  16 tests, 12 of them with OCCT; 8 unit tests in the modules; goldens
+  `tests/golden/solid/sol09_*.toml`, 12 files, rel 1e-9 (delete-face cases 1e-6); every solid
+  result BRepCheck-valid):
+  1. `dw1_a_moved_body_keeps_names_and_a_fillet_ref_resolves_exact`: a translate (30, 5, 0)
+     inserted between a 20 × 10 × 10 box and a 2 mm fillet. The fillet ref resolves `Exact` in
+     the same body, edge centroid (40, 5, 10) within 1e-9, volume unchanged (1e-9). Editing the
+     move into a 90° rotation about Z keeps it `Exact` (centroid (0, 10, 10)); golden
+     `move_rotate_filleted`. `dw1_a_copy_is_a_new_body_named_instanced`: the copy is
+     `BodyId { move, 0 }`; its naming equals the source's `instanced_names(move, 0)` (every face
+     name ends in `Inst { move, 0 }`); the source keeps its names; `successors(source)` is empty.
+     A fillet picked on the copy resolves `Exact` in the copy (also after the copy distance goes
+     30 → 50 mm), and the source stays 2000 mm³ (golden `copy_translate`). Also: a free matrix
+     (90° about X + 5 mm) places the box exactly (golden `move_free`), a scale matrix fails "not
+     rigid", and point to point moves vertex (10, 10, 10) onto (20, 0, 0).
+  2. `dw2_align_face_to_face_makes_the_faces_coplanar`: a cube's +X face onto another box's top
+     (z = 5), plain, flipped and with 30°. Every vertex of the aligned face is at z = 5 within
+     1e-9 mm, its normal is −Z (flip: +Z) within 1e-12, and the cube sits on (flip: under) the
+     face; golden `align_face_to_face`. Also: a top face onto the XY plane, a vertical edge onto
+     the Z axis, and a plane onto an axis refused.
+  3. `dw3_offset_of_a_box_top_and_a_cylinder_face`: box top +2 mm gives z max 12 within 1e-9,
+     2400 mm³ and 6 faces (golden `offset_box_top`); a downstream fillet on the top front edge
+     stays `Exact` (now at z 12); −3 mm gives 7 mm and 1400 mm³. Cylinder r 5 × 10, lateral
+     face +1 mm: the cylinder surface's radius is 6 within 1e-9 and the volume 360π within 1e-9
+     (golden `offset_cylinder`).
+  4. `dw4_replace_face_onto_an_offset_plane_matches_the_analytic_volume`: the top of a
+     20 × 10 × 10 box onto a construction plane XY + 15 → 3000 mm³ and XY + 4 → 800 mm³ (1e-9,
+     6 faces, goldens `replace_up` / `replace_down`). A downstream offset of the top face, made
+     before the replace was inserted, still resolves `Exact`. The surface of another body's face
+     (z = 12) gives 2400 mm³. With tangent chain, a split top (two coplanar halves) is replaced
+     whole: 3000 mm³ (golden `replace_tangent_chain`).
+  5. `dw5_deleting_a_fillet_face_with_heal_restores_the_box`: 2 mm fillet (1982.83 mm³), blend
+     deleted with heal → 2000 mm³ within 1e-6, 6 faces (golden `delete_fillet_heal`).
+     `dw5_deleting_without_heal_leaves_an_open_body_with_free_edges`: the same blend removed →
+     6 faces, no solid, exactly 4 free edges (two tangent lines, two quarter arcs), area =
+     before − 20π within 1e-6 (golden `delete_fillet_remove`). A box without its top → 5 faces,
+     4 free edges, 800 mm² (golden `delete_top_remove`); a later removal of a side face still
+     resolves `Exact` (6 free edges). `a_reference_to_a_deleted_face_is_not_found_with_the_tombstone`:
+     a ref to the healed-away blend fails `NotFound { removed_by: Some(delete) }`.
+  6. `dw6_press_pull_dispatches_face_edge_and_profile` (every build) and
+     `dw6_press_pull_on_real_picks_opens_the_right_dialogs` (OCCT: the dispatched dialogs build
+     from the real picks and compute `Ok`).
+  Dialog tests: the five registrations round-trip `read(build(defaults))` for empty, body and
+  face preselections; labels are unique and option labels differ from field labels; every move
+  type and align target round-trips; a free move keeps its matrix on edit.
+- **Deviations.**
+  - `Align::from` is `Option<RefInput>` (Interfaces updated), as SOL-07 did for
+    `Combine::target`: the dialog must build with nothing picked; `None` fails in compute.
+  - `MoveSpec::Free` is documented as row-major (translation in column 3; Interfaces updated).
+  - The kernel-calls table lists `heal` for SOL-09, but it is unused: delete without heal needs
+    no healing (compound + `sew`), and delete with heal is `defeature`.
+  - Replace or offset of a face tangent to a fillet blend fails in the kernel ("offset_faces
+    failed on 0 sub-shape(s)": BRepOffset with intersection join can't move a face whose tangent
+    neighbour is a blend, nor offset the blend itself outwards). The tangent-chain test
+    therefore uses two coplanar halves. This is a BREP-16 / S20 robustness item.
+  - `tangent_faces` is crate-private in `face_ops`. SOL-06 may add the Interfaces'
+    `common::tangent_chain_faces`; switch to it then. `moves::rotation_about` and
+    `matrix_transform` are crate-private too. SOL-06's scale code was not on this branch, so
+    nothing is shared with it.
+  - No manipulator anchors yet (`anchors` is empty): the free-move triad and the distance and
+    angle arrows are UI-06. The dialog can't edit a free matrix; it keeps the stored one.
+- **Interface changes elsewhere.** None to shared crates or other lanes' code. Only public
+  `amg-brep` (`Shape::transformed`, `offset_faces`, `replace_face`, `defeature`,
+  `make_compound`, `sew`, `edge_ends`, `tessellate_edge`, `project_point_on_face`,
+  `eval_surface`), `amg-doc` and `amg-features::construct` APIs are used. No new dependency.
+  Five new dialog registrations and a dispatch add commands to the Solid "modify" group, two of
+  them pinned (Move/Copy, Press Pull), so the UI shell snapshots
+  (`crates/amg-ui/tests/snapshots/shell_*.png`) will likely change (amg-ui was not run in this
+  WP; regenerate at merge).
+- **Leftovers.** Kernel robustness of offset and replace next to blends (S02/S20); manipulator
+  anchors and the free-move triad (UI-06); per-face distances for offset face (the kernel takes
+  them, the dialog has one distance); moving faces (Fusion's Move on faces) is not in the
+  Interfaces; consolidating `tangent_faces` with SOL-06's `tangent_chain_faces`.
