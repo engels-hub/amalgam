@@ -11,6 +11,9 @@
 //! - [`pattern`]: `solid.pattern` and `solid.mirror` (SOL-08).
 //! - [`combine`]: `solid.combine` (SOL-07).
 //! - [`split`]: `solid.split_body` and `solid.split_face` (SOL-07).
+//! - [`moves`]: `solid.move` and `solid.align` (SOL-09).
+//! - [`face_ops`]: `solid.offset_face`, `solid.replace_face`, `solid.delete_face` and the
+//!   press-pull dispatch (SOL-09).
 //! - [`fillet`]: `solid.fillet` and `solid.chamfer` (SOL-05), and the corpus-harness entry
 //!   point [`fillet::harness::run_fillet`].
 //! - [`shell`]: `solid.shell` and `solid.thicken` (SOL-06).
@@ -26,7 +29,9 @@ pub mod draft;
 pub mod error;
 pub mod extent;
 pub mod extrude;
+pub mod face_ops;
 pub mod fillet;
+pub mod moves;
 pub mod pattern;
 pub mod profile;
 pub mod revolve;
@@ -43,10 +48,12 @@ pub use draft::{Draft, DraftSides};
 pub use error::{SolidError, kernel_failure};
 pub use extent::{Direction, Extent, ExtentSide, Start, ThinSide, ThinSpec};
 pub use extrude::Extrude;
+pub use face_ops::{DeleteFace, OffsetFace, ReplaceFace};
 pub use fillet::{
     BodyEdges, Chamfer, ChamferKind, ChamferSet, CornerType, Fillet, FilletRadius, FilletSet,
     PlannedEdge, VarRadius,
 };
+pub use moves::{Align, Move, MoveSpec};
 pub use pattern::{
     AngleSpan, ComputeType, Mirror, PathOrientation, Pattern, PatternDir, PatternKind,
     PatternObjects, Spacing,
