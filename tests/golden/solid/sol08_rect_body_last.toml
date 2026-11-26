@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol08_rect_body_last (S04 SOL-08). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 1000.0000000000002
+area = 600.0
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [40.0, 45.0, 0.0]
+bbox_max = [50.0, 55.0, 10.0]

@@ -90,6 +90,12 @@ name = "sol_fillet"
 harness = false
 required-features = ["occt"]
 
+# SOL-08: 10×10 feature pattern budget (`budget/sol-pattern-100`).
+[[bench]]
+name = "sol_pattern"
+harness = false
+required-features = ["occt"]
+
 [features]
 # Links the OCCT backend of amg-brep, for tests on real B-rep solids (S06 ASM-09). Needs
 # AMG_OCCT_DIR like amg-brep's own `occt` feature.

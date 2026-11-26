@@ -5,6 +5,9 @@
 #[cfg(feature = "occt")]
 pub mod failing;
 
+#[cfg(feature = "occt")]
+pub mod counting;
+
 use std::sync::OnceLock;
 
 use amg_core::Point2;
