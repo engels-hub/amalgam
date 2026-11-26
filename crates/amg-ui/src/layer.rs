@@ -36,6 +36,17 @@ pub struct LayerOut<'a> {
     /// Per-body base colours of the committed bodies (additive, INS-10): `None` (the default
     /// each frame) keeps the materials; the last layer that sets it wins.
     pub body_tints: &'a mut Option<std::sync::Arc<crate::scene::BodyTints>>,
+    /// The scene as shown (additive, CON-04: pick keys and the visible bodies' bounds for
+    /// pickable overlays).
+    pub scene: &'a crate::scene::SceneAdapter,
+    /// What the CPU pick service can hit besides meshes: construction geometry as drawn this
+    /// frame (additive, CON-04; see [`SceneAdapter::set_construction_picks`]).
+    ///
+    /// [`SceneAdapter::set_construction_picks`]: crate::scene::SceneAdapter::set_construction_picks
+    pub construction_picks: &'a mut Vec<crate::scene::ConstructionPick>,
+    /// The evaluated state of the active tool's preview, while one is shown (additive,
+    /// CON-04: previews of things that are not bodies).
+    pub preview: Option<&'a amg_doc::Evaluated>,
 }
 
 /// The section planes of the view (RND-06) and which bodies they clip.

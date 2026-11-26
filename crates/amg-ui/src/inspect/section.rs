@@ -390,7 +390,10 @@ impl SectionLayer {
         let (planes, used, dropped): (Vec<PlaneEntry>, Vec<SectionAnalysis>, Vec<String>) = {
             let list = self.effective();
             let refs: Vec<&SectionAnalysis> = list.iter().map(|(_, a)| *a).collect();
-            let c = combine(&refs, &|_| None);
+            // `Ref` bases follow their construction plane through every recompute (CON-04).
+            let c = combine(&refs, &|e| {
+                crate::construct::base_plane(env.design, env.evaluated, e)
+            });
             let planes = c
                 .owners
                 .iter()

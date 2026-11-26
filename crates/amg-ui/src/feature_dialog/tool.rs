@@ -173,6 +173,28 @@ impl GenericFeatureTool {
         reg: &'static DialogRegistration,
         init: &ToolInit<'_>,
     ) -> Result<GenericFeatureTool, String> {
+        GenericFeatureTool::build(reg, init, None)
+    }
+
+    /// A new feature of `reg` whose fields start from `values` instead of the registration's
+    /// `defaults` (additive, CON-04: menu commands that open one variant of a dialog).
+    /// Ignored when `init.edit` is set: an edited feature is always `read`.
+    ///
+    /// # Errors
+    /// As [`GenericFeatureTool::new`].
+    pub fn with_defaults(
+        reg: &'static DialogRegistration,
+        init: &ToolInit<'_>,
+        values: FieldValues,
+    ) -> Result<GenericFeatureTool, String> {
+        GenericFeatureTool::build(reg, init, Some(values))
+    }
+
+    fn build(
+        reg: &'static DialogRegistration,
+        init: &ToolInit<'_>,
+        start: Option<FieldValues>,
+    ) -> Result<GenericFeatureTool, String> {
         let schema = (reg.schema)();
         let design = init.env.design;
         let (values, edit) = match init.edit {
@@ -195,10 +217,12 @@ impl GenericFeatureTool {
             None => {
                 let refs: Vec<EntityRef> =
                     init.preselection.iter().map(|i| i.entity.clone()).collect();
-                let v = (reg.defaults)(&DialogInit {
-                    preselection: &refs,
-                    design,
-                    evaluated: init.env.evaluated,
+                let v = start.unwrap_or_else(|| {
+                    (reg.defaults)(&DialogInit {
+                        preselection: &refs,
+                        design,
+                        evaluated: init.env.evaluated,
+                    })
                 });
                 (v, None)
             }
@@ -1107,6 +1131,11 @@ impl Tool for GenericFeatureTool {
                 && let Some(st) = self.sel.get_mut(&f.key)
             {
                 st.active = true;
+                // A preselection that already filled another field is used up: the empty
+                // field must not mirror it too (CON-04, dialogs with several inputs).
+                if self.sel.values().any(|s| !s.items.is_empty()) {
+                    cx.selection_mut().clear();
+                }
             }
         }
         let state = cx.preview().state().clone();

@@ -534,6 +534,7 @@ pub fn registration(kind: &str) -> Option<&'static DialogRegistration> {
 /// Every dialog registration linked into the binary.
 pub fn registrations() -> impl Iterator<Item = &'static DialogRegistration> {
     crate::solid::link();
+    crate::construct::link();
     inventory::iter::<DialogRegistration>.into_iter()
 }
 

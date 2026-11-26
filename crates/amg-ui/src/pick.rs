@@ -314,6 +314,9 @@ impl CpuPickService {
                         });
                     }
                 }
+                if filter.contains(EntityFilter::CONSTRUCTION) {
+                    construction::merge(&mut hits, scene, ray, view, *radius_pt);
+                }
                 if *mode == PickMode::Nearest {
                     hits.truncate(1);
                 }
@@ -424,6 +427,157 @@ impl PickService for CpuPickService {
 
     fn pending(&self) -> usize {
         CpuPickService::pending(self)
+    }
+}
+
+/// CPU hits on construction geometry (CON-04): what the RND-07 overlay handles give on the GPU.
+mod construction {
+    use amg_core::{Point3, Ray3};
+    use amg_features::construct::display::ConstructionDisplay;
+
+    use super::{PickHitUi, PickTarget};
+    use crate::input::CameraView;
+    use crate::scene::SceneAdapter;
+
+    /// Smallest pick radius of axes and points, points.
+    const MIN_RADIUS_PT: f32 = 5.0;
+
+    /// The hit of `ray` on `shape`, with `radius` giving the pick radius (mm) at a point of the
+    /// shape: the distance along the ray, the point and the sort bias. Axes and points are
+    /// ordered as if nearer by the radius, so they win over a plane or face they lie on.
+    fn hit(
+        shape: &ConstructionDisplay,
+        ray: &Ray3,
+        radius: impl Fn(Point3) -> f64,
+    ) -> Option<(f64, Point3, f64)> {
+        let (o, d) = (ray.origin, ray.dir.get());
+        match shape {
+            ConstructionDisplay::PlaneSquare { frame, half_size } => {
+                let denom = d.dot(frame.normal.get());
+                if denom.abs() < 1e-12 {
+                    return None;
+                }
+                let t = (frame.origin - o).dot(frame.normal.get()) / denom;
+                let p = o + d * t;
+                let uv = frame.to_local(p);
+                (t >= 0.0 && uv.x.abs() <= *half_size && uv.y.abs() <= *half_size)
+                    .then_some((t, p, 0.0))
+            }
+            ConstructionDisplay::PointMarker(p) => {
+                let t = (*p - o).dot(d);
+                let r = radius(*p);
+                (t >= 0.0 && (o + d * t - *p).length() <= r).then_some((t, *p, r))
+            }
+            ConstructionDisplay::AxisSegment(s) => {
+                // The segment parameter of the closest approach of the two lines.
+                let e = s.b - s.a;
+                let w = s.a - o;
+                let (de, ee) = (d.dot(e), e.length_squared());
+                let denom = ee - de * de;
+                let u = if denom > 1e-12 * ee {
+                    ((d.dot(w) * de - e.dot(w)) / denom).clamp(0.0, 1.0)
+                } else {
+                    0.5
+                };
+                let p = s.a + e * u;
+                let t = (p - o).dot(d);
+                let r = radius(p);
+                (t >= 0.0 && (o + d * t - p).length() <= r).then_some((t, p, r))
+            }
+        }
+    }
+
+    /// Adds the construction hits to the mesh `hits`, front to back.
+    pub(super) fn merge(
+        hits: &mut Vec<PickHitUi>,
+        scene: &SceneAdapter,
+        ray: &Ray3,
+        view: &CameraView,
+        radius_pt: f32,
+    ) {
+        let radius_pt = f64::from(radius_pt.max(MIN_RADIUS_PT));
+        let found: Vec<(f64, PickHitUi)> = scene
+            .construction_picks()
+            .iter()
+            .filter_map(|c| {
+                let (t, world, bias) = hit(&c.shape, ray, |p| radius_pt * view.world_per_point(p))?;
+                #[allow(clippy::cast_possible_truncation, reason = "S10 depth is f32")]
+                let depth = t as f32;
+                let hit = PickHitUi {
+                    target: PickTarget::Construction(c.id),
+                    world,
+                    depth,
+                };
+                Some((t - bias, hit))
+            })
+            .collect();
+        if found.is_empty() {
+            return;
+        }
+        let mut all: Vec<(f64, PickHitUi)> = std::mem::take(hits)
+            .into_iter()
+            .map(|h| (f64::from(h.depth), h))
+            .collect();
+        all.extend(found);
+        // Stable: mesh hits at one depth keep their sub-entity-first order, and a plane on a
+        // face (equal depth) comes after the face.
+        all.sort_by(|a, b| a.0.total_cmp(&b.0));
+        // Geometry seen through several occurrences is one target.
+        for (_, h) in all {
+            let repeated = matches!(h.target, PickTarget::Construction(_))
+                && hits.iter().any(|o| o.target == h.target);
+            if !repeated {
+                hits.push(h);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #![allow(
+            clippy::expect_used,
+            clippy::float_cmp,
+            reason = "test code, exact values"
+        )]
+        use super::*;
+        use amg_core::{Dir3, Plane, Segment3};
+
+        fn down(x: f64, y: f64) -> Ray3 {
+            Ray3 {
+                origin: Point3::new(x, y, 100.0),
+                dir: -Dir3::Z,
+            }
+        }
+
+        #[test]
+        fn planes_axes_and_points_are_hit_within_their_extent() {
+            let square = ConstructionDisplay::PlaneSquare {
+                frame: Plane::XY,
+                half_size: 10.0,
+            };
+            let r = |_| 0.5;
+            let (t, p, bias) = hit(&square, &down(9.0, -9.0), r).expect("inside the square");
+            assert_eq!((t, p, bias), (100.0, Point3::new(9.0, -9.0, 0.0), 0.0));
+            assert!(hit(&square, &down(10.5, 0.0), r).is_none());
+            let axis = ConstructionDisplay::AxisSegment(Segment3 {
+                a: Point3::new(-10.0, 0.0, 5.0),
+                b: Point3::new(10.0, 0.0, 5.0),
+            });
+            let (t, p, bias) = hit(&axis, &down(3.0, 0.4), r).expect("near the axis");
+            assert!((t - 95.0).abs() < 1e-9 && (p - Point3::new(3.0, 0.0, 5.0)).length() < 1e-9);
+            assert_eq!(bias, 0.5);
+            assert!(hit(&axis, &down(3.0, 0.6), r).is_none());
+            assert!(hit(&axis, &down(10.6, 0.0), r).is_none(), "past the end");
+            // An axis seen end-on is hit.
+            let end_on = ConstructionDisplay::AxisSegment(Segment3 {
+                a: Point3::new(0.0, 0.0, -5.0),
+                b: Point3::new(0.0, 0.0, 5.0),
+            });
+            assert!(hit(&end_on, &down(0.1, 0.0), r).is_some());
+            let point = ConstructionDisplay::PointMarker(Point3::new(1.0, 1.0, 1.0));
+            assert!(hit(&point, &down(1.3, 1.0), r).is_some());
+            assert!(hit(&point, &down(1.7, 1.0), r).is_none());
+        }
     }
 }
 
