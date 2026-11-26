@@ -634,7 +634,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
 | SOL-01 | Feature framework: `amg_features::dialog` (S11 §B + `new_component`, `DispatchRegistration`), `BodyOp`/`OpTarget`/`apply_body_op` (§3 incl. unify + compose, per-solid split, `Consumed`), `SolidTool` + `ToolRegistration`, `profile_faces`/`to_curve2d`, `SolidError` + `kernel_failure` highlight, preview behaviour; `solid.extrude` minimal (one side, distance, start at profile) end-to-end | DOC-06, BREP-03, BREP-04, BREP-05, BREP-10, SK-19 | P0 | Done | 1. `solid.extrude` (one side, distance) on a sketch rectangle 10×20, h 30: NewBody volume 6000 within 1e-9 relative; Join onto a box, Cut through a box, Intersect with a box each give the analytic volume and the face count expected after unify (golden `sol01_*`). 2. BodyOp rules, one test each: join touching 2 participants keeps the first `BodyId` and marks the second `Consumed`; a cut that splits a bar keeps piece 0's id and creates `BodyId{self,1}` with `derived_from`; a cut touching nothing fails `NothingToCut`; a mesh participant fails `WrongBodyKind`; join touching nothing creates a body and warns. 3. Two adjacent regions of one sketch (a rectangle split by a line) extrude to one body with 6 faces. 4. DOC-11 corpus cases TNP-01, TNP-02 and TNP-03 run on `solid.extrude` (instead of `test.brep_prism`) and meet their `expect`. 5. A kernel failure with `offending` edges (injected failing kernel) gives `Diagnostic::entities` resolving to those edges. 6. Preview: an extrude-cut of a 20-edge profile into a 200-face body, `ComputeMode::Preview`, median < 100 ms (criterion `budget/sol-extrude-preview`); full mode recorded. 7. `dialog::registration("solid.extrude")` exists and its `build(defaults)` round-trips through `read`. |
-| SOL-02 | Extrude: all starts, directions and extents (§4; note §3): offset start, start from a plane, two sides, symmetric (half/whole), taper per side, to object (plane, face, body, vertex; offset; extend faces), all; planar-face profiles; text profiles | SOL-01, CON-03, BREP-14, SK-06 | P0 | Todo | 1. ≥ 20 golden cases cover every start × direction × extent combination the dialog allows, incl. to-object on an inclined plane, a cylinder face, a body and a vertex, with and without offset and extend; analytic volumes within 1e-9 relative, curved targets within 1e-6. 2. A face that doesn't cover the profile fails `TargetMissed` with the "Extend faces" hint; extend on fixes it; a B-spline target with extend fails `ExtendUnsupported`. 3. "All" cuts through 3 stacked bodies in one direction and through both sides in two-sided mode. 4. Text "AgB" (SK-10 `regions().solid`) extrudes to 3 solids with 4 holes in total (closes SK-10 Done-when 2). 5. Editing distance, taper or extent type keeps the lateral and cap names (`Exact` resolution of a downstream fillet ref). 6. Full-mode extrude-cut of a 100-edge profile into a 200-face body, median < 80 ms (`budget/sol-extrude-cut`). |
+| SOL-02 | Extrude: all starts, directions and extents (§4; note §3): offset start, start from a plane, two sides, symmetric (half/whole), taper per side, to object (plane, face, body, vertex; offset; extend faces), all; planar-face profiles; text profiles | SOL-01, CON-03, BREP-14, SK-06 | P0 | Review | 1. ≥ 20 golden cases cover every start × direction × extent combination the dialog allows, incl. to-object on an inclined plane, a cylinder face, a body and a vertex, with and without offset and extend; analytic volumes within 1e-9 relative, curved targets within 1e-6. 2. A face that doesn't cover the profile fails `TargetMissed` with the "Extend faces" hint; extend on fixes it; a B-spline target with extend fails `ExtendUnsupported`. 3. "All" cuts through 3 stacked bodies in one direction and through both sides in two-sided mode. 4. Text "AgB" (SK-10 `regions().solid`) extrudes to 3 solids with 4 holes in total (closes SK-10 Done-when 2). 5. Editing distance, taper or extent type keeps the lateral and cap names (`Exact` resolution of a downstream fillet ref). 6. Full-mode extrude-cut of a 100-edge profile into a 200-face body, median < 80 ms (`budget/sol-extrude-cut`). |
 | SOL-03 | Revolve: profiles, axis (sketch line, edge, construction or origin axis), angle, full, two sides, symmetric, to object; profile/axis validation | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. ≥ 8 golden cases (rectangle 90° and 360°, triangle with an edge on the axis → cone, two sides 30°/60°, symmetric 90°, each axis kind) match Pappus volumes within 1e-9 relative. 2. A profile crossing the axis fails `AxisCrossesProfile` naming the profile. 3. DOC-11 TNP-22 (edit to 360° → cap refs `NotFound`) runs on `solid.revolve` and meets its `expect`. 4. Revolve to a plane through the axis at 75° equals the 75° angle case within 1e-9. |
 | SOL-04 | Primitives: box, cylinder, sphere, torus on a `PrimitiveFrame` (origin plane, construction plane, planar face), with `OpTarget` | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. Golden volume and area for each primitive (exact within 1e-9) and for a box joined to and cut from a body. 2. A box placed on a planar face follows the face after an upstream height edit (centroid within 1e-9). 3. Editing a box size keeps `XMin#0 … ZMax#0` names (`Exact`). 4. Each kind has a dialog with a distance manipulator anchor per size field. |
 | SOL-05 | Fillet (constant, chord, variable; G1 only, G2 is KH-10 per QUESTIONS #55) and chamfer (equal, two distances, distance-angle) on raw BREP-06: edge sets per body, tangent-chain propagation (R-S04-1), failing-edge highlight | SOL-01, BREP-06, BREP-09 | P0 | Done | 1. ≥ 15 golden cases (cube edge, 4-edge tangent loop of a rounded rectangle, 3-edge vertex blend, variable 2→4 mm, chord 3 mm, all chamfer kinds, two bodies in one feature) within 1e-6 relative of reference volumes. 2. Picking one edge of a rounded-rectangle top selects all 8 tangent edges; with `tangent_chain = false` only that edge. 3. A radius larger than the adjacent face fails and `Diagnostic::entities` names exactly the failing edge(s). 4. DOC-11 TNP-11 and TNP-27 run on `solid.fillet` and meet their `expect`. 5. Preview of a 10-edge constant fillet on a 200-face body, median < 100 ms (`budget/sol-fillet-preview`). 6. KH-03 can start: S20's corpus harness drives `solid.fillet` through a public test entry point. |
@@ -937,3 +937,107 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
 - **Leftovers.** SOL-20 (S20 robust chain, `FilletDiagnosis`, max radius); SOL-21 (setback);
   G2 with KH-10; a per-edge chamfer flip or multi-set dialog UI if UI-05 wants one;
   `tangent_chain_faces` (SOL-06).
+
+### 2026-11-26 - SOL-02 implemented (lane A)
+- **Landed.** `solid::extrude` is now a module: `extrude/mod.rs` (feature, tool, start and side
+  evaluation), `extrude/sides.rs` (one profile face on one side: distance, "All", to object),
+  `extrude/dialog.rs` (the schema). `solid::extent` gains target resolution
+  (`resolve_target`, `Target`, `BodyFace`; crate-private, reusable by SOL-03/12/13): B-rep faces,
+  vertices and bodies through DOC-06, construction/origin planes and points through CON-03.
+  `solid::profile` resolves planar `EntityRef::Topo` faces as profiles (`ProfileSource::Face`,
+  each its own group; laterals take the body edge's current name via the new public
+  `face_edge_source`, caps `Sel(key)`). `solid::error::with_hint` (crate-private) appends a
+  `SolidError` hint to the `InvalidValue` message.
+- **Behaviour.** Side 1 goes along the first profile's normal (flipped by `flip`), side 2 the
+  other way; a negative distance reverses its side (as in SOL-01). Start: `Offset(e)` moves each
+  profile face along the first profile's normal (not affected by `flip`); `Object` takes a plane
+  or planar face parallel to the profile, or a point (vertex, sketch or construction point), plus
+  an offset; anything else is `Invalid { start }`. Two sides and symmetric (half or whole length;
+  side 1's distance and taper both ways) are two prisms, fused and unified with the other
+  profiles of their group, so untapered sides merge into one block (6 faces for a rectangle).
+  Taper per side through `PrismOpts::taper` (positive grows the profile along its side; a kernel
+  failure with a taper adds "Reduce the taper angle."). To object (note §3.2): a plane (or planar
+  face) parallel to the profile, or a point, gives the exact prism (offset = farther along the
+  side); otherwise a prism 1 mm past the target's far side is split (`BrepKernel::split`) by the
+  target: an inclined planar face itself, or (with `extend`, or for a construction plane) a square
+  on its plane covering the swept region; a curved face itself, or with `extend` its untrimmed
+  surface (cylinder and cone over the swept region's axial range, cones stopping short of the
+  apex; sphere and torus whole; B-spline and other surfaces fail `ExtendUnsupported`); or the
+  whole target body. The piece holding the prism's start cap is kept; one piece, or a kept piece
+  that still holds the end cap, is `TargetMissed` (message "the target does not cover the
+  profile. Turn on Extend faces.", target highlighted); a target behind the start is
+  `Invalid { extent }`. Offsets on curved faces go along the face's outward normal, on bodies
+  outwards (`BrepKernel::offset` of the sheet / solid). "All": 1 mm past the farthest bounding-box
+  corner of every solid body of the context component along the side; `Invalid` if none lies
+  ahead. Naming: `Lateral#side`, `StartCap#side`, `EndCap#side` (side 1 through
+  `NamingBuilder::role` and explicit cap names); faces a target leaves on a split prism are
+  `EndCap#side` too, so switching the extent type keeps the cap name.
+- **Done-when evidence** (`crates/amg-features/tests/solid_extrude_sol02.rs` and
+  `solid_extrude_sol02/occt.rs`, 21 tests, 3 of them without OCCT; goldens
+  `tests/golden/solid/sol02_*.toml`, 34 files):
+  1. 31 golden cases (34 files with the 3 text solids), each BRepCheck-valid and matched to a
+     closed form: offset start; start from a face (with and without offset), a vertex and a
+     construction plane; two sides; two sides with tapers 3° / −2° and one side ±5° (tapered
+     rectangle `abh + (a+b)h²tanθ + 4/3 h³tan²θ`); symmetric half, whole and tapered; to a
+     construction plane (also with offset −5), a parallel face, a vertex (+3), a plane with taper;
+     to an inclined face (20°; with offset 2, i.e. 2/cos α higher; with extend on a face that
+     misses; the body as target); to a cylinder face (radius 20; offset 2 → 22; an extended short
+     cylinder; the cylinder body; chord-area closed form within 1e-6); to a B-spline face
+     (z = 30 + 0.1x, 6100 mm³ within 1e-6); two sides to a plane and a vertex; offset start to a
+     plane; a planar-face profile joined onto its box (19200 mm³, 6 faces); "All" cut plates.
+     Analytic cases at 1e-9 relative, curved ones at 1e-6.
+     `dw1_every_start_direction_extent_combination` runs all 42 combinations the dialog allows
+     (3 starts × {one side × 3 extents, two sides × 3 × 3, symmetric half/whole}) with exact
+     volume, z range and 6 faces each.
+  2. `dw2_*`: a cylinder face 10 long under a 20 wide profile fails with "does not cover the
+     profile … Turn on Extend faces" and the face in the `Health::Error` entities; `extend` fixes
+     it (analytic volume within 1e-6); the same for a small inclined planar face (1e-9); a
+     B-spline target with extend fails "can't be extended". A target behind the profile is
+     refused; the flipped extrude reaches it.
+  3. `dw3_*`: "All" cuts a 10 × 20 hole through 3 stacked plates (each 7000 mm³, 10 faces) and
+     leaves a plate on the other side untouched; two-sided "All" cuts plates on both sides.
+  4. `dw4_text_agb_*`: "AgB" (`TextBlock::regions().solid`) extrudes 2 mm to exactly 3 valid
+     solids with 4 holes in total, volume 2 × net area within 1e-6 (closes SK-10 Done-when 2;
+     S03 log entry 2026-11-26).
+  5. `dw5_*`: a fillet on the front top edge (`Bound { Lateral, EndCap#0 }`) of a 100 × 60
+     extrude stays `Exact` through distance 40 → 80, taper 0 → 3°, to a construction plane, to a
+     parallel face, "All", tapered to the plane, and back (edge z checked each time). Two sides: a
+     fillet on the bottom edge (`EndCap#1`) stays `Exact` when side 2's distance changes and when
+     it becomes "All". Side-1 faces are named `#1` (5 of 10 names of a tapered two-sided block).
+  6. **Not met.** `benches/sol_extrude_cut.rs` (`budget/sol-extrude-cut`): a regular 100-gon
+     (r 20) cut 30 mm through the SOL-01 198-gon prism (200 faces), full mode, release profile on
+     the shared dev machine (another worker building): median 120.9 ms (25-run sample; criterion
+     144.8 ms), budget < 80 ms; `AMG_STRICT_TIMING=1` fails. Breakdown: the extrude tool (profile
+     faces, prism, naming) 2.9 ms; `apply_body_op` (SOL-01) ~120 ms, of which the OCCT boolean
+     `Cut` alone is 105–127 ms (`check_inverted: false` 104.9, `use_obb` 105.6, serial 154.8 ms;
+     8 or 16 OCCT threads no faster), `unify_same_domain` 30–34 ms, naming `sub_geom_all` 0.6 ms.
+     The boolean alone is over budget, so this needs kernel-side work (S02/S20 boolean
+     performance) or a re-measurement on the reference machine; the SOL-01 preview bench is
+     unchanged (preview median 63.2 ms, full 61.9 ms, criterion 82.7 / 81.2 ms under load).
+  Also: a proptest (16 random rectangles, distances ±40 mm, tapers ±20°, one or two sides) gives
+  a valid solid or a clean error; dialog tests (conditional fields hidden for the defaults,
+  unique labels, option labels distinct from field labels, `read(build(v)) == v` for every start,
+  extent and direction).
+- **Deviations.**
+  - A start object must be parallel to the profile (planar start faces are translated to, not
+    projected onto); inclined or curved start faces are refused (note §3.1 allows this).
+  - Editing only one side's taper of a two-sided extrude un-merges the coplanar laterals, so refs
+    into them resolve with DOC-06's "merge that no longer happens" warning (tested). Done-when 5
+    holds for one-sided edits and for two-sided distance and extent edits.
+  - The SOL-01 test `unsupported_options_fail_with_not_yet` used symmetric as its `NotYet`
+    example; it now uses thin (SOL-18), because symmetric is implemented.
+  - Planar-face profiles share TShapes with their body (no copy); the join test shows the
+    booleans accept it.
+  - Dialog: option labels differ from field labels ("Fixed distance", "Offset plane", …) because
+    the UI-05 harness finds widgets by label; every conditional field is hidden for the defaults
+    (the rule of UI-05's `dw1_extrude_fields_*`, mirrored by a unit test here). Side 2 has its own
+    `side2_*` fields; symmetric disables the extent chooser. The amg-ui tests were not run in this
+    WP (lane D crate); the schema gains fields, so run `amg-ui`'s `feature_dialog` tests at merge.
+- **Interface changes elsewhere.** None to shared crates or other lanes' code. S03 (lane B): the
+  SK-10 row's Done-when 2 note and a log entry. New public item: `solid::face_edge_source`. No new
+  dependency.
+- **Leftovers.** Done-when 6 (`budget/sol-extrude-cut`, 121 ms vs 80 ms; the OCCT boolean alone
+  takes ~105 ms): kernel boolean performance (S02/S20) or the reference-machine measurement.
+  Projected starts on inclined or curved faces; the sign convention of offsets on
+  curved targets (outward normal) against Fusion (check with the owner's designs in SOL-29); thin
+  extrude (SOL-18); manipulator anchors for the start offset and side-2 taper (UI-06).

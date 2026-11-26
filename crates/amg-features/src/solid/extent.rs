@@ -1,8 +1,15 @@
-//! Extents of extrude, revolve, hole and rib (S04 §4, note §3). SOL-01 computes one-sided
-//! distance extents from the profile plane; the other variants are data for SOL-02/03.
+//! Extents of extrude, revolve, hole and rib (S04 §4, note §3): the data, and the resolution
+//! of start and extent targets ([`resolve_target`]) shared by the features that use them.
 
-use amg_doc::{Dim, EntityRef, Expr, ExprSrc};
+use amg_brep::{FaceId, Shape, SubKind, SubShape};
+use amg_core::{Plane, Point3};
+use amg_doc::{Dim, EntityRef, Expr, ExprSrc, FeatureError, RecomputeCtx, TopoKind};
 use serde::{Deserialize, Serialize};
+
+use super::common::input_solid;
+use super::error::SolidError;
+use crate::construct::resolve::resolve_input;
+use crate::construct::{RefGeom, RefInput};
 
 /// How far a side goes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -125,4 +132,136 @@ pub(crate) fn extent_refs<'a>(
         Extent::ToObject { target, .. } => Some(target.clone()),
         _ => None,
     }))
+}
+
+// ---- target resolution (SOL-02) ---------------------------------------------------------------
+
+/// A face of an input body.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BodyFace<'a> {
+    /// The body's B-rep.
+    pub shape: &'a Shape,
+    /// The face.
+    pub face: FaceId,
+}
+
+impl BodyFace<'_> {
+    /// The face as a shape of its own (shares TShapes with the body, keeps its orientation).
+    pub fn sheet(&self) -> Result<Shape, FeatureError> {
+        self.shape
+            .sub_shape(SubShape {
+                kind: SubKind::Face,
+                index: self.face.0,
+            })
+            .map_err(super::error::kerr)
+    }
+}
+
+/// A resolved start or extent target.
+#[derive(Clone, Debug)]
+pub(crate) enum Target<'a> {
+    /// A plane with its outward normal: a construction or origin plane (`face: None`,
+    /// unbounded) or a planar face.
+    Plane {
+        /// The plane (a face's plane points out of its material).
+        plane: Plane,
+        /// The planar face, if the target is one.
+        face: Option<BodyFace<'a>>,
+    },
+    /// A vertex, sketch point or construction point.
+    Point(Point3),
+    /// A non-planar face.
+    Face(BodyFace<'a>),
+    /// A whole body.
+    Body {
+        /// The body's B-rep.
+        shape: &'a Shape,
+    },
+}
+
+fn invalid(field: &'static str, msg: impl Into<String>) -> FeatureError {
+    SolidError::Invalid {
+        field,
+        msg: msg.into(),
+    }
+    .into()
+}
+
+/// Resolves a start or extent target (S04 §2): B-rep faces, vertices and bodies through
+/// DOC-06 naming, everything else through CON-03 (`resolve_input`). A failure highlights the
+/// reference.
+///
+/// # Errors
+/// The resolution error; [`SolidError::Invalid`] for a target that is not a plane, face, body
+/// or point (an edge, a sketch curve, an axis).
+pub(crate) fn resolve_target<'a>(
+    ctx: &RecomputeCtx<'a>,
+    r: &EntityRef,
+    field: &'static str,
+) -> Result<Target<'a>, FeatureError> {
+    let res = resolve_target_inner(ctx, r, field);
+    if res.is_err() {
+        ctx.highlight([r.clone()]);
+    }
+    res
+}
+
+fn resolve_target_inner<'a>(
+    ctx: &RecomputeCtx<'a>,
+    r: &EntityRef,
+    field: &'static str,
+) -> Result<Target<'a>, FeatureError> {
+    match r {
+        EntityRef::Topo(t) => {
+            let res = ctx.resolve(t)?;
+            let (shape, _) = input_solid(ctx, res.body)?;
+            match res.kind {
+                TopoKind::Face => {
+                    let f = BodyFace {
+                        shape,
+                        face: FaceId(res.index),
+                    };
+                    match shape.surface(f.face) {
+                        amg_brep::geom::Surface::Plane(p) => Ok(Target::Plane {
+                            plane: if shape.face_reversed(f.face) {
+                                p.flipped()
+                            } else {
+                                p
+                            },
+                            face: Some(f),
+                        }),
+                        _ => Ok(Target::Face(f)),
+                    }
+                }
+                TopoKind::Vertex => Ok(Target::Point(
+                    shape.vertex_point(amg_brep::VertexId(res.index)),
+                )),
+                _ => Err(invalid(
+                    field,
+                    "the target must be a plane, a face, a body or a point",
+                )),
+            }
+        }
+        EntityRef::Body(b) => {
+            let (shape, _) = input_solid(ctx, *b)?;
+            Ok(Target::Body { shape })
+        }
+        other => {
+            let g = resolve_input(ctx, &RefInput::Ref(other.clone()))?;
+            match g.geom {
+                RefGeom::Plane(p) => Ok(Target::Plane {
+                    plane: p,
+                    face: None,
+                }),
+                RefGeom::Point(p) => Ok(Target::Point(p)),
+                g => Err(invalid(
+                    field,
+                    format!(
+                        "the target must be a plane, a face, a body or a point, not a {}",
+                        g.kind_name()
+                    ),
+                )),
+            }
+        }
+    }
 }

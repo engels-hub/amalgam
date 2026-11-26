@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol02_to_bspline_face (S04 SOL-02). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 6100.000000000001
+area = 2230.997512422418
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [-0.0000001, -0.0000001, -0.0000001]
+bbox_max = [10.0000001, 20.0000001, 31.0000001]

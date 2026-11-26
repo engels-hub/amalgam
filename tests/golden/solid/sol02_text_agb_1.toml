@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol02_text_agb_1 (S04 SOL-02). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 55.54506116171963
+area = 152.77417206035616
+faces = 18
+edges = 48
+vertices = 32
+bbox_min = [-0.0000001000000004440892, -0.0000001000000004440892, -0.0000001]
+bbox_max = [8.935574329691876, 10.042016906722688, 2.0000001]

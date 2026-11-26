@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol02_to_inclined_face_extend (S04 SOL-02). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 5547.791639863417
+area = 2077.173046454207
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [-0.0000000000000005551115123125783, 0.0, 0.0]
+bbox_max = [10.0, 20.0, 29.558809370648095]

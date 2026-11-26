@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol02_to_cylinder_face_offset (S04 SOL-02). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000001
+
+[metrics]
+volume = 3638.1778243258204
+area = 1508.609429835743
+faces = 7
+edges = 15
+vertices = 10
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [10.000000000000012, 20.0, 18.57571471437145]

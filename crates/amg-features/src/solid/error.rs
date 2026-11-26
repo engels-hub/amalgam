@@ -152,6 +152,17 @@ pub fn kernel_failure(
     FeatureError::Kernel(message)
 }
 
+/// An input problem as [`FeatureError::InvalidValue`] with the error's hint appended to the
+/// message (`TargetMissed` → "… Turn on Extend faces."), so the dialog shows the fix.
+pub(crate) fn with_hint(e: &SolidError) -> FeatureError {
+    let field = e.field().unwrap_or("options");
+    let msg = match e.hint() {
+        Some(h) => format!("{e}. {h}"),
+        None => e.to_string(),
+    };
+    FeatureError::InvalidValue { field, msg }
+}
+
 /// A kernel error without sub-shapes worth highlighting.
 pub(crate) fn kerr(e: KernelError) -> FeatureError {
     if matches!(e, KernelError::Cancelled) {

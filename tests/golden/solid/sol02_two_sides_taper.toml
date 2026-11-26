@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol02_two_sides_taper (S04 SOL-02). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 3134.89810452647
+area = 1340.6929585875514
+faces = 10
+edges = 20
+vertices = 12
+bbox_min = [-0.5240777928304148, -0.5240777928304166, -5.000000000000001]
+bbox_max = [10.524077792830415, 20.524077792830415, 10.0]
