@@ -9,12 +9,15 @@
 //! - [`extrude`]: `solid.extrude` (SOL-01 framework, SOL-02 every start, direction and extent).
 //! - [`revolve`]: `solid.revolve` (SOL-03).
 //! - [`pattern`]: `solid.pattern` and `solid.mirror` (SOL-08).
+//! - [`combine`]: `solid.combine` (SOL-07).
+//! - [`split`]: `solid.split_body` and `solid.split_face` (SOL-07).
 //! - [`fillet`]: `solid.fillet` and `solid.chamfer` (SOL-05), and the corpus-harness entry
 //!   point [`fillet::harness::run_fillet`].
 //!
 //! Without the `occt` feature every kernel call fails with "geometry kernel is not available
 //! in this build", so solid features compute to a clear `Kernel` error.
 
+pub mod combine;
 pub mod common;
 pub mod error;
 pub mod extent;
@@ -23,7 +26,9 @@ pub mod fillet;
 pub mod pattern;
 pub mod profile;
 pub mod revolve;
+pub mod split;
 
+pub use combine::Combine;
 pub use common::{
     BodyOp, OpTarget, SolidTool, ToolBody, ToolRegistration, apply_body_op, input_solid, op_kernel,
     resolve_subs, simplify, tangent_chain_edges, tool_of,
@@ -44,6 +49,7 @@ pub use profile::{
     tag_source, to_curve2d,
 };
 pub use revolve::Revolve;
+pub use split::{SplitBody, SplitFace, SplitFaceTool};
 
 /// Forces this module's feature, tool and dialog registrations to be linked.
 pub fn link() {}

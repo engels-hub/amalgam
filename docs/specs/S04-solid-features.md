@@ -381,9 +381,9 @@ pub struct Scale { pub bodies: Vec<BodyId>, pub point: RefInput, pub kind: Scale
 pub struct Thicken { pub faces: Vec<TopoRef>, pub thickness: Expr, pub side: ThinSide, pub target: OpTarget }
 
 /// solid.combine (SOL-07). `tools` are `Consumed { into: target }` unless `keep_tools`.
-pub struct Combine { pub target: BodyId, pub tools: Vec<BodyId>, pub op: BodyOp /* Join | Cut | Intersect */, pub keep_tools: bool }
+pub struct Combine { pub target: Option<BodyId> /* None until picked */, pub tools: Vec<BodyId>, pub op: BodyOp /* Join | Cut | Intersect */, pub keep_tools: bool }
 /// solid.split_body (SOL-07): pieces per the naming note (PieceSlot order).
-pub struct SplitBody { pub body: BodyId, pub tool: RefInput /* plane, face or body */, pub extend_tool: bool }
+pub struct SplitBody { pub body: Option<BodyId> /* None until picked */, pub tool: RefInput /* plane, face or body */, pub extend_tool: bool }
 /// solid.split_face (SOL-07).
 pub enum SplitFaceTool { Surface(RefInput), CurvesAlong { curves: Vec<EntityRef>, dir: Option<RefInput> /* None = sketch normal */ } }
 pub struct SplitFace { pub faces: Vec<TopoRef>, pub tool: SplitFaceTool, pub extend_tool: bool }
@@ -639,7 +639,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-04 | Primitives: box, cylinder, sphere, torus on a `PrimitiveFrame` (origin plane, construction plane, planar face), with `OpTarget` | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. Golden volume and area for each primitive (exact within 1e-9) and for a box joined to and cut from a body. 2. A box placed on a planar face follows the face after an upstream height edit (centroid within 1e-9). 3. Editing a box size keeps `XMin#0 … ZMax#0` names (`Exact`). 4. Each kind has a dialog with a distance manipulator anchor per size field. |
 | SOL-05 | Fillet (constant, chord, variable; G1 only, G2 is KH-10 per QUESTIONS #55) and chamfer (equal, two distances, distance-angle) on raw BREP-06: edge sets per body, tangent-chain propagation (R-S04-1), failing-edge highlight | SOL-01, BREP-06, BREP-09 | P0 | Done | 1. ≥ 15 golden cases (cube edge, 4-edge tangent loop of a rounded rectangle, 3-edge vertex blend, variable 2→4 mm, chord 3 mm, all chamfer kinds, two bodies in one feature) within 1e-6 relative of reference volumes. 2. Picking one edge of a rounded-rectangle top selects all 8 tangent edges; with `tangent_chain = false` only that edge. 3. A radius larger than the adjacent face fails and `Diagnostic::entities` names exactly the failing edge(s). 4. DOC-11 TNP-11 and TNP-27 run on `solid.fillet` and meet their `expect`. 5. Preview of a 10-edge constant fillet on a 200-face body, median < 100 ms (`budget/sol-fillet-preview`). 6. KH-03 can start: S20's corpus harness drives `solid.fillet` through a public test entry point. |
 | SOL-06 | Shell (remove faces, hollow, inside/outside/both, tangent chain), draft (one side, two sides, symmetric; tangent chain), scale (uniform, non-uniform), thicken (`OpTarget`) | SOL-01, BREP-07, BREP-16, BREP-14 | P0 | Todo | 1. Shelled box (top removed, 1 mm) inside, outside and both, and a hollow box (no faces removed, R-S04-8) match analytic volumes within 1e-9 relative. 2. Shelling a filleted box with tangent chain removes the top and its fillet ring (face count checked). 3. A thickness above the smallest concave radius fails with the offending faces highlighted. 4. Draft of 4 box sides at 3°: measured angles 3° ± 1e-9 rad, analytic volume; symmetric draft about a mid-plane matches the analytic volume. 5. Uniform scale 2 → volume × 8 within 1e-12 relative; non-uniform (1, 2, 3) of a sphere r 10 → ellipsoid volume within 1e-9. 6. Thicken of a B-spline sheet by 1 mm is valid and within 0.5 % of area × t. 7. TNP-X3 and TNP-X6 meet their `expect`. 8. Shell preview of a 100-face body, median < 100 ms (`budget/sol-shell-preview`). |
-| SOL-07 | Combine (join/cut/intersect, keep tools), split body (plane, face, body; extend tool), split face (surface tool; sketch curves along a vector) | SOL-01, BREP-16, CON-03 | P0 | Todo | 1. Combine golden cases for each op, with and without keep tools; consumed tools are `Consumed { into }` (TNP-23 meets its `expect`). 2. Splitting a box by a plane gives pieces in the naming-note order (piece 0 keeps the `BodyId`); TNP-21 meets its `expect`. 3. Split face by a sketch line projected along the sketch normal and by a plane: two faces whose areas match within 1e-9. 4. A tool that doesn't cross fails `NoSplit` with the "extend the tool" hint. |
+| SOL-07 | Combine (join/cut/intersect, keep tools), split body (plane, face, body; extend tool), split face (surface tool; sketch curves along a vector) | SOL-01, BREP-16, CON-03 | P0 | Review | 1. Combine golden cases for each op, with and without keep tools; consumed tools are `Consumed { into }` (TNP-23 meets its `expect`). 2. Splitting a box by a plane gives pieces in the naming-note order (piece 0 keeps the `BodyId`); TNP-21 meets its `expect`. 3. Split face by a sketch line projected along the sketch normal and by a plane: two faces whose areas match within 1e-9. 4. A tool that doesn't cross fails `NoSplit` with the "extend the tool" hint. |
 | SOL-08 | Pattern (rectangular, circular; bodies and features; suppressed instances; identical compute) + mirror (bodies new/join, features) on `SolidTool` and `mirrored` (R-S04-6) | SOL-01, SOL-02, CON-03, BREP-14 | P0 | Done | 1. 3×4 rectangular and 6-instance circular body patterns (incl. symmetric and 2 suppressed instances): body count and total volume exact. 2. A 10×10 feature pattern of a Ø3 cut-extrude in a 100×100×5 plate: analytic volume within 1e-9 relative, **one** boolean call (kernel call counter), instances share TShapes (`Shape::transformed` only), full recompute < 300 ms (`budget/sol-pattern-100`). 3. Mirror of a body and of an extrude boss: mirrored volume equal, BRepCheck valid (orientation). 4. TNP-17 and TNP-18 meet their `expect`. |
 | SOL-09 | Move/copy (free, translate, rotate, point-to-point), align, offset face (R-S04-5), replace face, delete face (heal / remove), press-pull dispatch | SOL-01, BREP-07, BREP-16, CON-03 | P0 | Todo | 1. Move keeps names: a fillet ref on a moved body resolves `Exact`; a copy is a new body named `instanced(self, slot)`. 2. Align face-to-face makes the faces coplanar within 1e-9 mm. 3. Offset of a box top by +2 mm changes the height by 2 within 1e-9; a cylinder face +1 mm changes the radius by 1 within 1e-9. 4. Replace face onto an offset plane matches the analytic volume. 5. Delete of a fillet face with heal gives the pre-fillet volume within 1e-6; without heal gives an open body with the expected free edges. 6. `dispatch` maps a face, an edge and a profile selection to `solid.offset_face`, `solid.fillet` and `solid.extrude`. |
 | SOL-10 | Sweep: path (chain), guide rail (none/scale/stretch), guide surface (R-S04-7), distance, taper, twist, orientation | SOL-01, BREP-15, CON-03 | P1 | Todo | 1. Circle swept along a line and along an arc within 1e-6 of the analytic volume; along a 3D spline within 0.1 % of the reference. 2. Twist 90° and taper 5° match reference volumes within 1e-4 relative. 3. Guide-rail scale vs stretch give the reference volumes; a guide-surface sweep stays normal to the surface (sampled angle < 0.1°). 4. Distance 0.5 gives half the length (volume within 1e-6). 5. A self-intersecting sweep fails with a clean error. 6. Lateral faces of a multi-edge path have the naming-note names (`Split{self, i, m}` or spine tags). |
@@ -1231,3 +1231,130 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
 - **Leftovers.** Thin revolve (SOL-18); manipulator anchors for non-origin axes and the
   side-2 / to-object fields (UI-06); a Fusion check of revolve offset semantics on to-object
   targets (SOL-29).
+
+### 2026-11-26 - SOL-07 implemented (lane A)
+- **Landed.** `amg_features::solid::combine` (`solid.combine`, `Combine`) and
+  `amg_features::solid::split` (`solid.split_body` / `SplitBody`, `solid.split_face` /
+  `SplitFace` + `SplitFaceTool::{Surface, CurvesAlong}`), all `register_feature!` v1, with dialog
+  registrations (`combine/dialog.rs`, `split/dialog.rs`; group "modify", orders 40/42/43, not
+  pinned, no manipulator anchors). Constructors `Combine::new`, `SplitBody::new`,
+  `SplitFace::{by_surface, by_curves}`.
+- **Behaviour.**
+  - Combine: target and tools are followed through `Evaluated::successors` (SOL-01's
+    participant rules, now `common::live_body`) and must be solids of the context component; a
+    tool equal to the target is refused. One N-ary `boolean` (target = operand 0, tools 1..n),
+    simplified with `simplify` (unify + compose), named by history only (target and tool faces
+    keep their names; naming note "Combine" row). **Join** keeps the whole result in the
+    target body, also when a tool doesn't touch it (a body of several lumps, as Fusion does,
+    with a warning): TNP-23 expects B's edge in A's body. **Cut / intersect** use SOL-01's
+    piece rule (piece 0 keeps the target id, piece k is `BodyId { self, k }` with
+    `CreatedFrom { derived_from: target }`). A cut with no tool box meeting the target, or whose
+    history leaves the target untouched, is `NothingToCut`; an empty common part
+    `NothingToIntersect`; a cut that removes everything is `Invalid { tools }`. Tools are
+    `Consumed { into: target }` unless `keep_tools`.
+  - Split tool (`split::split_tool`, shared by both splits): origin and construction planes and
+    (with `extend_tool`) planar faces become SOL-02's `plane_face` square over the body box; a
+    planar or curved face is used as is, or extended with SOL-02's `extended_face` (cylinder and
+    cone over the box, sphere / torus whole, B-spline `ExtendUnsupported`); a body is used whole.
+    Points, axes and curves are `Invalid { tool }`.
+  - Split body: `BrepKernel::split`; fewer than two solids is `NoSplit` ("the tool does not split
+    the body. Extend the tool so it crosses the body.", tool highlighted). Piece order (note
+    §5.2): signed centroid distance along a planar tool's normal (a face's outward normal, an
+    origin or construction plane's normal), else volume descending then centroid x, y, z, all
+    quantised to 1e-6 so round-off can't swap equal pieces. The whole compound is named once with
+    `SplitOrder::PieceSlot` (each output face's slot from the per-solid restrictions); faces left
+    by a plane or face tool get `Gen { self, SplitFace#0, Sel(key) | Construction(id) }` (no
+    source for an origin plane); a body tool's faces keep the tool body's names. Each piece is
+    then named from the compound through its per-solid identity history. Piece 0 keeps the
+    `BodyId`, piece k is `BodyId { self, k }` with `CreatedFrom`. The tool body is kept. Split
+    results are not unified (not a BodyOp).
+  - Split face: picks resolve with `DropMissing`, grouped per body; the tool is built once over
+    the union of the bodies' boxes. `Surface(r)` as above. `CurvesAlong { curves, dir }`: each
+    sketch line or arc (resolved through CON-03 into world space, so SK-09 projected curves work
+    too) becomes a wire (`make_wire`) moved back along `dir` and swept with `prism` (vector) into
+    a sheet that crosses the work box both ways; several curves go into one compound. `dir` is
+    any line input (`pattern::line_input`), `None` = the first curve's sketch normal. One
+    `split_faces` per body; the kernel's `InvalidInput { faces }` ("does not meet or split") is
+    `NoSplit` with the hint and the tool (or the curves) highlighted. Naming by history (split
+    faces `name + Split { self, i, n }`, geometric order), picked faces registered as selections.
+  - `inputs()` list every body the features read: combine target and tools
+    (`Dependency::Body`), the split body and a body tool (`Dependency::Body`, read whole),
+    construction tools (`Dependency::Construction`), face picks and sketch curves
+    (`Dependency::Entity`, plus `Dependency::Sketch` per curve sketch). The SOL-02/08 cache-key
+    gap doesn't apply.
+- **Done-when evidence** (`crates/amg-features/tests/solid_combine.rs` + `solid_combine/occt.rs`,
+  21 tests, 16 of them with OCCT; 13 unit tests in the modules; goldens
+  `tests/golden/solid/sol07_*.toml`, 16 files, rel 1e-9; every result BRepCheck-valid):
+  1. `dw1_combine_goldens_for_each_op_with_and_without_keep_tools`: A 0..20 and B 10..30 (each
+     2000 mm³, 10 × 10 section): join 3000 mm³, cut 1000 (x 0..10), intersect 1000 (x 10..20),
+     6 faces each after unify, 6 goldens (`join`, `cut`, `intersect`, each also `_keep_tools`);
+     without keep tools B is gone and `successors(B) == [A]` (`Consumed { into }`), with keep
+     tools B stays 2000 mm³ with no successor. Also: a cut through a bar gives 1000 + 1000 with
+     `derived_from(BodyId { comb, 1 }) == bar` (goldens `cut_split_piece0/1`); two tools in one
+     combine cut two pockets (3400 mm³, 14 faces, golden `cut_two_tools`), both consumed;
+     errors "nothing to cut", "nothing to intersect", target as its own tool and no target, each
+     leaving the bodies unchanged. `dw1_tnp23_*`: TNP-23 rebuilt on two extrudes (A 0..50 × 0..60
+     × 40, B 60..100 × 0..60 × 20) and a 2 mm `solid.fillet` on B's edge near (80, 0, 20); the
+     combine inserted before the fillet folds B into A (warning "separate lump", B gone); the
+     fillet stays `Ok`, its ref resolves `Exact` in body A, edge centroid (80, 0, 20), length 40,
+     and A holds 2 solids.
+  2. `dw2_splitting_a_box_by_a_plane_orders_pieces_along_the_normal`: −50..50 × 0..60 × 40 by
+     origin YZ: piece 0 (the original id) is x ≤ 0, `BodyId { split, 1 }` is x ≥ 0, 120 000 mm³
+     each, `derived_from` the original (goldens `split_yz_piece0/1`); by origin XZ (normal −Y)
+     piece 0 is the +Y part. `dw2_tnp21_*`: TNP-21 on a polygon sketch + extrude, split by YZ, a
+     2 mm fillet on piece 1's edge near (25, 0, 40); the block grows to x = 80: the fillet
+     resolves `Exact` in `BodyId { split, 1 }`, centroid (40, 0, 40), length 80, piece volume
+     within 1e-9. Also split by a body: a bar 0..40 by a box 10..20 gives 3 pieces ordered
+     2000 (x̄ 30), 1000 (x̄ 5), 1000 (x̄ 15), the tool kept (golden `split_by_body_piece0`).
+  3. `dw3_split_face_by_a_projected_sketch_line_and_by_a_plane_match`: the top of 0..20 × 0..10
+     × 10 split by a sketch line x = 5 on XY projected along the sketch normal, and another box's
+     top by a construction plane (YZ offset 5): 7 faces, still one solid of 2000 mm³, top faces
+     50 and 150 mm² within 1e-9 and equal between the two (goldens `split_face_by_line`,
+     `split_face_by_plane`). Also: a line along an explicit Z axis splits top and bottom (8
+     faces); a sketch circle splits off a half disc of 12.5π mm² (1e-9); a fillet on the small
+     piece's edge stays `Exact` through a height edit 10 → 20 (edge at z 20, length 10).
+  4. `dw4_*`: a 10 × 20 face inside the bar's x range fails "the tool does not split the body.
+     Extend the tool so it crosses the body." with the face in the `Health::Error` entities;
+     `extend_tool` splits the bar at z = 5 into 2000 + 2000 (piece 0 below, golden
+     `split_extended_face_piece1`); a construction plane above the body and a sketch line off
+     the face (split face: curve highlighted, body unchanged) fail the same way; a short
+     cylinder face fails and, extended, cuts the r 5 core (250π mm³ within 1e-6, golden
+     `split_extended_cylinder_core`).
+  Data and dialog tests: inputs per feature, the TNP-21/23 corpus JSON deserializes, unpicked
+  selections validate and fail in compute, `read(build(v)) == v` for every tool kind and op,
+  preselected bodies fill target / tools / body, unique labels, conditional fields hidden for
+  the defaults (except the split-face surface-tool chooser, whose tool type is the default).
+- **Deviations.**
+  - `Combine::target` and `SplitBody::body` are `Option<BodyId>` (Interfaces updated): the
+    dialog must build with nothing picked (the all-registrations round-trip test); `None` fails
+    in compute. The corpus JSON (`"target": {…}`) deserializes unchanged.
+  - Join keeps disjoint tools as lumps of the target body (TNP-23) instead of SOL-01's
+    per-solid split; cut and intersect still split into bodies.
+  - `SolidError::NoSplit` maps to `InvalidValue { field: "tool" }` with its hint (it was a
+    `Kernel` error without a field; nothing used it before).
+  - A body tool's cut faces keep the tool body's names (distinct per tool face) instead of one
+    `SplitFace#0`; plane and face tools get `SplitFace#0` as the note says.
+  - Split face takes sketch lines and arcs; free-form sketch curves (splines, ellipses) fail
+    `NotYet { what: "split face along free-form sketch curves" }`.
+  - **Lineage-optional inputs** (needed for TNP-23): the engine refused to compute a feature
+    whose referenced body was consumed upstream ("an input is not available: … did not produce
+    it") before DOC-06 resolution could follow the lineage. `solid.fillet` and `solid.chamfer`
+    (SOL-05 module, new `fillet::lineage_optional`) and the three SOL-07 kinds return
+    `input_is_optional = true` for `Dependency::Body` and `Dependency::Entity(Topo)`; the engine
+    then hashes the whole input state for that dependency (`hash_missing_input`). The SOL-05
+    tests pass unchanged. Extrude, revolve and pattern inputs are not changed.
+  - Lane-A-internal reuse, no behaviour change: `common::{follow, live_body, Participant,
+    boxes_meet, touches, contributes, solid_geom, pieces, identity_result}` are `pub(crate)`
+    (`participants` now calls `live_body`).
+- **Interface changes elsewhere.** None to shared crates or other lanes' code; only public
+  `amg-brep` (`boolean`, `split`, `split_faces`, `make_wire`, `prism`, `make_compound`,
+  `mass_props`, `sub_geom_all`), `amg-doc` (`NamingBuilder::split_order` / `generated`,
+  `CreatedFrom`, `Consumed`, `input_is_optional`) and `amg-features::construct` APIs. No new
+  dependency. Three new unpinned "modify" commands (Combine, Split Body, Split Face): UI shell
+  snapshots that list unpinned commands may change (amg-ui was not run in this WP; regenerate
+  at merge).
+- **Leftovers.** Free-form sketch curves for split face (lift `Curve2d` B-splines to
+  `Curve3::BSpline` on the sketch plane); lineage-optional inputs for the other S04 kinds
+  (extrude/revolve targets and participants), ideally as an engine default for B-rep
+  references (S01); a Fusion check (SOL-29) that a combine cut which severs the target makes
+  separate bodies; "New component" for combine (SOL-24).

@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol07_join_keep_tools (S04 SOL-07). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 2999.9999999999995
+area = 1400.0
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [30.0, 10.0, 10.0]

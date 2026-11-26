@@ -359,7 +359,7 @@ pub fn tangent_chain_edges(
 
 /// A participant as it is just before this feature: itself, or its live successor (a body
 /// consumed or split since the reference was stored), `None` if it is gone.
-fn follow(ctx: &RecomputeCtx<'_>, id: BodyId) -> Option<BodyId> {
+pub(crate) fn follow(ctx: &RecomputeCtx<'_>, id: BodyId) -> Option<BodyId> {
     let before = ctx.before();
     let mut cur = id;
     for _ in 0..64 {
@@ -371,10 +371,45 @@ fn follow(ctx: &RecomputeCtx<'_>, id: BodyId) -> Option<BodyId> {
     None
 }
 
-struct Participant<'a> {
+/// A live input body of a body operation: its id (after following successors), B-rep and names.
+pub(crate) struct Participant<'a> {
+    pub(crate) id: BodyId,
+    pub(crate) shape: &'a amg_brep::Shape,
+    pub(crate) naming: &'a BodyNaming,
+}
+
+/// Body `id` as it is just before this feature (§3): its live successor followed, `None` (with
+/// a warning) if it is gone; it must be a solid of the context component. Shared by the body
+/// operations and `solid.combine` / `solid.split_body` (SOL-07).
+///
+/// # Errors
+/// [`SolidError::OtherComponent`], [`SolidError::WrongBodyKind`], `MissingInput`.
+pub(crate) fn live_body<'a>(
+    ctx: &RecomputeCtx<'a>,
     id: BodyId,
-    shape: &'a amg_brep::Shape,
-    naming: &'a BodyNaming,
+    out: &mut FeatureOutput,
+) -> Result<Option<Participant<'a>>, FeatureError> {
+    let Some(live) = follow(ctx, id) else {
+        out.warnings.push(Diagnostic {
+            message: format!("Body {id:?} no longer exists; it was left out of the operation."),
+            cause: None,
+            entities: vec![EntityRef::Body(id)],
+        });
+        return Ok(None);
+    };
+    let body = ctx
+        .before()
+        .body(live)
+        .ok_or_else(|| FeatureError::MissingInput(Box::new(Dependency::Body(live))))?;
+    if body.component != ctx.context() {
+        return Err(SolidError::OtherComponent(live).into());
+    }
+    let (shape, naming) = input_solid(ctx, live)?;
+    Ok(Some(Participant {
+        id: live,
+        shape,
+        naming,
+    }))
 }
 
 /// The live, deduplicated participants (§3): successors followed, missing ones dropped with a
@@ -386,36 +421,19 @@ fn participants<'a>(
 ) -> Result<Vec<Participant<'a>>, FeatureError> {
     let mut v: Vec<Participant<'a>> = Vec::new();
     for &id in &target.participants {
-        let Some(live) = follow(ctx, id) else {
-            out.warnings.push(Diagnostic {
-                message: format!("Body {id:?} no longer exists; it was left out of the operation."),
-                cause: None,
-                entities: vec![EntityRef::Body(id)],
-            });
+        let Some(p) = live_body(ctx, id, out)? else {
             continue;
         };
-        if v.iter().any(|p| p.id == live) {
+        if v.iter().any(|q| q.id == p.id) {
             continue;
         }
-        let body = ctx
-            .before()
-            .body(live)
-            .ok_or_else(|| FeatureError::MissingInput(Box::new(Dependency::Body(live))))?;
-        if body.component != ctx.context() {
-            return Err(SolidError::OtherComponent(live).into());
-        }
-        let (shape, naming) = input_solid(ctx, live)?;
-        v.push(Participant {
-            id: live,
-            shape,
-            naming,
-        });
+        v.push(p);
     }
     Ok(v)
 }
 
 /// Whether the boxes of `a` and `b` overlap (grown by `tol`).
-fn boxes_meet(a: &amg_brep::Shape, b: &amg_brep::Shape, tol: f64) -> bool {
+pub(crate) fn boxes_meet(a: &amg_brep::Shape, b: &amg_brep::Shape, tol: f64) -> bool {
     let (x, y) = (a.bbox(), b.bbox());
     (0..3).all(|i| {
         let (xmin, xmax) = (x.min.to_array()[i], x.max.to_array()[i]);
@@ -425,7 +443,7 @@ fn boxes_meet(a: &amg_brep::Shape, b: &amg_brep::Shape, tol: f64) -> bool {
 }
 
 /// Whether the tool touches or overlaps `p` (box test, then the exact distance).
-fn touches(
+pub(crate) fn touches(
     k: &dyn BrepKernel,
     p: &amg_brep::Shape,
     tool: &amg_brep::Shape,
@@ -438,7 +456,7 @@ fn touches(
 }
 
 /// Whether operand `operand` has any output in `h` (it contributed to the result).
-fn contributes(h: &ShapeHistory, operand: u16) -> bool {
+pub(crate) fn contributes(h: &ShapeHistory, operand: u16) -> bool {
     h.entries.iter().any(|(InputSub { operand: o, .. }, r)| {
         *o == operand
             && match r {
@@ -460,12 +478,12 @@ fn untouched(h: &ShapeHistory) -> bool {
     faces_kept && !contributes(h, 1)
 }
 
-fn solid_geom(s: amg_brep::Shape) -> BodyGeom {
+pub(crate) fn solid_geom(s: amg_brep::Shape) -> BodyGeom {
     BodyGeom::Solid(amg_doc::stub::Shape::from_brep(s))
 }
 
 /// The per-solid results of `r` (one entry for a lone solid, none for an empty result).
-fn pieces(r: OpResult) -> KResult<Vec<OpResult>> {
+pub(crate) fn pieces(r: OpResult) -> KResult<Vec<OpResult>> {
     match r.shape.kind() {
         amg_brep::ShapeKind::Solid => Ok(vec![r]),
         _ => r.per_solid(),
@@ -473,7 +491,7 @@ fn pieces(r: OpResult) -> KResult<Vec<OpResult>> {
 }
 
 /// An identity history over `shape` (operand 0 = the shape itself): every sub-shape `Kept`.
-fn identity_result(shape: &amg_brep::Shape) -> OpResult {
+pub(crate) fn identity_result(shape: &amg_brep::Shape) -> OpResult {
     let counts = [
         shape.count(SubKind::Face),
         shape.count(SubKind::Edge),

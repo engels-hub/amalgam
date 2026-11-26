@@ -391,6 +391,16 @@ fn set_exprs_fillet(r: &FilletRadius) -> Vec<&Expr> {
     }
 }
 
+/// Body and B-rep entity inputs are optional (SOL-07): a body consumed by a combine or split
+/// off since the reference was made has no producer of its own any more, but its faces live
+/// on in the successor body, which DOC-06 resolution finds through body lineage (TNP-23).
+pub(crate) fn lineage_optional(dep: &Dependency) -> bool {
+    matches!(
+        dep,
+        Dependency::Body(_) | Dependency::Entity(EntityRef::Topo(_))
+    )
+}
+
 fn edge_inputs<'a>(refs: impl Iterator<Item = &'a TopoRef>) -> Vec<Dependency> {
     let mut d: Vec<Dependency> = Vec::new();
     for r in refs {
@@ -406,6 +416,10 @@ fn edge_inputs<'a>(refs: impl Iterator<Item = &'a TopoRef>) -> Vec<Dependency> {
 impl Feature for Fillet {
     fn inputs(&self) -> Vec<Dependency> {
         edge_inputs(self.sets.iter().flat_map(|s| &s.edges))
+    }
+
+    fn input_is_optional(&self, dep: &Dependency) -> bool {
+        lineage_optional(dep)
     }
 
     fn exprs(&self) -> Vec<&Expr> {
@@ -510,6 +524,10 @@ impl Feature for Chamfer {
                 .iter()
                 .flat_map(|s| s.edges.iter().chain(s.kind.face())),
         )
+    }
+
+    fn input_is_optional(&self, dep: &Dependency) -> bool {
+        lineage_optional(dep)
     }
 
     fn exprs(&self) -> Vec<&Expr> {
