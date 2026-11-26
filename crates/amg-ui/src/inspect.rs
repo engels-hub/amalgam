@@ -4,6 +4,7 @@
 //! - [`MEASURE_CMD`] ("Measure", shortcut `I`) is in the INSPECT tab's *Inspect* group and in
 //!   SOLID ▸ Inspect, and in S-key search. It starts [`measure::MeasureTool`].
 //! - [`snap`]: pick → snapped, classified pick → INS-01 operand (smart regions and chains).
+//! - [`targets`]: picks on solids, construction, origin and sketch geometry (INS-07).
 //! - [`props`]: the Properties panel ([`PROPERTIES_CMD`], mass properties of mesh and solid
 //!   bodies, occurrences and components, with the centre-of-mass glyph).
 //! - [`colors`]: "Display Component Colours" ([`COMPONENT_COLORS_CMD`], INS-10).
@@ -20,6 +21,7 @@ pub mod props;
 pub mod section;
 pub mod section_tool;
 pub mod snap;
+pub mod targets;
 
 use crate::command::{CmdAction, CmdId, CommandDef, Enabler, Placement};
 use crate::module::{GroupId, Registrar, UiModule};
@@ -31,6 +33,7 @@ pub use props::{PROPERTIES_CMD, PROPERTIES_JOB, PROPERTIES_PANEL};
 pub use section::{SECTION_CMD, SECTION_JOB, SECTION_PANEL, SECTION_STATS_CMD, SectionLayer};
 pub use section_tool::{SectionTool, section_tool_snapshot};
 pub use snap::{EDGE_SNAP_PX, MeasureFilter, VERTEX_SNAP_PX};
+pub use targets::ORIGIN_ENTITIES;
 
 inventory::submit! { UiModule { id: "inspect", register } }
 
@@ -137,7 +140,7 @@ pub fn register(r: &mut Registrar<'_>) {
             "area",
             "hatch",
         ])
-        .with_enabler(Enabler::When(measure::enabled))
+        .with_enabler(Enabler::When(measure::mesh_enabled))
         .placed(Placement::Toolbar {
             group: GroupId("design.inspect.inspect"),
             pinned: true,

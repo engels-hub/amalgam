@@ -1,4 +1,4 @@
-//! [`MeasureTool`]: the hand-built Phase 1 Measure dialog (S05 §2, INS-08) on the lane-D
+//! [`MeasureTool`]: the hand-built Measure dialog (S05 §2, INS-08 and INS-07) on the lane-D
 //! framework: UI-03 tool and router, UI-04 picking, UI-10 jobs, UI-15 widgets.
 //!
 //! - **Selection.** A primary click picks the mesh face under the cursor (RND-04 / the CPU pick
@@ -8,12 +8,18 @@
 //!   *Smart selection* a face grows to its coplanar region and an edge to its feature chain (a
 //!   closed chain gets a circle fit: hole diameters in one click); Alt-click keeps the single
 //!   triangle or edge. Picks preselected before the tool started are used as Selection 1 and 2.
+//! - **Solids, construction and sketches** (INS-07, [`super::targets`]): B-rep faces, edges
+//!   and vertices are picked in the view (a vertex within 8 px wins), construction geometry
+//!   through its display, sketch points and curves by the pick ray on their plane, and origin
+//!   entities from the dialog's *Add origin* menu. The *Construction* and *Sketch* check boxes
+//!   switch those kinds. Values computed on a tessellation start with "≈".
 //! - **3-point circle** mode takes three snapped points and shows their circumcircle.
 //! - **Results** are computed by INS-01 (`amg_features::inspect::measure`). Only work proven
 //!   cheap runs inline (`estimated_cost == Inline`, no smart growth); everything else is an
 //!   `Interactive` job, and a newer selection cancels the running job and starts a new one
 //!   (supersede). The table shows [`report_rows`] in the chosen unit (default: the document
 //!   display unit) and precision (default: `FormatSpec::for_unit`), each with a copy button.
+//!   B-rep operands are always measured in the job.
 //! - **Overlay** (RND-07, [`super::overlay`]): witness line with the distance, Δ legs, angle
 //!   arc, fitted circles, pick markers and the hover snap. *Pin* keeps the current overlay until
 //!   the tool closes.
@@ -26,11 +32,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use amg_core::{FormatSpec, LengthUnit, Point3, Tolerance, Unit};
-use amg_doc::{BodyGeom, BodyId, EntityRef, Evaluated, TopoKind};
+use amg_doc::stub::SketchEntityKey;
+use amg_doc::{BodyGeom, BodyId, ConstructionId, EntityRef, Evaluated, FeatureId, TopoKind};
+use amg_features::construct::{OriginEntity, RefGeom};
 use amg_features::inspect::InspectError;
 use amg_features::inspect::measure::{
-    CircleFit, Cost, DisplayPrefs, EntityMeasure, Exactness, MeasureOpts, MeasureReport,
-    MeasureRow, Operand, OperandKind, circle_through, estimated_cost, measure, report_rows,
+    APPROXIMATE, CircleFit, Cost, DisplayPrefs, EntityMeasure, Exactness, MeasureOpts,
+    MeasureReport, MeasureRow, Operand, OperandKind, circle_through, estimated_cost, measure,
+    report_rows,
 };
 use amg_jobs::{JobCtx, JobError, JobHandle, JobId, SpawnOptions};
 use amg_mesh::{FaceId, IndexedMesh};
@@ -38,6 +47,7 @@ use amg_mesh::{FaceId, IndexedMesh};
 use super::MEASURE_CMD;
 use super::overlay::MeasureOverlay;
 use super::snap::{self, Choice, MeasureFilter, MeshPick, Resolved};
+use super::targets::{self, ORIGIN_ENTITIES, SolidChoice, SolidHit, SurfacePick};
 use crate::app::{CmdEnv, CommitBatch};
 use crate::command::CmdId;
 use crate::input::ViewportEvent;
@@ -72,26 +82,75 @@ fn mesh_of(ev: &Evaluated, body: BodyId) -> Option<Arc<IndexedMesh>> {
     }
 }
 
-/// One selection: picked (resolution pending) or resolved.
-#[derive(Clone, Debug)]
-enum Slot {
-    Pending(MeshPick),
-    Ready(Resolved),
+/// The shape of `body`, if it is a solid with B-rep geometry.
+fn shape_of(ev: &Evaluated, body: BodyId) -> Option<amg_brep::Shape> {
+    match &ev.body(body)?.geom {
+        BodyGeom::Solid(s) => s.brep().cloned(),
+        _ => None,
+    }
 }
 
-impl Slot {
-    fn at(&self) -> Point3 {
+/// A pick whose resolution may need a job.
+#[derive(Clone, Debug)]
+enum Pending {
+    /// A mesh pick (smart growth is O(n)).
+    Mesh(Box<MeshPick>),
+    /// A point on a free-form B-rep face (a kernel query).
+    Surface(Box<SurfacePick>),
+}
+
+impl Pending {
+    fn needs_job(&self) -> bool {
         match self {
-            Slot::Pending(p) => p.at,
-            Slot::Ready(r) => r.at,
+            Pending::Mesh(p) => snap::needs_job(p),
+            Pending::Surface(_) => true,
         }
     }
 
-    /// The display target (for the selection field and the highlight).
+    fn resolve(&self, ctx: &JobCtx) -> Result<Resolved, InspectError> {
+        match self {
+            Pending::Mesh(p) => snap::resolve(p, ctx),
+            Pending::Surface(p) => p.resolve(ctx),
+        }
+    }
+}
+
+/// One selection: picked (resolution pending) or resolved.
+#[derive(Clone, Debug)]
+enum Slot {
+    Pending(Pending),
+    Ready(Box<Resolved>),
+}
+
+impl Slot {
+    fn ready(r: Resolved) -> Slot {
+        Slot::Ready(Box::new(r))
+    }
+
+    fn mesh(p: MeshPick) -> Slot {
+        Slot::Pending(Pending::Mesh(Box::new(p)))
+    }
+
+    /// The marker position, if the selection has one.
+    fn marker(&self) -> Option<Point3> {
+        match self {
+            Slot::Pending(Pending::Mesh(p)) => Some(p.at),
+            Slot::Pending(Pending::Surface(p)) => Some(p.at),
+            Slot::Ready(r) => r.marked.then_some(r.at),
+        }
+    }
+
+    /// What the viewport highlights (`None`: nothing is drawn for it, an origin entity).
     fn target(&self) -> Option<PickTarget> {
         let (body, instance, face, whole) = match self {
-            Slot::Pending(p) => (p.body, p.instance, p.face, matches!(p.choice, Choice::Body)),
+            Slot::Pending(Pending::Mesh(p)) => {
+                (p.body, p.instance, p.face, matches!(p.choice, Choice::Body))
+            }
+            Slot::Pending(Pending::Surface(p)) => return Some(p.target()),
             Slot::Ready(r) => {
+                if r.target.is_some() {
+                    return r.target;
+                }
                 let (body, instance) = r.body?;
                 let whole = r.kind() == OperandKind::Body;
                 let face = r.faces.as_ref().and_then(|f| f.first().copied());
@@ -105,19 +164,35 @@ impl Slot {
         })
     }
 
-    fn item(&self) -> Option<SelItem> {
-        let target = self.target()?;
-        Some(SelItem {
-            target,
-            entity: EntityRef::Body(target.body()?),
-        })
+    /// The selection field's entry (the field only counts and clears it).
+    fn item(&self) -> SelItem {
+        // Origin entities have no display target: a placeholder stands in.
+        let target = self
+            .target()
+            .unwrap_or(PickTarget::Construction(ConstructionId(FeatureId(0))));
+        let entity = match target {
+            PickTarget::Construction(c) => EntityRef::Construction(c),
+            PickTarget::Sketch(sketch) => EntityRef::SketchPoint {
+                sketch,
+                point: SketchEntityKey(0),
+            },
+            other => EntityRef::Body(other.body().unwrap_or(BodyId {
+                origin: FeatureId(0),
+                slot: 0,
+            })),
+        };
+        SelItem { target, entity }
     }
 
     /// A short description for the dialog.
     fn describe(&self) -> String {
         match self {
-            Slot::Pending(p) => format!("{} (resolving…)", choice_name(&p.choice)),
+            Slot::Pending(Pending::Mesh(p)) => format!("{} (resolving…)", choice_name(&p.choice)),
+            Slot::Pending(Pending::Surface(_)) => "Point (resolving…)".to_owned(),
             Slot::Ready(r) => {
+                if let Some(label) = &r.label {
+                    return label.clone();
+                }
                 let kind = r.kind().name();
                 match (&r.operand, &r.faces) {
                     (_, Some(f)) if f.len() > 1 => format!("{kind} ({} triangles)", f.len()),
@@ -135,6 +210,20 @@ impl Slot {
                 }
             }
         }
+    }
+}
+
+/// Whether the operand is a single point (usable in 3-point circle mode).
+fn is_point(o: &Operand) -> bool {
+    match o {
+        Operand::Point(_) => true,
+        Operand::Ref(r) => matches!(r.geom, RefGeom::Point(_)),
+        Operand::Brep(b) => b.sub.is_some_and(|s| s.kind == amg_brep::SubKind::Vertex),
+        Operand::Mesh(m) => matches!(
+            m.element,
+            amg_features::inspect::measure::MeshElement::Vertex(_)
+        ),
+        _ => false,
     }
 }
 
@@ -211,6 +300,10 @@ pub struct MeasureSnapshot {
     pub filter: MeasureFilter,
     /// Smart selection.
     pub smart: bool,
+    /// Construction geometry can be picked (INS-07).
+    pub construction: bool,
+    /// Sketch entities can be picked (INS-07).
+    pub sketch: bool,
 }
 
 fn snapshot_id() -> egui::Id {
@@ -228,6 +321,14 @@ pub struct MeasureTool {
     filter: MeasureFilter,
     smart: bool,
     three_point: bool,
+    /// Construction geometry can be picked.
+    construction: bool,
+    /// Sketch points and curves can be picked.
+    sketch: bool,
+    /// The design has a solid with B-rep geometry (its edges are picked too).
+    has_solid: bool,
+    /// An origin entity chosen in the dialog, applied after it was drawn.
+    origin: Option<OriginEntity>,
     prefs: DisplayPrefs,
     /// Selection 1 and 2.
     picks: [Option<Slot>; 2],
@@ -266,8 +367,8 @@ impl std::fmt::Debug for MeasureTool {
 }
 
 impl MeasureTool {
-    /// The tool, with the document's display unit and up to two preselected mesh bodies or
-    /// mesh faces as Selection 1 and 2.
+    /// The tool, with the document's display unit and up to two preselected bodies, faces,
+    /// edges, vertices or construction geometry as Selection 1 and 2.
     pub fn new(init: &ToolInit<'_>) -> MeasureTool {
         let length = init.env.design.meta().default_units.length;
         let ev = init.env.evaluated;
@@ -276,10 +377,15 @@ impl MeasureTool {
             .iter()
             .map(|i| i.target)
             .filter(|t| match t {
-                PickTarget::Body { body, sub, .. } => {
-                    matches!(sub, None | Some((TopoKind::Face, _))) && mesh_of(ev, *body).is_some()
-                }
-                _ => false,
+                PickTarget::Body { body, sub, .. } => match sub {
+                    None | Some((TopoKind::Face, _)) => {
+                        mesh_of(ev, *body).is_some() || shape_of(ev, *body).is_some()
+                    }
+                    Some((TopoKind::Edge | TopoKind::Vertex, _)) => shape_of(ev, *body).is_some(),
+                    Some((TopoKind::FaceGroup, _)) => false,
+                },
+                PickTarget::Construction(c) => ev.construction(*c).is_some(),
+                PickTarget::Sketch(_) | PickTarget::Occurrence(_) => false,
             })
             .take(2)
             .collect();
@@ -287,6 +393,10 @@ impl MeasureTool {
             filter: MeasureFilter::default(),
             smart: true,
             three_point: false,
+            construction: true,
+            sketch: true,
+            has_solid: has_solid(ev),
+            origin: None,
             prefs: DisplayPrefs {
                 length,
                 angle: Unit::Degree,
@@ -322,18 +432,42 @@ impl MeasureTool {
         }
     }
 
-    /// The pick of a preselected target (faces grow smartly; no snap without a ray).
-    fn preselected_pick(&self, t: PickTarget, cx: &ToolCx<'_>) -> Option<MeshPick> {
-        let PickTarget::Body {
-            body,
-            instance,
-            sub,
-        } = t
-        else {
-            return None;
+    /// The selection of a preselected target (faces grow smartly; no snap without a ray).
+    fn preselected_slot(&self, t: PickTarget, cx: &ToolCx<'_>) -> Option<Slot> {
+        let env = cx.env();
+        let (body, instance, sub) = match t {
+            PickTarget::Body {
+                body,
+                instance,
+                sub,
+            } => (body, instance, sub),
+            PickTarget::Construction(c) => {
+                let r = targets::construction_pick(env.design, env.evaluated, c, None)?;
+                return Some(Slot::ready(r));
+            }
+            _ => return None,
         };
-        let mesh = mesh_of(cx.env().evaluated, body)?;
         let to_world = cx.scene().instance_world(body, instance)?;
+        if let Some(shape) = shape_of(env.evaluated, body) {
+            // Preselections have no picked point (`marked` is off below).
+            let at = Point3::ZERO;
+            let solid = SolidHit {
+                body,
+                instance,
+                shape,
+                to_world,
+            };
+            let mut r = match sub {
+                None => solid.whole(at),
+                Some((TopoKind::Face, f)) => solid.face(f, at)?,
+                Some((TopoKind::Edge, e)) => solid.edge(e, at)?,
+                Some((TopoKind::Vertex, v)) => return solid.vertex(v).map(Slot::ready),
+                Some((TopoKind::FaceGroup, _)) => return None,
+            };
+            r.marked = false;
+            return Some(Slot::ready(r));
+        }
+        let mesh = mesh_of(env.evaluated, body)?;
         let (face, choice, local) = match sub {
             Some((TopoKind::Face, f)) if (f as usize) < mesh.face_count() => {
                 let c = mesh.triangle(FaceId(f));
@@ -342,7 +476,7 @@ impl MeasureTool {
             None => (FaceId(0), Choice::Body, mesh.aabb().center()),
             _ => return None,
         };
-        Some(MeshPick {
+        Some(Slot::mesh(MeshPick {
             body,
             instance,
             at: to_world.transform_point3(local),
@@ -351,51 +485,122 @@ impl MeasureTool {
             face,
             choice,
             smart: self.smart,
-        })
+        }))
+    }
+
+    /// What one hit of the pick service selects under the filter.
+    fn slot_of_hit(&self, h: &PickHitUi, click: PendingClick, cx: &ToolCx<'_>) -> Option<Slot> {
+        let filter = self.effective_filter();
+        if filter.is_empty() && !self.construction {
+            return None;
+        }
+        let env = cx.env();
+        let (body, instance, sub) = match h.target {
+            PickTarget::Body {
+                body,
+                instance,
+                sub: Some(sub),
+            } => (body, instance, sub),
+            PickTarget::Construction(c) if self.construction => {
+                let r = targets::construction_pick(env.design, env.evaluated, c, Some(h.world))?;
+                return Some(Slot::ready(r));
+            }
+            _ => return None,
+        };
+        let to_world = cx.scene().instance_world(body, instance)?;
+        let mm = cx.camera().map_or(0.0, |v| snap::mm_per_px(v, h.world));
+        if let Some(shape) = shape_of(env.evaluated, body) {
+            let solid = SolidHit {
+                body,
+                instance,
+                shape,
+                to_world,
+            };
+            return Some(
+                match targets::solid_pick(&solid, sub, h.world, mm, filter)? {
+                    SolidChoice::Ready(r) => Slot::Ready(r),
+                    SolidChoice::Surface(p) => Slot::Pending(Pending::Surface(p)),
+                },
+            );
+        }
+        let mesh = mesh_of(env.evaluated, body)?;
+        // A mesh body's edge sub-id is `3 × triangle + corner`.
+        let f = match sub {
+            (TopoKind::Face, f) => f,
+            (TopoKind::Edge, e) => e / 3,
+            _ => return None,
+        };
+        let (choice, at) = snap::snap_pick(&mesh, &to_world, FaceId(f), &click.ray, mm, filter)?;
+        Some(Slot::mesh(MeshPick {
+            body,
+            instance,
+            mesh,
+            to_world,
+            face: FaceId(f),
+            at,
+            choice,
+            smart: self.smart && !click.single,
+        }))
+    }
+
+    /// The selection of a click: a sketch entity at or in front of the first usable hit, else
+    /// that hit.
+    fn picked(&self, hits: &[PickHitUi], click: PendingClick, cx: &ToolCx<'_>) -> Option<Slot> {
+        let hit = hits
+            .iter()
+            .find_map(|h| Some((h, self.slot_of_hit(h, click, cx)?)));
+        let filter = self.effective_filter();
+        let (points, curves) = (filter.vertex || filter.point, filter.edge);
+        if self.sketch
+            && (points || curves)
+            && let Some(view) = cx.camera()
+        {
+            let env = cx.env();
+            let found =
+                targets::sketch_pick(env.design, env.evaluated, view, &click.ray, points, curves);
+            if let Some((t, r)) = found {
+                let in_front = hit.as_ref().is_none_or(|(h, _)| {
+                    t <= f64::from(h.depth) + snap::EDGE_SNAP_PX * snap::mm_per_px(view, h.world)
+                });
+                if in_front {
+                    return Some(Slot::ready(r));
+                }
+            }
+        }
+        hit.map(|(_, s)| s)
     }
 
     /// A finished pick on the viewport: snap, classify, fill a selection, remeasure.
     fn on_hits(&mut self, hits: Vec<PickHitUi>, click: PendingClick, cx: &mut ToolCx<'_>) {
-        let filter = self.effective_filter();
-        let found = hits.into_iter().find_map(|h| {
-            let PickTarget::Body {
-                body,
-                instance,
-                sub: Some((TopoKind::Face, f)),
-            } = h.target
-            else {
-                return None;
-            };
-            let mesh = mesh_of(cx.env().evaluated, body)?;
-            let to_world = cx.scene().instance_world(body, instance)?;
-            let mm = cx.camera().map_or(0.0, |v| snap::mm_per_px(v, h.world));
-            let (choice, at) =
-                snap::snap_pick(&mesh, &to_world, FaceId(f), &click.ray, mm, filter)?;
-            Some(MeshPick {
-                body,
-                instance,
-                mesh,
-                to_world,
-                face: FaceId(f),
-                at,
-                choice,
-                smart: self.smart && !click.single,
-            })
-        });
-        let Some(pick) = found else {
+        let Some(slot) = self.picked(&hits, click, cx) else {
             return;
         };
+        self.add(slot, cx);
+    }
+
+    /// Adds a selection (a point in 3-point mode) and remeasures.
+    fn add(&mut self, slot: Slot, cx: &mut ToolCx<'_>) {
         if self.three_point {
-            // Points resolve in O(1).
-            let Ok(r) = snap::resolve(&pick, &JobCtx::detached()) else {
-                return;
+            // Only selections that are points without a kernel query.
+            let r = match slot {
+                Slot::Pending(Pending::Mesh(p)) => {
+                    let Ok(r) = snap::resolve(&p, &JobCtx::detached()) else {
+                        return;
+                    };
+                    r
+                }
+                Slot::Pending(Pending::Surface(_)) => return,
+                Slot::Ready(r) => *r,
             };
+            if !is_point(&r.operand) {
+                return;
+            }
             if self.points.len() >= 3 {
                 self.points.clear();
             }
             self.points.push(r);
         } else {
-            self.place(Slot::Pending(pick));
+            self.place(slot);
         }
         self.remeasure(cx);
     }
@@ -453,15 +658,15 @@ impl MeasureTool {
             return;
         }
         let cheap = idx.iter().all(|&i| match &self.picks[i] {
-            Some(Slot::Pending(p)) => !snap::needs_job(p),
+            Some(Slot::Pending(p)) => !p.needs_job(),
             _ => true,
         });
         if cheap {
             let ctx = JobCtx::detached();
             for &i in &idx {
                 if let Some(Slot::Pending(p)) = &self.picks[i] {
-                    match snap::resolve(p, &ctx) {
-                        Ok(r) => self.picks[i] = Some(Slot::Ready(r)),
+                    match p.resolve(&ctx) {
+                        Ok(r) => self.picks[i] = Some(Slot::ready(r)),
                         Err(e) => {
                             self.error = Some(e.to_string());
                             return;
@@ -497,8 +702,8 @@ impl MeasureTool {
                 let mut resolved = Vec::with_capacity(input.len());
                 for s in &input {
                     resolved.push(match s {
-                        Slot::Ready(r) => r.clone(),
-                        Slot::Pending(p) => snap::resolve(p, ctx)?,
+                        Slot::Ready(r) => (**r).clone(),
+                        Slot::Pending(p) => p.resolve(ctx)?,
                     });
                 }
                 ctx.checkpoint()?;
@@ -577,7 +782,7 @@ impl MeasureTool {
         match result {
             Ok(out) => {
                 for (&i, r) in j.slots.iter().zip(out.resolved) {
-                    self.picks[i] = Some(Slot::Ready(r));
+                    self.picks[i] = Some(Slot::ready(r));
                 }
                 self.outcome = Some(Outcome {
                     report: out.report,
@@ -605,7 +810,7 @@ impl MeasureTool {
             o.markers.extend(self.points.iter().map(|p| p.at));
         } else {
             for s in self.slots() {
-                o.markers.push(s.at());
+                o.markers.extend(s.marker());
                 if let Slot::Ready(r) = s
                     && r.chain.len() >= 2
                 {
@@ -636,6 +841,7 @@ impl MeasureTool {
                                 sub: Some((TopoKind::Face, f.0)),
                             }));
                         }
+                        _ if r.target.is_some() => targets.extend(r.target),
                         (None, Some((body, instance))) if r.kind() == OperandKind::Body => {
                             targets.push(PickTarget::Body {
                                 body,
@@ -692,6 +898,8 @@ impl MeasureTool {
             three_point: self.three_point,
             filter: self.filter,
             smart: self.smart,
+            construction: self.construction,
+            sketch: self.sketch,
         }
     }
 
@@ -708,7 +916,19 @@ impl MeasureTool {
                 toggle(ui, "Vertex", &mut f.vertex);
                 toggle(ui, "Point", &mut f.point);
             });
+            toggle(ui, "Construction", &mut self.construction);
+            toggle(ui, "Sketch", &mut self.sketch);
         });
+        ui.menu_button("Add origin", |ui| {
+            for (entity, label) in ORIGIN_ENTITIES {
+                if ui.button(label).clicked() {
+                    self.origin = Some(entity);
+                    ui.close();
+                }
+            }
+        })
+        .response
+        .on_hover_text("Measure an origin point, axis or plane");
         toggle(ui, "Smart selection", &mut self.smart)
             .on_hover_text("Faces grow to their planar region, edges to their feature chain (Alt-click: single triangle or edge)");
         ChoiceField::new("Units", &mut self.prefs.length, &LENGTH_UNITS).show(ui);
@@ -744,31 +964,18 @@ impl MeasureTool {
     /// The selection fields; true if a selection was cleared.
     fn selection_ui(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
+        // The active field narrows what the tool picks, so it accepts everything the tool does.
+        let accepts = self.pick_filter();
         if self.three_point {
             let mut items: Vec<SelItem> = self
                 .points
                 .iter()
-                .filter_map(|p| {
-                    let (body, instance) = p.body?;
-                    Some(SelItem {
-                        target: PickTarget::Body {
-                            body,
-                            instance,
-                            sub: None,
-                        },
-                        entity: EntityRef::Body(body),
-                    })
-                })
+                .map(|p| Slot::ready(p.clone()).item())
                 .collect();
             let before = items.len();
-            SelectionField::new(
-                "Points",
-                &mut items,
-                EntityFilter::FACE,
-                &mut self.points_active,
-            )
-            .limits(3, Some(3))
-            .show(ui);
+            SelectionField::new("Points", &mut items, accepts, &mut self.points_active)
+                .limits(3, Some(3))
+                .show(ui);
             if items.len() < before {
                 self.points.clear();
                 changed = true;
@@ -776,17 +983,12 @@ impl MeasureTool {
             return changed;
         }
         for (i, label) in ["Selection 1", "Selection 2"].into_iter().enumerate() {
-            let mut items: Vec<SelItem> = self.picks[i].iter().filter_map(Slot::item).collect();
+            let mut items: Vec<SelItem> = self.picks[i].iter().map(Slot::item).collect();
             let had = !items.is_empty();
             let was = self.field_active[i];
-            SelectionField::new(
-                label,
-                &mut items,
-                EntityFilter::FACE,
-                &mut self.field_active[i],
-            )
-            .limits(u32::from(i == 0), Some(1))
-            .show(ui);
+            SelectionField::new(label, &mut items, accepts, &mut self.field_active[i])
+                .limits(u32::from(i == 0), Some(1))
+                .show(ui);
             if self.field_active[i] && !was {
                 // The user activated this field: the next click replaces it.
                 self.active = i;
@@ -821,6 +1023,12 @@ impl MeasureTool {
             });
             return;
         }
+        let deflection = self.outcome.as_ref().and_then(|o| {
+            match o.report.pair.as_ref()?.min_distance.exactness {
+                Exactness::Tessellated { deflection } => Some(deflection),
+                Exactness::Exact => None,
+            }
+        });
         let mut copy = None;
         egui::Grid::new("amg_measure_results")
             .num_columns(3)
@@ -840,6 +1048,13 @@ impl MeasureTool {
                     ui.end_row();
                 }
             });
+        if let Some(d) = deflection
+            && self.rows.iter().any(|r| r.text.starts_with(APPROXIMATE))
+        {
+            ui.weak(format!(
+                "≈ computed on a tessellation (deflection {d:.1e} mm)"
+            ));
+        }
         if !self.rows.is_empty() && ui.button("Copy all").clicked() {
             copy = Some(
                 self.rows
@@ -866,15 +1081,15 @@ impl Tool for MeasureTool {
 
     fn start(&mut self, cx: &mut ToolCx<'_>) {
         let targets = std::mem::take(&mut self.preselected);
-        let picks: Vec<MeshPick> = targets
+        let slots: Vec<Slot> = targets
             .into_iter()
-            .filter_map(|t| self.preselected_pick(t, cx))
+            .filter_map(|t| self.preselected_slot(t, cx))
             .collect();
-        if picks.is_empty() {
+        if slots.is_empty() {
             return;
         }
-        for p in picks {
-            self.place(Slot::Pending(p));
+        for s in slots {
+            self.place(s);
         }
         self.remeasure(cx);
     }
@@ -913,29 +1128,45 @@ impl Tool for MeasureTool {
             .as_ref()
             .map(|o| report_rows(&o.report, &self.prefs))
             .unwrap_or_default();
+        self.has_solid = has_solid(cx.env().evaluated);
         // The snap under the cursor (O(1)).
         let filter = self.effective_filter();
         self.hover = cx.hover().and_then(|h| {
             let PickTarget::Body {
                 body,
                 instance,
-                sub: Some((TopoKind::Face, f)),
+                sub: Some(sub),
             } = h.item.target
             else {
                 return None;
             };
             let view = cx.camera()?;
-            let mesh = mesh_of(cx.env().evaluated, body)?;
             let to_world = cx.scene().instance_world(body, instance)?;
+            let mm = snap::mm_per_px(view, h.world);
+            if let Some(shape) = shape_of(cx.env().evaluated, body) {
+                let solid = SolidHit {
+                    body,
+                    instance,
+                    shape,
+                    to_world,
+                };
+                let SolidChoice::Ready(r) = targets::solid_pick(&solid, sub, h.world, mm, filter)?
+                else {
+                    return None;
+                };
+                let choice = match r.operand {
+                    Operand::Point(p) => Choice::Point(p),
+                    _ if r.kind() == OperandKind::BrepVertex => Choice::Vertex(0),
+                    _ => return None,
+                };
+                return Some((choice, r.at));
+            }
+            let (TopoKind::Face, f) = sub else {
+                return None;
+            };
+            let mesh = mesh_of(cx.env().evaluated, body)?;
             let ray = view.ray(h.at);
-            snap::snap_pick(
-                &mesh,
-                &to_world,
-                FaceId(f),
-                &ray,
-                snap::mm_per_px(view, h.world),
-                filter,
-            )
+            snap::snap_pick(&mesh, &to_world, FaceId(f), &ray, mm, filter)
         });
         self.sync_highlight(cx);
         if self.job.is_some() || self.click.is_some() {
@@ -1002,6 +1233,12 @@ impl Tool for MeasureTool {
             ui.separator();
             self.results_ui(ui);
         });
+        if let Some(entity) = self.origin.take() {
+            let env = cx.env();
+            if let Some(r) = targets::origin_pick(env.design, env.evaluated, entity) {
+                self.add(Slot::ready(r), cx);
+            }
+        }
         if restart || self.three_point != was_three_point {
             self.restart(cx);
         } else if cleared {
@@ -1029,7 +1266,16 @@ impl Tool for MeasureTool {
     }
 
     fn pick_filter(&self) -> EntityFilter {
-        EntityFilter::FACE
+        // Faces always: mesh picks snap on the face under the cursor.
+        let mut out = EntityFilter::FACE;
+        let f = self.effective_filter();
+        if self.has_solid && (f.edge || f.vertex || f.point) {
+            out = out | EntityFilter::EDGE;
+        }
+        if self.construction {
+            out = out | EntityFilter::CONSTRUCTION;
+        }
+        out
     }
 
     fn status_hint(&self) -> Option<Cow<'static, str>> {
@@ -1051,8 +1297,29 @@ impl Tool for MeasureTool {
     }
 }
 
-/// Enabled while the design has a mesh body (Phase 1 measures meshes; INS-07 adds B-rep).
+/// Whether the design has a solid body with B-rep geometry.
+fn has_solid(ev: &Evaluated) -> bool {
+    ev.bodies()
+        .any(|(_, b)| matches!(&b.geom, BodyGeom::Solid(s) if s.brep().is_some()))
+}
+
+/// Measure is enabled while the design has something to measure: a mesh or solid body,
+/// construction geometry or a sketch.
 pub(crate) fn enabled(env: &CmdEnv<'_>) -> crate::command::Enablement {
+    let ev = env.evaluated;
+    if mesh_enabled(env) == crate::command::Enablement::Enabled
+        || has_solid(ev)
+        || ev.constructions().next().is_some()
+        || ev.sketches().next().is_some()
+    {
+        crate::command::Enablement::Enabled
+    } else {
+        crate::command::Enablement::disabled("The design has nothing to measure")
+    }
+}
+
+/// Enabled while the design has a mesh body (Section Analysis; solids come with INS-11).
+pub(crate) fn mesh_enabled(env: &CmdEnv<'_>) -> crate::command::Enablement {
     if env
         .evaluated
         .bodies()

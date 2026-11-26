@@ -1,4 +1,5 @@
 //! From a picked mesh face to a measure operand (S05 §2 "Snapping", "Smart selection").
+//! Solids, construction, origin and sketch geometry are in [`super::targets`].
 //!
 //! 1. RND-04 (or the CPU pick service) gives the picked face and the world pick ray.
 //! 2. [`snap_pick`] snaps on that face with INS-01's `snap_on_face`: to a vertex within
@@ -23,6 +24,7 @@ use amg_jobs::JobCtx;
 use amg_mesh::{FaceId, IndexedMesh, MeshBody};
 
 use crate::input::CameraView;
+use crate::pick::PickTarget;
 
 /// Vertex snap radius, physical pixels (S05 §2 `snap_px`).
 pub const VERTEX_SNAP_PX: f64 = 8.0;
@@ -151,6 +153,13 @@ pub struct Resolved {
     pub faces: Option<Arc<[FaceId]>>,
     /// World polyline of an edge or chain (closed chains repeat the first point).
     pub chain: Vec<Point3>,
+    /// What the viewport highlights, for picks that are not mesh elements (INS-07).
+    pub target: Option<PickTarget>,
+    /// What the dialog calls the selection (INS-07; mesh elements describe themselves).
+    pub label: Option<String>,
+    /// Whether `at` is a picked point, drawn as a marker (not for geometry chosen without a
+    /// point).
+    pub marked: bool,
 }
 
 impl Resolved {
@@ -221,6 +230,9 @@ pub fn resolve(p: &MeshPick, ctx: &JobCtx) -> Result<Resolved, InspectError> {
                 at,
                 faces: None,
                 chain,
+                target: None,
+                label: None,
+                marked: true,
             });
         }
         Choice::Vertex(v) => MeshElement::Vertex(v),
@@ -263,6 +275,9 @@ pub fn resolve(p: &MeshPick, ctx: &JobCtx) -> Result<Resolved, InspectError> {
         at: p.at,
         faces,
         chain,
+        target: None,
+        label: None,
+        marked: true,
     })
 }
 
