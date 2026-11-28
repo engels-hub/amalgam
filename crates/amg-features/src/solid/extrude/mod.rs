@@ -17,8 +17,8 @@ use amg_brep::{
 use amg_core::{Transform, Vec3};
 use amg_doc::naming::OperandNaming;
 use amg_doc::{
-    BodyNaming, Dependency, Dim, EntityRef, Expr, ExprSrc, Feature, FeatureError, FeatureOutput,
-    RecomputeCtx, register_feature,
+    BodyNaming, ContextBodies, Dependency, Dim, EntityRef, Expr, ExprSrc, Feature, FeatureError,
+    FeatureOutput, RecomputeCtx, register_feature,
 };
 use serde::{Deserialize, Serialize};
 
@@ -381,6 +381,14 @@ impl Feature for Extrude {
         );
         d.extend(self.target.inputs());
         d
+    }
+
+    /// "All" measures every solid body of the context component, participant or not.
+    fn context_reads(&self) -> Option<ContextBodies> {
+        std::iter::once(&self.side1)
+            .chain(&self.side2)
+            .any(|s| s.extent == Extent::All)
+            .then_some(ContextBodies::Context)
     }
 
     fn exprs(&self) -> Vec<&Expr> {

@@ -1615,3 +1615,14 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   anchors and the free-move triad (UI-06); per-face distances for offset face (the kernel takes
   them, the dialog has one distance); moving faces (Fusion's Move on faces) is not in the
   Interfaces; consolidating `tangent_faces` with SOL-06's `tangent_chain_faces`.
+
+### 2026-11-28 - DOC-15 closes the context-body cache-key gap (lane E)
+- `Extrude` with an "All" extent, and `Pattern` / `Mirror` over features (with or without
+  `target`), declare `Feature::context_reads() = Some(ContextBodies::Context)` (S01 DOC-15), so
+  an upstream edit of a body in their component recomputes them. This resolves the first
+  deviation of the SOL-08 entry (2026-11-26). Compute code is unchanged. Tests:
+  `crates/amg-features/tests/solid_context_reads.rs`.
+- A new feature that reads `RecomputeCtx::before()` bodies it doesn't list in `inputs()` must
+  declare them the same way.
+- Leftover: a pattern whose seed lives in another component (explicit `target` only) does not
+  cover bodies that seed reads in its own component.

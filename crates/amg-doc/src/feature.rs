@@ -71,6 +71,22 @@ pub trait Feature: FeatureMeta + Send + Sync + fmt::Debug + Any {
         false
     }
 
+    /// The bodies this feature reads **besides** its [`inputs`](Feature::inputs), when it can't
+    /// list them: it searches the evaluated state (extrude "All", S04 SOL-02), or learns them
+    /// from another feature (a feature pattern's seeds, SOL-08). The engine folds the state,
+    /// just before this feature, of every body in the scope into the cache key (DOC-15), so
+    /// adding, changing, moving or removing one of them recomputes the feature. A feature that
+    /// reads bodies through [`RecomputeCtx::before`] without listing them in `inputs` must
+    /// declare them here, or its cached output goes stale.
+    ///
+    /// This only affects the cache key: it adds no ordering constraint and no missing-input
+    /// error (a producer that failed or is suppressed just leaves its body as it was, or
+    /// absent). Declare the narrowest scope that is correct: every change to a body in it is a
+    /// cache miss. The default is `None`: the feature reads no bodies but its inputs.
+    fn context_reads(&self) -> Option<ContextBodies> {
+        None
+    }
+
     /// Every parameter expression this feature uses (S01 §5). The recompute engine (DOC-03)
     /// hashes their values into the cache key, and DOC-05 uses it to refuse deleting a
     /// parameter that a feature still reads, so a feature must list all of its `Expr` fields.
@@ -371,6 +387,18 @@ impl Dependency {
             _ => Vec::new(),
         }
     }
+}
+
+/// A set of bodies a feature reads without naming them ([`Feature::context_reads`]): those of
+/// the set that exist just before the feature.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ContextBodies {
+    /// Every body of the component the feature lives in ([`RecomputeCtx::context`]).
+    Context,
+    /// Every body of this component (not of its sub-components).
+    Component(ComponentId),
+    /// Every body of the design.
+    All,
 }
 
 /// The feature that produced the entity an `EntityRef` points at.

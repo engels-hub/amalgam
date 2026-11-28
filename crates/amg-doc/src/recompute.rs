@@ -6,7 +6,9 @@
 //! construction the cache key of the last healthy feature that wrote it. A feature's
 //! [`CacheKey`] chains the keys of the producers of everything it reads (constructive traces),
 //! so editing feature *k* changes exactly the keys of the features that transitively read it.
-//! Every other node hits the [`GeomCache`].
+//! Every other node hits the [`GeomCache`]. A feature that reads bodies it can't list declares
+//! a scope ([`Feature::context_reads`](crate::Feature::context_reads), DOC-15), and its key
+//! also chains the producer of every body in that scope.
 //!
 //! - Suppressed node: `Health::Suppressed`, writes nothing (a later reader of its outputs gets
 //!   `ErrorCause::Upstream`).
@@ -33,9 +35,10 @@ use crate::eval::{
     BodyGeom, CacheKey, Diagnostic, ErrorCause, EvalBody, Evaluated, Health, NodeEval,
 };
 use crate::feature::{
-    BodyChangeKind, ComputeMode, Dependency, FeatureError, FeatureOutput, RecomputeCtx,
+    BodyChangeKind, ComputeMode, ContextBodies, Dependency, FeatureError, FeatureOutput,
+    RecomputeCtx,
 };
-use crate::id::{BodyId, ConstructionId, FeatureId, SketchId};
+use crate::id::{BodyId, ComponentId, ConstructionId, FeatureId, SketchId};
 use crate::model::{Design, DesignMode};
 use crate::naming::{EntityRef, ResolutionRecord};
 use crate::param::Expr;
@@ -546,6 +549,11 @@ impl<'a> Pass<'a> {
             }
         }
 
+        // Only declaring features hash this section, so every other key keeps its layout.
+        if let Some(scope) = f.context_reads() {
+            self.hash_context_bodies(&mut h, scope, node.context);
+        }
+
         h.u64(node.context.0);
         h.tag(match self.mode {
             ComputeMode::Full => 0,
@@ -638,6 +646,37 @@ impl<'a> Pass<'a> {
         h.tag(0xfd);
         for (id, key) in &self.construction_key {
             h.u64(id.0.0);
+            h.key(key);
+        }
+    }
+
+    /// The bodies of `scope` as they are before the node (DOC-15): which they are, and each
+    /// one's component and producer key.
+    fn hash_context_bodies(&self, h: &mut KeyHasher, scope: ContextBodies, context: ComponentId) {
+        let only = match scope {
+            ContextBodies::Context => Some(context),
+            ContextBodies::Component(c) => Some(c),
+            ContextBodies::All => None,
+        };
+        let bodies: Vec<(BodyId, ComponentId, &CacheKey)> = self
+            .body_key
+            .iter()
+            .filter_map(|(id, key)| Some((*id, self.out.body(*id)?.component, key)))
+            .filter(|(_, component, _)| only.is_none_or(|c| c == *component))
+            .collect();
+        h.tag(0xfc);
+        match only {
+            Some(c) => {
+                h.tag(0);
+                h.u64(c.0);
+            }
+            None => h.tag(1),
+        }
+        h.u64(u64::try_from(bodies.len()).unwrap_or(u64::MAX));
+        for (id, component, key) in bodies {
+            h.u64(id.origin.0);
+            h.u64(u64::from(id.slot));
+            h.u64(component.0);
             h.key(key);
         }
     }

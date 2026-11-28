@@ -135,6 +135,9 @@ entities (`Dependency::Entity(EntityRef)`), sketches, construction, occurrences,
 `Expr` it uses (parameter dependencies are derived from them). A body read by feature *F*
 means "the state of that body just before *F*", i.e. the output of the last earlier
 non-suppressed feature that wrote it. The engine builds this producer map in one linear pass.
+A feature that reads bodies it can't list (extrude "All", a feature pattern's seeds) declares a
+scope instead, `context_reads() -> Option<ContextBodies>` (DOC-15): the context component, a
+named component, or every body.
 
 **Cache keys (constructive traces).** For each node in timeline order:
 ```
@@ -533,6 +536,10 @@ pub enum Dependency {
     Body(BodyId), Entity(EntityRef), Sketch(SketchId), Construction(ConstructionId),
     Occurrence(OccurrenceId), Feature(FeatureId),
 }
+/// Bodies read without being listed (`Feature::context_reads`, DOC-15; default `None`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ContextBodies { Context, Component(ComponentId), All }
+// trait Feature: fn context_reads(&self) -> Option<ContextBodies> { None }
 #[derive(Default)]
 pub struct FeatureOutput {
     pub bodies: Vec<BodyChange>,
@@ -875,7 +882,7 @@ inventory::collect!(ExtRegistration);
 | DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Done | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
 | DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Done | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous, plus unmerged, widened, class-changed (no ∞ arithmetic) and tombstone lookup by lineage. 2. 10 golden cases from the DOC-11 corpus (TNP-01/02/03/05/06/07/08/09/10/12) run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut, probe) and resolve to the intended entity (asserted by fingerprint); the other DOC-06-phase cases (TNP-04/11/24..28) meet their recorded `expect`. 3. Zero silent wrong resolutions (DOC-11 note §11.2 definition) over all DOC-06-phase cases. 4. Naming survives save/load (TNP-28). 5. The note §9 benches (`naming/finish-1000`, `naming/resolve`) run and their results are recorded in the note's §13. |
 | DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of the core corpus cases (DOC-11 note §11.4) meet their recorded `expect` (intended entity and quality, or the expected warning/error); the remainder fail with a feature error or warning; **0 silent wrong resolutions** (note §11.2 definition: a quiet `Ok` on a non-intended entity, or a quiet `Ok` where an error is expected). The harness measures the naive index baseline on every case and ≥ 5 cases are measured to break it (predictions in the corpus are corrected where the measurement differs). The held-out fuzz set (note §11.6) has 0 silent wrong resolutions. Runs in CI under 60 s (the fuzz set may run nightly if it doesn't fit). |
-| DOC-15 | Context-body inputs: a feature can declare that it reads every body (or every body of a component) in its context, and the recompute cache key covers them; used by SOL-02 extrude "All" and SOL-08 feature patterns without an explicit target | DOC-06, SOL-02, SOL-08 | P0 | Todo | 1. A `Dependency`/`Feature` API (additive) lets a feature declare context-body reads; the cache key hashes the keys of those bodies. 2. Regression tests: inserting or editing a feature between the seed and an "All" cut or a target-less feature pattern that changes a participating body recomputes the dependent feature (today it stays stale), and an unrelated edit still hits the cache. 3. SOL-02 "All" and SOL-08 patterns use it; no existing test changes. |
+| DOC-15 | Context-body inputs: a feature can declare that it reads every body (or every body of a component) in its context, and the recompute cache key covers them; used by SOL-02 extrude "All" and SOL-08 feature patterns without an explicit target | DOC-06, SOL-02, SOL-08 | P0 | Review | 1. A `Dependency`/`Feature` API (additive) lets a feature declare context-body reads; the cache key hashes the keys of those bodies. 2. Regression tests: inserting or editing a feature between the seed and an "All" cut or a target-less feature pattern that changes a participating body recomputes the dependent feature (today it stays stale), and an unrelated edit still hits the cache. 3. SOL-02 "All" and SOL-08 patterns use it; no existing test changes. |
 
 | DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Done | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
 | DOC-10 | Configurations: `ConfigTable`, param/suppression overrides, `SetActiveConfig`, per-config cache keys, persistence | DOC-05, DOC-12 | P2 | Done | Design with 3 configurations: switching recomputes to the expected per-config volumes; switching back is a full cache hit (0 computes); configurations survive save/load. |
@@ -1169,6 +1176,36 @@ changes (2026-11-25, DOC-06).
 
 ### 2026-11-26 - DOC-15 added (owner decision)
 - SOL-02 extrude "All" and SOL-08 feature patterns with `target: None` read context bodies that `Feature::inputs()` cannot list, so an upstream edit of such a body between the seed and the feature does not change its cache key and the cached result goes stale. The owner approved fixing this in amg-doc (DOC-15) rather than per feature. SK-09's `hash_missing_input` (hashes every body key when an optional input is missing) is prior art for the hashing side.
+
+### 2026-11-28 - DOC-15 context-body inputs (lane E)
+- **Landed.** `Feature::context_reads(&self) -> Option<ContextBodies>` (default `None`) and
+  `ContextBodies::{Context, Component(id), All}` (Interface changes, 2026-11-28). For a declaring
+  node `node_key` also hashes the scope and, for every body in it as it is just before the node,
+  its id, component and producer key (from the producer map, filtered by the body's current
+  component). So creating, changing, deleting, consuming or moving such a body is a cache miss;
+  bodies of other components (for `Context`/`Component`), later features, sketches and
+  construction geometry are not covered. A declaration adds no ordering rule and no missing-input
+  error. Nodes that declare nothing keep their key layout, so `ENGINE_FORMAT_VERSION` stays 2;
+  persisted entries of declaring features miss once, which drops any stale ones.
+- **Users** (`amg-features::solid`, declaration only): `solid.extrude` with an "All" extent on
+  either side, and `solid.pattern` / `solid.mirror` over features, both `Context`.
+- **Done-when evidence.** (1) `amg-doc/tests/context_reads.rs`, 7 tests: each scope against body
+  edits, inserted and suppressed modifiers, new and removed bodies, a body moved between
+  components, unrelated edits. (2) `amg-features/tests/solid_context_reads.rs`, `occt`: insert
+  and edit a body or a participant change before an "All" new-body, join and cut extrude, a
+  target-less feature pattern and mirror, and a targeted pattern of an "All" seed; unrelated
+  edits (another component, a sketch) hit the cache. (3) the two declaration tests there; no
+  existing test changed. With the new key section switched off, all 6 OCCT
+  regressions and 4 of the engine tests fail (stale output).
+- **Deviation.** Feature patterns and mirrors declare their reads with an explicit `target`
+  too: the seed's tool is rebuilt against the state just before the pattern, so an "All" seed
+  went stale there as well.
+- **Leftovers.** `Context` is the pattern's component. A seed that lives in **another** component
+  (possible only with an explicit `target`) and reads bodies there ("All", a face of such a body)
+  is still not covered; fixing it needs the seeds' components or inputs, which `context_reads`
+  can't see (it would take the design as an argument), or `All` at the price of more misses.
+  `Context` is also coarser than necessary for a target-less pattern: any body change earlier in
+  the component recomputes it.
 
 ## Interface changes
 
@@ -2050,3 +2087,12 @@ Additive; lane E to confirm.
 - `Document::baked_transaction(label) -> BakedTransaction<'_>`: commands (`apply`, returns the created ids) and features with baked payloads (`add_feature_baked(add, baked, props)`, the same rules as `Document::add_feature_baked`) on a private copy, published by `commit` as **one** undo entry; dropping it discards everything. Like `add_feature_baked` the commit is opaque to crash recovery (snapshot, not journal). A STEP assembly import creates components, occurrences and one baked feature per part in one "Insert" entry.
 - `Document::add_feature_baked` is now a one-step baked transaction; behaviour and errors are unchanged (`tests/baked_feature.rs` passes unchanged, plus `baked_transaction_is_one_undo_entry`).
 - Re-exported from the crate root: `BakedTransaction`. No change to `design.json`.
+
+### 2026-11-28: context-body reads (DOC-15, lane E; additive)
+- `Feature::context_reads(&self) -> Option<ContextBodies>`, default `None`: the bodies a feature
+  reads besides `inputs()`. `ContextBodies { Context, Component(ComponentId), All }`, re-exported
+  from the crate root. The recompute engine adds those bodies' state to the node's cache key.
+  A feature that searches `RecomputeCtx::before()` for bodies it doesn't list must declare it.
+  `Feature` wrappers that delegate to another feature must forward it.
+- No change to `Dependency`, `design.json` or `ENGINE_FORMAT_VERSION`.
+- Lane A code touched (declaration only): `solid::extrude`, `solid::pattern` (and mirror).
