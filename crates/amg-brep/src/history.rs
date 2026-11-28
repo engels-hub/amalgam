@@ -439,6 +439,14 @@ pub enum KernelWarning {
     FuzzyUsed(f64),
     /// The history is incomplete.
     PartialHistory,
+    /// S20's `HardenedKernel` accepted a strategy other than the direct op (request R17): the
+    /// strategy's name (`robust::StrategyId::name`) and what it did, e.g. the fuzzy value.
+    Strategy {
+        /// The accepted strategy, e.g. `fuzzy`.
+        name: &'static str,
+        /// The health warning text.
+        detail: String,
+    },
 }
 
 /// A shape-producing op's result.

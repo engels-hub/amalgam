@@ -24,6 +24,7 @@ mod offset;
 mod ops;
 pub mod opts;
 mod query;
+pub mod robust;
 mod shape;
 mod sweep;
 mod tess;
@@ -41,7 +42,7 @@ pub use history::{
     FaceBuild, InputSub, KernelWarning, OpResult, OpRole, Relation, SPLIT_QUANTUM, ShapeHistory,
     SplitKey, split_order_key,
 };
-pub use kernel::{BrepKernel, OcctKernel, POLICY_VERSION, init, kernel_version};
+pub use kernel::{BrepKernel, OcctKernel, init, kernel_version};
 pub use opts::{
     BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletShape, FilletSpec, Glue, HealOpts,
     HelixSpec, LoftSection, OffsetJoin, PipeMode, PipeOpts, PrismExtent, PrismOpts, SewOpts,
@@ -51,6 +52,7 @@ pub use query::{
     Classification, DistanceResult, EdgeEnds, MASS_PROPS_EPS, MassProps, RayHit, SubShapeGeom,
     SurfacePoint,
 };
+pub use robust::POLICY_VERSION;
 pub use shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, ShapeKind, SubKind, SubShape, VertexId};
 pub use tess::{EdgePolyline, TessMesh, TessProfile};
 

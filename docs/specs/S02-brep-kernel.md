@@ -3558,6 +3558,17 @@ and `testdata/brep/iges/`. No other lane's files changed.
   face colours.
 - No new dependency; `THIRD_PARTY.md` unchanged (OCCT's row covers TKService).
 
+### 2026-11-28: additions from S20 KH-17 (lane A)
+- `KernelWarning::Strategy { name: &'static str, detail: String }`: additive variant (S20
+  request R17). `robust::HardenedKernel` pushes one per health warning when a strategy other
+  than the direct op was accepted. No `KernelWarning` match outside `amg-brep` is exhaustive.
+- `POLICY_VERSION` moved to `amg_brep::robust` and is 1 (`amg_brep::POLICY_VERSION`
+  re-exports it); `kernel_version()` is now `occt-8.0.1;amg-brep-<FORMAT_VERSION>;policy-1`.
+- No existing `BrepKernel` method changed behaviour; `HardenedKernel` is an opt-in decorator.
+  `tests/api_contract.rs` now also checks that `HardenedKernel` reaches the inner kernel from
+  every trait method (the count is read from `Forward`'s impl, so a new method fails it
+  until added).
+
 ### 2026-11-26: requests from S12 IO-06 (lane G; no S02 file other than this entry changed)
 - **Unnamed products.** `write_step` of a `ForeignNode`/`ForeignPrototype` without a name (or with `Some("")`) gives `PRODUCT('Product <n>', ...)`: OCCT's STEP writer invents the name, so a re-read reports `Product <n>` where the source had none. Request: keep such products unnamed (empty `PRODUCT` name and id), for example by setting the `StepBasic_Product` names after the transfer. IO-06's round-trip tests accept the generated pattern until then.
 - **Note, no request:** STEP has no per-edge or per-vertex tolerance, so parts with tolerances above the kernel's change within that tolerance on a write/read (NIST files: up to 6.2e-6 relative volume at 0.0096 mm tolerances). `Shape::volume` (fixed-order quadrature) also differs by ~1e-7 relative between a part and its re-read; IO-06 compares with `volume_adaptive`, which is `#[doc(hidden)]`; a public precise volume (BREP-09 `mass_props`) would be the better entry point.

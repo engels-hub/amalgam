@@ -827,7 +827,7 @@ open request.
 | R14 | `amg-occt-sys` accepts additive S20 shim files (`plate.cpp` for `GeomPlate` in KH-19, `gordon.cpp` for `GeomFill_Gordon` in KH-16/KH-18) under S02's bridge and CATEGORY conventions | KH-16, KH-18, KH-19 | open |
 | R15 | Bump the pin from OCCT 8.0.0 to **8.0.1** (current vcpkg port; S02 already notes it fixes the `Standard_Strtod` race). 8.0.0p1 replaced 8.0.0's experimental `GeomFill_Gordon`, and 8.0.1 made fillet reconstruction state thread-local. Both matter to S20 (Gordon oracle/engine, parallel harness). With 8.0.0, KH-16/KH-18 skip the OCCT Gordon parts | KH-16, KH-18, KH-02 | open (S02 pins 8.0.0) |
 | R16 | Ordered wire traversal (`BRepTools_WireExplorer`): `Shape::wire_edges(&self) -> Vec<(EdgeId, bool /* reversed */)>` | KH-16 | open (confirm) |
-| R17 | Additive `KernelWarning::Strategy { name: &'static str, detail: String }` so `HardenedKernel` can report a non-direct acceptance through `OpResult::warnings` | KH-17 | open |
+| R17 | Additive `KernelWarning::Strategy { name: &'static str, detail: String }` so `HardenedKernel` can report a non-direct acceptance through `OpResult::warnings` | KH-17 | done (KH-17, 2026-11-28; S02 log note) |
 
 ## Work packages
 | ID | Title | Deps | Pri | Status | Done when |
@@ -839,7 +839,7 @@ open request.
 | KH-14 | `amg-nurbs` compatibility + skinning: `make_compatible` (exact/approximated, rules in nurbs note §5.2), `loft_surfaces` (one patch per segment, shared v-params, shared corner derivatives), all `EndCondition`s with `CrossBoundaryField`, ruled/closed, `check` module | KH-13 | P1 | Todo | 1. Exact path: outputs equal the inputs ≤ 1e-12·D; approximated path: ≤ `fit_tol` (1e-5 mm) with ≤ `max_poles`; it falls back to approximation exactly when the union exceeds `exact_pole_limit` (unit test at the boundary). 2. Skins reproduce every section at its v-parameter (≤ 1e-12·D exact path, ≤ `fit_tol` approximated). 3. Neighbouring patches have bit-identical shared boundaries (`to_bits`), and G1 across tangent-merged segments is ≤ 1e-8 rad. 4. G1 end condition against analytic planes/cylinders: angle ≤ 1e-8 rad at 100 boundary samples; G2: normal-curvature mismatch ≤ 1e-6 relative; `PointTangent` apex tangent plane ⊥ `normal` within 1e-9 rad. 5. Two sections without end conditions give a ruled surface. 6. Benchmarks: 6 sections × 8 segments exact < 2 ms; approximated < 10 ms. |
 | KH-15 | `amg-nurbs` Gordon surfaces (network sort, Fritsch–Carlson reparametrisation, compatible families, boolean sum, closed networks) + `frames::rotation_minimizing` + `frames::centerline_sections` | KH-14 | P1 | Todo | 1. Every network curve is reproduced within `max(fit_tol, 1e-12·D)` on synthetic networks (bilinear, 3×3 … 6×6, non-uniform intersection parameters, closed) and all TiGL `CurveNetworks` fixtures (Apache-2.0, attributed). 2. Networks that miss by > `net_tol` give `NetworkMiss` with the right indices; a doubly-crossing guide gives `NetworkMultiple`. 3. A counter-test shows the uniform-parameter/degree-1-tensor shortcut fails these fixtures (guards the design choice). 4. RMF: orthonormal to 1e-12; planar curve normal constant to 1e-12; helix rotation vs Frenet = −∫τ ds within 1e-6 rad at 1000 steps. 5. Centerline sections: original sections are reproduced exactly; intermediate frames follow the RMF. 6. Gordon 5×5 < 20 ms. |
 | KH-16 | `amg_brep::nurbs_conv`: amg-nurbs ↔ OCCT `Geom_BSplineCurve/Surface` (+ knots/mults), `curve_seg_to_nurbs`, `surface_to_nurbs`, `edge_to_nurbs`, `wire_to_chain`, `nurbs_face` (on S02 `make_face`); OCCT differential tests (incl. `GeomFill_Gordon` on TiGL networks when OCCT ≥ 8.0.0p1) | KH-07, KH-12, BREP-03 | P1 | Todo | 1. amg-nurbs → OCCT → amg-nurbs round-trips bit-identically (poles, weights, knots). 2. OCCT `D0/D1/D2` vs `eval/derivs` on 10 k random parameters of 200 random curves/surfaces ≤ 1e-11·max(1, D). 3. Lines, circles, ellipses, planes, cylinders, cones, spheres and tori from OCCT convert to exact NURBS (radius error ≤ 1e-12·r). 4. `nurbs_face` on a skinned patch gives a BRepCheck-valid face whose OCCT tessellation lies within 1e-6 mm of `eval`. 5. With OCCT ≥ 8.0.0p1, KH-15 Gordon results lie within 1e-4 mm of `GeomFill_Gordon` on the TiGL set (or the differences are explained in the PR). |
-| KH-17 | `amg_brep::robust` framework: `RetryPolicy` presets, `validate` gate, `Attempt`/`RobustReport`, deterministic chain runner (deadline aborts), fuzzy ladder + glue + non-destructive in `robust_boolean`, `heal` levels with composed history, `POLICY_VERSION`, `HardenedKernel` decorator; boolean near-coincidence generator + proptests | KH-01, BREP-04, BREP-10 | P1 | Todo | 1. On the BREP-04 boolean corpus plus 100 generated near-coincident cases (offsets 0…1e-4 mm, tangent cylinders, coplanar faces), `robust_boolean` gives valid `Ok` on ≥ 95 % of the generated cases with zero invalid `Ok`. Baseline raw OCCT and the improvement are recorded in `kernel-metrics.md`. 2. `exact_only` reproduces raw OCCT bit-identically. 3. Determinism: identical `.brep` bytes and `RobustReport` across two runs and across 1 vs 8 rayon threads. 4. A deadline expiry yields `Timeout` and never a later strategy's result (test with an injected slow strategy). 5. Healing history composition: a test feature filleting after `Unify` resolves names through the composed history (`ShapeHistory` test). 6. Every non-direct acceptance adds a warning. |
+| KH-17 | `amg_brep::robust` framework: `RetryPolicy` presets, `validate` gate, `Attempt`/`RobustReport`, deterministic chain runner (deadline aborts), fuzzy ladder + glue + non-destructive in `robust_boolean`, `heal` levels with composed history, `POLICY_VERSION`, `HardenedKernel` decorator; boolean near-coincidence generator + proptests | KH-01, BREP-04, BREP-10 | P1 | Review | 1. On the BREP-04 boolean corpus plus 100 generated near-coincident cases (offsets 0…1e-4 mm, tangent cylinders, coplanar faces), `robust_boolean` gives valid `Ok` on ≥ 95 % of the generated cases with zero invalid `Ok`. Baseline raw OCCT and the improvement are recorded in `kernel-metrics.md`. 2. `exact_only` reproduces raw OCCT bit-identically. 3. Determinism: identical `.brep` bytes and `RobustReport` across two runs and across 1 vs 8 rayon threads. 4. A deadline expiry yields `Timeout` and never a later strategy's result (test with an injected slow strategy). 5. Healing history composition: a test feature filleting after `Unify` resolves names through the composed history (`ShapeHistory` test). 6. Every non-direct acceptance adds a warning. |
 | KH-02 | Fillet corpus + harness: `robust::corpus` generators (`prism_vertical_edges` with exact volume oracle, `prism_mixed_edges`, `boolean_stack`, `radius_too_large`), ≥ 50 handmade cases, case schema, process-isolated harness (`kernel-harness` example / `amg-cli kernel harness`), report JSON, `docs/notes/kernel-metrics.md`, baseline files + smoke-subset CI test | KH-01, BREP-06 | P1 | Todo | 1. ≥ 200 cases (≥ 120 synthetic from `seeds.toml`, ≥ 50 handmade committed, the rest harvested/owner under `AMG_TESTDATA_DIR` when present). 2. The exact-volume oracle agrees with a high-resolution tessellation volume within 1e-4 relative on 20 cases (validates the formula). 3. Baseline raw `MakeFillet` success, clean-failure, invalid-Ok and crash counts plus p50/p95 time are recorded in `kernel-metrics.md`. 4. The smoke subset (≈ 40 cases) runs in CI `golden` in < 2 min and fails when a baseline-passing case is broken on purpose. 5. An OCCT access violation in one case (injected) is reported as `Crash` and the run completes. |
 | KH-03 | Fillet strategy wrapper + diagnostics: `robust::fillet::fillet` chain (design §4), failing-edge isolation (OCCT report, then ddmin), `max_radius`, `FilletDiagnosis` for SOL-05 | KH-02, KH-17, SOL-05 | P1 | Todo | 1. Full-corpus success rate ≥ baseline + 10 percentage points **and** ≥ 50 % of baseline failures fixed. 2. Zero regressions (every baseline-passing case still passes) and zero invalid `Ok`. 3. 100 % of failures name ≥ 1 failing edge and a `FailureClass`. 4. On `radius_too_large`, `max_radius` is within 2 % of the analytic limit; on other failures `r̂` succeeds and `1.02·r̂` fails in ≥ 95 % of cases (else flagged `approximate`). 5. Proptest: 256 generated parts give valid `Ok` or a classified `Err`, never a panic. 6. Before/after table in `kernel-metrics.md`. |
 | KH-04 | Analytic fast-path fillet: edge classification, exact blend surfaces (cylinder/torus/cone/pipe), trimming tools, General Fuse booleans with the fuzzy ladder, tangent chains; runs before the KH-03 chain | KH-03, KH-16, BREP-09 | P1 | Todo | 1. ≥ 98 % success on the analytic-edge subset **without** 3-edge corners (tag `analytic & !corner3`). 2. Exact-oracle cases match volume within 1e-6 relative; all results BRepCheck-valid with `max_tolerance ≤ 1e-5 mm`. 3. p50 time ≤ raw `MakeFillet` p50 on the same subset. 4. Out-of-scope cases fall through unchanged (the chain result is bit-identical to KH-03 alone). 5. Zero regressions on the full corpus. |
@@ -1094,6 +1094,106 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
 ### 2026-11-26 - KH-20 added (owner decision)
 - SOL-02 Done-when 6 (extrude-cut 121 ms vs 80 ms) and SOL-06 Done-when 8 (shell preview 369 ms vs 100 ms) missed only inside OCCT (`BRepAlgoAPI_Cut` about 105 ms, `BRepOffset_MakeOffset` 363 ms). The owner accepted both misses and closed the two WPs; the budgets move to the new KH-20. Measurements are in the SOL-02 and SOL-06 entries of S04 and in the handoff reports.
 
+### 2026-11-28 - KH-17 robustness framework landed (lane A)
+- **Landed in `amg-brep`:** `pub mod robust` with `POLICY_VERSION = 1` (moved from `kernel.rs`;
+  `amg_brep::POLICY_VERSION` re-exports it, so `kernel_version()` is now `…;policy-1`),
+  `RetryPolicy` and its four presets (robustness note §2.6 table), `HealLevel`, `Validation`,
+  `StrategyId`, `Rejection`, `AttemptOutcome`, `Attempt`, `RobustReport`, `RobustOutput`,
+  `RobustCtx`, `RobustError` (+ `Diagnostic`), `validate`, `robust_boolean`, `robust_split`,
+  `heal`, `HardenedKernel`; submodules `robust::chain` (the chain runner) and `robust::corpus`
+  (the near-coincidence generator). Tests `tests/robust.rs` (9) plus 15 unit tests, the
+  `HardenedKernel` forwarding test in `tests/api_contract.rs`, bench `benches/robust.rs`,
+  `docs/notes/kernel-metrics.md` (created; notes README status updated). No new dependency.
+- **Chain rules as built:** strategies run in a fixed order through `chain::Chain`. Each
+  attempt gets a `JobCtx` whose token is a child of the caller's. A process-wide deadline
+  thread cancels it when `attempt_deadline` passes. An expiry (or an attempt that returned after
+  the deadline) aborts the chain with `Timeout`, and later strategies are never built. Argument
+  errors, `BackendUnavailable` and `Cancelled` stop the chain at once. `max_attempts` counts
+  the direct attempt. The final error carries the direct attempt's class.
+- **`robust_boolean` order:**
+  1. `Direct` (the caller's `BoolOpts`).
+  2. `Fuzzy { rung }` for each ladder value above `base.fuzzy` and at most
+     `min(tol_cap, 1e-3 × shortest input edge)`.
+  3. From the second rung on, `Glue { rung }` (`Glue::Shift`) when the operands have
+     coincident planar or cylindrical faces within the rung. KH-17 detects this itself from
+     `Shape::surface` plus face boxes, as R6 allowed.
+  4. `Heal(level)` for `Light ..= policy.heal`: operands healed at that level, the op with the
+     base options, the healing history composed per operand (`robust::compose_operands`).
+
+  Gate per attempt:
+  - `require_solid` when every operand is a solid body;
+  - tolerance cap `max(input tolerance, min(cap, 10 × fuzzy))`;
+  - volume bounds for solid operands (`V(∪) ∈ [max Vᵢ, ΣV]`, `V(A∖B) ≥ V(A) − V(B)`,
+    `V(∩) ≤ min`), 1e-3 relative slack plus `2 × fuzzy × operand area`.
+
+  Every non-direct acceptance adds a report warning; a rung above 1e-5 mm adds a second one.
+- **Done-when evidence** (OCCT 8.0.1, `--features occt`; tables in `kernel-metrics.md`):
+  1. Met. BREP-04 corpus, 131 result cases: raw and robust both 131 valid. 100 generated
+     near-coincident cases (10 families, offsets `0…±1e-4` mm, tilts up to 1e-3 rad, analytic
+     volume oracles):
+     - raw OCCT: 99 "valid" `Ok`, 1 invalid `Ok` (`BadOrientationOfSubshape`) and 3 valid
+       `Ok`s with tolerances of 1.4e-3, 3.3e-2 and 5.4e-2 mm;
+     - `robust_boolean` (`recompute`): **99 valid `Ok` (99 %), 0 invalid `Ok`, 0 above the
+       cap, 1 classified `ToleranceTooLarge` error**; 3 non-direct acceptances;
+     - usable results 96 → 99.
+
+     Proptest `near_coincident_booleans_are_valid_or_classified` (48 cases): valid `Ok` or a
+     classified `Err`.
+  2. Met. `exact_only` is byte-identical (text `.brep`, history, warnings) to the raw op on all
+     136 corpus cases and 97 of the 100 generated cases. The other 3 are the raw results above
+     the 1e-3 mm cap, which the gate refuses (the test asserts these are gate rejections only).
+  3. Met. 119 inputs (3 of them non-direct) give identical bytes, history and
+     `RobustReport::without_timing()` over 3 runs on 1- and 8-thread rayon pools.
+  4. Met. A real 1030-face cut (about 10 s) under a 300 ms deadline gives `Timeout` after
+     341 ms (through `Chain`; the succeeding strategy behind it never runs) and after 568 ms
+     (through `robust_boolean`). `HardenedKernel` reports it as `OpFailed`. A unit test with a
+     cooperative slow closure covers the same without OCCT.
+  5. Met (`healing_history_composes_through_unify_and_a_fillet`). Two fused boxes (10 faces,
+     split top and front) → `robust::heal(Unify)` (attempts `Heal(Light)`, `UnifySameDomain`,
+     6 faces) → a 2 mm fillet on the merged front-top edge. The composed history maps both top
+     pieces to the trimmed top face (160 mm², +z) and both edge pieces to the
+     `FilletBlend` face.
+  6. Met (`non_direct_acceptances_warn`, plus an assertion over both corpora): with an injected
+     exact-boolean failure, `Fuzzy { rung: 0 }` is accepted with 1 warning (2 for a 1e-4 rung,
+     "above 1e-5 mm"). `HardenedKernel` adds `KernelWarning::Strategy { name: "fuzzy", .. }` for
+     `boolean` and `split`. A direct acceptance adds none.
+- **Performance** (S20 target "direct accepted ≤ raw + validation, < 5 %"; criterion): blind
+  hole raw 1.66 ms, raw + gate 2.87 ms, robust 2.93 ms (+2.2 %); 202-face plate cut 409 / 687 /
+  704 ms (+2.4 %). A per-attempt watchdog thread and an eager operand-area sum had cost +15.7 % /
+  +7.3 %; both were removed.
+- **Deviations from the Interfaces sketch:**
+  - `RobustError` gains `error: Option<Box<KernelError>>`, the direct attempt's kernel error
+    (boxed to keep `Result` small), so `HardenedKernel` returns the kernel's own error.
+  - `StrategyId::Custom(u8)` added for injected strategies.
+  - Additive helpers: `StrategyId::name` + `Display`, `Rejection::class` + `Display`,
+    `HealLevel::ladder`, `Validation::with_cap`, `RobustCtx::new`,
+    `RobustReport::{without_timing, dump_attempts}`, `FUZZY_WARN_ABOVE`,
+    `robust::{identity_history, compose_operands}`, `HardenedKernel::{with_tolerance, inner,
+    policy}`, and `robust_split` (the decorator also routes `split`).
+  - `capture::Attempt` stays as the dump form (manifest schema 1 unchanged), with
+    `From<&robust::Attempt>`, instead of being replaced.
+  - `Validation::require_solid` relies on BRepCheck's shell check for closure when `brepcheck`
+    is on. A topology-only free-edge scan miscounted the line-contact edge OCCT embeds in a face
+    (corpus `tangent_cyl_on_box_fuse`); the scan only runs with `brepcheck` off. An empty
+    result passes.
+  - `HealLevel::Full` is `Unify` + `sew` at `tol_cap` with `make_solid` (sewing's solid step
+    already orients through `ShapeFix_Solid::SolidFromShell`); no separate `ShapeFix_Solid`.
+  - Attempts run with `JobCtx::with_token(child)`, so there is no progress inside an attempt;
+    the chain reports progress per attempt on the caller's context. `amg-jobs` has no public
+    way to derive a context with a child token that keeps the job's progress.
+  - `HardenedKernel::fillet` forwards unchanged until KH-03's `robust::fillet::fillet`. Not
+    wired into `amg-features`; it is opt-in.
+- **Findings:** OCCT 8.0.1 already handles plain near-coincidence. Of the 10 families, only
+  shifted coplanar copies (an invalid orientation) and slightly skewed coaxial cylinders
+  (results with tolerances up to 5.4e-2 mm that BRepCheck accepts) go wrong. So the gate's
+  tolerance cap matters as much as the ladder. `Full` healing does not recover the one
+  remaining case.
+- **Leftovers:** KH-03 routes `HardenedKernel::fillet`; wiring `HardenedKernel` into the
+  recompute context (later WP); harvested tracker shapes for the corpus (BREP-04 leftover);
+  progress inside attempts (an `amg-jobs` addition, see Interface changes); a corpus case
+  where only the `Heal` strategies succeed (none of the 236 cases needs them, so that path is
+  covered by `compose_operands` unit tests and the attempt log of a failing case).
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1111,3 +1211,14 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - Request: `amg-cli kernel replay|promote` as thin wrappers over `amg_brep::capture::{replay,
   replay_in_child, promote, FailureRecorder::recover_pending}`. Until then the `amg-brep`
   example `kernel-replay` provides the same commands. No code in lane E was changed.
+
+### 2026-11-28: KH-17 -> S02 (`amg-brep` shared API, lane A) and `amg-jobs`
+- `KernelWarning::Strategy { name: &'static str, detail: String }` added (R17, additive; no
+  exhaustive match on `KernelWarning` exists outside `amg-brep`). Recorded in S02's Interface
+  changes.
+- `POLICY_VERSION` now lives in `amg_brep::robust` (value 1); `amg_brep::POLICY_VERSION` is a
+  re-export, so `kernel_version()` reads `…;policy-1` and S01 caches salted with it are
+  invalidated once.
+- Proposed for `amg-jobs` (not changed): `JobCtx::with_child_token(&self) -> (JobCtx,
+  CancelToken)`, a context that keeps the job's progress range but can be cancelled on its own,
+  so robust attempts can report progress inside OCCT ops.

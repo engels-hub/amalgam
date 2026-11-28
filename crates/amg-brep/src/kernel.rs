@@ -31,16 +31,13 @@ use crate::opts::{
 use crate::query::{
     self, Classification, DistanceResult, EdgeEnds, MassProps, RayHit, SubShapeGeom, SurfacePoint,
 };
+use crate::robust::POLICY_VERSION;
 use crate::shape::{EdgeId, FORMAT_VERSION, FaceId, Shape, SubKind, SubShape};
 use crate::sweep;
 use crate::tess::{self, TessMesh, TessProfile};
 
-/// Version of the robustness policy, the third part of [`kernel_version`]. S20's
-/// `amg_brep::robust` module takes it over and bumps it when a strategy changes results.
-pub const POLICY_VERSION: u32 = 0;
-
 /// `occt-<version>;amg-brep-<FORMAT_VERSION>;policy-<POLICY_VERSION>`, for example
-/// `occt-8.0.1;amg-brep-1;policy-0`. Part of S01's `ENGINE_SALT`: any change invalidates
+/// `occt-8.0.1;amg-brep-1;policy-1`. Part of S01's `ENGINE_SALT`: any change invalidates
 /// cached kernel results. `occt-none` in a build without the `occt` feature.
 pub fn kernel_version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();

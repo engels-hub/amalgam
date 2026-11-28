@@ -24,11 +24,14 @@ pub fn not_done(op: &'static str) -> KernelError {
 /// `inner` with faults:
 /// - `mirrored` and `section` always fail with an injected `OpFailed` (class `NotDone`);
 /// - `make_torus` with `major == 42` panics;
-/// - with `abort`, `make_sphere` aborts the process (a hard crash inside the op).
+/// - with `abort`, `make_sphere` aborts the process (a hard crash inside the op);
+/// - with `exact_boolean_fails` (S20 KH-17), `boolean` and `split` with `fuzzy == 0` fail with
+///   an injected `OpFailed`, so a robust chain has to use the fuzzy ladder.
 #[derive(Debug)]
 pub struct FaultKernel<K> {
     pub inner: K,
     pub abort: bool,
+    pub exact_boolean_fails: bool,
 }
 
 impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
@@ -123,6 +126,9 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
         opts: &BoolOpts,
         ctx: &JobCtx,
     ) -> KResult<OpResult> {
+        if self.exact_boolean_fails && opts.fuzzy == 0.0 {
+            return Err(not_done("boolean"));
+        }
         self.inner.boolean(op, objects, tools, opts, ctx)
     }
     fn split(
@@ -132,6 +138,9 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
         opts: &BoolOpts,
         ctx: &JobCtx,
     ) -> KResult<OpResult> {
+        if self.exact_boolean_fails && opts.fuzzy == 0.0 {
+            return Err(not_done("split"));
+        }
         self.inner.split(objects, tools, opts, ctx)
     }
     fn section(&self, _a: &Shape, _b: &Shape, _ctx: &JobCtx) -> KResult<OpResult> {
