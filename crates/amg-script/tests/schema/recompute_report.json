@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RecomputeReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "revision", "computed", "cached", "millis", "features"],
+  "properties": {
+    "schema": { "type": "integer", "const": 1 },
+    "revision": { "type": "integer" },
+    "computed": { "type": "integer" },
+    "cached": { "type": "integer" },
+    "millis": { "type": "number" },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "name", "health", "messages", "millis"],
+        "properties": {
+          "id": { "type": "integer" },
+          "kind": { "type": "string" },
+          "name": { "type": "string" },
+          "health": {
+            "type": "string",
+            "enum": ["ok", "warning", "error", "suppressed", "rolled_back"]
+          },
+          "messages": { "type": "array", "items": { "type": "string" } },
+          "millis": { "type": "number" }
+        }
+      }
+    }
+  }
+}

@@ -18,9 +18,12 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use amg_core::Cancelled;
-use amg_jobs::{Job, JobCtx, JobError, JobHandle, JobSystem, SpawnOptions, is_ui_thread};
+use amg_jobs::{
+    CancelToken, Job, JobCtx, JobError, JobHandle, JobSystem, SpawnOptions, is_ui_thread,
+};
 
 use crate::cache::GeomCache;
 use crate::command::{Command, CommandError, CommandOutcome, apply_command};
@@ -417,6 +420,68 @@ impl Document {
             return Ok(());
         };
         match r.handle.wait_blocking() {
+            Ok(result) => {
+                self.swap_in(result, r.revision);
+                Ok(())
+            }
+            Err(e) => {
+                let e = RecomputeError::from(e);
+                self.failed = Some((r.revision, e.to_string()));
+                Err(e)
+            }
+        }
+    }
+
+    /// Like [`Document::recompute_blocking`], but stops waiting as soon as `cancel` is
+    /// cancelled: the job is cancelled, [`RecomputeError::Cancelled`] is returned at once and
+    /// the document stays stale, so a later call or `poll` recomputes. Features that finished
+    /// stay in the cache. A document that is already evaluated returns `Ok` even if `cancel`
+    /// is cancelled. For the CLI and Python (Ctrl+C).
+    ///
+    /// # Errors
+    /// [`RecomputeError::Cancelled`] or [`RecomputeError::Panicked`].
+    ///
+    /// # Panics
+    /// In debug builds on the UI thread (`amg_jobs::mark_ui_thread`): use [`Document::poll`].
+    pub fn recompute_blocking_with(
+        &mut self,
+        jobs: &JobSystem,
+        cancel: &CancelToken,
+    ) -> Result<(), RecomputeError> {
+        debug_assert!(
+            !is_ui_thread(),
+            "Document::recompute_blocking_with called on the UI thread"
+        );
+        self.failed = None;
+        let cur = self.history.revision();
+        self.cancel_if_stale(cur);
+        if self.running.is_none() {
+            if !self.needs_recompute(cur) {
+                return Ok(());
+            }
+            if cancel.is_cancelled() {
+                return Err(RecomputeError::Cancelled);
+            }
+            self.spawn(jobs, cur);
+        }
+        let Some(mut r) = self.running.take() else {
+            return Ok(());
+        };
+        // The handle has no wait that also watches a foreign token, so poll both. The sleep
+        // grows to 1 ms, which bounds the added latency of a short and of a long recompute.
+        let mut nap = Duration::from_micros(20);
+        let result = loop {
+            if let Some(result) = r.handle.try_take() {
+                break result;
+            }
+            if cancel.is_cancelled() {
+                r.handle.cancel();
+                return Err(RecomputeError::Cancelled);
+            }
+            std::thread::sleep(nap);
+            nap = (nap * 2).min(Duration::from_millis(1));
+        };
+        match result {
             Ok(result) => {
                 self.swap_in(result, r.revision);
                 Ok(())

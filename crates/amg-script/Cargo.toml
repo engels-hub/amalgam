@@ -1,6 +1,6 @@
 [package]
 name = "amg-script"
-description = "Python API and headless batch. Pure-Rust stub until SCR-01 adds pyo3."
+description = "Python API and headless batch. Pure Rust until SCR-01 adds pyo3."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,6 +12,20 @@ amg-core.workspace = true
 amg-jobs.workspace = true
 amg-doc.workspace = true
 amg-features.workspace = true
+# SCR-07: formats, options and the mesh writers (layering edges: QUESTIONS #104).
+amg-io.workspace = true
+amg-mesh.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# SCR-07: the lane-E test features (`test.counter`, `test.slow`) in the fixture designs.
+amg-doc = { workspace = true, features = ["test-features"] }
+amg-testkit.workspace = true
+# SCR-07: the report schema snapshots (already a workspace dependency).
+serde_json.workspace = true
+# SCR-07: temporary directories (already used by `amg-io` tests, THIRD_PARTY.md).
+tempfile = "3.27.0"
 
 [lints]
 workspace = true

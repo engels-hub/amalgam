@@ -504,7 +504,14 @@ dependencies = [
  "amg-core",
  "amg-doc",
  "amg-features",
+ "amg-io",
  "amg-jobs",
+ "amg-mesh",
+ "amg-testkit",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

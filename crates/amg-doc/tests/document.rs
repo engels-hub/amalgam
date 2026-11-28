@@ -15,7 +15,7 @@ use amg_doc::{
     Command, ComputeMode, Design, Document, Expr, FeatureBox, FeatureId, GeomCache, ParamId,
     RecomputeError, RecomputeStatus, recompute,
 };
-use amg_jobs::{JobCtx, JobSystem, JobSystemConfig};
+use amg_jobs::{CancelToken, JobCtx, JobSystem, JobSystemConfig};
 
 fn jobs() -> JobSystem {
     JobSystem::new(JobSystemConfig::default()).unwrap()
@@ -301,4 +301,47 @@ fn a_panicking_feature_fails_once_and_is_not_retried_every_frame() {
         doc.recompute_status(),
         RecomputeStatus::Running { .. } | RecomputeStatus::Failed(_)
     ));
+}
+
+/// SCR-07: `recompute_blocking_with` stops on the caller's token and leaves a usable document.
+#[test]
+fn blocking_recompute_can_be_cancelled_from_outside() {
+    let jobs = jobs();
+    let (d, fs, ps) = slow_design(2, "60000", false);
+    let mut doc = Document::from_design(d);
+
+    // Already cancelled: nothing starts.
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let r = doc.recompute_blocking_with(&jobs, &cancel);
+    assert!(matches!(r, Err(RecomputeError::Cancelled)), "{r:?}");
+    assert_eq!(counts(&doc, &fs), [0, 0]);
+
+    // Cancelled while a feature sleeps.
+    let cancel = CancelToken::new();
+    let remote = cancel.clone();
+    let canceller = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        remote.cancel();
+        Instant::now()
+    });
+    let r = doc.recompute_blocking_with(&jobs, &cancel);
+    let latency = canceller.join().unwrap().elapsed();
+    assert!(matches!(r, Err(RecomputeError::Cancelled)), "{r:?}");
+    assert!(latency < Duration::from_millis(100), "{latency:?}");
+    assert!(!doc.is_evaluated());
+    assert_eq!(doc.recompute_status(), RecomputeStatus::Stale);
+
+    // The document recomputes afterwards; once evaluated, the token no longer matters.
+    set(&mut doc, ps[0], "1");
+    set(&mut doc, ps[1], "1");
+    doc.recompute_blocking_with(&jobs, &CancelToken::new())
+        .unwrap();
+    assert!(doc.is_evaluated());
+    doc.recompute_blocking_with(&jobs, &cancel).unwrap();
+
+    // A panicking feature is reported, not cancelled.
+    let (d, ..) = slow_design(1, "1", true);
+    let r = Document::from_design(d).recompute_blocking_with(&jobs, &CancelToken::new());
+    assert!(matches!(r, Err(RecomputeError::Panicked(_))), "{r:?}");
 }
