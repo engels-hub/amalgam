@@ -97,6 +97,7 @@ pub enum ScriptError {
     #[error(transparent)] Io(#[from] amg_io::IoError),
     #[error(transparent)] Export(#[from] amg_features::io::ImportPrepError),
     #[error(transparent)] Inspect(#[from] amg_features::inspect::InspectError),
+    #[error(transparent)] Registry(#[from] amg_doc::RegistryError),   // added by SCR-07
     #[error("field `{field}`: {msg}")] Field { field: String, msg: String },
     #[error("no {what} named `{name}`")] NotFound { what: &'static str, name: String },
     #[error("entity handle is from revision {held:?}, the document is at {now:?}; select again")]
@@ -199,9 +200,9 @@ pub struct ConvertRequest { pub src: PathBuf, pub dst: PathBuf, pub src_format: 
 pub fn convert(req: &ConvertRequest, jobs: &amg_jobs::JobSystem, cancel: &amg_jobs::CancelToken) -> Result<ExportSummary, ScriptError>;
 
 #[derive(Clone, Debug, serde::Serialize)]
-pub struct BodyProps { pub id: amg_doc::BodyId, pub name: String, pub kind: &'static str,
-                       pub volume_mm3: f64, pub area_mm2: f64, pub mass_g: Option<f64>,
-                       pub centroid: [f64; 3], pub bbox_min: [f64; 3], pub bbox_max: [f64; 3],
+pub struct BodyProps { pub id: Option<amg_doc::BodyId> /* None: total */, pub name: String, pub kind: &'static str,
+                       pub volume_mm3: Option<f64>, pub area_mm2: f64, pub mass_g: Option<f64>,
+                       pub centroid: Option<[f64; 3]>, pub bbox_min: Option<[f64; 3]>, pub bbox_max: Option<[f64; 3]>,
                        pub watertight: Option<bool> }
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct PropsReport { pub schema: u32, pub bodies: Vec<BodyProps>, pub total: Option<BodyProps> }
@@ -346,7 +347,7 @@ All lane E. SCR-01..06 keep their original meaning; SCR-05 lost `study run` (now
 
 | ID | Title | Deps | Pri | Status | Done when |
 |---|---|---|---|---|---|
-| SCR-07 | `amg_script::ops` + `host::ScriptDoc` (no mirror): `link`, `ScriptError`, `open`/`new`/`save`, `evaluated()` auto-recompute, `RecomputeReport`, `export` (via `scene_from_document` + `amg_io::export`), `convert`, `properties` (mesh bodies), JSON reports with `schema: 1` | DOC-14, IO-14, IO-02, IO-11, INS-03 | P1 | Todo | 1. Integration tests on 3 fixture designs (mesh-only, mixed with a test feature, one with a failing feature): `recompute` reports the right computed/cached counts and the failing feature as `error` with its message; `has_errors()` is true only for the third. 2. `export` to STL and 3MF re-imports with the same triangle count and volume within 1e-9 relative; `BodyFilter::Names` with an unknown name gives `NotFound`. 3. `convert` STL→3MF→STL keeps triangle count and bbox exactly. 4. `properties` on a 10 mm mesh cube gives volume 1000 ± 1e-9 mm³ and area 600. 5. Report JSON validated against checked-in `tests/schema/*.json` snapshots. 6. Cancelling a slow (sleeping) test feature returns `Cancelled` within 100 ms. |
+| SCR-07 | `amg_script::ops` + `host::ScriptDoc` (no mirror): `link`, `ScriptError`, `open`/`new`/`save`, `evaluated()` auto-recompute, `RecomputeReport`, `export` (via `scene_from_document` + `amg_io::export`), `convert`, `properties` (mesh bodies), JSON reports with `schema: 1` | DOC-14, IO-14, IO-02, IO-11, INS-03 | P1 | Review | 1. Integration tests on 3 fixture designs (mesh-only, mixed with a test feature, one with a failing feature): `recompute` reports the right computed/cached counts and the failing feature as `error` with its message; `has_errors()` is true only for the third. 2. `export` to STL and 3MF re-imports with the same triangle count and volume within 1e-9 relative; `BodyFilter::Names` with an unknown name gives `NotFound`. 3. `convert` STL→3MF→STL keeps triangle count and bbox exactly. 4. `properties` on a 10 mm mesh cube gives volume 1000 ± 1e-9 mm³ and area 600. 5. Report JSON validated against checked-in `tests/schema/*.json` snapshots. 6. Cancelling a slow (sleeping) test feature returns `Cancelled` within 100 ms. |
 | SCR-05 | CLI: `recompute`, `export`, `convert`, `props` (S05 request) with `--json`, exit codes 0/1/2/3/130, progress on stderr | SCR-07, FND-07 | P1 | Todo | 1. `assert_cmd` tests per subcommand on the SCR-07 fixtures: stdout JSON parses and matches the schema snapshot; nothing but JSON on stdout with `--json`. 2. Exit code 3 for the failing-feature design, 1 for a missing file and a corrupt `.amg` (message names the `FormatError`), 2 for bad usage. 3. `recompute --save` writes a file that loads with 0 feature computes (DOC-14 cache). 4. Ctrl+C (a test sends `CTRL_BREAK` to a child running a slow export) exits 130 within 500 ms and leaves no partial output file (atomic sink). 5. `amg-cli convert` of a 1 GB / 20 M-triangle binary STL to 3MF finishes in < 15 s on the reference machine (import budget 5 s + write), measured in the log. |
 | SCR-08 | CLI `kernel replay`, `kernel promote`, `kernel harness` (S20 request) over `amg_brep::capture::{replay, promote}` and the KH-02 harness entry point; harness worker processes are `amg-cli kernel harness-worker` (hidden) | KH-01, KH-02, SCR-05 | P1 | Todo | 1. `kernel replay` on the KH-01 test dumps prints one line per dump and `--json` matches KH-01's `ReplayReport` serialisation; exit 0 if all `Reproduced`/`NowSucceeds`, 1 otherwise. 2. `kernel promote` produces the same corpus case as KH-01's `promote` test. 3. `kernel harness` on the KH-02 smoke subset writes the same report as the `kernel-harness` example (diff of the JSON ignoring timings is empty), and an injected access violation counts as `Crash` without ending the run. 4. S20's examples are kept or deleted per S20's choice; the spec log says which. |
 | SCR-01 | pyo3 module: `python` feature (`abi3-py312`), `amalgam._native` + pure-Python `amalgam` package, maturin `pyproject.toml`, wheel with OCCT/vcpkg DLLs (delvewheel); `Document` (open/new/save/undo/redo/transaction), `params` (get/set/add/rename/delete, values with units), timeline (features list, suppress, rename, delete, move, marker), raw `apply(dict)` (externally tagged `Command` JSON), `bodies` (name, kind, visible, volume/area/bbox), `export`/`properties` via `ops`, exception hierarchy, GIL released in Rust work, Ctrl+C polling | SCR-07, DOC-05 | P1 | Todo | 1. In a clean venv on Windows, `pip install <wheel>` then `python -c "import amalgam; print(amalgam.__version__)"` works with no other env vars; the same with CPython 3.12 and the newest 3.x (CI). 2. pytest suite (`tests/py/test_doc.py`, ≥ 40 tests) covers every class/method listed, including: set a parameter → recompute → body volume changes as expected; `with doc.transaction()` makes one undo entry; an invalid expression raises `CommandError` with the `ParamError` text. 3. `doc.apply({"AddParam": {...}})` round-trips: the same JSON from `Command` serde. 4. Ctrl+C during a slow recompute raises `KeyboardInterrupt` within 200 ms and the document stays usable. 5. `import amalgam` cold < 500 ms on the reference machine (measured with `-X importtime`). 6. Wheel licence check: `THIRD_PARTY.md` lists pyo3, maturin, delvewheel. |
@@ -452,7 +453,45 @@ All lane E. SCR-01..06 keep their original meaning; SCR-05 lost `study run` (now
 ### 2026-11-09 - owner answers moved in
 - QUESTIONS #56 (edge `amg-ui → amg-script`, `amg-ui::script`; architecture updated), #57 (no Fusion compatibility layer; SCR-06 "porting from Fusion" table), #58 (installed CPython >= 3.12, delay-loaded). Open questions 4-6 resolved.
 
+### 2026-11-28 - SCR-07 (`amg_script::ops` + `host::ScriptDoc`, lane E)
+- **Landed:** `amg_script::{link, ScriptError}`; `host::ScriptDoc` (`new`, `open`, `document`, `path`,
+  `jobs`, `warnings`, `apply`, `undo`, `redo`, `evaluated`, `save`); `ops::{recompute, export, convert,
+  properties}` with `BodyFilter`, `RecomputeReport`, `ExportSummary`, `PropsReport`, `REPORT_SCHEMA = 1`.
+  Report shapes are pinned by `crates/amg-script/tests/schema/*.json` (a JSON Schema subset checked by
+  `tests/common/schema.rs`; no validator crate). Fixture designs are built in the tests, none checked in.
+- **Behaviour to know (SCR-05, SCR-01):**
+  - `RecomputeReport.computed` / `cached` describe the pass that produced the current state (asking again
+    does not run a new pass); failing, suppressed and rolled-back features are in neither. `millis` is this call.
+  - `save` writes the geometry cache only if `SaveOptions::cache` is set, so `recompute --save` must pass
+    `Some(doc.document().cache_export())` after recomputing. Extension blobs and the thumbnail are kept.
+  - `apply` is one undo entry and atomic. A lone `SetDesignMode { Direct }` recomputes first and keeps its
+    own label.
+  - Export and convert write coordinates losslessly by default. With the app's 6 decimals a 3MF of an
+    `f64` sphere is off by 2.7e-8 in volume; STL is `f32` by format (4.4e-9 on that sphere), so the 1e-9
+    of Done-when 2 holds for STL only for meshes that already are `f32` (anything read from STL).
+  - `properties` gives one row per placement; mass only for bodies with an assigned material (no default
+    material yet); a selected solid, implicit or form body fails the call (`NotFound`).
+  - An unnamed body is `Body <feature>.<slot>` in reports and in `BodyFilter::Names`.
+- **Tests:** `cargo nextest run -p amg-script` 21 passed; `-p amg-doc` 280 passed (one new test for
+  `recompute_blocking_with`). Cancel latency 0.5-1.5 ms (budget 100 ms).
+- **Leftovers:** solid properties through `inspect::props::solid_mass_props` (INS-10; needs an owner of
+  the follow-up, e.g. SCR-05); `ops::measure` (SCR-09); direct-mode `AddFeature` (`Document::bake_feature`)
+  is not wrapped by `ScriptDoc` (SCR-01/SCR-02); owner confirmation of QUESTIONS #104.
+
 ## Interface changes
+Landed with SCR-07 (2026-11-28):
+- **Layering (S00 / architecture; owner decision, QUESTIONS #104, applied pending owner confirmation):**
+  new edges `amg-script → amg-io` and `amg-script → amg-mesh` (architecture §Crates and §Layering,
+  S00 note, `amg-testkit` layering allow-list). `amg-script` has no direct `amg-brep` or `amg-ui` edge.
+- **S01 (lane E):** `Document::recompute_blocking_with(&mut self, &JobSystem, &CancelToken)` added to
+  `amg-doc` (additive; recorded in S01 Interface changes).
+- **This spec's Interfaces (consumers SCR-05, SCR-01):** `BodyProps.id`, `volume_mm3`, `centroid`,
+  `bbox_min` and `bbox_max` are `Option` (the total has no id; an open mesh has no volume; an empty
+  mesh has no box); new `ScriptError::Registry`; additive `ScriptDoc::{jobs, warnings}`,
+  `ExportRequest::new`, `ConvertRequest::new` (both default to `CoordPrecision::Roundtrip`).
+  `ScriptDoc::shadow`, `Mirror*` (SCR-03) and `ops::measure` (SCR-09, needs `select::Handle`) are
+  not there yet.
+
 Requests from the 2026-11-08 refinement (additive; owners must confirm):
 - **S01 (lane E, same lane):** `History::begin_group(&mut self, label: &str) -> GroupToken` and
   `end_group(&mut self, GroupToken)` (and the same on `Document`): commands applied while a group

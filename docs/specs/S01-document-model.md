@@ -2159,3 +2159,11 @@ Small changes in `recompute.rs`; no change to `Dependency`, `design.json` or `EN
 - Test: `crates/amg-features/tests/solid_component/occt.rs` (`dw3_*`: the moved occurrence
   recomputes the cut; both pieces of a split stay in the sub-component). `cargo nextest run -p
   amg-doc` passes unchanged.
+
+### 2026-11-28: cancellable blocking recompute (SCR-07, lane E; additive)
+- `Document::recompute_blocking_with(&mut self, jobs: &JobSystem, cancel: &CancelToken) -> Result<(), RecomputeError>`
+  (requested by S18 on 2026-11-08): like `recompute_blocking`, but returns `Cancelled` as soon as `cancel` is
+  cancelled, without waiting for the job to stop; the document stays stale and finished outputs stay cached. An
+  already evaluated document returns `Ok` whatever the token says. It polls the job handle (sleep up to 1 ms),
+  because `amg-jobs` has no wait that also watches a foreign token.
+- `recompute_blocking` is unchanged. Test: `tests/document.rs` `blocking_recompute_can_be_cancelled_from_outside`.

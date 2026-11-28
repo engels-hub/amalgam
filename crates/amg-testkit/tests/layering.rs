@@ -57,7 +57,9 @@ fn allowed(krate: &str) -> Option<BTreeSet<&'static str>> {
             &["amg-doc", "amg-features", "amg-render", "amg-script"],
         ]
         .concat(),
-        "amg-script" => vec!["amg-doc", "amg-features"],
+        // QUESTIONS #104 (S18 SCR-07, applied pending owner confirmation): `amg_script::ops`
+        // takes `amg-io` formats and options and measures `amg-mesh` bodies.
+        "amg-script" => vec!["amg-doc", "amg-features", "amg-io", "amg-mesh"],
         "amg-app" | "amg-cli" => [
             DOMAINS,
             &[

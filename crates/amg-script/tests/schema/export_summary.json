@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExportSummary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "path", "format", "bodies", "triangles", "bytes", "warnings", "millis"],
+  "properties": {
+    "schema": { "type": "integer", "const": 1 },
+    "path": { "type": "string" },
+    "format": { "type": "string", "enum": ["stl", "3mf", "obj", "ply"] },
+    "bodies": { "type": "integer" },
+    "triangles": { "type": "integer" },
+    "bytes": { "type": "integer" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "millis": { "type": "number" }
+  }
+}

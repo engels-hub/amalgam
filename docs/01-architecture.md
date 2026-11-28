@@ -38,8 +38,12 @@ depend on each other except where listed in the table below (keeps parallel work
 console, the script manager and add-in commands are egui code (`amg-ui::script`, owned by the
 scripting lane) that must call the interpreter host, mirror queue and add-in registry that live
 in `amg-script`. Routing them through `amg-app` would put UI code in the binary, and a panel trait
-in `amg-script` would duplicate the S11 panel API. `amg-script` still depends only on doc and
-features, so the headless `amg-cli` never links egui. The layering test allow-list (S00) gains this edge.
+in `amg-script` would duplicate the S11 panel API. `amg-script` never depends on UI or render
+crates, so the headless `amg-cli` never links egui. The layering test allow-list (S00) gains this edge.
+
+**`amg-script → amg-io`, `amg-script → amg-mesh` (S18 SCR-07, QUESTIONS #104; applied
+2026-11-28 pending owner confirmation):** the headless facade `amg_script::ops` takes `amg-io`
+formats and import/export options and measures `amg-mesh` bodies.
 
 ## Crates and ownership
 
@@ -64,7 +68,7 @@ features, so the headless `amg-cli` never links egui. The layering test allow-li
 | `amg-features` | every timeline feature (`Extrude`, `Fillet`, `MeshRemesh`, `Lattice`, …) implementing `Feature` | doc + domains | S04/S05/S06 + domain specs |
 | `amg-render` | wgpu renderer, scene graph mirror, picking, analysis shaders, result plots | core, jobs (no doc dependency: fed via `RenderScene`) | S10 |
 | `amg-ui` | egui app shell, command system, tools, dialogs, browser tree, timeline UI. Framework owned by S11; workspace modules (`inspect`, `mesh`, `form`, `implicit`, `sim`, `generative`, `am`, `io`, `materials`, `script`) owned by their domain specs | everything above | S11 + domain specs |
-| `amg-script` | Python API (pyo3), headless batch; also used by `amg-ui::script` (console, script manager, add-in commands) | doc, features | S18 |
+| `amg-script` | Python API (pyo3), headless batch; also used by `amg-ui::script` (console, script manager, add-in commands) | doc, features, io, mesh | S18 |
 | `amg-cli` / `amg-app` | binaries | — | S00 |
 
 ## Core data model (summary — full detail in S01)

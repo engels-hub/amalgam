@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PropsReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "bodies", "total"],
+  "properties": {
+    "schema": { "type": "integer", "const": 1 },
+    "bodies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "name", "kind", "volume_mm3", "area_mm2", "mass_g", "centroid",
+          "bbox_min", "bbox_max", "watertight"
+        ],
+        "properties": {
+          "id": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["origin", "slot"],
+            "properties": { "origin": { "type": "integer" }, "slot": { "type": "integer" } }
+          },
+          "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["mesh"] },
+          "volume_mm3": { "type": ["number", "null"] },
+          "area_mm2": { "type": "number" },
+          "mass_g": { "type": ["number", "null"] },
+          "centroid": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+          "bbox_min": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+          "bbox_max": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+          "watertight": { "type": ["boolean", "null"] }
+        }
+      }
+    },
+    "total": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "id", "name", "kind", "volume_mm3", "area_mm2", "mass_g", "centroid",
+        "bbox_min", "bbox_max", "watertight"
+      ],
+      "properties": {
+        "id": { "type": "null" },
+        "name": { "type": "string", "const": "total" },
+        "kind": { "type": "string", "const": "total" },
+        "volume_mm3": { "type": ["number", "null"] },
+        "area_mm2": { "type": "number" },
+        "mass_g": { "type": ["number", "null"] },
+        "centroid": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "bbox_min": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "bbox_max": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "watertight": { "type": ["boolean", "null"] }
+      }
+    }
+  }
+}
