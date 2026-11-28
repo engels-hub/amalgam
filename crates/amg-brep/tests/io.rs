@@ -309,6 +309,135 @@ fn parallel_step_writes_of_one_model() {
     assert!(digest(&model) == before, "an input changed");
 }
 
+/// The STEP models the stress tests use: two assemblies with shared prototypes and instance
+/// colours (`bolt_pattern`, `nested_assembly`) and per-face colours (`coloured_box_ap214`).
+const STRESS_MODELS: [&str; 3] = ["bolt_pattern", "nested_assembly", "coloured_box_ap214"];
+
+/// The schema a STEP fixture is written in.
+fn schema_of(name: &str) -> StepSchema {
+    STEP_FIXTURES.iter().find(|f| f.0 == name).unwrap().1
+}
+
+/// BREP-13 fix: 8 threads × 6 reads at once, spread over the three stress models, each equal to
+/// the single-threaded read of its file (tree bits and prototype BinTools bytes).
+#[test]
+fn parallel_step_reads_stress() {
+    let k = kernel();
+    let files: Vec<_> = STRESS_MODELS
+        .iter()
+        .map(|name| {
+            let path = tmp(&format!("stress-read-{name}.step"));
+            write_step(&path, &step_model(&k, name), schema_of(name), &ctx()).unwrap();
+            let reference = digest(&read_step(&path, &ImportOpts::default(), &ctx()).unwrap());
+            (path, reference)
+        })
+        .collect();
+    let mismatches: Vec<String> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|t| {
+                let files = &files;
+                scope.spawn(move || {
+                    let mut bad = Vec::new();
+                    for i in 0..6 {
+                        let (path, reference) = &files[(t + i) % files.len()];
+                        let read = read_step(path, &ImportOpts::default(), &ctx()).unwrap();
+                        if digest(&read) != *reference {
+                            bad.push(format!("thread {t} read {i} of {}", path.display()));
+                        }
+                    }
+                    bad
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect()
+    });
+    assert!(mismatches.is_empty(), "reads differ: {mismatches:#?}");
+}
+
+/// BREP-13 fix: STEP reads, STEP writes of shared models and IGES writes (global lock, IGES
+/// statics) all at once. Every STEP read, of a file written before or during the run, equals the
+/// single-threaded read of its model; every IGES round trip equals the single-threaded one; the
+/// shared inputs keep their bytes.
+#[test]
+fn mixed_parallel_step_reads_and_writes() {
+    let k = kernel();
+    let models: Vec<ForeignModel> = STRESS_MODELS.iter().map(|n| step_model(&k, n)).collect();
+    let before: Vec<_> = models.iter().map(digest).collect();
+    let references: Vec<_> = STRESS_MODELS
+        .iter()
+        .zip(&models)
+        .map(|(name, model)| {
+            let path = tmp(&format!("mixed-ref-{name}.step"));
+            write_step(&path, model, schema_of(name), &ctx()).unwrap();
+            let reference = digest(&read_step(&path, &ImportOpts::default(), &ctx()).unwrap());
+            (path, reference)
+        })
+        .collect();
+    let iges_path = tmp("mixed-ref.igs");
+    write_iges(&iges_path, &models[0], &ctx()).unwrap();
+    let iges_reference = digest(&read_iges(&iges_path, &ImportOpts::default(), &ctx()).unwrap());
+    let mismatches: Vec<String> = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        // 3 readers of the files written before the run.
+        for t in 0..3 {
+            let references = &references;
+            handles.push(scope.spawn(move || {
+                let mut bad = Vec::new();
+                for i in 0..6 {
+                    let (path, reference) = &references[(t + i) % references.len()];
+                    let read = read_step(path, &ImportOpts::default(), &ctx()).unwrap();
+                    if digest(&read) != *reference {
+                        bad.push(format!("reader {t} read {i} of {}", path.display()));
+                    }
+                }
+                bad
+            }));
+        }
+        // 4 writers of the shared models, each reading its file back.
+        for t in 0..4 {
+            let (models, references) = (&models, &references);
+            handles.push(scope.spawn(move || {
+                let mut bad = Vec::new();
+                for i in 0..4 {
+                    let m = (t + i) % models.len();
+                    let name = STRESS_MODELS[m];
+                    let path = tmp(&format!("mixed-write-{t}-{i}.step"));
+                    write_step(&path, &models[m], schema_of(name), &ctx()).unwrap();
+                    let read = read_step(&path, &ImportOpts::default(), &ctx()).unwrap();
+                    if digest(&read) != references[m].1 {
+                        bad.push(format!("writer {t} write {i} of {name}"));
+                    }
+                }
+                bad
+            }));
+        }
+        // 1 IGES writer: the global lock and the IGES statics next to the STEP calls.
+        let (models, iges_reference) = (&models, &iges_reference);
+        handles.push(scope.spawn(move || {
+            let mut bad = Vec::new();
+            for i in 0..3 {
+                let path = tmp(&format!("mixed-write-{i}.igs"));
+                write_iges(&path, &models[0], &ctx()).unwrap();
+                let read = read_iges(&path, &ImportOpts::default(), &ctx()).unwrap();
+                if digest(&read) != *iges_reference {
+                    bad.push(format!("IGES write {i}"));
+                }
+            }
+            bad
+        }));
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect()
+    });
+    assert!(mismatches.is_empty(), "results differ: {mismatches:#?}");
+    let after: Vec<_> = models.iter().map(digest).collect();
+    assert!(after == before, "an input changed");
+}
+
 /// Done-when 3: the 3 IGES fixtures read back as written (solids, volumes, names, part colour),
 /// and a write-read round trip of what was read keeps them.
 #[test]

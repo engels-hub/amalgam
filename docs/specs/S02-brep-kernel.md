@@ -350,9 +350,10 @@ take `&self` and inputs by `&Shape`.
   - Binary (`BinTools`, versioned header `AMGB` + format byte) for S01 caches and
     `bodies/`. It is bit-exact, and indices are stable across it.
   - Text (`BRepTools`, global lock on read) for S20 failure dumps and debugging.
-- **STEP / IGES (BREP-13)**: `STEPCAFControl_Reader`/`Writer` (one per call, thread-safe in
-  8.0; on 8.0.0 reads still take the global lock because of the `strtod` race) and IGES
-  (global lock).
+- **STEP / IGES (BREP-13)**: `STEPCAFControl_Reader`/`Writer` (one per call, each with its own
+  work session and STEP controller, because the registered controller's write actor is shared
+  and not reentrant (BREP-13 fix, 2026-11-28); thread-safe in 8.0.1; on 8.0.0 reads still take
+  the global lock because of the `strtod` race) and IGES (global lock).
   - Output is a `ForeignModel`: a tree of plain-data nodes (name, transform, colour,
     optional shape, children), so S12 maps it to components without seeing XCAF.
   - Import runs `heal` by default (`ImportOpts::heal`).
@@ -3202,6 +3203,58 @@ Also tested:
   `ConnexIntByInt`, which no OCCT option reaches.
 - Shim diagnostics: `AMG_OCCT_PROFILE=1` prints per-phase times (shim steps and OCCT progress
   scopes) of `boolean_op`, `offset_op` and `unify_same_domain_op` to stderr.
+
+### 2026-11-28 - BREP-13 fix: race in concurrent STEP writes
+**Symptom.** `parallel_step_writes_of_one_model` (4 threads × 3 writes of one shared model)
+failed with "the reads differ" in 5 of 20 runs, on OCCT 8.0.1 and independent of the KH-20 fast
+paths. The bad digest was always a first write of a thread other than thread 0 (reads 3, 6, 9).
+The *file* was wrong, not the read: the `bolt_pattern` assembly was written as one flat product
+(one `SHAPE_REPRESENTATION` with 5 solids, no `NEXT_ASSEMBLY_USAGE_OCCURRENCE`, no colours, no
+part names), 31.9 KB instead of 25.7 KB. Names, colours and assembly structure were all lost
+together; geometry and units were unaffected.
+
+**Root cause.** OCCT keeps one controller per norm in a process-wide registry
+(`XSControl_Controller::Recorded("STEP")`, filled by `STEPCAFControl_Controller::Init`), and
+that controller owns the only `STEPCAFControl_ActorWrite`. The actor has mutable per-transfer
+state: the map of compounds registered as assemblies (`RegisterAssembly`), the standard mode
+(`SetStdMode(true)` clears the map), the group mode and the AP context tool. Every
+`STEPCAFControl_Writer` constructed the usual way selects the registered norm, so all writers in
+the process share that actor. Writer A finishing its transfer (`SetStdMode(true)`) cleared writer
+B's assembly map mid-transfer, and B's `IsAssembly` then said no: the assembly was flattened. The
+"one writer per call is thread-safe" claim of the BREP-13 entry held for the writer object but not
+for the actor behind it. Reads were not affected (20/20 unfixed runs of the new read stress test
+pass): the read path did not show the problem.
+
+**Fix** (`amg-occt-sys/cpp/occt_xde.cpp`, lane A). Each STEP read and write builds a
+`StepSession`: its own `XSControl_WorkSession` with its own `STEPCAFControl_Controller` (so its
+own write and read actors). The reader and writer are constructed on that session; their
+constructors select the registered norm, so the session is put back on its own controller after
+construction (and the writer gets a fresh model), and `check_private` fails the call if the
+session's write actor is the registered one. A cancelled read keeps the session alive with its
+reader. No global lock: STEP stays parallel. The threading contract is written at the top of
+`occt_xde.cpp`, in the `xde_read_step`/`xde_write_step` CATEGORY comments and in the `io` module
+doc. `Interface_Static` is only read by STEP calls (parameters go in as `DESTEP_Parameters`);
+IGES, which sets statics, stays under the global lock.
+
+**Tests.** New in `tests/io.rs`: `parallel_step_reads_stress` (8 threads × 6 reads over
+`bolt_pattern`, `nested_assembly`, `coloured_box_ap214`) and `mixed_parallel_step_reads_and_writes`
+(3 readers, 4 STEP writers of the shared models reading their files back, and 1 IGES writer under
+the global lock, all at once; inputs keep their bytes). Against the unfixed shim the mixed test
+failed 9/20. With the fix, 100/100 each for `parallel_step_writes_of_one_model`,
+`parallel_step_reads_stress`, `mixed_parallel_step_reads_and_writes` and
+`parallel_step_reads_are_identical`.
+
+**Cost.** None measurable. In an A/B of the unfixed and fixed binaries under the same load, the
+50 MB `large_step_read_completes_with_monotone_progress` read took 44.8/47.2/44.4 s unfixed and
+46.0/48.4/43.9 s fixed (a first noisy pair, 54.6 s vs 78.1 s, was taken while another build was
+running). Cancel latencies stay at 4.7 to 13.8 ms. 20 runs of `parallel_step_reads_are_identical`
+took 5.3/8.0 s unfixed and 5.6/6.2 s fixed.
+
+**Gates.** `cargo nextest run -p amg-brep --features occt`: 406 passed, 2 skipped; without the
+feature: 129 passed. `cargo clippy -p amg-brep -p amg-occt-sys --all-targets -- -D warnings` is
+clean with and without `--features occt`, `cargo clippy --workspace --all-targets -- -D warnings`
+is clean, and `cargo fmt --all --check` passes. No interface change: no bridge signature
+changed, and `SHIM_VERSION` stays as it was.
 
 ## Interface changes
 

@@ -8,8 +8,10 @@
 //! Progress and cancellation go through the `JobCtx`: a STEP read reports parsing (by bytes, the
 //! first 16 %), the transfer (to 80 %) and healing, and a cancel stops the parser or the
 //! transfer. IGES reads and writes hold the global I/O lock (OCCT's IGES translator is not
-//! thread-safe); STEP reads and writes run in parallel (one reader or writer per call, OCCT
-//! 8.0.1).
+//! thread-safe); STEP reads and writes run in parallel, unlocked (OCCT 8.0.1): each call has its
+//! own reader or writer, work session and STEP controller, so no translator actor is shared
+//! (OCCT's registered STEP controller owns one write actor whose assembly map concurrent writers
+//! used to clear for each other; BREP-13 fix).
 
 use std::path::Path;
 
