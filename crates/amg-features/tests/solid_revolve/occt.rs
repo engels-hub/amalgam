@@ -656,9 +656,13 @@ fn bad_angles_and_options_fail_cleanly() {
     assert_bbox(&neg, [0.0, -30.0, 0.0], [30.0, 0.0, 20.0]);
     let mut thin = angle(p, z_axis(), "90 deg");
     thin.thin = Some(amg_features::solid::ThinSpec {
-        thickness: ex("1 mm"),
+        thickness: ex("0 mm"),
         side: amg_features::solid::ThinSide::Side1,
     });
     let r = add(&mut doc, FeatureBox::new(thin));
-    assert!(error(&doc, r).message.contains("thin revolve"));
+    assert!(
+        error(&doc, r)
+            .message
+            .contains("thickness must be positive")
+    );
 }

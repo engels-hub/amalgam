@@ -190,6 +190,24 @@ fn single(mut built: Vec<(Occ, Vec<u32>)>, op: &'static str) -> KResult<(Occ, Ve
 }
 
 impl Occ {
+    /// The wall of one chain (S04 R-S04-3), with `[edge, code]` pairs: code `2k` / `2k + 1` is
+    /// the left / right boundary of chain edge `k`, `2n` / `2n + 1` the end caps.
+    pub(crate) fn thin_face(
+        chain: &PlanarIn,
+        closed: bool,
+        left: f64,
+        right: f64,
+        tol: f64,
+    ) -> KResult<(Occ, Vec<u32>)> {
+        let raw = ffi::OcPlanarIn {
+            frame: oc_frame(&chain.plane),
+            loops: oc_loops(&chain.loops),
+        };
+        let build =
+            ffi::make_thin_face(&raw, closed, left, right, tol).map_err(|e| to_kernel_error(&e))?;
+        single(take_build(&build)?, "make_thin_face")
+    }
+
     /// One planar face per input, with the edge index of every input edge.
     pub(crate) fn planar_faces(inputs: &[PlanarIn], tol: f64) -> KResult<Vec<(Occ, Vec<u32>)>> {
         let raw: Vec<ffi::OcPlanarIn> = inputs

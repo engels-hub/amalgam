@@ -284,6 +284,12 @@ std::unique_ptr<OcBuild> make_face_on_surface(const OcSurface &surface, std::uin
 // CATEGORY: R (takes no shape; builds new topology from plain curve data)
 std::unique_ptr<OcBuild> make_wire(const OcLoopsIn &edges, bool closed, double tol);
 
+// CATEGORY: R (takes no shape; builds new topology from plain curve data;
+// BRepOffsetAPI_MakeOffset runs on the new wire only). The edge map holds (edge, code) pairs:
+// code 2*k is the left boundary of chain edge k, 2*k+1 the right one, 2*n and 2*n+1 the end caps.
+std::unique_ptr<OcBuild> make_thin_face(const OcPlanarIn &chain, bool closed, double left,
+                                        double right, double tol);
+
 // CATEGORY: R
 std::uint32_t build_count(const OcBuild &build);
 

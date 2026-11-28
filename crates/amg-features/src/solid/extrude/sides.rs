@@ -12,13 +12,15 @@ use amg_brep::{
     Shape, ShapeHistory, SubKind, SubShape,
 };
 use amg_core::{Aabb3, Plane, Point3, Transform, Vec3};
-use amg_doc::naming::{OperandNaming, Role, TopoKind};
+use amg_doc::naming::{NamingBuilder, OperandNaming, Role, TopoKind};
 use amg_doc::{BodyGeom, BodyNaming, EntityRef, FeatureError, FeatureOutput, RecomputeCtx};
 
 use crate::solid::common::{finish_naming, with_job};
 use crate::solid::error::{SolidError, kerr, with_hint};
 use crate::solid::extent::{BodyFace, Target};
-use crate::solid::profile::{ProfileFace, ProfileSource, cap_source, face_edge_source, tag_source};
+use crate::solid::profile::{
+    ProfileFace, ProfileSource, Wall, WallBoundary, cap_source, face_edge_source, tag_source,
+};
 
 /// Below this `|cos|` between a target plane and the extrude direction the plane is taken as
 /// parallel to the direction (it never meets the prism).
@@ -144,6 +146,7 @@ pub(crate) fn name_sweep(
                 }
             }
         }
+        ProfileSource::Wall(wall) => name_walls(&mut b, wall, side, &r.history),
     }
     if side != 0 {
         b.role(OpRole::Lateral, Role::new("Lateral", side));
@@ -160,6 +163,35 @@ pub(crate) fn name_sweep(
         }
     }
     finish_naming(b, k, &r.shape, out)
+}
+
+/// The faces swept from a thin wall's edges: `ThinInner#side` / `ThinOuter#side` from their
+/// sketch curve, `ThinEnd#(2·side + end)` from the sketch point at that end of the chain.
+fn name_walls(b: &mut NamingBuilder, wall: &Wall, side: u32, history: &ShapeHistory) {
+    for (input, relation) in &history.entries {
+        let Relation::Generated(outputs) = relation else {
+            continue;
+        };
+        if input.operand != 0 || input.sub.kind != SubKind::Edge {
+            continue;
+        }
+        let Some(edge) = wall.edges.iter().find(|e| e.edge.0 == input.sub.index) else {
+            continue;
+        };
+        let role = match edge.boundary {
+            WallBoundary::Inner => Role::new("ThinInner", side),
+            WallBoundary::Outer => Role::new("ThinOuter", side),
+            WallBoundary::End(end) => Role::new("ThinEnd", 2 * side + end),
+        };
+        for out in outputs.iter().filter(|o| o.kind == SubKind::Face) {
+            b.generated(
+                TopoKind::Face,
+                out.index,
+                role.clone(),
+                Some(edge.source.clone()),
+            );
+        }
+    }
 }
 
 pub(crate) fn corners(b: &Aabb3) -> [Point3; 8] {

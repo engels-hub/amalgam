@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol18_revolve_center_full (S04 SOL-18). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 4312.062838599
+area = 4760.263390511149
+faces = 6
+edges = 11
+vertices = 6
+bbox_min = [-21.0, -21.0, 0.0]
+bbox_max = [21.0, 21.0, 16.0]

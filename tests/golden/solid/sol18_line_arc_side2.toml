@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol18_line_arc_side2 (S04 SOL-18). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 388.49555921538763
+area = 506.194671058465
+faces = 8
+edges = 18
+vertices = 12
+bbox_min = [0.0, -2.0, 0.0]
+bbox_max = [17.0, 5.0, 10.0]

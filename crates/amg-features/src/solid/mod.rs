@@ -64,8 +64,8 @@ pub use pattern::{
 };
 pub use primitive::{BoxPrim, CylinderPrim, PrimitiveFrame, SpherePrim, TorusPrim};
 pub use profile::{
-    ProfileFace, ProfileSource, cap_source, face_edge_source, profile_faces, region_source, tag_of,
-    tag_source, to_curve2d,
+    ProfileFace, ProfileSource, Wall, WallBoundary, WallEdge, cap_source, face_edge_source,
+    profile_faces, region_source, tag_of, tag_source, to_curve2d,
 };
 pub use revolve::Revolve;
 pub use shell::{BodyFaces, PlannedFace, Shell, ShellDirection, Thicken};

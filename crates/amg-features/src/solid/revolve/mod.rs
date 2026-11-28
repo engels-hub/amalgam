@@ -1,6 +1,7 @@
 //! `solid.revolve` (S04 §4, SOL-03): profiles revolved about an axis (sketch line, straight
 //! edge, construction or origin axis; also the axis of a revolved face or circular edge) by an
-//! angle, a full turn, two sides, symmetric, or up to an object. Thin revolves are SOL-18.
+//! angle, a full turn, two sides, symmetric, or up to an object; thin revolves sweep the walls
+//! of the thin extrude (`extrude::thin`) instead of the profile regions.
 //!
 //! - **Axis.** Resolved through CON-03 (`line_of`, else `axis_of`), reversed by `flip`. Side 1
 //!   turns counter-clockwise about the (flipped) axis direction, side 2 the other way; a
@@ -35,6 +36,7 @@ use super::common::{OpTarget, SolidTool, ToolBody, apply_body_op, op_kernel, wit
 use super::error::{SolidError, kerr};
 use super::extent::{Direction, Extent, ExtentSide, Target, ThinSpec, resolve_target, side_exprs};
 use super::extrude::sides::{extended_face, name_sweep, plane_face, split_sweep};
+use super::extrude::thin::thin_faces;
 use super::extrude::{compound_of, fuse_group};
 use super::pattern::{line_input, ref_dependency};
 use super::profile::{ProfileFace, ProfileSource, profile_faces};
@@ -51,7 +53,8 @@ const EDGE_SAMPLES: u32 = 64;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Revolve {
-    /// Profile regions (`EntityRef::Profile`) or planar faces (`EntityRef::Topo` faces).
+    /// Profile regions (`EntityRef::Profile`) or planar faces (`EntityRef::Topo` faces); with
+    /// `thin`, profile regions or sketch curves (`EntityRef::SketchCurve`).
     pub profiles: Vec<EntityRef>,
     /// The axis: an origin axis, a construction axis, a sketch line or a straight edge.
     pub axis: RefInput,
@@ -385,6 +388,14 @@ fn check_profile(
 
 /// The stored reference of profile face `f` (for the crossing highlight).
 fn profile_ref<'r>(refs: &'r [EntityRef], f: &ProfileFace) -> Vec<&'r EntityRef> {
+    if let ProfileSource::Wall(w) = &f.source {
+        let hit: Vec<&EntityRef> = refs.iter().filter(|r| w.refs.contains(r)).collect();
+        return if hit.is_empty() {
+            refs.iter().collect()
+        } else {
+            hit
+        };
+    }
     let hit: Vec<&EntityRef> = refs
         .iter()
         .filter(|r| match (r, &f.source) {
@@ -590,13 +601,10 @@ fn to_object(
 
 impl SolidTool for Revolve {
     fn tool(&self, ctx: &RecomputeCtx<'_>) -> Result<ToolBody, FeatureError> {
-        if self.thin.is_some() {
-            return Err(SolidError::NotYet {
-                what: "thin revolve",
-            }
-            .into());
-        }
-        let faces = profile_faces(ctx, &self.profiles)?;
+        let faces = match &self.thin {
+            Some(spec) => thin_faces(ctx, &self.profiles, spec)?,
+            None => profile_faces(ctx, &self.profiles)?,
+        };
         let axis = line_input(ctx, &self.axis, "axis")?;
         let axis = if self.flip { reversed(axis) } else { axis };
         let k = op_kernel(ctx);
@@ -680,7 +688,7 @@ impl Feature for Revolve {
         let mut d: Vec<Dependency> = Vec::new();
         for p in &self.profiles {
             d.push(Dependency::Entity(p.clone()));
-            if let EntityRef::Profile { sketch, .. } = p {
+            if let EntityRef::Profile { sketch, .. } | EntityRef::SketchCurve { sketch, .. } = p {
                 let s = Dependency::Sketch(*sketch);
                 if !d.contains(&s) {
                     d.push(s);

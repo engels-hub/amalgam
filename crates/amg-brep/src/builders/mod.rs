@@ -10,7 +10,7 @@ use amg_core::{Dir3, Plane, Point2, Point3, Tolerance, Vec3};
 
 use crate::error::{KResult, KernelError};
 use crate::geom::{BSpline2dData, BSplineSurfaceData, Curve2d, Curve3, CurveSeg, FaceBounds};
-use crate::geom::{Loop2, PlanarProfile, Surface, Tag};
+use crate::geom::{Loop2, PlanarProfile, Surface, Tag, ThinProfile};
 
 use eval::distinct_knots;
 
@@ -526,6 +526,71 @@ pub(crate) fn lower_profiles(
         tags.push(profile_tags);
     }
     Ok((lowered, tags))
+}
+
+// ---- thin walls --------------------------------------------------------------------------
+
+/// Validates a [`ThinProfile`] and lowers its chain for the backend (one loop, open unless
+/// `closed`).
+pub(crate) fn lower_thin(p: &ThinProfile, tol: &Tolerance) -> KResult<PlanarIn> {
+    check_tol(tol)?;
+    check_plane(&p.plane, "profile")?;
+    let width = |w: f64| w.is_finite() && (w == 0.0 || w > tol.linear);
+    if !width(p.left) || !width(p.right) || p.left + p.right <= tol.linear {
+        return Err(invalid(
+            "profile",
+            format!(
+                "widths left {} and right {} must be 0 or larger than the tolerance, not both 0",
+                p.left, p.right
+            ),
+        ));
+    }
+    let n = p.chain.len();
+    if n == 0 {
+        return Err(invalid("profile", "the chain has no edges".into()));
+    }
+    for (e, edge) in p.chain.iter().enumerate() {
+        check_curve2(&edge.curve, tol).map_err(|r| invalid("profile", format!("edge {e}: {r}")))?;
+        if matches!(edge.curve, Curve2d::Circle { .. }) && (n > 1 || !p.closed) {
+            return Err(invalid(
+                "profile",
+                format!("edge {e}: a full circle must be a closed chain by itself"),
+            ));
+        }
+    }
+    let joints = if p.closed { n } else { n - 1 };
+    for e in 0..joints {
+        let end = eval::point2(&p.chain[e].curve, 1.0);
+        let next = eval::point2(&p.chain[(e + 1) % n].curve, 0.0);
+        let gap = (next - end).length();
+        if gap > tol.linear || !gap.is_finite() {
+            return Err(KernelError::OpenLoop {
+                loop_index: 0,
+                edge_index: len_u32(e),
+                gap,
+            });
+        }
+    }
+    if !p.closed {
+        let start = eval::point2(&p.chain[0].curve, 0.0);
+        let end = eval::point2(&p.chain[n - 1].curve, 1.0);
+        if (end - start).length() <= tol.linear {
+            return Err(invalid(
+                "profile",
+                "the open chain ends where it starts; mark it closed".into(),
+            ));
+        }
+    }
+    let mut loops = LoopsIn::default();
+    loops.push_loop(
+        p.chain
+            .iter()
+            .map(|e| lower_curve2(&p.plane, &e.curve, false)),
+    );
+    Ok(PlanarIn {
+        plane: p.plane,
+        loops,
+    })
 }
 
 // ---- polygons ----------------------------------------------------------------------------

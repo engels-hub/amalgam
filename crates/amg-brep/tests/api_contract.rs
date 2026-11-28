@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use amg_brep::geom::{
     BSpline2dData, BSplineCurveData, BSplineSurfaceData, Curve2d, Curve3, CurveSeg, FaceBounds,
-    GeomClass, Loop2, PlanarProfile, ProfileEdge2, Surface, Tag,
+    GeomClass, Loop2, PlanarProfile, ProfileEdge2, Surface, Tag, ThinProfile,
 };
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, Classification,
@@ -20,7 +20,7 @@ use amg_brep::{
     FilletSpec, Glue, HealOpts, HelixSpec, JobCtx, KResult, KernelConfig, LoftSection, MassProps,
     OcctKernel, OffsetJoin, OpResult, PipeMode, PipeOpts, PrismExtent, PrismOpts, RayHit, SewOpts,
     Shape, ShapeHistory, ShapeKind, ShellOpts, SubKind, SubShape, SubShapeGeom, SurfacePoint,
-    TessMesh, TessQuality, ThruSectionsOpts, Tolerance, Transition, UnifyOpts, VertexId,
+    TessMesh, TessQuality, ThinFace, ThruSectionsOpts, Tolerance, Transition, UnifyOpts, VertexId,
 };
 use amg_core::{Dir3, Line3, Plane, Point2, Point3, Ray3, Transform, Vec2, Vec3};
 use serde::Serialize;
@@ -340,6 +340,11 @@ impl<K: BrepKernel> BrepKernel for Forward<K> {
     fn make_wire(&self, segs: &[CurveSeg], tol: &Tolerance) -> KResult<OpResult> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.inner.make_wire(segs, tol)
+    }
+
+    fn make_thin_face(&self, p: &ThinProfile, tol: &Tolerance) -> KResult<ThinFace> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.make_thin_face(p, tol)
     }
 
     fn make_box(&self, frame: &Plane, size: Vec3) -> KResult<OpResult> {

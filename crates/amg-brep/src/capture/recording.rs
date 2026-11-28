@@ -13,7 +13,7 @@ use crate::capture::recorder::{CaptureMode, Captured, FailureRecorder};
 use crate::check::{CheckOpts, CheckReport};
 use crate::error::{KResult, KernelError};
 use crate::geom;
-use crate::history::{FaceBuild, OpResult};
+use crate::history::{FaceBuild, OpResult, ThinFace};
 use crate::kernel::BrepKernel;
 use crate::opts::{
     BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletSpec, HealOpts, LoftSection,
@@ -245,6 +245,17 @@ impl<K: BrepKernel> BrepKernel for RecordingKernel<K> {
             },
             Vec::new,
             || self.inner.make_wire(segs, tol),
+        )
+    }
+
+    fn make_thin_face(&self, p: &geom::ThinProfile, tol: &Tolerance) -> KResult<ThinFace> {
+        self.guarded(
+            || KernelOp::MakeThinFace {
+                profile: p.clone(),
+                tol: *tol,
+            },
+            Vec::new,
+            || self.inner.make_thin_face(p, tol),
         )
     }
 

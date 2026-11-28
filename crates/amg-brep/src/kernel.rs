@@ -19,7 +19,7 @@ use crate::error::{KResult, KernelError};
 use crate::extract;
 use crate::geom::{self, Tag};
 use crate::heal;
-use crate::history::{FaceBuild, OpResult, ShapeHistory};
+use crate::history::{FaceBuild, OpResult, ShapeHistory, ThinFace};
 use crate::local;
 use crate::offset::{self, OffsetIn};
 use crate::ops::{self, PrimitiveKind};
@@ -164,6 +164,19 @@ pub trait BrepKernel: Send + Sync {
     /// `InvalidInput` for an empty list, a malformed segment (`Curve3::Other`, a periodic
     /// B-spline, an empty or out-of-range parameter range) or a gap.
     fn make_wire(&self, segs: &[geom::CurveSeg], tol: &Tolerance) -> KResult<OpResult>;
+
+    /// The planar wall along an open or closed chain (S04 R-S04-3, for thin features): the
+    /// chain's parallels `left` mm and `right` mm to either side
+    /// (`BRepOffsetAPI_MakeOffset`, sharp corners), joined by straight caps at the ends of an
+    /// open chain, or as a ring for a closed one. A width of 0 keeps the chain as that
+    /// boundary.
+    ///
+    /// # Errors
+    /// `InvalidInput` for a malformed chain or widths; `OpenLoop` for a gap in the chain;
+    /// `Occt` when the parallel can't be built or the wall overlaps itself (a width larger
+    /// than the chain's curvature or the closed chain's inner room); `InvalidResult` under the
+    /// validation policy.
+    fn make_thin_face(&self, p: &geom::ThinProfile, tol: &Tolerance) -> KResult<ThinFace>;
 
     // -- primitives, sweeps and transforms (BREP-14) --
 
@@ -1321,6 +1334,39 @@ impl BrepKernel for OcctKernel {
                 ..ShapeHistory::default()
             },
             warnings: Vec::new(),
+        })
+    }
+
+    fn make_thin_face(&self, p: &geom::ThinProfile, tol: &Tolerance) -> KResult<ThinFace> {
+        backend::require()?;
+        let chain = builders::lower_thin(p, tol)?;
+        let (occ, pairs) = Occ::thin_face(&chain, p.closed, p.left, p.right, tol.linear)?;
+        let face = Shape::from_occ(occ);
+        self.validate_result("make_thin_face", &face)?;
+        let n = p.chain.len();
+        // (order, edge, tag, is_left)
+        let mut edges = Vec::with_capacity(pairs.len() / 2);
+        for pair in pairs.chunks_exact(2) {
+            let (edge, code) = (pair[0], pair[1] as usize);
+            if edge == u32::MAX {
+                continue;
+            }
+            let (order, tag, left) = if code < 2 * n {
+                let side = code % 2;
+                ((side, code / 2), p.chain[code / 2].tag, side == 0)
+            } else {
+                let end = (code - 2 * n).min(1);
+                ((2, end), p.end_tags[end], false)
+            };
+            edges.push((order, EdgeId(edge), tag, left));
+        }
+        edges.sort_by_key(|e| (e.0, e.1.0));
+        Ok(ThinFace {
+            left: edges.iter().filter(|e| e.3).map(|e| e.1).collect(),
+            build: FaceBuild {
+                edge_tags: edges.iter().map(|e| (e.1, e.2)).collect(),
+                face,
+            },
         })
     }
 

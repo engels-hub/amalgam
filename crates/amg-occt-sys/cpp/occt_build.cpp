@@ -18,6 +18,10 @@
 
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepOffsetAPI_MakeOffset.hxx>
+#include <BRepTools_WireExplorer.hxx>
 #include <BRepLib.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
@@ -26,6 +30,8 @@
 #include <Geom2d_BSplineCurve.hxx>
 #include <Geom2d_Curve.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <GeomAbs_JoinType.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_Circle.hxx>
@@ -34,10 +40,13 @@
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Ellipse.hxx>
 #include <Geom_Line.hxx>
+#include <Geom_OffsetCurve.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_Surface.hxx>
 #include <Geom_ToroidalSurface.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <GeomConvert_ApproxCurve.hxx>
 #include <NCollection_Array1.hxx>
 #include <NCollection_Array2.hxx>
 #include <NCollection_HArray1.hxx>
@@ -70,6 +79,9 @@ namespace amg::occt {
 namespace {
 
 constexpr std::uint32_t LOST_EDGE = 0xFFFFFFFFu;
+
+// The accuracy of the B-splines that replace the offset curves of thin walls, mm.
+constexpr double THIN_APPROX = 1e-9;
 
 // A turn sharper than this between consecutive polyline segments starts a new edge.
 constexpr double CORNER_ANGLE = 0.7;
@@ -453,6 +465,355 @@ TopoDS_Face orient_wires(const TopoDS_Face &face, const TopoDS_Shape &outer_hint
   }
   return out;
 }
+
+// ---- thin faces (S04 R-S04-3) ------------------------------------------------------------
+
+// One boundary of a thin face: edges, each with the index of the chain edge it came from.
+struct ThinSideOut {
+  std::vector<TopoDS_Edge> edges;
+  std::vector<std::size_t> source;
+};
+
+// The signed side of `q` against the chain edge `e` (run along the chain): positive when `q` is
+// left of the chain seen against the plane normal `n`.
+double chain_side(const TopoDS_Edge &e, const gp_Pnt &q, const gp_Dir &n) {
+  double first = 0.0;
+  double last = 0.0;
+  const occ::handle<Geom_Curve> curve = BRep_Tool::Curve(e, first, last);
+  GeomAPI_ProjectPointOnCurve project(q, curve, first, last);
+  double u = 0.0;
+  if (project.NbPoints() > 0) {
+    u = project.LowerDistanceParameter();
+  } else {
+    u = q.Distance(curve->Value(first)) < q.Distance(curve->Value(last)) ? first : last;
+  }
+  gp_Pnt p;
+  gp_Vec t;
+  curve->D1(u, p, t);
+  if (e.Orientation() == TopAbs_REVERSED) {
+    t.Reverse();
+  }
+  return t.Crossed(gp_Vec(p, q)).Dot(gp_Vec(n));
+}
+
+// One edge for the offset `pieces` of the chain edge `source`, ending at the pieces' outer
+// vertices; null when they are not one offset of its curve.
+TopoDS_Edge joined_offset(const std::vector<TopoDS_Edge> &pieces, const TopoDS_Edge &source) {
+  double first = 0.0;
+  double last = 0.0;
+  const occ::handle<Geom_Curve> spine = BRep_Tool::Curve(source, first, last);
+  occ::handle<Geom_OffsetCurve> whole;
+  double lo = RealLast();
+  double hi = RealFirst();
+  double span = 0.0;
+  std::vector<TopoDS_Vertex> vertices;
+  for (const TopoDS_Edge &piece : pieces) {
+    double f = 0.0;
+    double l = 0.0;
+    const auto curve = occ::down_cast<Geom_OffsetCurve>(BRep_Tool::Curve(piece, f, l));
+    if (curve.IsNull()) {
+      return TopoDS_Edge();
+    }
+    if (whole.IsNull()) {
+      whole = new Geom_OffsetCurve(spine, curve->Offset(), curve->Direction());
+    }
+    for (const double u : {f, 0.5 * (f + l), l}) {
+      if (whole->Value(u).Distance(curve->Value(u)) > 1e-9) {
+        return TopoDS_Edge();
+      }
+    }
+    lo = std::min(lo, f);
+    hi = std::max(hi, l);
+    span += l - f;
+    vertices.push_back(TopExp::FirstVertex(piece));
+    vertices.push_back(TopExp::LastVertex(piece));
+  }
+  // The pieces cover the range once, without a hole.
+  if (std::abs(span - (hi - lo)) > 1e-9 * std::max(1.0, hi - lo)) {
+    return TopoDS_Edge();
+  }
+  const auto vertex_at = [&](double u) {
+    const gp_Pnt at = whole->Value(u);
+    std::size_t best = 0;
+    for (std::size_t i = 1; i < vertices.size(); ++i) {
+      if (BRep_Tool::Pnt(vertices[i]).Distance(at) < BRep_Tool::Pnt(vertices[best]).Distance(at)) {
+        best = i;
+      }
+    }
+    return vertices[best];
+  };
+  const TopoDS_Vertex v_lo = vertex_at(lo);
+  const bool closed = whole->Value(lo).Distance(whole->Value(hi)) <= 1e-9;
+  const TopoDS_Vertex v_hi = closed ? v_lo : vertex_at(hi);
+  BRepBuilderAPI_MakeEdge make(whole, v_lo, v_hi, lo, hi);
+  if (!make.IsDone()) {
+    return TopoDS_Edge();
+  }
+  TopoDS_Edge edge = make.Edge();
+  edge.Orientation(pieces.front().Orientation());
+  return edge;
+}
+
+// MakeOffset cuts the parallel of a spline or ellipse where the curve's curvature peaks. The
+// pieces of one chain edge are one offset curve over its parameter range: they are joined back
+// into one edge, so every chain edge gives one face (and one name). Pieces that are not offset
+// curves over that parameterisation stay as they are.
+void join_offset_pieces(ThinSideOut &side, const BuiltLoop &chain) {
+  ThinSideOut out;
+  for (std::size_t k = 0; k < chain.edges.size(); ++k) {
+    std::vector<TopoDS_Edge> pieces;
+    for (std::size_t i = 0; i < side.edges.size(); ++i) {
+      if (side.source[i] == k) {
+        pieces.push_back(side.edges[i]);
+      }
+    }
+    const TopoDS_Edge joined = pieces.size() > 1 ? joined_offset(pieces, chain.edges[k])
+                                                 : TopoDS_Edge();
+    if (!joined.IsNull()) {
+      pieces.assign(1, joined);
+    }
+    for (const TopoDS_Edge &piece : pieces) {
+      out.edges.push_back(piece);
+      out.source.push_back(k);
+    }
+  }
+  side = out;
+}
+
+// `edge` on a B-spline within THIN_APPROX of its offset curve, between the same vertices. An
+// offset curve gets no faithful pcurve on the wall's plane (its tolerance would grow with the
+// wall, and volumes would be wrong); a B-spline's pcurve is exact.
+TopoDS_Edge bspline_edge(const TopoDS_Edge &edge) {
+  double first = 0.0;
+  double last = 0.0;
+  const occ::handle<Geom_Curve> curve = BRep_Tool::Curve(edge, first, last);
+  if (occ::down_cast<Geom_OffsetCurve>(curve).IsNull()) {
+    return edge;
+  }
+  const occ::handle<Geom_TrimmedCurve> trimmed = new Geom_TrimmedCurve(curve, first, last);
+  GeomConvert_ApproxCurve approx(trimmed, THIN_APPROX, GeomAbs_C2, 1000, 8);
+  if (!approx.HasResult() || approx.MaxError() > 10.0 * THIN_APPROX) {
+    fail("could not approximate an offset curve of the wall");
+  }
+  const occ::handle<Geom_BSplineCurve> spline = approx.Curve();
+  const TopoDS_Edge forward = TopoDS::Edge(edge.Oriented(TopAbs_FORWARD));
+  BRepBuilderAPI_MakeEdge make(spline, TopExp::FirstVertex(forward), TopExp::LastVertex(forward),
+                               spline->FirstParameter(), spline->LastParameter());
+  if (!make.IsDone()) {
+    fail("could not build an offset edge of the wall: BRepBuilderAPI_MakeEdge error " +
+         std::to_string(static_cast<int>(make.Error())));
+  }
+  return TopoDS::Edge(make.Edge().Oriented(edge.Orientation()));
+}
+
+// The boundary `distance` mm to the left (`left`) or right of the chain: the chain itself for
+// distance 0, else its BRepOffsetAPI_MakeOffset parallel with sharp (intersection) corners.
+// The side MakeOffset picks follows the spine face's normal (the sign of the distance is not
+// honoured for every wire), so the side of the result is checked and the offset repeated on the
+// face turned over when it came out on the wrong side.
+ThinSideOut thin_side(const gp_Pln &plane, const BuiltLoop &chain, bool closed, double distance,
+                      bool left) {
+  ThinSideOut out;
+  if (distance == 0.0) {
+    for (std::size_t k = 0; k < chain.edges.size(); ++k) {
+      out.edges.push_back(chain.edges[k]);
+      out.source.push_back(k);
+    }
+    return out;
+  }
+  const std::string where = std::string(left ? "left" : "right") + " offset by " +
+                            std::to_string(distance) + " mm";
+  // A lone circle: MakeOffset only ever shrinks it, and its parallel is a circle anyway.
+  if (closed && chain.edges.size() == 1) {
+    double first = 0.0;
+    double last = 0.0;
+    const occ::handle<Geom_Curve> curve = BRep_Tool::Curve(chain.edges[0], first, last);
+    if (const occ::handle<Geom_Circle> circle = occ::down_cast<Geom_Circle>(curve);
+        !circle.IsNull()) {
+      const bool centre_left =
+          chain_side(chain.edges[0], circle->Location(), plane.Axis().Direction()) > 0.0;
+      const double radius = circle->Radius() + (centre_left == left ? -distance : distance);
+      if (radius <= Precision::Confusion()) {
+        fail(where + ": the circle's radius is smaller than the wall's width");
+      }
+      BRepBuilderAPI_MakeEdge make(new Geom_Circle(circle->Position(), radius), first, last);
+      if (!make.IsDone()) {
+        fail(where + ": could not build the parallel circle");
+      }
+      out.edges.push_back(make.Edge());
+      out.source.push_back(0);
+      return out;
+    }
+  }
+  const gp_Pln turned(gp_Ax3(plane.Location(), plane.Axis().Direction().Reversed(),
+                             plane.XAxis().Direction()));
+  for (const auto &[spine, signed_distance] :
+       {std::pair<gp_Pln, double>{plane, distance}, std::pair<gp_Pln, double>{turned, distance},
+        std::pair<gp_Pln, double>{plane, -distance},
+        std::pair<gp_Pln, double>{turned, -distance}}) {
+    BRep_Builder builder;
+    TopoDS_Face spine_face;
+    builder.MakeFace(spine_face, new Geom_Plane(spine), Precision::Confusion());
+    BRepOffsetAPI_MakeOffset offset;
+    offset.Init(spine_face, GeomAbs_Intersection, !closed);
+    offset.AddWire(chain.wire);
+    offset.Perform(signed_distance);
+    if (!offset.IsDone() || offset.Shape().IsNull()) {
+      continue;
+    }
+    ShapeMap result;
+    TopExp::MapShapes(offset.Shape(), TopAbs_EDGE, result);
+    if (result.Extent() == 0) {
+      continue;
+    }
+    ThinSideOut got;
+    std::vector<bool> used(static_cast<std::size_t>(result.Extent()), false);
+    for (std::size_t k = 0; k < chain.edges.size(); ++k) {
+      const NCollection_List<TopoDS_Shape> &made = offset.Generated(chain.edges[k]);
+      for (NCollection_List<TopoDS_Shape>::Iterator it(made); it.More(); it.Next()) {
+        const int found = result.FindIndex(it.Value());
+        if (found != 0 && !used[static_cast<std::size_t>(found - 1)]) {
+          used[static_cast<std::size_t>(found - 1)] = true;
+          got.edges.push_back(TopoDS::Edge(result.FindKey(found)));
+          got.source.push_back(k);
+        }
+      }
+    }
+    if (got.edges.empty()) {
+      continue;
+    }
+    double first = 0.0;
+    double last = 0.0;
+    const occ::handle<Geom_Curve> curve = BRep_Tool::Curve(got.edges[0], first, last);
+    const gp_Pnt mid = curve->Value(0.5 * (first + last));
+    const double side = chain_side(chain.edges[got.source[0]], mid, plane.Axis().Direction());
+    if ((side > 0.0) != left) {
+      continue;
+    }
+    if (got.edges.size() != used.size()) {
+      fail(where + ": " + std::to_string(used.size() - got.edges.size()) + " of " +
+           std::to_string(used.size()) + " offset edges have no source edge");
+    }
+    join_offset_pieces(got, chain);
+    for (TopoDS_Edge &e : got.edges) {
+      e = bspline_edge(e);
+    }
+    return got;
+  }
+  fail(where + ": OCCT built no parallel on that side (the wall may be wider than the profile "
+               "allows, or a corner too sharp for it)");
+}
+
+// The two end vertices of an open boundary (the vertices only one edge uses), ordered so the
+// first belongs to the chain's start.
+std::pair<TopoDS_Vertex, TopoDS_Vertex> boundary_ends(const ThinSideOut &side,
+                                                      const gp_Pnt &start, const gp_Pnt &end,
+                                                      double distance) {
+  std::vector<TopoDS_Vertex> seen;
+  std::vector<int> uses;
+  for (const TopoDS_Edge &e : side.edges) {
+    TopoDS_Vertex v[2];
+    TopExp::Vertices(e, v[0], v[1]);
+    for (const TopoDS_Vertex &x : v) {
+      std::size_t i = 0;
+      while (i < seen.size() && !seen[i].IsSame(x)) {
+        ++i;
+      }
+      if (i == seen.size()) {
+        seen.push_back(x);
+        uses.push_back(0);
+      }
+      ++uses[i];
+    }
+  }
+  std::vector<TopoDS_Vertex> open;
+  for (std::size_t i = 0; i < seen.size(); ++i) {
+    if (uses[i] == 1) {
+      open.push_back(seen[i]);
+    }
+  }
+  if (open.size() != 2) {
+    fail("an offset of the chain is not one open wire (" + std::to_string(open.size()) +
+         " free ends); reduce the thickness");
+  }
+  const auto misfit = [&](const TopoDS_Vertex &a, const TopoDS_Vertex &b) {
+    return std::abs(BRep_Tool::Pnt(a).Distance(start) - distance) +
+           std::abs(BRep_Tool::Pnt(b).Distance(end) - distance);
+  };
+  if (misfit(open[0], open[1]) <= misfit(open[1], open[0])) {
+    return {open[0], open[1]};
+  }
+  return {open[1], open[0]};
+}
+
+// Twice the signed (u, v) area of `wire` on `face`, from its pcurves in connected order (the
+// order of the wire's edge list is not: wire_uv_area2 assumes it is).
+double connected_uv_area2(const TopoDS_Wire &wire, const TopoDS_Face &face) {
+  std::vector<gp_Pnt2d> pts;
+  for (BRepTools_WireExplorer it(wire, face); it.More(); it.Next()) {
+    const TopoDS_Edge &edge = it.Current();
+    double f = 0.0;
+    double l = 0.0;
+    const occ::handle<Geom2d_Curve> pcurve = BRep_Tool::CurveOnSurface(edge, face, f, l);
+    if (pcurve.IsNull()) {
+      continue;
+    }
+    constexpr int SAMPLES = 32;
+    const bool reversed = edge.Orientation() == TopAbs_REVERSED;
+    for (int k = 0; k < SAMPLES; ++k) {
+      const double s = static_cast<double>(k) / SAMPLES;
+      pts.push_back(pcurve->Value(reversed ? l + (f - l) * s : f + (l - f) * s));
+    }
+  }
+  return pts.size() < 3 ? 0.0 : uv_area2(pts);
+}
+
+// `face` with the wire enclosing the largest area counter-clockwise and the others clockwise.
+TopoDS_Face orient_thin(const TopoDS_Face &face) {
+  std::vector<TopoDS_Wire> wires;
+  std::vector<double> areas;
+  std::size_t outer = 0;
+  for (TopoDS_Iterator it(face); it.More(); it.Next()) {
+    wires.push_back(TopoDS::Wire(it.Value()));
+    areas.push_back(connected_uv_area2(wires.back(), face));
+    if (std::abs(areas.back()) > std::abs(areas[outer])) {
+      outer = areas.size() - 1;
+    }
+  }
+  BRep_Builder builder;
+  TopoDS_Face out = TopoDS::Face(face.EmptyCopied());
+  for (std::size_t w = 0; w < wires.size(); ++w) {
+    TopoDS_Wire wire = wires[w];
+    if ((areas[w] > 0.0) != (w == outer)) {
+      wire.Reverse();
+    }
+    builder.Add(out, wire);
+  }
+  return out;
+}
+
+// `edges` joined into one closed wire; every edge keeps its identity.
+TopoDS_Wire thin_wire(const std::vector<TopoDS_Edge> &edges) {
+  NCollection_List<TopoDS_Shape> list;
+  for (const TopoDS_Edge &e : edges) {
+    list.Append(e);
+  }
+  BRepBuilderAPI_MakeWire make;
+  make.Add(list);
+  if (!make.IsDone()) {
+    fail("the wall boundary does not join into one wire; reduce the thickness");
+  }
+  TopoDS_Wire wire = make.Wire();
+  if (!BRep_Tool::IsClosed(wire)) {
+    fail("the wall boundary is not closed; reduce the thickness");
+  }
+  ShapeMap map;
+  TopExp::MapShapes(wire, TopAbs_EDGE, map);
+  if (static_cast<std::size_t>(map.Extent()) != edges.size()) {
+    fail("the wall boundary splits into several wires; reduce the thickness");
+  }
+  return wire;
+}
 } // namespace
 
 std::unique_ptr<OcBuild> make_planar_faces(rust::Slice<const OcPlanarIn> faces, double tol) {
@@ -585,6 +946,84 @@ std::unique_ptr<OcBuild> make_wire(const OcLoopsIn &edges, bool closed, double t
   std::vector<TopoDS_Shape> built(loop.edges.begin(), loop.edges.end());
   out->edge_maps.push_back(edge_map(loop.wire, built));
   out->shapes.push_back(loop.wire);
+  return out;
+}
+
+std::unique_ptr<OcBuild> make_thin_face(const OcPlanarIn &chain, bool closed, double left,
+                                        double right, double tol) {
+  const auto &starts = chain.loops.loop_starts;
+  if (starts.size() != 2) {
+    fail("a thin face is built from one chain");
+  }
+  const gp_Pln plane(ax3(chain.frame));
+  const BuiltLoop spine = build_loop(chain.loops.edges, starts[0], starts[1], closed, "chain");
+  const ThinSideOut l = thin_side(plane, spine, closed, left, true);
+  const ThinSideOut r = thin_side(plane, spine, closed, right, false);
+  const std::size_t n = spine.edges.size();
+  std::vector<TopoDS_Edge> all;
+  std::vector<std::uint32_t> codes;
+  const auto add = [&](const TopoDS_Edge &e, std::size_t code) {
+    all.push_back(e);
+    codes.push_back(static_cast<std::uint32_t>(code));
+  };
+  for (std::size_t i = 0; i < l.edges.size(); ++i) {
+    add(l.edges[i], 2 * l.source[i]);
+  }
+  for (std::size_t i = 0; i < r.edges.size(); ++i) {
+    add(r.edges[i], 2 * r.source[i] + 1);
+  }
+  std::vector<TopoDS_Wire> wires;
+  if (closed) {
+    wires.push_back(thin_wire(l.edges));
+    wires.push_back(thin_wire(r.edges));
+  } else {
+    const gp_Pnt start = BRep_Tool::Pnt(TopExp::FirstVertex(spine.edges.front(), true));
+    const gp_Pnt end = BRep_Tool::Pnt(TopExp::LastVertex(spine.edges.back(), true));
+    const auto le = boundary_ends(l, start, end, left);
+    const auto re = boundary_ends(r, start, end, right);
+    std::vector<TopoDS_Edge> ring = l.edges;
+    ring.insert(ring.end(), r.edges.begin(), r.edges.end());
+    const std::pair<TopoDS_Vertex, TopoDS_Vertex> caps[2] = {{le.first, re.first},
+                                                             {le.second, re.second}};
+    for (std::size_t c = 0; c < 2; ++c) {
+      BRepBuilderAPI_MakeEdge make(caps[c].first, caps[c].second);
+      if (!make.IsDone()) {
+        fail("could not close the wall at a chain end");
+      }
+      ring.push_back(make.Edge());
+      add(make.Edge(), 2 * n + c);
+    }
+    wires.push_back(thin_wire(ring));
+  }
+  BRep_Builder builder;
+  TopoDS_Face face;
+  builder.MakeFace(face, new Geom_Plane(plane), std::max(tol, Precision::Confusion()));
+  for (const TopoDS_Wire &wire : wires) {
+    builder.Add(face, wire);
+  }
+  NCollection_List<TopoDS_Shape> edge_list;
+  for (const TopoDS_Edge &e : all) {
+    edge_list.Append(e);
+  }
+  BRepLib::BuildPCurveForEdgesOnPlane(edge_list, face);
+  face = orient_thin(face);
+  if (!BRepCheck_Analyzer(face).IsValid()) {
+    fail("the wall overlaps itself; reduce the thickness");
+  }
+  std::vector<TopoDS_Shape> edges(all.begin(), all.end());
+  const std::vector<std::uint32_t> map = edge_map(face, edges);
+  // Boundaries that touch pass BRepCheck but not as the wires they were built from.
+  if (std::find(map.begin(), map.end(), LOST_EDGE) != map.end()) {
+    fail("the wall touches itself; reduce the thickness");
+  }
+  std::vector<std::uint32_t> pairs;
+  for (std::size_t i = 0; i < map.size(); ++i) {
+    pairs.push_back(map[i]);
+    pairs.push_back(codes[i]);
+  }
+  auto out = std::make_unique<OcBuild>();
+  out->edge_maps.push_back(pairs);
+  out->shapes.push_back(face);
   return out;
 }
 

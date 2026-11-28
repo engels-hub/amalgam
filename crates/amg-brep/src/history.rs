@@ -508,6 +508,17 @@ pub struct FaceBuild {
     pub edge_tags: Vec<(crate::EdgeId, Tag)>,
 }
 
+/// A wall face built by [`crate::BrepKernel::make_thin_face`].
+#[derive(Clone, Debug)]
+pub struct ThinFace {
+    /// The face and the tag of every edge: an offset edge keeps its chain edge's tag, the end
+    /// caps carry [`crate::geom::ThinProfile::end_tags`]. In order: the left boundary along the
+    /// chain, the right boundary along the chain, the start cap, the end cap.
+    pub build: FaceBuild,
+    /// The edges of the boundary left of the chain (the chain itself where `left` is 0).
+    pub left: Vec<crate::EdgeId>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

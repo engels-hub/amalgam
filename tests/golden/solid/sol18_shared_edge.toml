@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol18_shared_edge (S04 SOL-18). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 1360.0
+area = 1592.0
+faces = 14
+edges = 36
+vertices = 24
+bbox_min = [-1.0, -1.0, 0.0]
+bbox_max = [21.0, 11.0, 10.0]

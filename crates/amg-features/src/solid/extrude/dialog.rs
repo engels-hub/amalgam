@@ -15,7 +15,7 @@ use crate::dialog::{
     FieldValues, ManipAnchor, ManipKind,
 };
 use crate::solid::common::{BodyOp, OpTarget};
-use crate::solid::extent::{Direction, Extent, ExtentSide, Start};
+use crate::solid::extent::{Direction, Extent, ExtentSide, Start, ThinSide, ThinSpec};
 
 const PROFILES: &str = "profiles";
 const START: &str = "start";
@@ -36,6 +36,9 @@ const OBJECT_OFFSET2: &str = "side2_object_offset";
 const EXTEND2: &str = "side2_extend";
 const TAPER2: &str = "side2_taper";
 const FLIP: &str = "flip";
+const THIN: &str = "thin";
+const THICKNESS: &str = "thickness";
+const THIN_SIDE: &str = "thin_side";
 const OPERATION: &str = "operation";
 const BODIES: &str = "bodies";
 
@@ -98,6 +101,13 @@ const EXTENTS: [(&str, &str); 3] = [
     ("all", "All"),
 ];
 
+const THIN_SIDES: [(&str, ThinSide, &str); 3] = [
+    ("side1", ThinSide::Side1, "Side 1"),
+    ("side2", ThinSide::Side2, "Side 2"),
+    ("center", ThinSide::Center, "Center"),
+];
+
+const DEFAULT_THICKNESS: &str = "1 mm";
 const DEFAULT_DISTANCE: &str = "10 mm";
 const ZERO_MM: &str = "0 mm";
 const ZERO_DEG: &str = "0 deg";
@@ -186,6 +196,72 @@ fn side_fields(
     vec![ext, dist, obj, off, extend, taper]
 }
 
+/// The thin-feature fields of the extrude and revolve dialogs (SOL-18): the toggle, then the
+/// thickness and side, shown when it is on.
+pub(crate) fn thin_fields() -> [FieldSpec; 3] {
+    let mut thin = FieldSpec::new(THIN, "Thin", FieldKind::Bool);
+    thin.tooltip = Some("A wall of a given thickness along sketch curves or profile loops.".into());
+    let on = Condition::Is(FieldKey(THIN), FieldValue::Bool(true));
+    let mut thickness = expr(THICKNESS, "Wall thickness", Dim::LENGTH, DEFAULT_THICKNESS);
+    thickness.visible_if = Some(on.clone());
+    let sides: Vec<(&'static str, &str)> = THIN_SIDES.iter().map(|(id, _, l)| (*id, *l)).collect();
+    let mut side = choice(THIN_SIDE, "Wall side", &sides);
+    side.tooltip = Some(
+        "Side 1 is inside a closed profile and left of an open chain; Side 2 the other way.".into(),
+    );
+    side.visible_if = Some(on);
+    [thin, thickness, side]
+}
+
+/// The values of the thin fields for `thin`.
+pub(crate) fn thin_values(v: FieldValues, thin: Option<&ThinSpec>, design: &Design) -> FieldValues {
+    let thickness = thin.map_or_else(
+        || FieldValue::expr(DEFAULT_THICKNESS),
+        |t| FieldValue::from_expr(&t.thickness, design),
+    );
+    let side = thin
+        .and_then(|t| THIN_SIDES.iter().find(|(_, s, _)| *s == t.side))
+        .map_or("side1", |(id, _, _)| id);
+    v.with(THIN, FieldValue::Bool(thin.is_some()))
+        .with(THICKNESS, thickness)
+        .with(THIN_SIDE, FieldValue::Choice(side))
+}
+
+/// The thin options from their fields (`None` when the toggle is off). Sketch curves among
+/// `profiles` without the toggle are a field error.
+pub(crate) fn build_thin(
+    v: &FieldValues,
+    profiles: &[EntityRef],
+    errs: &mut FieldErrors,
+) -> Option<ThinSpec> {
+    let on = v.flag(THIN).map_err(|e| errs.0.push(e)).unwrap_or(false);
+    if !on {
+        if profiles
+            .iter()
+            .any(|r| matches!(r, EntityRef::SketchCurve { .. }))
+        {
+            errs.0.push((
+                FieldKey(THIN),
+                "turn on Thin to use open sketch curves".into(),
+            ));
+        }
+        return None;
+    }
+    let thickness = take_expr(v, THICKNESS, errs);
+    let id = take_choice(v, THIN_SIDE, "side1", errs);
+    let side = THIN_SIDES.iter().find(|(s, _, _)| *s == id);
+    if side.is_none() {
+        errs.0
+            .push((FieldKey(THIN_SIDE), format!("unknown side `{id}`")));
+    }
+    thickness
+        .zip(side)
+        .map(|(thickness, (_, side, _))| ThinSpec {
+            thickness,
+            side: *side,
+        })
+}
+
 fn schema() -> &'static DialogSchema {
     static S: OnceLock<DialogSchema> = OnceLock::new();
     S.get_or_init(|| {
@@ -193,12 +269,17 @@ fn schema() -> &'static DialogSchema {
             PROFILES,
             "Profiles",
             FieldKind::Selection {
-                filter: EntityFilter::PROFILE | EntityFilter::PLANAR_FACE,
+                filter: EntityFilter::PROFILE
+                    | EntityFilter::PLANAR_FACE
+                    | EntityFilter::SKETCH_CURVE,
                 min: 1,
                 max: None,
             },
         );
-        profiles.tooltip = Some("Sketch profiles, text or planar faces to extrude.".into());
+        profiles.tooltip = Some(
+            "Sketch profiles, text or planar faces to extrude; sketch curves for a thin wall."
+                .into(),
+        );
         let start = choice(START, "Start", &STARTS);
         let mut start_offset = expr(START_OFFSET, "Start offset", Dim::LENGTH, ZERO_MM);
         start_offset.visible_if = Some(not(is(START, "profile")));
@@ -272,11 +353,9 @@ fn schema() -> &'static DialogSchema {
         ];
         fields.extend(side1);
         fields.extend(side2);
-        fields.extend([
-            FieldSpec::new(FLIP, "Flip", FieldKind::FlipDirection),
-            operation,
-            bodies,
-        ]);
+        fields.push(FieldSpec::new(FLIP, "Flip", FieldKind::FlipDirection));
+        fields.extend(thin_fields());
+        fields.extend([operation, bodies]);
         DialogSchema {
             kind: "solid.extrude",
             title: "Extrude".into(),
@@ -360,7 +439,8 @@ fn values_of(e: &Extrude, design: &Design) -> FieldValues {
     } else {
         None
     };
-    side_values(v, SIDE2, side2, design)
+    let v = side_values(v, SIDE2, side2, design);
+    thin_values(v, e.thin.as_ref(), design)
         .with(FLIP, FieldValue::Flip(e.flip))
         .with(OPERATION, FieldValue::Choice(op))
         .with(
@@ -386,7 +466,20 @@ fn defaults(init: &DialogInit<'_>) -> FieldValues {
         })
         .cloned()
         .collect();
-    let f = Extrude::distance(profiles, DEFAULT_DISTANCE, OpTarget::default());
+    // Preselected sketch curves alone start a thin extrude.
+    let curves: Vec<EntityRef> = init
+        .preselection
+        .iter()
+        .filter(|e| matches!(e, EntityRef::SketchCurve { .. }))
+        .cloned()
+        .collect();
+    let thin = profiles.is_empty() && !curves.is_empty();
+    let profiles = if thin { curves } else { profiles };
+    let mut f = Extrude::distance(profiles, DEFAULT_DISTANCE, OpTarget::default());
+    f.thin = thin.then(|| ThinSpec {
+        thickness: Expr::Inline(amg_doc::ExprSrc(DEFAULT_THICKNESS.into())),
+        side: ThinSide::Side1,
+    });
     values_of(&f, init.design)
 }
 
@@ -536,6 +629,7 @@ fn build(v: &FieldValues, old: Option<&dyn Feature>) -> Result<FeatureBox, Field
         Ok(b) => f.flip = b,
         Err(e) => errs.0.push(e),
     }
+    f.thin = build_thin(v, &f.profiles, &mut errs);
     let id = take_choice(v, OPERATION, "new_body", &mut errs);
     match op_of(id) {
         Some(op) => f.target.op = op,
