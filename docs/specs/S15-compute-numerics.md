@@ -683,7 +683,7 @@ harness; measured numbers go into the Refinement log.
 |---|---|---|---|---|---|
 | CMP-07 | GPU layer: `GpuVec<T>` (binding-limit checks), `Kernel` (incl. `with_precision`), `ComputeCtx` (batched encoder, uniform arena, `dispatch_1d` 2-D folding, timestamps), `prelude_wgsl` (`real` alias), `ComputeError` + `Diagnostic`; precision selection (`Precision`, `PrecisionPolicy`, `AMG_COMPUTE_PRECISION`, `GpuReal`, `device_precision`, `SolverDevice::precision`); WARP test harness with a per-precision test matrix and the f64 skip/require rule; crate deps (`half`, `bytemuck`, `rayon`) and THIRD_PARTY rows | FND-09, FND-05 | P1 | Done | 1. On WARP and the reference GPU, `dispatch_1d` with n ∈ {0, 1, 255, 256, 257, 65 535·256 + 1, 2²⁶ + 3} writes every index exactly once (counter test). 2. `GpuVec::zeroed` past the binding limit returns `TooLarge`, no panic. 3. A destroyed device makes `finish` return `Gpu(DeviceLost)` within 1 s (no hang). 4. Bench: 1 000 empty dispatches recorded and submitted in one `ComputeCtx` cost ≤ 20 µs CPU each. 5. `take_timings` is non-empty on the reference GPU and empty without `TIMESTAMP_QUERY`. 6. `cargo deny` passes; `half` listed in THIRD_PARTY.md. 7. `PrecisionPolicy::resolve`: `Auto` gives F64 exactly when `Gpu::has(SHADER_F64)` (WARP and the reference GPU on DX12 → F32; the reference GPU on Vulkan → F64); `ForceF32` gives F32 on every device; `RequireF64` on WARP returns `Unsupported`, no panic; `parse` accepts `auto`/`f32`/`f64` (any case, empty = `Auto`) and rejects anything else with `Config`. 8. The harness runs each numeric GPU test once per precision. On a device without `SHADER_F64` the f64 case is reported as skipped with the reason (`f64: adapter has no SHADER_F64`), and fails instead when `AMG_REQUIRE_F64=1`. CI (WARP) runs the f32 cases and reports the f64 skips. 9. f64 gate (Testing): `AMG_WGPU_BACKEND=vulkan AMG_REQUIRE_F64=1 cargo nextest run -p amg-compute` on the reference GPU passes, including an f64 kernel (`real` = f64) for test 1 and a bit-exact f64 upload → kernel copy → readback; the run is recorded in the Refinement log before Review. |
 | CMP-01 | GPU primitives: reduce (sum/min/max on f32/f64/u32/i32), dot and segmented reduce (f32/f64), exclusive/inclusive scan, compaction, stable radix sort (keys + optional values, `key_bits`), `AtomicCounter`, `cpu` references; benchmarks vs CPU | CMP-07 | P1 | Done | 1. Every primitive equals its `cpu` reference on sizes {0, 1, 255, 256, 257, 65 537, 2²⁰ + 7, 2²⁴} with random data, on WARP and the reference GPU: integers exactly, f32 sums bit-equal to the tree-order reference on the reference GPU and within n·ε₃₂·Σ\|x\| on WARP. The f64 variants (reduce, dot, segmented reduce) pass the same sizes on the f64 gate, bit-equal to the f64 tree-order reference; on WARP they are skipped by the CMP-07 rule, and an f64 call there returns `Unsupported`. 2. Same input → bit-identical output over 3 runs (both precisions). 3. Sort is stable (equal keys keep value order; property test vs `slice::sort_by_key`). 4. Benches (reference GPU, 2²⁶ elements): reduce f32 ≥ 60 % of the measured device-to-device copy bandwidth; scan u32 ≥ 30 %; sort of 2²⁴ key-value pairs ≥ 1 G pairs/s and ≥ 3× rayon `par_sort_by_key` on the CPU; f64 reduce and dot on Vulkan recorded (no bar); numbers recorded. |
-| CMP-02 | Grids: `DenseGrid<T>`, `BrickGrid<T>` (two-level tree, `BrickLayout::{CELLS, CORNERS}`, fills, aprons, Morton `canonicalize`, `content_hash`), `GpuBrickGrid` (upload/download, deterministic scan-based `allocate`), `brick_grid_wgsl` | CMP-01 | P1 | Todo | 1. Sphere r = 50 at cell 0.5 baked as `d / cell` into `BrickGrid<f16>` (`CORNERS`, band ±4 cells, inside tiles Fill1): CPU `trilinear` error vs the analytic distance ≤ 0.01 cell inside the band; sign correct everywhere in the box (fills). 2. A GPU kernel using `bg_trilinear` at 1 M random points equals CPU `trilinear` within 1e-3 cell (WARP and reference GPU). 3. GPU `allocate` from a mask gives buffers bit-identical over 3 runs and the same brick order as CPU `canonicalize`; upload → download round-trips bit-exactly for f16, f32, u8. 4. Grids built in two insertion orders have equal `content_hash` after `canonicalize`. 5. Sphere r = 100 at cell 0.1: index (root + tiles) ≤ 10 % of brick bytes; bytes recorded. 6. Bench: ≥ 0.5 G `bg_trilinear` samples/s at random in-band points on the reference GPU. 7. A box needing > 2²⁴ root tiles returns `Shape`. |
+| CMP-02 | Grids: `DenseGrid<T>`, `BrickGrid<T>` (two-level tree, `BrickLayout::{CELLS, CORNERS}`, fills, aprons, Morton `canonicalize`, `content_hash`), `GpuBrickGrid` (upload/download, deterministic scan-based `allocate`), `brick_grid_wgsl` | CMP-01 | P1 | Review | 1. Sphere r = 50 at cell 0.5 baked as `d / cell` into `BrickGrid<f16>` (`CORNERS`, band ±4 cells, inside tiles Fill1): CPU `trilinear` error vs the analytic distance ≤ 0.01 cell inside the band; sign correct everywhere in the box (fills). 2. A GPU kernel using `bg_trilinear` at 1 M random points equals CPU `trilinear` within 1e-3 cell (WARP and reference GPU). 3. GPU `allocate` from a mask gives buffers bit-identical over 3 runs and the same brick order as CPU `canonicalize`; upload → download round-trips bit-exactly for f16, f32, u8. 4. Grids built in two insertion orders have equal `content_hash` after `canonicalize`. 5. Sphere r = 100 at cell 0.1: index (root + tiles) ≤ 10 % of brick bytes; bytes recorded. 6. Bench: ≥ 0.5 G `bg_trilinear` samples/s at random in-band points on the reference GPU. 7. A box needing > 2²⁴ root tiles returns `Shape`. |
 | CMP-03 | Sparse direct: `SymCsr` (upper CSR, validation, deterministic `spmv`, `add_scaled`), `TripletBuilder`, `SymbolicFactor` (reusable, `estimate`), `Cholesky` and `Ldlt` (faer, LBLᵀ) with multi-RHS, `PivotReport`, `Inertia`; `testprob` generators | FND-03, FND-04 | P1 | Done | (1–3 narrowed by the owner, 2026-11-11: measurements recorded, no bar; the 20 s / 1 M targets move to CMP-10 + FEM-08, see Refinement log.) 1. `q1_elasticity(55, Clamped)` (499 125 DOF): analyse + factor + solve time recorded for AMD and for a geometric nested-dissection ordering, relative residual ≤ 1e-10. 2. `q1_elasticity(70, Clamped)` (1 029 000 DOF): `SymbolicFactor::estimate()` recorded from the analysis alone (AMD and ND); factored only where the estimate fits in RAM. 3. `solve_many` with 6 RHS vs one `solve_in_place`: ratio recorded. 4. `q1_elasticity(_, Free)` gives `NotPositiveDefinite` with a row, or a `PivotReport` with `below_threshold`; never a panic. 5. `Ldlt::inertia` on random diagonal-plus-low-rank matrices equals the dense eigenvalue sign count (proptest). 6. Re-factoring with new values on the same pattern skips analysis (counter). 7. Factor and solve are bit-identical over 2 runs; `spmv` bit-identical across 1, 4, 16 threads. 8. `from_raw` rejects unsorted, lower or out-of-range input with `InvalidMatrix`. |
 | CMP-04 | Eigen: thick-restart shift-invert Lanczos (`lanczos`) with full B-reorthogonalisation, `EigenMode::{Vibration, Buckling}`, `Which::{Nearest, Band}` with Sturm check and re-shift, `ShiftInvert` callback, `CholeskyShift`, `LdltShift` | CMP-03 | P1 | Todo | 1. 50 random sparse SPD pencils (n ≤ 3 000): the 10 eigenvalues nearest σ match faer's dense generalised solver within 1e-10 relative; ‖ΦᵀBΦ − I‖∞ ≤ 1e-10. 2. Free-free `q1_elasticity(20, Free)` with σ < 0: exactly 6 values with \|λ\| ≤ 1e-8·λ₇, then the next 4 within 1e-9 of dense. 3. Band mode finds every eigenvalue in [lo, hi] on 20 pencils (vs dense), `sturm_checked` true; a band with more than `max` values returns the `max` lowest and says so. 4. Buckling mode on a pencil with known eigenvalues (indefinite K_G) within 1e-9. 5. Bench: `q1_elasticity(55, Clamped)`, 8 modes, including the factorisation, ≤ 40 s (FEM-07 budget 60 s). 6. Cancel during iterations returns `Cancelled` within 1 s after the factorisation ends. |
 | CMP-08 | Iterative core: `LinearOperator`, `CpuPreconditioner`, `GpuOperator<R>`, `GpuPreconditioner<R>`; `GpuCsr<R>` (full storage, `update_values`); `Jacobi`, `BlockJacobi3`, `Chebyshev` (Lanczos bounds, `smooth`), all generic over f32/f64; `pcg_cpu`, `pcg_gpu<R>` (async convergence checks) on a crate-private `VectorBackend`; `refine`; `GpuSystem` + `solve_gpu` (precision-path selection) | CMP-01, CMP-03 | P1 | Todo | 1. `pcg_gpu` and `pcg_cpu` on `q1_poisson(65)` and `q1_elasticity(40)` reach 1e-5 relative residual with iteration counts within 2 % of each other: f32 on WARP and the reference GPU (DX12), f64 on the f64 gate. 2. `solve_gpu` with `BlockJacobi3` on `q1_elasticity(70)` reaches ‖r‖/‖b‖ ≤ 1e-8 (f64 CPU residual) on both paths, and both solutions match CMP-03 Cholesky within 1e-7 in relative energy norm: the F32 path on the reference GPU (DX12) and the F64 path on the f64 gate, where it needs exactly one outer step; on the same Vulkan device with `ForceF32` the F32 path meets the same bounds (both paths on one device). 3. Bench: `q1_elasticity(70)` with `BlockJacobi3` ≥ 250 PCG iterations/s on the F32 path on the default (DX12) reference device (the budget bar); GPU idle between submissions ≤ 10 % (timestamps). F64-path iterations/s and total `solve_gpu` time on Vulkan recorded next to the F32 numbers (no bar; input to open question 8). 4. Iteration counts and results bit-identical over 3 runs, on each path. 5. `Chebyshev` λmax estimate within 5 % of the dense value on a 3 000-DOF problem (both precisions). 6. Cancel returns `Cancelled` within 100 ms; device loss returns an error. 7. A `GpuSystem` built from `PrecisionPolicy::Auto` takes the F32 path on WARP and the F64 path on the f64 gate (`GpuSolveStats::precision`); building an f64 `GpuCsr` on WARP returns `Unsupported`. |
@@ -1189,7 +1189,81 @@ stability property test vs `sort_by_key`. `amg-jobs` 61/61.
   vertex-cover) could add a few percent on thin parts; 1 M DOF ND factorisation (`AMG_BENCH_1M=1
   AMG_BENCH_ORDERING=nd`, estimate 20.6 GiB) not run here (memory).
 
+### 2026-11-28 - CMP-02 grids (lane F implementation)
+Worktree `cmp-02`; status → `Review`. New module `amg_compute::grid` (`DenseGrid`, `BrickGrid`,
+`TileBox`, `GridValue` for f16/f32/u8; feature `gpu`: `GpuBrickGrid`, `brick_grid_wgsl`) and
+`testprob::sphere_bricks` (narrow-band sphere SDF used by the tests and the bench). Deps:
+`blake3` (workspace, already in THIRD_PARTY; row extended); dev-deps `serde`, `toml` (workspace)
+for the golden file. `half` was already in use (CMP-07).
+
+**Results** (RTX 5060 Ti, driver 32.0.16.1714; WARP = Microsoft Basic Render Driver
+10.0.26100.9818; Vulkan = same GPU, driver 617.14):
+
+| Done-when | Result |
+|---|---|
+| 1. Sphere r = 50 at cell 0.5 (100 cells), `BrickGrid<f16>`, `CORNERS`, band ±4 | max trilinear error 0.00347 cell over 655 463 band points (bar 0.01); sign correct at 3 095 512 points (1 M random + a 2-cell lattice over the box, \|d\| > 0.01). 4 960 bricks, 56 tile nodes, index 114 944 B, bricks 7 231 680 B (golden `tests/golden/compute/brick_sphere.toml`) |
+| 2. `bg_trilinear` at 2²⁰ random points vs CPU `trilinear` | DX12 max 1.39e-6 cell (f16), 1.32e-6 (f32); WARP 2.00e-6 / 2.04e-6; Vulkan 1.39e-6 / 1.32e-6 (bar 1e-3) |
+| 3. `allocate` determinism and order; round trips | 3 runs bit-identical (root, tiles, data) and equal to the canonical CPU grid (`download == canonicalize`d CPU build; `upload` of that grid gives the same root/tile buffers), for f16/f32/u8 `CORNERS` and f16/u8 `CELLS`, 48 tiles, 6 633 bricks, on DX12, WARP and Vulkan. `upload` → `download` bit-exact for f16 (incl. NaN/inf bit patterns), f32, u8 (`CORNERS` and `CELLS`) and an empty grid |
+| 4. Two insertion orders | reversed and shuffled rebuilds of the r = 50-cell sphere differ before and are `==` with equal `content_hash` after `canonicalize` (hash also order-independent before) |
+| 5. Sphere r = 100 at cell 0.1 (1 000 cells) | 492 880 bricks, 5 104 tile nodes, 32 768 root entries: index 10 584 064 B = **1.47 %** of 718 619 040 brick bytes (bar 10 %); golden |
+| 6. Bench `benches/grid.rs` | **8.26 G** `bg_trilinear` samples/s (2²⁴ random in-band points, r = 100-cell f16 sphere, 2.03 ms GPU time per dispatch; bar 0.5 G/s, asserted under `AMG_STRICT_TIMING=1`, passed). Recorded: r = 400 cells (115 MB of bricks, beyond L2) 2.34 G/s |
+| 7. Box > 2²⁴ root tiles | `ComputeError::Shape` from `BrickGrid::new`, `TileBox::covering` and `GpuBrickGrid::allocate` (also for an `i32::MIN..i32::MAX` box); exactly 2²⁴ tiles is accepted |
+
+**Decisions and deviations:**
+- **Canonical / candidate order** is tile-major: root index (x fastest), then the 9-bit Morton
+  code of the brick inside its tile (`TileBox::candidate_index`). A single global Morton index
+  over a non-cubic box is sparse, so `allocate`'s mask would need a power-of-two cube of
+  entries; tile-major keeps it dense (`tile_count * 512` entries) and gives the same locality
+  inside a tile. `BrickCoord::morton` is still the plain 3 × 21-bit interleave (callers pass
+  coordinates relative to `TileBox::origin_brick`).
+- **Slot layout:** a tile node's slot of local brick `(x, y, z)` is `x + 8 y + 64 z`; fill codes
+  `0xFFFF_FFFF` (Fill0) / `0xFFFF_FFFE` (Fill1) as in note §4.2. A brick outside the grid reads
+  as Fill0. The grid keeps only the tile box (cell box rounded out to 64³ tiles), so bricks may
+  be stored anywhere in it.
+- **`canonicalize`** also collapses tile nodes without bricks whose slots all hold one fill
+  into the root entry, so content equality does not depend on how the fills were written.
+  `content_hash` hashes the canonical traversal directly, so it is the same before and after.
+- **`trilinear` with apron 0** reads the eight samples one by one (any neighbour brick) instead
+  of being apron-1 only; `bg_trilinear` does the same. With apron 1 it reads the brick of
+  `floor(p)` and returns that slot's fill for empty slots.
+- **GPU layout:** meta uniform (48 B: tile origin, samples per axis, tile dims, words per brick,
+  fills as f32, apron, brick count), root, tiles, data as `u32` words; f16 two per word (even
+  sample low), u8 four per word, bricks padded to whole words (f16 `CORNERS` 365 words).
+- **`bg_store`** on packed encodings uses `atomicAnd` + `atomicOr` on `array<atomic<u32>>`
+  (integer atomics only; the result is independent of thread order), so neighbouring samples
+  may be written by different threads.
+- `allocate` submits `cx` twice (before the count readback and after recording the index
+  writes), so a following `download` or kernel sees the index.
+- **Additions beyond the Interfaces block** (additive): `TileBox` (`covering`, `tile_count`,
+  `candidate_count`, `candidate_index`, `candidate_brick`, `origin_brick`, `cell_box`,
+  `root_index`, `tile_of_root`), `TILE_SLOTS`, `MAX_ROOT_TILES`, `FILL0_CODE`, `FILL1_CODE`,
+  `Fill::{code, of_code}`, `BrickCoord::min_cell`, `GridValue::ENCODING`,
+  `GpuEncoding::{samples_per_word, brick_words}`, `BrickGrid::{tile_box, tile_node_count,
+  index_bytes, brick_bytes}`, `BrickGrid: PartialEq + Debug`, `Slot: Clone + Copy + Debug +
+  PartialEq`, `DenseGrid::{from_fn, len, is_empty}`, `GpuBrickGrid::{tile_node_count, tile_box,
+  index_bytes, data_bytes, buffers}`, WGSL `bg_load`, `bg_candidate_brick`, `BG_FILL0/1`;
+  crate-private `Primitives::scan_flags` (scan of `x != 0`, used for the brick mask).
+- `DenseGrid<f32>::trilinear` clamps to the grid.
+
+**Leftovers:**
+- `allocate` takes one fill per tile for unmarked slots (the Interfaces signature); a producer
+  that needs inside/outside per brick slot (e.g. a sphere's interior bricks inside a band tile)
+  must mark those slots or fix them afterwards. A per-candidate fill mask would be an additive
+  overload if IMP-02 wants it.
+- With wgpu's automatic layouts a kernel that does not read a binding drops it; user kernels
+  must call `bg_sample`/`bg_trilinear`/`bg_load` and `bg_slot` (documented on
+  `brick_grid_wgsl`).
+- `testprob::q1_poisson` / `simp_field` still take/return `Vec<f32>` (CMP-03 deviation);
+  switching them to `DenseGrid<f32>` would change existing tests, so it is left to CMP-05.
+- Gates: `cargo fmt --all --check`, `cargo clippy -p amg-compute --all-targets -- -D warnings`
+  (also `--lib --tests --no-default-features`), `cargo nextest run -p amg-compute` 124 passed,
+  2 skipped (the existing `#[ignore]` cases); the grid tests also pass on WARP and Vulkan.
+  Workspace clippy left to the coordinator.
+
 ## Interface changes
+### 2026-11-28: from CMP-02 (lane F; applied, additive)
+- **`amg-compute` (CMP-01 code, same lane):** crate-private `Primitives::scan_flags` (the
+  existing flag-transform scan path, used by `GpuBrickGrid::allocate`). No change to other lanes.
 ### 2026-11-10: from CMP-03 (lane F; applied, additive)
 - **faer feature unification (S03 `amg-sketch`, S07 `amg-mesh`):** `amg-compute` enables faer's
   `rayon` feature (same `=0.23.2` pin). In any build that contains `amg-compute`, faer's global
