@@ -8,8 +8,11 @@
 //!
 //! - [`robust_boolean`] / [`robust_split`]: exact, then the fuzzy ladder (with gluing for
 //!   coincident faces), then healed operands; OCCT's non-destructive mode is always on.
-//! - [`HardenedKernel`]: the opt-in [`BrepKernel`] decorator that routes `boolean` and `split`
-//!   through them and reports non-direct acceptances as [`crate::KernelWarning::Strategy`].
+//! - [`fillet::fillet`]: the fillet strategy chain with failing-edge isolation and
+//!   [`fillet::FilletDiagnosis`] (KH-03); [`fillet::max_radius`].
+//! - [`HardenedKernel`]: the opt-in [`BrepKernel`] decorator that routes `boolean`, `split` and
+//!   `fillet` through them and reports non-direct acceptances as
+//!   [`crate::KernelWarning::Strategy`].
 //! - [`RetryPolicy`] presets: [`RetryPolicy::interactive`], [`RetryPolicy::recompute`] (the
 //!   default), [`RetryPolicy::exhaustive`], [`RetryPolicy::exact_only`].
 //! - [`POLICY_VERSION`] is part of [`crate::kernel_version`]: changing a default chain or ladder
@@ -32,6 +35,7 @@ use crate::shape::{Shape, SubKind, SubShape};
 mod boolean;
 pub mod chain;
 pub mod corpus;
+pub mod fillet;
 mod hardened;
 mod heal;
 
@@ -46,7 +50,8 @@ pub use heal::{compose_operands, heal, identity_history};
 /// - 1: KH-17 (exact → fuzzy ladder `1e-5/1e-4/1e-3 mm` with glue → healed operands).
 /// - 2: KH-17 fix (the boolean gate refuses results whose solids overlap,
 ///   [`Validation::disjoint_solids`]).
-pub const POLICY_VERSION: u32 = 2;
+/// - 3: KH-03 (`HardenedKernel::fillet` runs the fillet strategy chain, [`fillet::fillet`]).
+pub const POLICY_VERSION: u32 = 3;
 
 /// The fuzzy value above which an accepted rung adds a health warning, mm (design §3.4).
 pub const FUZZY_WARN_ABOVE: f64 = 1e-5;

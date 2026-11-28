@@ -651,7 +651,7 @@ pub fn promote(dump_dir: &std::path::Path, corpus_dir: &std::path::Path, id: &st
 
 ### `amg_brep::robust` (KH-17, KH-03, KH-04, KH-19, KH-06, KH-08, KH-18)
 ```rust
-pub const POLICY_VERSION: u32 = 2; // bumped by any change of default chains/ladders/gate (2: KH-17 fix)
+pub const POLICY_VERSION: u32 = 3; // bumped by any change of default chains/ladders/gate (2: KH-17 fix, 3: KH-03)
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RetryPolicy {
@@ -722,7 +722,10 @@ pub mod fillet {
     pub struct FilletDiagnosis { pub failing: Vec<FailingEdge>, pub report: RobustReport }
     #[derive(Debug, thiserror::Error)]
     #[error("fillet failed on {} edge(s)", .diagnosis.failing.len())]
-    pub struct FilletFailure { pub diagnosis: FilletDiagnosis }
+    pub struct FilletFailure { pub diagnosis: FilletDiagnosis, pub class: capture::FailureClass, pub message: String,
+                               pub error: Option<Box<KernelError>> }  // KH-03: + class, message, error
+    impl FilletFailure { pub fn to_kernel_error(&self) -> KernelError; pub fn smallest_max_radius(&self) -> Option<f64>; }
+    impl amg_core::Diagnostic for FilletFailure { /* hint per class, with the max radius */ }
     /// Analytic fast path → strategy chain (design §4). Edges by S02 EdgeId.
     pub fn fillet(k: &dyn BrepKernel, s: &Shape, edges: &[(EdgeId, FilletSpec)], base: &FilletOpts,
         p: &RetryPolicy, cx: &RobustCtx<'_>) -> Result<RobustOutput, FilletFailure>;
@@ -851,7 +854,7 @@ open request.
 | KH-16 | `amg_brep::nurbs_conv`: amg-nurbs ↔ OCCT `Geom_BSplineCurve/Surface` (+ knots/mults), `curve_seg_to_nurbs`, `surface_to_nurbs`, `edge_to_nurbs`, `wire_to_chain`, `nurbs_face` (on S02 `make_face`); OCCT differential tests (incl. `GeomFill_Gordon` on TiGL networks when OCCT ≥ 8.0.0p1) | KH-07, KH-12, BREP-03 | P1 | Todo | 1. amg-nurbs → OCCT → amg-nurbs round-trips bit-identically (poles, weights, knots). 2. OCCT `D0/D1/D2` vs `eval/derivs` on 10 k random parameters of 200 random curves/surfaces ≤ 1e-11·max(1, D). 3. Lines, circles, ellipses, planes, cylinders, cones, spheres and tori from OCCT convert to exact NURBS (radius error ≤ 1e-12·r). 4. `nurbs_face` on a skinned patch gives a BRepCheck-valid face whose OCCT tessellation lies within 1e-6 mm of `eval`. 5. With OCCT ≥ 8.0.0p1, KH-15 Gordon results lie within 1e-4 mm of `GeomFill_Gordon` on the TiGL set (or the differences are explained in the PR). |
 | KH-17 | `amg_brep::robust` framework: `RetryPolicy` presets, `validate` gate, `Attempt`/`RobustReport`, deterministic chain runner (deadline aborts), fuzzy ladder + glue + non-destructive in `robust_boolean`, `heal` levels with composed history, `POLICY_VERSION`, `HardenedKernel` decorator; boolean near-coincidence generator + proptests | KH-01, BREP-04, BREP-10 | P1 | Done | 1. On the BREP-04 boolean corpus plus 100 generated near-coincident cases (offsets 0…1e-4 mm, tangent cylinders, coplanar faces), `robust_boolean` gives valid `Ok` on ≥ 95 % of the generated cases with zero invalid `Ok`. Baseline raw OCCT and the improvement are recorded in `kernel-metrics.md`. 2. `exact_only` reproduces raw OCCT bit-identically. 3. Determinism: identical `.brep` bytes and `RobustReport` across two runs and across 1 vs 8 rayon threads. 4. A deadline expiry yields `Timeout` and never a later strategy's result (test with an injected slow strategy). 5. Healing history composition: a test feature filleting after `Unify` resolves names through the composed history (`ShapeHistory` test). 6. Every non-direct acceptance adds a warning. |
 | KH-02 | Fillet corpus + harness: `robust::corpus` generators (`prism_vertical_edges` with exact volume oracle, `prism_mixed_edges`, `boolean_stack`, `radius_too_large`), ≥ 50 handmade cases, case schema, process-isolated harness (`kernel-harness` example / `amg-cli kernel harness`), report JSON, `docs/notes/kernel-metrics.md`, baseline files + smoke-subset CI test | KH-01, BREP-06 | P1 | Done | 1. ≥ 200 cases (≥ 120 synthetic from `seeds.toml`, ≥ 50 handmade committed, the rest harvested/owner under `AMG_TESTDATA_DIR` when present). 2. The exact-volume oracle agrees with a high-resolution tessellation volume within 1e-4 relative on 20 cases (validates the formula). 3. Baseline raw `MakeFillet` success, clean-failure, invalid-Ok and crash counts plus p50/p95 time are recorded in `kernel-metrics.md`. 4. The smoke subset (≈ 40 cases) runs in CI `golden` in < 2 min and fails when a baseline-passing case is broken on purpose. 5. An OCCT access violation in one case (injected) is reported as `Crash` and the run completes. |
-| KH-03 | Fillet strategy wrapper + diagnostics: `robust::fillet::fillet` chain (design §4), failing-edge isolation (OCCT report, then ddmin), `max_radius`, `FilletDiagnosis` for SOL-05 | KH-02, KH-17, SOL-05 | P1 | Todo | 1. Full-corpus success rate ≥ baseline + 10 percentage points **and** ≥ 50 % of baseline failures fixed. 2. Zero regressions (every baseline-passing case still passes) and zero invalid `Ok`. 3. 100 % of failures name ≥ 1 failing edge and a `FailureClass`. 4. On `radius_too_large`, `max_radius` is within 2 % of the analytic limit; on other failures `r̂` succeeds and `1.02·r̂` fails in ≥ 95 % of cases (else flagged `approximate`). 5. Proptest: 256 generated parts give valid `Ok` or a classified `Err`, never a panic. 6. Before/after table in `kernel-metrics.md`. |
+| KH-03 | Fillet strategy wrapper + diagnostics: `robust::fillet::fillet` chain (design §4), failing-edge isolation (OCCT report, then ddmin), `max_radius`, `FilletDiagnosis` for SOL-05 | KH-02, KH-17, SOL-05 | P1 | Review | 1. Full-corpus success rate ≥ baseline + 10 percentage points **and** ≥ 50 % of baseline failures fixed. 2. Zero regressions (every baseline-passing case still passes) and zero invalid `Ok`. 3. 100 % of failures name ≥ 1 failing edge and a `FailureClass`. 4. On `radius_too_large`, `max_radius` is within 2 % of the analytic limit; on other failures `r̂` succeeds and `1.02·r̂` fails in ≥ 95 % of cases (else flagged `approximate`). 5. Proptest: 256 generated parts give valid `Ok` or a classified `Err`, never a panic. 6. Before/after table in `kernel-metrics.md`. |
 | KH-04 | Analytic fast-path fillet: edge classification, exact blend surfaces (cylinder/torus/cone/pipe), trimming tools, General Fuse booleans with the fuzzy ladder, tangent chains; runs before the KH-03 chain | KH-03, KH-16, BREP-09 | P1 | Todo | 1. ≥ 98 % success on the analytic-edge subset **without** 3-edge corners (tag `analytic & !corner3`). 2. Exact-oracle cases match volume within 1e-6 relative; all results BRepCheck-valid with `max_tolerance ≤ 1e-5 mm`. 3. p50 time ≤ raw `MakeFillet` p50 on the same subset. 4. Out-of-scope cases fall through unchanged (the chain result is bit-identical to KH-03 alone). 5. Zero regressions on the full corpus. |
 | KH-19 | 3-edge corner patches: setback blends, G1 N-sided fill with OCCT `GeomPlate` and our own patch candidate, sewing; decides Open question 2 | KH-04 | P1 | Todo | 1. ≥ 95 % success on the `corner3` subset (convex box corners, mixed convex/concave, unequal radii). 2. G1 deviation along patch boundaries ≤ 0.5° at 50 samples per boundary, G0 ≤ 1e-5 mm. 3. Both patch candidates are measured; the winner and its numbers are recorded in `kernel-metrics.md`, and Open question 2 is closed. 4. Zero regressions on the full corpus. |
 | KH-05 | Loft corpus + harness: generators (`loft_translated`/`loft_similar_ruled` exact oracles, `loft_random_stack`, `loft_tangent_chains`, `loft_apex`, `loft_rails`, `loft_centerline`), ≥ 30 handmade classics, owner lofts (`$AMG_TESTDATA_DIR/kernel/loft/owner/`, QUESTIONS #7), failure-taxonomy label per case | KH-01, KH-02, BREP-15 | P1 | Todo | 1. ≥ 150 cases (≥ 100 synthetic, ≥ 30 handmade; owner cases when supplied). 2. Each failing case is labelled with its failure class (preprocessing vs surface vs sewing vs validity). 3. Baselines for raw `ThruSections` and `MakePipeShell` are recorded in `kernel-metrics.md`. 4. Loft smoke subset in CI with its own baseline file. |
@@ -1609,6 +1612,83 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   writes its before/after table against this baseline. KH-05 reuses `case`/`harness` for lofts
   with its own seeds and baseline.
 
+### 2026-11-28 - KH-03 fillet strategy chain and diagnostics (lane A)
+- **Landed in `amg-brep`:** `robust::fillet` (new module): `fillet`, `max_radius`,
+  `FailingEdge`, `FilletDiagnosis`, `FilletFailure` (+ `Diagnostic`, `to_kernel_error`,
+  `smallest_max_radius`), constants `MAX_RADIUS_ITERATIONS` (12), `MAX_RADIUS_CHECK` (1.02),
+  `MAX_RADIUS_EDGES` (8). `HardenedKernel::fillet` now runs the chain on its inner kernel
+  (non-direct acceptances become `KernelWarning::Strategy`). `chain::with_deadline` (crate-private)
+  runs diagnostic probes under the attempt deadline. Tests: `tests/robust_fillet.rs` (10 + 1
+  ignored), 7 unit tests; `tests/common/fault.rs` gains `FilletFault` (`DefaultOpts`, `Together`);
+  bench groups `robust-fillet/*` in `benches/robust.rs`. No new dependency.
+- **Chain as built** (fixed order, every result through `validate`):
+  1. `Direct`;
+  2. `FilletShapeVariant(0..=2)`: `QuasiAngular`, `Polynomial`, then the caller's shape with
+     `tol_app_3d = fleche = 1e-5`, each skipped when equal to the caller's options;
+  3. `UnifySameDomain` (fails as "does not apply" when nothing merges);
+  4. `Heal(Light)`;
+  5. `RegroupChains`, 6. `RegroupRadius`, 7. `PerEdgeSequential`, built only when the edges form
+     ≥ 2 contours and left out when their order repeats an earlier one.
+
+  Gate: BRepCheck, closed solids when the input has solids, cap `max(tol_cap, input tolerance)`,
+  volume bounds `V ± (1.5·Σ L·r²(tan(θ/2) − θ/2) + 1e-6·V)` over the requested edges **plus
+  the edges `MakeFillet` propagates to** (tangent within 2e-2 rad at a shared vertex; without
+  them the one-edge slot chains were refused, a regression caught by the corpus).
+- **Isolation as built:** argument errors, timeouts and cancellation name the reported edges (or
+  all) without probing. Otherwise: OCCT's report when it names a proper subset; else each edge
+  alone; else ddmin (`2·n` kernel calls in all). Class per edge: `RadiusTooLarge` when a smaller
+  radius works alone, `VertexBlend` for a failed corner (OCCT message or edges that fail only
+  together at a shared vertex), `WalkingFailed` for `ChFiDS_WalkingFailure`, else the chain's
+  class. Depth follows the policy: `exact_only` (1 attempt) report only; `interactive` probes +
+  one classification probe at `r/16`; `recompute`/`exhaustive` also `max_radius` for ≤ 8 edges.
+- **Done-when evidence** (OCCT 8.0.1; tables in `kernel-metrics.md`):
+  1. **Not met.** Full corpus: success 183/191 (95.8 %) before and after. "+10 points" exceeds
+     100 % from this baseline, and none of the 8 baseline failures is reachable by a strategy
+     around `MakeFillet`: 3 corner-3 vertical + top edge sets (KH-19), the OCCT access violation
+     `boolean_stack-0005` (KH-09), r = face width and the r = half-side sphere cube (KH-04/19),
+     two 2° creases that `MakeFillet::Add` refuses (KH-04). Sequential filleting was tried on the
+     corner-3 cases in both radius orders: `ChFiDS_WalkingFailure`, or (largest first) the blend
+     of one top edge propagates through the vertical blend's arc into the other top edge with the
+     wrong radius, which the chain refuses.
+  2. Met. 0 regressions (the hardened baseline passes the same 208 ids as raw), **0 invalid Ok**
+     (raw: 3); asserted in `full_fillet_corpus`.
+  3. Met. All 32 hardened errors name ≥ 1 failing edge and a meaningful class (26
+     `RadiusTooLarge`, 3 `VertexBlend`, 2 `InvalidInput`, 1 `NotDone`); expected class matched
+     25/25 (raw 0/25). The crash case has no answer to name edges in (the process dies).
+  4. Met. Analytic limit: 25 cases, worst deviation 6.0e-4 (target 2 %), all exact. Other
+     failures (radii ×4 on 95 synthetic cases): 69 of 69 edges exact.
+  5. Met. `generated_parts_are_valid_or_classified`, seed `0x4b483033`, 256 parts in worker
+     processes: 199 valid Ok + 57 classified Err, 0 invalid, 0 panics/crashes (raw: 4 invalid Ok).
+  6. Met (`kernel-metrics.md`, KH-03 section).
+- **Performance** (direct accepted, criterion): +1.1 % (4 edges) and −0.3 % (12 edges) over
+  raw + gate. A first gate using `sub_geom` lengths and projected normals cost +12.6 %.
+- **`POLICY_VERSION` 2 → 3**: `HardenedKernel::fillet` results change (gate, strategies,
+  errors), so `kernel_version()` is `…;policy-3`; `tests/robust.rs` and the baseline's
+  `kernel_version` updated. `HardenedKernel` is not wired into `amg-features`, so no cache is
+  affected today.
+- **Deviations from the Interfaces sketch:**
+  - `FilletFailure` gains `class`, `message`, `error` (as `RobustError` did in KH-17), plus
+    `to_kernel_error` and `smallest_max_radius`.
+  - `FailureClass::of` reads a class tag at the start of a `LocalOpFailed` message
+    (`"RadiusTooLarge: …"`, `FailureClass::tagged`), so the class survives `HardenedKernel` and
+    the harness. OCCT's own messages never start with a tag, so raw classes are unchanged.
+  - `analytic_scope` is not implemented (KH-04's).
+  - Sequential strategies work on **contours** (requested edges joined by tangent propagation),
+    not single edges: `MakeFillet` blends a tangent chain whole, so a per-edge split would blend
+    an edge twice. "Per edge" means per contour.
+  - S02's fillet history loses a neighbour edge that a blend trims (only `Generated` faces are
+    recorded); the chain's remapping falls back to the pieces on the same line (straight edges).
+  - The harness `CaseRecord` gains `offending` (serde default; report schema still 1);
+    `full_fillet_corpus` and `golden_fillet_smoke` run both strategies, and
+    `fillet-baseline.toml` has a `[strategy.hardened]` section.
+- **Findings:** no corpus case needs a non-direct strategy; the chain's value on this corpus is
+  the gate (3 invalid Oks refused), the classes and the max radius. Later strategies are covered by
+  injected-fault tests.
+- **Leftovers:** Done-when 1 needs KH-04/KH-19/KH-09 (or a corpus with cases the strategies
+  fix, e.g. harvested owner fillets after booleans); SOL-20 wires `FilletDiagnosis` into
+  `solid.fillet`; S02 fillet history for trimmed neighbour edges (record their trimmed image as
+  `Modified`); a remap fallback for curved edges.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1660,3 +1740,14 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - `amg-brep`: `toml` is now a normal dependency (case and baseline files); the crate-private
   `capture::time_rfc3339_now` was added for report timestamps. `robust::corpus` paths of KH-17
   are unchanged (re-exports). No `BrepKernel` or `KernelOp` change.
+
+### 2026-11-28: KH-03 -> S02 (`amg-brep` shared crate, lane A) and S04 (SOL-20)
+- `amg-brep` (additive): `robust::fillet` is public; `HardenedKernel::fillet` routes through it
+  (every other trait method still forwards); `capture::FailureClass::tagged` and the tag read in
+  `FailureClass::of`; harness `CaseRecord::offending`. No `BrepKernel`, `KernelOp` or
+  `KernelError` change.
+- `POLICY_VERSION` 3 (`kernel_version()` `…;policy-3`).
+- Request to S02: the fillet history records a neighbour edge trimmed by a blend only through
+  `Generated` faces; recording its trimmed image as `Modified` would let sequential strategies
+  and naming follow it (KH-03 works around it for straight edges).
+- S04: `FilletDiagnosis` / `FilletFailure` are ready for SOL-20; `amg-features` was not touched.

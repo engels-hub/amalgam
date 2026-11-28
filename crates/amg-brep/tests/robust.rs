@@ -28,7 +28,7 @@ fn hardened_kernel_passes_backend_errors_through() {
         amg_brep::kernel_version()
             .ends_with(&format!("policy-{}", amg_brep::robust::POLICY_VERSION))
     );
-    assert_eq!(amg_brep::robust::POLICY_VERSION, 2);
+    assert_eq!(amg_brep::robust::POLICY_VERSION, 3);
     if !amg_brep::OCCT_BACKEND {
         let r = k.boolean(
             BoolOp::Fuse,
@@ -735,6 +735,7 @@ mod occt {
             inner: kernel(Validate::Always),
             abort: false,
             exact_boolean_fails: true,
+            fillet_fault: None,
         };
         let (a, b) = overlapping_boxes(&faulty);
         let job = JobCtx::detached();

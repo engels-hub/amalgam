@@ -1,5 +1,5 @@
-//! `HardenedKernel`: the opt-in decorator that routes booleans through the robust chain
-//! (S02 §10, S20 design §3).
+//! `HardenedKernel`: the opt-in decorator that routes booleans and fillets through the robust
+//! chains (S02 §10, S20 design §3–§4).
 
 use std::sync::Arc;
 
@@ -27,15 +27,19 @@ use crate::shape::{EdgeId, FaceId, Shape, SubShape};
 use crate::tess::TessMesh;
 
 /// [`BrepKernel`] decorator (S02 §10): routes `boolean` and `split` through
-/// [`robust_boolean`] / [`robust_split`] under `policy`; every other method forwards to `inner`
-/// unchanged (`fillet` too, until KH-03's strategy chain lands). Opt-in: features keep taking
+/// [`robust_boolean`] / [`robust_split`] and `fillet` through [`super::fillet::fillet`] under
+/// `policy`; every other method forwards to `inner` unchanged. Opt-in: features keep taking
 /// `&dyn BrepKernel`, and the recompute context decides which kernel they get.
 ///
 /// A non-direct acceptance adds [`KernelWarning::Strategy`] to `OpResult::warnings` (S20 request
-/// R17), one per report warning. A chain that fails returns the kernel's own error of the direct
-/// attempt (argument errors, `BackendUnavailable` and `Cancelled` unchanged), or
-/// `OpFailed { op, message }` for a timeout or a result the gate refused. Callers that need the
-/// whole [`super::RobustReport`] call [`robust_boolean`] directly.
+/// R17), one per report warning. A boolean chain that fails returns the kernel's own error of the
+/// direct attempt (argument errors, `BackendUnavailable` and `Cancelled` unchanged), or
+/// `OpFailed { op, message }` for a timeout or a result the gate refused. A failed fillet returns
+/// [`super::fillet::FilletFailure::to_kernel_error`]: argument errors unchanged, otherwise
+/// `LocalOpFailed { op: "fillet" }` naming the failing edges, with the class first in the
+/// message. Callers that need the whole [`super::RobustReport`] or the
+/// [`super::fillet::FilletDiagnosis`] call [`robust_boolean`] / [`super::fillet::fillet`]
+/// directly.
 #[derive(Debug)]
 pub struct HardenedKernel<K: BrepKernel> {
     inner: K,
@@ -284,7 +288,10 @@ impl<K: BrepKernel> BrepKernel for HardenedKernel<K> {
         opts: &FilletOpts,
         ctx: &JobCtx,
     ) -> KResult<OpResult> {
-        self.inner.fillet(s, edges, opts, ctx)
+        match super::fillet::fillet(&self.inner, s, edges, opts, &self.policy, &self.cx(ctx)) {
+            Ok(out) => self.hardened("fillet", Ok(out)),
+            Err(f) => Err(f.to_kernel_error()),
+        }
     }
 
     fn chamfer(

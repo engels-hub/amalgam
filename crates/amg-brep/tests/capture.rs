@@ -303,6 +303,7 @@ mod occt {
             inner: occt(),
             abort,
             exact_boolean_fails: false,
+            fillet_fault: None,
         }
     }
 

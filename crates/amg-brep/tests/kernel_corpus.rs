@@ -5,7 +5,8 @@
 //!   `$AMG_TESTDATA_DIR/kernel/fillet/` when that is set.
 //! - `exact_volume_oracle_matches_tessellation` (Done-when 2): the `prism_vertical_edges` volume
 //!   formula against a fine tessellation of OCCT's result on 20 cases.
-//! - `golden_fillet_smoke` (Done-when 4): the smoke subset in worker processes against
+//! - `golden_fillet_smoke` (Done-when 4): the smoke subset in worker processes (raw and, since
+//!   KH-03, hardened) against
 //!   `tests/golden/kernel/fillet-baseline.toml`, under 2 minutes; the `golden_` prefix puts it in
 //!   CI's golden selection. `golden_fillet_smoke_catches_a_broken_case`: a baseline-passing case
 //!   broken on purpose is reported as a regression.
@@ -326,7 +327,14 @@ fn golden_fillet_smoke() {
         return;
     }
     let cases = select(corpus(), &["smoke".to_owned()], None);
-    let (records, elapsed) = smoke_run(&cases);
+    // Both strategies: the baseline guards the KH-03 chain (`hardened`) as well as raw OCCT.
+    let start = Instant::now();
+    let both = HarnessConfig {
+        strategies: Strategy::ALL.to_vec(),
+        ..cfg(4)
+    };
+    let records = run_isolated(&cases, &both, &worker).unwrap();
+    let elapsed = start.elapsed();
     let report = Report::new(records, vec!["fillet smoke".to_owned()]);
     eprintln!(
         "{}\n{} cases in {elapsed:?}",
@@ -413,8 +421,29 @@ fn full_fillet_corpus() {
     }
     let cases = corpus();
     let start = Instant::now();
-    let records = run_isolated(&cases, &cfg(4), &worker).unwrap();
+    let cfg = HarnessConfig {
+        strategies: Strategy::ALL.to_vec(),
+        ..cfg(4)
+    };
+    let records = run_isolated(&cases, &cfg, &worker).unwrap();
     let elapsed = start.elapsed();
+    // KH-03 Done-when 2 and 3: the chain returns no invalid `Ok`, and every error it returns
+    // names ≥ 1 failing edge and a meaningful class (a crash ends the worker before any answer).
+    for r in records.iter().filter(|r| r.strategy == Strategy::Hardened) {
+        assert_ne!(r.verdict, Verdict::InvalidOk, "{}: {:?}", r.id, r.problems);
+        if r.outcome == Outcome::Err {
+            let classified = r
+                .failure_class
+                .is_some_and(amg_brep::robust::corpus::harness::is_classified);
+            assert!(
+                classified && !r.offending.is_empty(),
+                "{}: {:?} {:?}",
+                r.id,
+                r.failure_class,
+                r.offending
+            );
+        }
+    }
     let report = Report::new(
         records,
         vec!["fillet corpus (seeds.toml + handmade)".to_owned()],
@@ -437,7 +466,8 @@ fn full_fillet_corpus() {
     );
     for r in report.cases.iter().filter(|r| !r.passed) {
         eprintln!(
-            "not passing: {} {:?} {:?} {}",
+            "not passing: {} {} {:?} {:?} {}",
+            r.strategy.name(),
             r.id,
             r.verdict,
             r.failure_class,

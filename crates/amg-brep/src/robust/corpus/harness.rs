@@ -38,7 +38,7 @@ use crate::config::{KernelConfig, Validate};
 use crate::error::KernelError;
 use crate::kernel::{BrepKernel, OcctKernel};
 use crate::robust::{HardenedKernel, Rejection, RetryPolicy, Validation, validate};
-use crate::shape::{Shape, SubKind};
+use crate::shape::{Shape, SubKind, SubShape};
 
 /// The report JSON schema.
 pub const REPORT_SCHEMA: u32 = 1;
@@ -72,8 +72,8 @@ pub enum Strategy {
     /// The raw OCCT op (`OcctKernel` with the validation policy off, so OCCT's own invalid
     /// results stay visible): the baseline.
     Raw,
-    /// Through `HardenedKernel` with `RetryPolicy::recompute()` (KH-03 routes `fillet` through
-    /// `robust::fillet`; until then it forwards fillets unchanged).
+    /// Through `HardenedKernel` with `RetryPolicy::recompute()`: fillets run the KH-03 strategy
+    /// chain (`robust::fillet::fillet`).
     Hardened,
 }
 
@@ -156,6 +156,9 @@ pub struct CaseRecord {
     /// The error message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// The sub-shapes the error names (`KernelError::offending`: the failing edges of a fillet).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub offending: Vec<SubShape>,
     /// Why an `Ok` is invalid.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
@@ -189,6 +192,7 @@ impl CaseRecord {
             failure_class: None,
             class_matches: None,
             message: None,
+            offending: Vec::new(),
             problems: Vec::new(),
             volume: None,
             volume_dev: None,
@@ -350,6 +354,7 @@ fn failed(rec: &mut CaseRecord, e: &KernelError, expected: Option<FailureClass>)
     };
     rec.failure_class = Some(class);
     rec.class_matches = expected.map(|c| c == class);
+    rec.offending = e.offending().to_vec();
     rec.message = Some(e.to_string());
 }
 

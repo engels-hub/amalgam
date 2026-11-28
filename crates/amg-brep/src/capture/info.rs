@@ -55,8 +55,9 @@ impl FailureClass {
     pub fn of(e: &KernelError) -> FailureClass {
         match e {
             KernelError::Occt { .. } => FailureClass::OcctException,
-            KernelError::OpFailed { .. } | KernelError::LocalOpFailed { .. } => {
-                FailureClass::NotDone
+            KernelError::OpFailed { .. } => FailureClass::NotDone,
+            KernelError::LocalOpFailed { message, .. } => {
+                FailureClass::tagged(message).unwrap_or(FailureClass::NotDone)
             }
             KernelError::InvalidResult { .. } => FailureClass::InvalidResult,
             KernelError::InvalidInput { .. }
@@ -66,6 +67,26 @@ impl FailureClass {
             KernelError::Cancelled => FailureClass::Cancelled,
             _ => FailureClass::Other,
         }
+    }
+
+    /// The class a `LocalOpFailed` message from KH-03's fillet chain starts with
+    /// (`"RadiusTooLarge: …"`, [`crate::robust::fillet::FilletFailure::to_kernel_error`]); `None`
+    /// for any other message (OCCT's own start with `contour`, `a corner`, `NotDone`, ...).
+    pub fn tagged(message: &str) -> Option<FailureClass> {
+        const TAGGED: [FailureClass; 10] = [
+            FailureClass::InvalidInput,
+            FailureClass::SelfInterference,
+            FailureClass::RadiusTooLarge,
+            FailureClass::VertexBlend,
+            FailureClass::WalkingFailed,
+            FailureClass::InvalidResult,
+            FailureClass::NotSolid,
+            FailureClass::ToleranceTooLarge,
+            FailureClass::Timeout,
+            FailureClass::NotDone,
+        ];
+        let (head, _) = message.split_once(": ")?;
+        TAGGED.into_iter().find(|c| format!("{c:?}") == head)
     }
 }
 
