@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/plate-two-hole-rims-r0p5"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "hole"]
+description = "the top rims of two holes, r = 0.5"
+
+[expect]
+outcome = "success"
+volume = 5715.158790128107
+volume_rel_tol = 0.000001

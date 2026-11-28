@@ -845,7 +845,7 @@ open request.
 | KH-15 | `amg-nurbs` Gordon surfaces (network sort, Fritsch–Carlson reparametrisation, compatible families, boolean sum, closed networks) + `frames::rotation_minimizing` + `frames::centerline_sections` | KH-14 | P1 | Todo | 1. Every network curve is reproduced within `max(fit_tol, 1e-12·D)` on synthetic networks (bilinear, 3×3 … 6×6, non-uniform intersection parameters, closed) and all TiGL `CurveNetworks` fixtures (Apache-2.0, attributed). 2. Networks that miss by > `net_tol` give `NetworkMiss` with the right indices; a doubly-crossing guide gives `NetworkMultiple`. 3. A counter-test shows the uniform-parameter/degree-1-tensor shortcut fails these fixtures (guards the design choice). 4. RMF: orthonormal to 1e-12; planar curve normal constant to 1e-12; helix rotation vs Frenet = −∫τ ds within 1e-6 rad at 1000 steps. 5. Centerline sections: original sections are reproduced exactly; intermediate frames follow the RMF. 6. Gordon 5×5 < 20 ms. |
 | KH-16 | `amg_brep::nurbs_conv`: amg-nurbs ↔ OCCT `Geom_BSplineCurve/Surface` (+ knots/mults), `curve_seg_to_nurbs`, `surface_to_nurbs`, `edge_to_nurbs`, `wire_to_chain`, `nurbs_face` (on S02 `make_face`); OCCT differential tests (incl. `GeomFill_Gordon` on TiGL networks when OCCT ≥ 8.0.0p1) | KH-07, KH-12, BREP-03 | P1 | Todo | 1. amg-nurbs → OCCT → amg-nurbs round-trips bit-identically (poles, weights, knots). 2. OCCT `D0/D1/D2` vs `eval/derivs` on 10 k random parameters of 200 random curves/surfaces ≤ 1e-11·max(1, D). 3. Lines, circles, ellipses, planes, cylinders, cones, spheres and tori from OCCT convert to exact NURBS (radius error ≤ 1e-12·r). 4. `nurbs_face` on a skinned patch gives a BRepCheck-valid face whose OCCT tessellation lies within 1e-6 mm of `eval`. 5. With OCCT ≥ 8.0.0p1, KH-15 Gordon results lie within 1e-4 mm of `GeomFill_Gordon` on the TiGL set (or the differences are explained in the PR). |
 | KH-17 | `amg_brep::robust` framework: `RetryPolicy` presets, `validate` gate, `Attempt`/`RobustReport`, deterministic chain runner (deadline aborts), fuzzy ladder + glue + non-destructive in `robust_boolean`, `heal` levels with composed history, `POLICY_VERSION`, `HardenedKernel` decorator; boolean near-coincidence generator + proptests | KH-01, BREP-04, BREP-10 | P1 | Done | 1. On the BREP-04 boolean corpus plus 100 generated near-coincident cases (offsets 0…1e-4 mm, tangent cylinders, coplanar faces), `robust_boolean` gives valid `Ok` on ≥ 95 % of the generated cases with zero invalid `Ok`. Baseline raw OCCT and the improvement are recorded in `kernel-metrics.md`. 2. `exact_only` reproduces raw OCCT bit-identically. 3. Determinism: identical `.brep` bytes and `RobustReport` across two runs and across 1 vs 8 rayon threads. 4. A deadline expiry yields `Timeout` and never a later strategy's result (test with an injected slow strategy). 5. Healing history composition: a test feature filleting after `Unify` resolves names through the composed history (`ShapeHistory` test). 6. Every non-direct acceptance adds a warning. |
-| KH-02 | Fillet corpus + harness: `robust::corpus` generators (`prism_vertical_edges` with exact volume oracle, `prism_mixed_edges`, `boolean_stack`, `radius_too_large`), ≥ 50 handmade cases, case schema, process-isolated harness (`kernel-harness` example / `amg-cli kernel harness`), report JSON, `docs/notes/kernel-metrics.md`, baseline files + smoke-subset CI test | KH-01, BREP-06 | P1 | Todo | 1. ≥ 200 cases (≥ 120 synthetic from `seeds.toml`, ≥ 50 handmade committed, the rest harvested/owner under `AMG_TESTDATA_DIR` when present). 2. The exact-volume oracle agrees with a high-resolution tessellation volume within 1e-4 relative on 20 cases (validates the formula). 3. Baseline raw `MakeFillet` success, clean-failure, invalid-Ok and crash counts plus p50/p95 time are recorded in `kernel-metrics.md`. 4. The smoke subset (≈ 40 cases) runs in CI `golden` in < 2 min and fails when a baseline-passing case is broken on purpose. 5. An OCCT access violation in one case (injected) is reported as `Crash` and the run completes. |
+| KH-02 | Fillet corpus + harness: `robust::corpus` generators (`prism_vertical_edges` with exact volume oracle, `prism_mixed_edges`, `boolean_stack`, `radius_too_large`), ≥ 50 handmade cases, case schema, process-isolated harness (`kernel-harness` example / `amg-cli kernel harness`), report JSON, `docs/notes/kernel-metrics.md`, baseline files + smoke-subset CI test | KH-01, BREP-06 | P1 | Review | 1. ≥ 200 cases (≥ 120 synthetic from `seeds.toml`, ≥ 50 handmade committed, the rest harvested/owner under `AMG_TESTDATA_DIR` when present). 2. The exact-volume oracle agrees with a high-resolution tessellation volume within 1e-4 relative on 20 cases (validates the formula). 3. Baseline raw `MakeFillet` success, clean-failure, invalid-Ok and crash counts plus p50/p95 time are recorded in `kernel-metrics.md`. 4. The smoke subset (≈ 40 cases) runs in CI `golden` in < 2 min and fails when a baseline-passing case is broken on purpose. 5. An OCCT access violation in one case (injected) is reported as `Crash` and the run completes. |
 | KH-03 | Fillet strategy wrapper + diagnostics: `robust::fillet::fillet` chain (design §4), failing-edge isolation (OCCT report, then ddmin), `max_radius`, `FilletDiagnosis` for SOL-05 | KH-02, KH-17, SOL-05 | P1 | Todo | 1. Full-corpus success rate ≥ baseline + 10 percentage points **and** ≥ 50 % of baseline failures fixed. 2. Zero regressions (every baseline-passing case still passes) and zero invalid `Ok`. 3. 100 % of failures name ≥ 1 failing edge and a `FailureClass`. 4. On `radius_too_large`, `max_radius` is within 2 % of the analytic limit; on other failures `r̂` succeeds and `1.02·r̂` fails in ≥ 95 % of cases (else flagged `approximate`). 5. Proptest: 256 generated parts give valid `Ok` or a classified `Err`, never a panic. 6. Before/after table in `kernel-metrics.md`. |
 | KH-04 | Analytic fast-path fillet: edge classification, exact blend surfaces (cylinder/torus/cone/pipe), trimming tools, General Fuse booleans with the fuzzy ladder, tangent chains; runs before the KH-03 chain | KH-03, KH-16, BREP-09 | P1 | Todo | 1. ≥ 98 % success on the analytic-edge subset **without** 3-edge corners (tag `analytic & !corner3`). 2. Exact-oracle cases match volume within 1e-6 relative; all results BRepCheck-valid with `max_tolerance ≤ 1e-5 mm`. 3. p50 time ≤ raw `MakeFillet` p50 on the same subset. 4. Out-of-scope cases fall through unchanged (the chain result is bit-identical to KH-03 alone). 5. Zero regressions on the full corpus. |
 | KH-19 | 3-edge corner patches: setback blends, G1 N-sided fill with OCCT `GeomPlate` and our own patch candidate, sewing; decides Open question 2 | KH-04 | P1 | Todo | 1. ≥ 95 % success on the `corner3` subset (convex box corners, mixed convex/concave, unequal radii). 2. G1 deviation along patch boundaries ≤ 0.5° at 50 samples per boundary, G0 ≤ 1e-5 mm. 3. Both patch candidates are measured; the winner and its numbers are recorded in `kernel-metrics.md`, and Open question 2 is closed. 4. Zero regressions on the full corpus. |
@@ -1425,6 +1425,88 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   points must be outside the result) would catch it; that is a later gate addition if the
   corpora ever show one.
 
+### 2026-11-28 - KH-02 fillet corpus and process-isolated harness (lane A)
+- **Landed in `amg-brep`:** `robust::corpus` is now a directory module. KH-17's
+  near-coincidence generator moved unchanged to the private `corpus::near` and is re-exported,
+  so `robust::corpus::{near_coincident, NearCase, …}` paths still work. New public submodules:
+  - `corpus::fillet`: `FilletGenerator` (`prism_vertical_edges`, `prism_mixed_edges`,
+    `boolean_stack`, `radius_too_large`), `FilletGenCase { generator, seed }` with `id`,
+    `part` (a pure draw: `PrismPart`/`StackPart`), `tags`, `expect` and `build(k)`, plus
+    `corner_area` (the oracle's `f(a)`).
+  - `corpus::case`: `CaseToml` (design note §5.2, schema 1, `deny_unknown_fields`; reads what
+    `capture::promote` writes), `Expect`/`ExpectOutcome`, `Case` (serde, sent to workers),
+    `CaseInput::{Dir, Fillet}`, `Inject` (harness self-test faults), `Case::prepare`
+    (`op.json` + `inputs/*.brep` with `KernelOp::reindex`, or the generator), `SeedFile`/
+    `SeedEntry`, `load_case_dir`, `discover`, `load_seeds`, `CorpusSource` (`fillet()` = the
+    committed corpus plus `$AMG_TESTDATA_DIR/kernel/fillet/{owner,harvested}` when set).
+  - `corpus::harness`: `Strategy::{Raw, Hardened}`, `run_case`/`run_case_phased` (judging:
+    BRepCheck, closed one-solid result, volume oracle, face count), the worker protocol
+    (`Request`/`Response`, `serve`, `serve_stdio`, `RECORD_PREFIX`, `PHASE_PREFIX`),
+    `run_isolated` (worker processes, 50 cases per worker, per-case timeout, `Crash`/`Timeout`
+    records naming the phase), `run_in_process`, `CaseRecord`/`Outcome`/`Verdict`,
+    `Aggregate` (rates, counts, p50/p95, volume deviation), `Report` (JSON schema 1, per strategy
+    and tag, markdown table), `Baseline` (TOML schema 1, passing ids per strategy;
+    `regressions`), `select`, `describe`.
+
+  Examples: `kernel-harness` (`run`, `list`, `show`; the stand-in until lane E ships its own)
+  and `gen_fillet_corpus` (writes the handmade cases). Tests: `tests/kernel_corpus.rs`
+  (8 tests + the ignored full run) and 16 new unit tests. `toml` moved from a dev-dependency to a
+  dependency of `amg-brep` (already a workspace dependency; `THIRD_PARTY.md` row updated).
+- **`amg-cli kernel harness`** (lane E, minimal, see Interface changes): clap wrapper over the
+  same calls, with a hidden `kernel harness-worker`, and an `occt` feature passing through to
+  `amg-brep/occt` (as `amg-io` does). Test `kernel_harness_runs_a_seed_list_and_writes_a_report`.
+- **Corpus** (`tests/golden/kernel/fillet/`): `seeds.toml` (150 synthetic cases, 22 smoke) and
+  `handmade/` (66 cases, 22 smoke, 623 KB of text `.brep`; 5 clean failures). Handmade cases
+  cover cube and box edges up to and past their limits, loops, three-edge corners, mixed and
+  variable radii, chord specs, blend-shape variants, tiny and huge parts, concave edges, prisms
+  with 10°–60° and 178° vertices, slots, cylinder and cone rims, holes, bosses, pockets, a tee and
+  a sphere-on-box intersection, and a fillet after a chamfer. 49 have an exact volume
+  (Pappus or the prism formula), 5 volume bounds. Baseline: `tests/golden/kernel/fillet-baseline.toml`
+  (raw: 208 passing of 216).
+- **Done-when evidence** (OCCT 8.0.1, `--features occt`; tables in `kernel-metrics.md`):
+  1. Met for the committed part: 216 cases, 150 synthetic from `seeds.toml`, 66 handmade
+     (`corpus_meets_the_size_targets`). Owner/harvested cases are loaded from
+     `$AMG_TESTDATA_DIR/kernel/fillet/{owner,harvested}` when it is set; it is unset on this
+     machine, so that part is skipped with a notice.
+  2. Met. On 20 `prism_vertical_edges` cases the formula agrees with a 2e-4 mm tessellation
+     within 7.7e-7 relative (worst; target 1e-4) and with `BRepGProp` within 6.5e-16
+     (`exact_volume_oracle_matches_tessellation`).
+  3. Met. Raw `MakeFillet`: 183 of 191 valid (95.8 %), 25 of 25 clean failures, 3 invalid Ok,
+     1 crash, 0 timeouts, p50 2.94 ms, p95 17.97 ms. Identical verdicts on repeated runs.
+  4. Met. The smoke subset (44 cases) runs in 0.23 s under nextest (`golden_fillet_smoke`), and
+     `golden_fillet_smoke_catches_a_broken_case` reports both cases broken on purpose (an
+     injected `NotDone`, a volume oracle off by 1 %). **Deviation:** the CI `golden` job runs
+     a nextest archive built without `--features occt`, so there the test skips with a notice.
+     It runs in the `occt` job's `cargo nextest run -p amg-brep --features occt` (which runs every
+     test, `golden_*` included). Whether the `golden` job should also build with OCCT is left to
+     lane D's CI owner.
+  5. Met. `harness_survives_crashes_and_hangs`: a worker ending with `STATUS_ACCESS_VIOLATION`
+     inside a case gives `Crash` ("exit code: 0xc0000005 … during op"), an abort `Crash`, a hang
+     `Timeout`, and the run completes with the later cases passing. **Deviation:** the
+     injected fault is the worker exiting with the access-violation status, not a real null-pointer
+     write, because that would need `unsafe` outside a `-sys` crate. The corpus also has a real
+     one: `boolean_stack-0005` crashes OCCT with 0xC0000005 inside `MakeFillet` on every run and is
+     recorded as `Crash` while the run goes on.
+- **Deviations from the design note:**
+  - The committed corpus lives in `tests/golden/kernel/fillet/`, not
+    `testdata/kernel/fillet/` (note §5.1), so cases and baselines share one place. The text
+    `.brep` files are small and not LFS-tracked. The tests still skip a case whose input is an
+    un-fetched LFS pointer (fail with `AMG_REQUIRE_TESTDATA=1`).
+  - Generators are always compiled, with no `corpus` cargo feature (none existed for KH-17's).
+  - The harness writes the report JSON; it does not append to `kernel-metrics.md` itself. The
+    metrics are added by hand from `Report::markdown`.
+  - "Clean failure" counts any classified `Err`. The expected `RadiusTooLarge` class is recorded
+    per case (`class_matches`); raw OCCT says `NotDone` (0 of 25 match, KH-03's job).
+  - Report numbers come from the test profile (opt-level 1), not a release build.
+- **Findings:** see `kernel-metrics.md`. All 3 invalid Oks are vertical + top edges meeting at
+  a vertex. One reproducible OCCT access violation (KH-09). `MakeFillet::Add` refuses a 178°
+  crease as tangent.
+- **Leftovers:** KH-09 reproducers for `boolean_stack-0005` and the `prism_mixed_edges` invalid
+  Oks. Owner/harvested cases once `AMG_TESTDATA_DIR` has them. The CI `golden` job with OCCT
+  (lane D). KH-03 adds its strategy to `Strategy` (or routes `HardenedKernel::fillet`) and
+  writes its before/after table against this baseline. KH-05 reuses `case`/`harness` for lofts
+  with its own seeds and baseline.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1465,3 +1547,14 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
   `shape_has_inverted_solid` (R) and `occt_profile.hxx` (the env-gated tracer).
 - Results are byte-identical, so `kernel_version()` and `POLICY_VERSION` stay as they are.
   Recorded in S02.
+
+### 2026-11-28: KH-02 -> lane E (`amg-cli`) and S02 (`amg-brep` shared crate, lane A)
+- `amg-cli` (lane E, minimal and additive): a `kernel harness` subcommand plus the hidden
+  `kernel harness-worker` (`src/kernel.rs`), a dependency on `amg-brep` (the layering allow-list
+  already permits it) and an `occt` feature forwarding to `amg-brep/occt`, as `amg-io` has.
+  `main` now returns `ExitCode`; `info` is unchanged. Lane E may restyle the subcommand; it
+  must stay a thin wrapper over `amg_brep::robust::corpus::harness`. `kernel replay|promote`
+  (KH-01) are still not wired.
+- `amg-brep`: `toml` is now a normal dependency (case and baseline files); the crate-private
+  `capture::time_rfc3339_now` was added for report timestamps. `robust::corpus` paths of KH-17
+  are unchanged (re-exports). No `BrepKernel` or `KernelOp` change.

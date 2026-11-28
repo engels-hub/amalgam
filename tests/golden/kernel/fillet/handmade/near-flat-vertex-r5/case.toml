@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/near-flat-vertex-r5"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "near_flat"]
+description = "a 178° vertical edge (nearly tangent faces), r = 5"
+
+[expect]
+outcome = "success"
+volume = 1008.7273109130746
+volume_rel_tol = 0.000001

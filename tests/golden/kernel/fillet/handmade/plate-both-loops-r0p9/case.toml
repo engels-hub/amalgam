@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/plate-both-loops-r0p9"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "loop", "thin"]
+description = "top and bottom loops of a 2 mm plate, r = 0.9"
+
+[expect]
+outcome = "success"
+volume = 3937.981220268828
+volume_rel_tol = 0.000001

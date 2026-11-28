@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cube-edge-r10p5-too-large"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "radius_too_large"]
+description = "one cube edge, r above the face width"
+
+[expect]
+outcome = "clean_failure"
+failure_class = "RadiusTooLarge"
+max_radius = 10.0

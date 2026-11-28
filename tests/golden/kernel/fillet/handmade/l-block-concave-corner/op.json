@@ -1,0 +1,98 @@
+{
+  "op": "fillet",
+  "shape": 0,
+  "edges": [
+    [
+      {
+        "id": 7,
+        "geom": {
+          "class": "Line",
+          "measure": 6.0,
+          "centroid": [
+            4.0,
+            4.0,
+            3.0
+          ],
+          "bbox": {
+            "min": [
+              4.0,
+              4.0,
+              0.0
+            ],
+            "max": [
+              4.0,
+              4.0,
+              6.0
+            ]
+          }
+        }
+      },
+      {
+        "Constant": 1.0
+      }
+    ],
+    [
+      {
+        "id": 9,
+        "geom": {
+          "class": "Line",
+          "measure": 6.0,
+          "centroid": [
+            7.0,
+            4.0,
+            6.0
+          ],
+          "bbox": {
+            "min": [
+              4.0,
+              4.0,
+              6.0
+            ],
+            "max": [
+              10.0,
+              4.0,
+              6.0
+            ]
+          }
+        }
+      },
+      {
+        "Constant": 0.8
+      }
+    ],
+    [
+      {
+        "id": 12,
+        "geom": {
+          "class": "Line",
+          "measure": 6.0,
+          "centroid": [
+            4.0,
+            7.0,
+            6.0
+          ],
+          "bbox": {
+            "min": [
+              4.0,
+              4.0,
+              6.0
+            ],
+            "max": [
+              4.0,
+              10.0,
+              6.0
+            ]
+          }
+        }
+      },
+      {
+        "Constant": 0.8
+      }
+    ]
+  ],
+  "opts": {
+    "shape": "Rational",
+    "tol_app_3d": null,
+    "fleche": null
+  }
+}

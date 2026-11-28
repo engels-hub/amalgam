@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/l-block-concave-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "concave", "smoke"]
+description = "the concave vertical edge of an L block, r = 1"
+
+[expect]
+outcome = "success"
+volume = 385.2876110196153
+volume_rel_tol = 0.000001

@@ -1,0 +1,11 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/pocket-all-edges-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "concave", "pocket", "corner3"]
+description = "floor, wall and lip edges of a pocket, r = 1"
+
+[expect]
+outcome = "success"

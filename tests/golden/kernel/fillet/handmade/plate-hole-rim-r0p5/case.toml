@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/plate-hole-rim-r0p5"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "hole", "smoke"]
+description = "the top rim of a through hole, r = 0.5"
+
+[expect]
+outcome = "success"
+volume = 5747.286556411752
+volume_rel_tol = 0.000001

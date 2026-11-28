@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/tilted-box-edge-r3"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "smoke"]
+description = "a box in a frame off every axis, r = 3"
+
+[expect]
+outcome = "success"
+volume = 5980.6858347057705
+volume_rel_tol = 0.000001

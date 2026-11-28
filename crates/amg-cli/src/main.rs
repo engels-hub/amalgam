@@ -7,6 +7,8 @@
 use amg_jobs::diag::{self, DiagConfig, DiagGuard, LOG_ENV};
 use clap::{Parser, Subcommand};
 
+mod kernel;
+
 /// Crate version plus the git commit it was built from.
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("AMG_GIT_SHA"), ")");
 
@@ -21,13 +23,29 @@ struct Cli {
 enum Command {
     /// Print build and runtime information.
     Info,
+    /// Kernel robustness tools (S20).
+    Kernel {
+        #[command(subcommand)]
+        command: kernel::KernelCommand,
+    },
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
+    // The harness worker serves a pipe protocol on stdout: no diagnostics set-up there.
+    if let Command::Kernel {
+        command: kernel::KernelCommand::HarnessWorker,
+    } = cli.command
+    {
+        return kernel::worker();
+    }
     let diag = init_diagnostics();
     match cli.command {
-        Command::Info => info(diag.as_ref()),
+        Command::Info => {
+            info(diag.as_ref());
+            std::process::ExitCode::SUCCESS
+        }
+        Command::Kernel { command } => kernel::run(command),
     }
 }
 

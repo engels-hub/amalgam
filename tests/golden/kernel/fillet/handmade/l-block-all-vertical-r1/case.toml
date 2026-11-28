@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/l-block-all-vertical-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "concave"]
+description = "all 6 vertical edges of an L block, r = 1"
+
+[expect]
+outcome = "success"
+volume = 378.84955592153875
+volume_rel_tol = 0.000001

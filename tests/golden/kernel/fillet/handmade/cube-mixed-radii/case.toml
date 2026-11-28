@@ -1,0 +1,12 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cube-mixed-radii"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "mixed_radii", "smoke"]
+description = "two edges meeting at a vertex, r = 1 and 2"
+
+[expect]
+outcome = "success"
+volume_bounds = [988.2699081698725, 992.4159265358979]

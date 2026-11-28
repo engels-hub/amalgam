@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cube-edge-r2-quasi-angular"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "smoke", "shape_variant"]
+description = "one cube edge, quasi-angular blend"
+
+[expect]
+outcome = "success"
+volume = 991.4159265358979
+volume_rel_tol = 0.000001

@@ -164,3 +164,91 @@ use its analytic plane–plane path (both faces must be unbounded) and runs a fu
 face). Outward (`offset > 0`) OCCT enlarges the removed face first (`ExtentContext`), and the
 same shell takes 73 ms. `ConnexIntByInt` also runs one PaveFiller per adjacent pair of enlarged
 offset faces. Together they are ~300 of ~313 ms, and none of OCCT's options reach them.
+
+## 2026-11-28 — KH-02: fillet corpus, raw `MakeFillet` baseline
+
+Source: the ignored test `kernel_corpus::full_fillet_corpus`
+(`cargo nextest run -p amg-brep --features occt --run-ignored only -E 'test(full_fillet_corpus)'`),
+or `cargo run -p amg-brep --features occt --example kernel-harness -- run --report fillet.json`
+(same numbers; `amg-cli kernel harness` with `--features occt` wraps the same calls). Every case
+runs in a worker process (4 slots, 50 cases per worker, 60 s timeout). **Raw** =
+`OcctKernel::fillet` (`BRepFilletAPI_MakeFillet`) with the validation policy off, so OCCT's own
+invalid results are visible. Times are the fillet call alone (input build and judging excluded),
+test profile (opt-level 1, dependencies 2), shared machine; the whole run takes 0.7 s wall.
+
+Corpus (`tests/golden/kernel/fillet/`, report schema 1): 216 cases = 150 synthetic from
+`seeds.toml` (`prism_vertical_edges` 60, `prism_mixed_edges` 35, `boolean_stack` 35,
+`radius_too_large` 20) + 66 handmade (`handmade/<name>/`, 5 of them clean failures). No
+owner/harvested cases yet (`AMG_TESTDATA_DIR` unset). The `smoke` subset has 44 cases.
+
+Column meanings as above, plus: **valid Ok / expecting success** = the success rate;
+**clean failures** = classified `Err` (any `FailureClass` but `Other`/`Panic`) on cases that
+expect one. A *valid* `Ok` passes BRepCheck, is one closed solid of positive volume, and matches
+the case's volume oracle (exact: 1e-6 relative; bounds: generator-specific) and face count.
+
+| set | cases | valid Ok / expecting success | clean failures / expecting one | invalid Ok | crashes | timeouts | p50 ms | p95 ms |
+|---|---|---|---|---|---|---|---|---|
+| all, raw | 216 | 183 / 191 (95.8 %) | 25 / 25 | 3 | 1 | 0 | 2.94 | 17.97 |
+| `synthetic`, raw | 150 | 126 / 130 (96.9 %) | 20 / 20 | 3 | 1 | 0 | 3.68 | 21.08 |
+| `handmade`, raw | 66 | 57 / 61 (93.4 %) | 5 / 5 | 0 | 0 | 0 | 1.58 | 9.99 |
+| `smoke`, raw | 44 | 39 / 39 (100.0 %) | 5 / 5 | 0 | 0 | 0 | 2.50 | 11.75 |
+| `prism_vertical_edges`, raw | 60 | 60 / 60 (100.0 %) | – | 0 | 0 | 0 | 3.21 | 7.84 |
+| `prism_mixed_edges`, raw | 35 | 32 / 35 (91.4 %) | – | 3 | 0 | 0 | 15.24 | 40.07 |
+| `boolean_stack`, raw | 35 | 34 / 35 (97.1 %) | – | 0 | 1 | 0 | 3.88 | 8.88 |
+| `radius_too_large` (20 synthetic + 5 handmade), raw | 25 | – | 25 / 25 | 0 | 0 | 0 | 2.18 | 3.35 |
+| `corner3`, raw | 23 | 19 / 23 (82.6 %) | – | 3 | 0 | 0 | 10.00 | 31.49 |
+| `concave`, raw | 35 | 34 / 35 (97.1 %) | – | 1 | 0 | 0 | 6.80 | 32.68 |
+| `near_limit`, raw | 8 | 6 / 8 (75.0 %) | – | 0 | 0 | 0 | 1.60 | 10.69 |
+
+Baseline counts (Done-when 3): **success 183 of 191 (95.8 %), clean failure 25 of 25,
+invalid Ok 3, crash 1, timeout 0; p50 2.94 ms, p95 17.97 ms.** A second full run gave the same
+verdicts for every case (times within ±20 %). `HardenedKernel` (`--strategy hardened`) gives
+identical verdicts: it forwards `fillet` until KH-03. Volume deviation of valid results with an
+exact oracle: p50 2.2e-16, max 7.2e-11 relative (the polynomial-blend case; every
+`prism_vertical_edges` result is within 1.6e-15).
+
+The 8 cases that do not pass (the targets for KH-03/KH-04/KH-19):
+
+| case | verdict | what |
+|---|---|---|
+| `synthetic/prism_mixed_edges-0008`, `-0013`, `-0016` | **invalid Ok** | top-edge + vertical fillets meeting at `corner3` vertices: `SelfIntersectingWire`, `UnorientableShape`; two also lose 3.7–4.3 mm³ below the volume bounds |
+| `synthetic/boolean_stack-0005` | **crash** | `STATUS_ACCESS_VIOLATION` (0xC0000005) inside `MakeFillet` (box 22.7 × 25.3 × 13.6 with a pocket and a box boss, 5 edges, r = 0.553); reproducible on every run (KH-09 candidate) |
+| `handmade/cube-edge-r10-full` | NotDone | r = the face width: both adjacent faces consumed (a quarter-round prism) |
+| `handmade/cube-all-edges-r5-sphere` | NotDone | r = half the cube side: the rounded cube degenerates to a sphere |
+| `handmade/near-flat-vertex-r5`, `-r50` | InvalidInput | `MakeFillet::Add` refuses a 178° crease as a tangent (G1) edge, so no blend is possible |
+
+**Reading.** Raw OCCT 8.0.1 fillets single vertical edges of prisms, rims, holes, bosses,
+pockets, loops and plain three-edge cube corners reliably and exactly. Its failures cluster in
+mixed vertical + top edges meeting at a vertex (all 3 invalid Oks), in limit radii that consume
+a whole face, and in nearly flat creases. Two kinds of failure are not fixed by a better
+blend alone. The invalid Oks come back as `Ok`, so only an independent validation gate (KH-03's
+chain runs every result through `robust::validate`) catches them. The crash ends the process,
+so until KH-09 has an upstream fix only a process boundary (this harness, or `WriteAhead`
+capture for the app) turns it into a record. Every `radius_too_large` case fails
+cleanly, but with class `NotDone`, not `RadiusTooLarge` (0 of 25 class matches): naming the
+class and the max radius is KH-03 Done-when 3–4.
+
+**Exact-volume oracle check** (Done-when 2, `kernel_corpus::exact_volume_oracle_matches_tessellation`):
+on `prism_vertical_edges` seeds 0–19 (1–8 fillets each), the formula
+`V = h·(A − Σ_convex f + Σ_concave f)`, `f(a) = r²(cot(a/2) − (π − a)/2)` agrees with the
+signed volume of a 2e-4 mm / 0.01 rad tessellation of OCCT's result within **7.7e-7** relative
+(worst case; target 1e-4), and with `BRepGProp` within **6.5e-16**.
+
+**Smoke subset** (Done-when 4, `kernel_corpus::golden_fillet_smoke`): 44 cases in 0.23 s
+under nextest (target < 2 min), checked against `tests/golden/kernel/fillet-baseline.toml`
+(the 208 ids raw passes). `golden_fillet_smoke_catches_a_broken_case` breaks two
+baseline-passing cases on purpose (an injected `NotDone`, a volume oracle off by 1 %) and both
+come back as regressions.
+
+**Process isolation** (Done-when 5, `kernel_corpus::harness_survives_crashes_and_hangs`): a
+worker that ends with `STATUS_ACCESS_VIOLATION` inside a case gives a `Crash` record
+("exit code: 0xc0000005 … during op"), an aborting one a `Crash`, a hanging one a `Timeout`
+after the 5 s test timeout. The cases after each run in a fresh worker and pass. The real
+access violation of `boolean_stack-0005` goes through the same path in every full run.
+
+### Upstream candidates (KH-09)
+
+| corpus case | issue | status |
+|---|---|---|
+| `fillet/synthetic/boolean_stack-0005` | access violation in `BRepFilletAPI_MakeFillet::Build` (OCCT 8.0.1) | found by KH-02; reproducer (`kernel-harness show --id boolean_stack-0005`, then a Draw script) still to write |
+| `fillet/synthetic/prism_mixed_edges-0008` (and `-0013`, `-0016`) | `MakeFillet` returns an invalid shape (`SelfIntersectingWire`) at a convex vertex where a vertical and two top edges are filleted | found by KH-02 |

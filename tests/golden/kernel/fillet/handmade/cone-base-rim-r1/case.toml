@@ -1,0 +1,11 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cone-base-rim-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex"]
+description = "the base rim of a truncated cone (obtuse edge), r = 1"
+
+[expect]
+outcome = "success"

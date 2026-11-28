@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cube-two-parallel-edges"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "smoke"]
+description = "two opposite cube edges, r = 2"
+
+[expect]
+outcome = "success"
+volume = 982.8318530717959
+volume_rel_tol = 0.000001

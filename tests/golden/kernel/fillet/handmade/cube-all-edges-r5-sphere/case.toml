@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cube-all-edges-r5-sphere"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "corner3", "near_limit"]
+description = "all 12 cube edges, r = 5: the cube becomes a sphere"
+
+[expect]
+outcome = "success"
+volume = 523.5987755982989
+volume_rel_tol = 0.000001
