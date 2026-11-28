@@ -1,0 +1,37 @@
+{
+    "name": "Creality Ender-3 V3 KE 0.4 nozzle - Connected KCM",
+    "from": "User",
+    "inherits": "Creality Ender-3 V3 KE 0.4 nozzle",
+    "printable_area": [
+        "0x0",
+        "220x0",
+        "220x220",
+        "0x220"
+    ],
+    "printable_height": "240",
+    "nozzle_diameter": [
+        "0.4",
+        "0.4",
+        "0.4",
+        "0.4"
+    ],
+    "extruder_colour": [
+        "#FCE94F",
+        "#FCE94F",
+        "#FCE94F",
+        "#FCE94F"
+    ],
+    "min_layer_height": [
+        "0.08",
+        "0.08",
+        "0.08",
+        "0.08"
+    ],
+    "max_layer_height": [
+        "0.32",
+        "0.32",
+        "0.32",
+        "0.32"
+    ],
+    "single_extruder_multi_material": "0"
+}

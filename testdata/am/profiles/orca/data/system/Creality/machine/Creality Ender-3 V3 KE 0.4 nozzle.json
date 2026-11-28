@@ -1,0 +1,25 @@
+{
+    "type": "machine",
+    "name": "Creality Ender-3 V3 KE 0.4 nozzle",
+    "from": "system",
+    "instantiation": "true",
+    "inherits": "fdm_creality_common",
+    "printer_model": "Creality Ender-3 V3 KE",
+    "printable_area": [
+        "0x0",
+        "220x0",
+        "220x220",
+        "0x220"
+    ],
+    "printable_height": "245",
+    "nozzle_diameter": [
+        "0.4"
+    ],
+    "min_layer_height": [
+        "0.08"
+    ],
+    "max_layer_height": [
+        "0.32"
+    ],
+    "single_extruder_multi_material": "1"
+}

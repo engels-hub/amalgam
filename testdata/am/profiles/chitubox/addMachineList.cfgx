@@ -1,0 +1,6 @@
+current: 0
+root:
+  - type: DefaultItem
+    dir: ELEGOO/
+    machine_model: ELEGOO Mars 3 Pro
+    config_path: 00000000-0000-0000-0000-000000000001.cfgx

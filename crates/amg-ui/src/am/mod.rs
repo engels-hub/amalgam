@@ -19,7 +19,7 @@
 //!   tinted red with a message ("3.2 mm too tall") next to them and in the Plate panel.
 //! - **Dialogs** are hand-built on the framework API (UI-05 comes in Phase 2): the machine
 //!   picker of New Setup ([`dialogs::NewSetupDialog`]: built-in library plus the user machine
-//!   folder), Add Bodies, Move/Rotate (numeric x, y, elevation, rotate Z, tilt X/Y with a live
+//!   folder, with "Save as User Profile" (AM-10) for the selected machine), Add Bodies, Move/Rotate (numeric x, y, elevation, rotate Z, tilt X/Y with a live
 //!   preview) and Manufacture Settings ([`settings::SettingsDialog`]: slicer path, hand-off
 //!   folder, user machine folder).
 //! - **Place on Plate** ([`tools::PlaceOnPlateTool`]) picks a face; the face-down rotation runs
@@ -63,7 +63,9 @@ use crate::tool::{Tool, ToolInit};
 use amg_doc::EntityRef;
 
 pub use browser::SetupBrowser;
-pub use dialogs::{AddBodiesDialog, MoveRotateDialog, NewSetupDialog, OverhangSettingsDialog};
+pub use dialogs::{
+    AddBodiesDialog, MoveRotateDialog, NewSetupDialog, OverhangSettingsDialog, SAVE_AS_USER_PROFILE,
+};
 pub use layer::{AmLayer, ItemStatus, fit_message};
 pub use settings::{AmSettings, SettingsDialog};
 pub use tools::PlaceOnPlateTool;

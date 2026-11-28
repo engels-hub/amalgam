@@ -5,6 +5,7 @@
 //! renderer replaces them in Phase 2. Each OK submits one `CommitBatch` (one undo entry).
 
 use std::borrow::Cow;
+use std::path::PathBuf;
 
 use amg_am::machine::{
     BedShape, LoadWarning, Machine, MachineKey, MachineLibrary, ProcessParams, Technology,
@@ -26,6 +27,9 @@ use crate::widgets::{DialogAction, DialogFrame};
 
 /// The machine the New Setup dialog selects first: the owner's Ender-3 V3 KE KCM.
 pub const DEFAULT_MACHINE: &str = "builtin:creality/ender-3-v3-ke-kcm";
+
+/// Label of the machine picker's button that keeps a copy of a machine in the user folder.
+pub const SAVE_AS_USER_PROFILE: &str = "Save as User Profile";
 
 /// One-line description of a machine ("220 × 220 × 240 mm, FFF, 4 filament slots").
 pub fn machine_summary(m: &Machine) -> String {
@@ -83,6 +87,7 @@ pub struct NewSetupDialog {
     pub name: String,
     /// Bodies to add (the selection's mesh bodies when the dialog opened).
     pub bodies: Vec<BodyId>,
+    saved: Option<Result<String, String>>,
 }
 
 impl std::fmt::Debug for NewSetupDialog {
@@ -116,6 +121,7 @@ impl NewSetupDialog {
             machine,
             name: format!("Setup {n}"),
             bodies,
+            saved: None,
         }
     }
 
@@ -127,6 +133,39 @@ impl NewSetupDialog {
     /// Problems with files of the user machine folder.
     pub fn warnings(&self) -> &[LoadWarning] {
         &self.warnings
+    }
+
+    /// Adds machines (such as imported slicer profiles) to the ones offered. Invalid ones are
+    /// skipped.
+    pub fn offer(&mut self, machines: impl IntoIterator<Item = Machine>) {
+        for m in machines {
+            let _ = self.library.insert(m);
+        }
+    }
+
+    /// Copies the selected machine into the user machine folder (AM-10) and selects the copy.
+    /// An existing profile file is never replaced.
+    ///
+    /// # Errors
+    /// A message when there is no user folder or the file cannot be written.
+    pub fn save_as_user_profile(&mut self) -> Result<PathBuf, String> {
+        let dir = settings::load()
+            .machines_dir()
+            .ok_or("There is no folder for user machine profiles.")?;
+        let (key, path) = self
+            .library
+            .save_user_new(&self.machine, &dir)
+            .map_err(|e| e.to_string())?;
+        self.warnings = self.library.load_user_dir(&dir);
+        if self.library.get(&key).is_some() {
+            self.machine = key;
+        }
+        Ok(path)
+    }
+
+    /// The outcome of the last "Save as User Profile" click: a message, or the error.
+    pub fn save_message(&self) -> Option<&Result<String, String>> {
+        self.saved.as_ref()
     }
 
     /// Creates the setup (one undo entry) and makes it active. Returns its key.
@@ -178,6 +217,26 @@ impl NewSetupDialog {
             });
         if let Some(m) = self.library.get(&self.machine) {
             ui.weak(machine_summary(m));
+        }
+        let is_user = self.machine.0.starts_with("user:");
+        if ui
+            .add_enabled(!is_user, egui::Button::new(SAVE_AS_USER_PROFILE))
+            .on_disabled_hover_text("This is a user profile already")
+            .clicked()
+        {
+            self.saved = Some(
+                self.save_as_user_profile()
+                    .map(|p| format!("Saved to {}", p.display())),
+            );
+        }
+        match &self.saved {
+            Some(Ok(message)) => {
+                ui.weak(message);
+            }
+            Some(Err(message)) => {
+                ui.colored_label(ui.visuals().error_fg_color, message);
+            }
+            None => {}
         }
         for w in &self.warnings {
             ui.colored_label(

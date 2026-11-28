@@ -1,6 +1,7 @@
 //! The machine library and the TOML (de)serialisation.
 
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -132,10 +133,58 @@ impl MachineLibrary {
         self.machines.is_empty()
     }
 
-    /// Writes a user copy of `key` to `<dir>/<stem>.toml` (creating `dir`); returns the path.
-    /// The copy has key `user:<stem>`, the stem being the key's own for user keys and a
-    /// sanitised form of the key otherwise. Does not modify the library.
+    /// Writes a user copy of `key` to `<dir>/<stem>.toml` (creating `dir`), replacing a file of
+    /// that name; returns the path. The copy has key `user:<stem>`, the stem being the key's own
+    /// for user keys and a sanitised form of the key otherwise. Does not modify the library.
     pub fn save_user(&self, key: &MachineKey, dir: &Path) -> Result<PathBuf, AmError> {
+        let (m, stem) = self.user_copy_source(key, dir)?;
+        let path = dir.join(format!("{stem}.toml"));
+        let toml = user_copy_toml(m, &stem, &path);
+        std::fs::write(&path, toml).map_err(|e| profile_error(&path, e))?;
+        Ok(path)
+    }
+
+    /// Like [`Self::save_user`], but never replaces a file: if `<stem>.toml` exists, the copy
+    /// is `<stem>-2.toml` (`-3`, …). Returns the copy's key and path (AM-10, "save as user
+    /// profile").
+    pub fn save_user_new(
+        &self,
+        key: &MachineKey,
+        dir: &Path,
+    ) -> Result<(MachineKey, PathBuf), AmError> {
+        let (m, base) = self.user_copy_source(key, dir)?;
+        for n in 1..=MAX_COPIES {
+            let stem = if n == 1 {
+                base.clone()
+            } else {
+                format!("{base}-{n}")
+            };
+            let path = dir.join(format!("{stem}.toml"));
+            let mut file = match std::fs::File::create_new(&path) {
+                Ok(f) => f,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(profile_error(&path, e)),
+            };
+            if let Err(e) = file.write_all(user_copy_toml(m, &stem, &path).as_bytes()) {
+                drop(file);
+                // The empty or partial file is ours.
+                let _ = std::fs::remove_file(&path);
+                return Err(profile_error(&path, e));
+            }
+            return Ok((MachineKey(format!("user:{stem}")), path));
+        }
+        Err(profile_error(
+            dir,
+            format!("{MAX_COPIES} copies of `{base}` exist already"),
+        ))
+    }
+
+    /// The machine to copy and the file stem for it; creates `dir`.
+    fn user_copy_source(
+        &self,
+        key: &MachineKey,
+        dir: &Path,
+    ) -> Result<(&Machine, String), AmError> {
         let m = self.get(key).ok_or_else(|| AmError::Machine {
             key: key.0.clone(),
             reason: "no such machine in the library".into(),
@@ -150,21 +199,33 @@ impl MachineLibrary {
                     '-'
                 }
             })
+            // Preset names can be long; file names cannot.
+            .take(MAX_STEM)
             .collect();
-        let path = dir.join(format!("{stem}.toml"));
-        let mut copy = m.clone();
-        copy.key = MachineKey(format!("user:{stem}"));
-        copy.source = MachineSource::User { path: path.clone() };
-        std::fs::create_dir_all(dir).map_err(|e| AmError::Profile {
-            file: dir.to_owned(),
-            reason: e.to_string(),
-        })?;
-        std::fs::write(&path, machine_to_toml(&copy)).map_err(|e| AmError::Profile {
-            file: path.clone(),
-            reason: e.to_string(),
-        })?;
-        Ok(path)
+        std::fs::create_dir_all(dir).map_err(|e| profile_error(dir, e))?;
+        Ok((m, stem))
     }
+}
+
+/// Longest file stem of a saved user profile.
+const MAX_STEM: usize = 100;
+/// Most numbered copies [`MachineLibrary::save_user_new`] tries.
+const MAX_COPIES: u32 = 1000;
+
+fn profile_error(file: &Path, reason: impl std::fmt::Display) -> AmError {
+    AmError::Profile {
+        file: file.to_owned(),
+        reason: reason.to_string(),
+    }
+}
+
+fn user_copy_toml(m: &Machine, stem: &str, path: &Path) -> String {
+    let mut copy = m.clone();
+    copy.key = MachineKey(format!("user:{stem}"));
+    copy.source = MachineSource::User {
+        path: path.to_owned(),
+    };
+    machine_to_toml(&copy)
 }
 
 /// The on-disk document. `key` and `source` are optional in hand-written files.

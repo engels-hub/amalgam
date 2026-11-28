@@ -1,0 +1,14 @@
+{
+    "type": "machine",
+    "name": "fdm_machine_common",
+    "from": "system",
+    "instantiation": "false",
+    "printer_technology": "FFF",
+    "printable_height": "250",
+    "nozzle_diameter": [
+        "0.4"
+    ],
+    "extruder_colour": [
+        "#FCE94F"
+    ]
+}

@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use amg_am::handoff::{HandoffFormat, SlicerConfig};
+use amg_am::import::import_chitubox;
 use amg_am::machine::{MachineKey, MachineLibrary, SlicerKind, machine_to_toml};
 use amg_am::place::{ZMode, effective_transform, pick_plane_normal};
 use amg_core::Transform;
@@ -40,7 +41,8 @@ use amg_ui::am::settings::{self, AmSettings};
 use amg_ui::am::{
     ADD_BODIES, AM, AM_TAB, AmLayer, CENTRE, DROP, EXPORT_3MF, ItemStatus, MOVE_ROTATE,
     MoveRotateDialog, NEW_SETUP, NewSetupDialog, OUT_OF_VOLUME_TINT, PLACE_FACE_DOWN, REMOVE_ITEMS,
-    SEND_TO_SLICER, SETTINGS, SettingsDialog, SetupBrowser, active_setup, command_ids,
+    SAVE_AS_USER_PROFILE, SEND_TO_SLICER, SETTINGS, SettingsDialog, SetupBrowser, active_setup,
+    command_ids,
 };
 use amg_ui::browser::{BrowserAnchor, BrowserProvider};
 use amg_ui::command::Placement;
@@ -863,6 +865,72 @@ fn the_machine_picker_lists_the_library_and_the_user_folder() {
         item.target.as_ref().and_then(|t| t.target.body()),
         Some(body)
     );
+}
+
+#[test]
+fn the_machine_picker_saves_a_machine_as_a_user_profile() {
+    let dir = temp_dir("save-user");
+    configure(&dir);
+    let machines = dir.join("machines");
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/am/profiles");
+    let imported = import_chitubox(&[fixtures.join("chitubox")]).machines;
+    assert_eq!(imported.len(), 1);
+    let imported_key = imported[0].key.clone();
+
+    let mut h = AppHarness::new();
+    h.drive_until_idle();
+    h.run_command(NEW_SETUP);
+    h.kittest().step();
+
+    // The preselected built-in, through the button. The folder does not exist yet.
+    click(&mut h, SAVE_AS_USER_PROFILE);
+    let first = machines.join("builtin-creality-ender-3-v3-ke-kcm.toml");
+    assert!(first.is_file());
+    {
+        let d = h.app().dialog::<NewSetupDialog>().expect("still open");
+        assert_eq!(
+            d.machine,
+            MachineKey("user:builtin-creality-ender-3-v3-ke-kcm".to_owned()),
+            "the copy is selected"
+        );
+        assert!(
+            matches!(d.save_message(), Some(Ok(_))),
+            "{:?}",
+            d.save_message()
+        );
+    }
+    // An edited profile survives a second save of the same built-in.
+    let edited = std::fs::read_to_string(&first).unwrap()
+        + "# mine
+";
+    std::fs::write(&first, &edited).unwrap();
+    h.app_mut().dialog_mut::<NewSetupDialog>().unwrap().machine = MachineKey(KCM.to_owned());
+    click(&mut h, SAVE_AS_USER_PROFILE);
+    assert_eq!(std::fs::read_to_string(&first).unwrap(), edited);
+    assert!(
+        machines
+            .join("builtin-creality-ender-3-v3-ke-kcm-2.toml")
+            .is_file()
+    );
+
+    // An imported machine, kept for the next time.
+    {
+        let d = h.app_mut().dialog_mut::<NewSetupDialog>().unwrap();
+        d.offer(imported);
+        d.machine = imported_key;
+    }
+    click(&mut h, SAVE_AS_USER_PROFILE);
+    let saved = h.app().dialog::<NewSetupDialog>().unwrap().machine.clone();
+    assert_eq!(saved.0, "user:chitubox-ELEGOO-Mars-3-Pro");
+    click(&mut h, "Cancel");
+    h.run_command(NEW_SETUP);
+    h.kittest().step();
+    h.app_mut().dialog_mut::<NewSetupDialog>().unwrap().machine = saved;
+    click(&mut h, "OK");
+    let (_, record) = setups(h.document().design()).pop().expect("a setup");
+    let record = record.expect("a valid record");
+    assert_eq!(record.machine.name, "ELEGOO Mars 3 Pro");
+    assert_eq!(record.machine.volume.height, 175.0);
 }
 
 #[test]

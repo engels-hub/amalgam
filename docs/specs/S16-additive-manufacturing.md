@@ -390,8 +390,11 @@ pub struct ImportResult { pub machines: Vec<Machine>, pub warnings: Vec<LoadWarn
 pub fn import_orca(data_dirs: &[PathBuf], install_dirs: &[PathBuf]) -> ImportResult;
 pub fn import_chitubox(dirs: &[PathBuf]) -> ImportResult;
 pub fn import_prusa(dirs: &[PathBuf]) -> ImportResult;
-/// Orca process preset → critical angle, if set and non-zero (support_threshold_angle).
+/// Orca process preset → critical angle (rad), if set and in (0, 90] (support_threshold_angle).
 pub fn orca_process_critical_angle(json: &serde_json::Value) -> Option<f64>;
+// Added in AM-10 (additive), with `Clone, Debug, Default` on ImportResult:
+impl SlicerDataDirs { pub fn discover_with(var: impl Fn(&str) -> Option<OsString>) -> Self; }
+impl MachineLibrary { pub fn save_user_new(&self, key: &MachineKey, dir: &Path) -> Result<(MachineKey, PathBuf), AmError>; } // never replaces a file
 
 // ───────────────────────── amg_am::place (AM-03) ─────────────────────────
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -709,7 +712,7 @@ Testing).
 | AM-06 | Slicer hand-off library: `detect_slicers` (registry via `winreg`, known dirs, PATH), `parse_registry_exe`, `SlicerConfig`, `export_plate` (via IO-03, 3MF/STL, slicer-origin offset, atomic write), `launch` (detached), `prune_handoff_dir`; `amg-features::am::handoff_plate` | AM-03, IO-11, IO-04 | P0 | Done (Done-when 3 Orca GUI/Chitubox check pending owner) | 1. `parse_registry_exe` handles the owner's `D:\OrcaSlicer\D:\OrcaSlicer\orca-slicer.exe`, quoted paths and `,0` suffixes (unit fixtures). 2. Exported 3MF of a 3-item plate (two filament slots) re-imported through IO-03 gives the same plate-frame vertex positions within 1e-6 mm, names and extruders. 3. **Manual check (documented in PR):** on the owner's machine, one click opens the file in OrcaSlicer 2.4.0 with all items at the Amalgam plate positions (± 0.1 mm, read off the Orca object list), assigned to the right filament slots on the KCM preset, without a re-arrange prompt. The same file opens in Chitubox, and the chosen Chitubox format (3MF or STL) is recorded in the Refinement log. 4. A missing exe gives `SlicerNotFound` with a hint. 5. Export + spawn of a 1 M-tri plate < 3 s, and the UI is not blocked (runs as a job). |
 | AM-11 | `amg-ui::am` workspace (Phase 1): Manufacture workspace, setup browser, machine picker (library + user dir), add/remove bodies, plate scene with build-volume helper geometry, Place-on-plate face pick, Drop, Move/Rotate numeric dialog, Centre, out-of-volume tint + message, settings dialog (slicer path, hand-off dir), Send to Slicer / Export 3MF buttons | AM-01, AM-03, AM-06, UI-02, UI-03, UI-04, UI-10, RND-03, RND-07 | P0 | Done (Done-when 5 Orca GUI check pending owner) | 1. Every command listed under Interfaces is reachable from the toolbar and S-key search, and each edit is one undo entry. 2. Picking a face of an imported STL puts it on the plate. 3. An item moved out of the volume turns red with a size message. 4. No frame > 16 ms in the tracing profile while placing a 1 M-tri body. 5. A manual Phase 1 script (open STL → new setup on Ender-3 V3 KE KCM → place face down → Send to Slicer) passes on 3 corpus models. |
 | AM-12 | `amg-ui::am` overhang overlay + metrics panel: RND-08 overhang mode driven by `shader_params`, coarse/fine CPU analysis jobs with cancel-and-supersede, per-face class buffer after the fine job, island markers, per-item/plate metrics, α/contact settings in the setup | AM-02, AM-11, RND-08 | P0 | Done (GUI screenshot check pending owner) | 1. Rotating a 1 M-tri item (numeric dialog with live preview) keeps the overlay in sync every frame. Coarse metrics update ≥ 10 Hz, fine metrics arrive < 500 ms after release, and no frame > 16 ms. 2. The overlay and the CPU class buffer agree on ≥ 99.9 % of faces of the test set (headless comparison once RND-09 exists; until then a screenshot in the PR). 3. With the overlay on, a 5 M-tri mesh orbits at ≥ 60 fps (vision budget, S10 bench). 4. Changing α updates colours immediately and metrics within 500 ms. |
-| AM-10 | Profile import: `SlicerDataDirs::discover`, Orca JSON with `inherits` chain (user/system/install roots), Chitubox `.cfgx`, PrusaSlicer INI; `orca_process_critical_angle`; "save as user profile" in the AM-11 machine picker | AM-01, AM-11 | P1 | Todo | 1. Fixture copies of the Orca system + user KE/KCM presets (committed under `testdata/am/profiles/`, values only, no personal G-code) resolve to 220 × 220 × 240 (user override) and 4 filament slots. 2. Abstract presets (`instantiation: false`) are not listed; a cycle and a missing parent each give an `Inherits` warning. 3. The Chitubox fixture gives the Mars 3 Pro values (143.43 × 89.60 × 175, 4098 × 2560). 4. A Prusa INI fixture parses `bed_shape`/`max_print_height`. 5. On the owner's machine `discover()` finds all three dirs (manual, PR). |
+| AM-10 | Profile import: `SlicerDataDirs::discover`, Orca JSON with `inherits` chain (user/system/install roots), Chitubox `.cfgx`, PrusaSlicer INI; `orca_process_critical_angle`; "save as user profile" in the AM-11 machine picker | AM-01, AM-11 | P1 | Review | 1. Fixture copies of the Orca system + user KE/KCM presets (committed under `testdata/am/profiles/`, values only, no personal G-code) resolve to 220 × 220 × 240 (user override) and 4 filament slots. 2. Abstract presets (`instantiation: false`) are not listed; a cycle and a missing parent each give an `Inherits` warning. 3. The Chitubox fixture gives the Mars 3 Pro values (143.43 × 89.60 × 175, 4098 × 2560). 4. A Prusa INI fixture parses `bed_shape`/`max_print_height`. 5. On the owner's machine `discover()` finds all three dirs (manual, PR). |
 | AM-04 | Orientation optimisation, CPU reference: stable hull poses, normal clusters, Fibonacci candidates, pattern-search refine, score terms + presets, fit guard, cosmetic face groups (setup record v2 + migration), Auto-Orient dialog in `amg-ui::am` showing the top 5 | AM-02, AM-12, MESH-16 | P1 | Todo | On the test set (≥ 25 models: synthetic brackets/bridges/mushrooms/T/L/overhang ladders + corpus models): 1. The chosen score is ≤ the best of the 6 axis-aligned orientations ("manual" baseline) on 100 % of models and ≥ 10 % lower on ≥ 40 %. 2. Within 2 % of a brute-force 16 384-direction optimum on ≥ 90 %. 3. Deterministic (same output across runs and thread counts). 4. 100 k tris < 2 s, 1 M tris < 20 s (CPU, Min-support preset). 5. v1 setup records migrate to v2 on load. |
 | AM-13 | Orientation GPU scoring: per-direction classification dispatch, A-buffer support-volume pass, CMP-01 reductions; `ComputeBackend::Gpu/Auto` | AM-04, CMP-01, FND-09 | P1 | Todo | GPU support volume within 1 % of CPU at equal cell size on the test set, and the same best orientation on ≥ 95 % (ties within 0.5 % excepted). 1 M tris, 1 024 candidates + refine < 5 s on the RTX 5060 Ti. CPU fallback is used when there is no adapter (WARP test in CI). |
 | AM-05 | Arrange (2D): convex-hull footprints + spacing, convex NFP bottom-left-fill with 15° yaw steps, overflow to new plates, "Arrange" command | AM-03, AM-11 | P1 | Todo | 1. 50 random corpus items on the KE bed: no overlaps (SAT, spacing ≥ requested − 1e-6), all inside the volume, and plate utilisation within 15 % of an offline best-of-1000-random-orders reference. 2. Deterministic. 3. 100 items < 2 s. |
@@ -1219,6 +1222,43 @@ numbers in `crates/amg-ui/tests/am_overhang.rs`. The screenshot / live-GPU look 
     colours after release;
   - configurable overhang colours (RND-08 leftover);
   - the owner's screenshot of the overlay.
+
+### 2026-11-28 - AM-10 slicer profile import (amg-am::import)
+Status `Review`. Done-when 1-5 are met; evidence in `D:/coding/amalgam-handoff/AM-10.md`.
+- **Landed:** `amg-am::import` (`mod.rs`, `orca.rs`, `prusa.rs`, `chitubox.rs`): `SlicerDataDirs`
+  (`discover`, `discover_with`), `import_orca`, `import_prusa`, `import_chitubox`,
+  `orca_process_critical_angle`; `MachineLibrary::save_user_new`; in the New Setup machine picker a
+  **Save as User Profile** button (`NewSetupDialog::{save_as_user_profile, offer, save_message}`).
+  Fixtures in `testdata/am/profiles/` (hand-written, values only). Slicer folders are only read.
+- **Dependencies:** `serde_json` (already in the workspace; `THIRD_PARTY.md` row extended). INI is
+  a few lines of own parsing; `.cfgx` is plain JSON, so no XML or zip.
+- **Measured (owner's machine, read-only, 1 101 slicer files unchanged afterwards):** `discover()`
+  finds `%APPDATA%\OrcaSlicer`, `%APPDATA%\PrusaSlicer` and
+  `%LOCALAPPDATA%\chitubox2_0\Conf\MachineConfig`. Orca: 103 machines, 0 warnings, 0.74 s; the KCM
+  user preset resolves to **200 x 220 x 240 mm**, 4 slots. Chitubox: ELEGOO Mars 3 Pro,
+  143.43 x 89.6 x 175 mm, 4098 x 2560 px. PrusaSlicer: 0 machines (no printer or vendor presets
+  are installed there).
+- **Deviations / choices:**
+  1. The owner's KCM preset now has a 200 mm wide bed; note §6.1 (2026-10-20) and Done-when 1 say
+     220 x 220. The `orca/` fixture keeps the Done-when values, `orca-narrow/` has the current ones.
+     The built-in KCM profile (220 x 220) is unchanged.
+  2. Only presets in the data folders are listed (`user/*/machine`, `system/*/machine`); the install
+     folder's several thousand profiles are read only to resolve a missing parent. A parent is looked
+     up in user presets, then in the child's vendor, then anywhere (every vendor has its own
+     `fdm_machine_common`).
+  3. Slots = max(`nozzle_diameter` entries, `extruder_colour` entries). Nozzles collapse to one only
+     with `single_extruder_multi_material = 1` and equal entries; the owner's KCM preset says `0`, so
+     it imports with 4 nozzle entries.
+  4. Printer presets have no layer height: 0.2 mm clamped into the min/max range (0 = automatic:
+     0.07 mm and 0.75 x nozzle). Critical angle stays 45 deg (FFF) / 30 deg (resin).
+  5. PrusaSlicer resin presets give a warning. A user preset file with a missing parent but complete
+     values is imported with the `Inherits` warning; vendor and Orca presets are skipped.
+  6. `orca_process_critical_angle` reads one JSON value; it does not follow `inherits`.
+  7. "Save as user profile" never replaces a file (`-2`, `-3`, ...); `save_user` (AM-01) is unchanged.
+- **Leftovers:** nothing in the UI runs the importers yet (this WP's UI scope was the save action
+  only): the picker needs an "Import from slicers" action that runs `discover` + `import_*` as a job
+  and calls `NewSetupDialog::offer` (proposed as a small new WP). Offering the Orca process angle in
+  Overhang Settings (open question 3) belongs with it.
 
 ## Interface changes
 

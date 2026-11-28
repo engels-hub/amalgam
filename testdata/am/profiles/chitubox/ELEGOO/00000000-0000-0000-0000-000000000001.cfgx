@@ -1,0 +1,50 @@
+{
+    "version": "1",
+    "printerinfo": {
+        "vendor": "Elegoo",
+        "machinetype": {
+            "type": "string",
+            "currentvalue": "ELEGOO Mars 3 Pro"
+        },
+        "machinename": {
+            "type": "string",
+            "currentvalue": "ELEGOO Mars 3 Pro"
+        },
+        "resolutionx": {
+            "type": "int",
+            "currentvalue": 4098
+        },
+        "resolutiony": {
+            "type": "int",
+            "currentvalue": 2560
+        },
+        "machinewidth": {
+            "type": "float",
+            "currentvalue": 143.42999267578125
+        },
+        "machinedepth": {
+            "type": "float",
+            "currentvalue": 89.5999984741211
+        },
+        "machineheight": {
+            "type": "float",
+            "currentvalue": 175.0
+        }
+    },
+    "current_material": 0,
+    "material": [
+        {
+            "current_slice": 0,
+            "slice": [
+                {
+                    "print": {
+                        "layerheight": {
+                            "type": "float",
+                            "currentvalue": 0.05000000074505806
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}
