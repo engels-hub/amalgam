@@ -132,5 +132,11 @@ name = "history"
 harness = false
 required-features = ["occt"]
 
+# S20 KH-17: robust_boolean's direct path vs the raw op plus validation.
+[[bench]]
+name = "robust"
+harness = false
+required-features = ["occt"]
+
 [lints]
 workspace = true

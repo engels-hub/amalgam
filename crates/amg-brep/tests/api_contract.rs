@@ -3,7 +3,8 @@
 //! `BrepKernel` compiles (object safety).
 //!
 //! Runs with and without the `occt` feature. Each op WP that adds a trait method adds its
-//! parameter types to `op_parameter_types_are_capturable` and a forwarding arm to `Forward`.
+//! parameter types to `op_parameter_types_are_capturable`, a forwarding arm to `Forward` and a
+//! call to `the_hardened_kernel_forwards_every_method` (S20 KH-17's `HardenedKernel`).
 #![allow(clippy::expect_used, clippy::unwrap_used, reason = "test code")]
 
 use std::fmt::Debug;
@@ -14,6 +15,7 @@ use amg_brep::geom::{
     BSpline2dData, BSplineCurveData, BSplineSurfaceData, Curve2d, Curve3, CurveSeg, FaceBounds,
     GeomClass, Loop2, PlanarProfile, ProfileEdge2, Surface, Tag,
 };
+use amg_brep::robust::{HardenedKernel, RetryPolicy};
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, ChamferSpec, CheckOpts, CheckReport, Classification,
     DistanceResult, DraftOpts, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletShape,
@@ -689,7 +691,9 @@ fn a_forwarding_decorator_is_a_kernel() {
         inner: decorated,
         calls: AtomicUsize::new(0),
     };
-    let kernel = as_dyn(Arc::new(stacked));
+    // S20 KH-17: the hardened kernel stacks with other decorators too.
+    let hardened = HardenedKernel::new(stacked, RetryPolicy::default(), None);
+    let kernel = as_dyn(Arc::new(hardened));
     // `dyn BrepKernel` is `Send + Sync`: it moves to and is shared across threads.
     let other = Arc::clone(&kernel);
     std::thread::spawn(move || drop(other)).join().unwrap();
@@ -775,4 +779,195 @@ fn booleans_need_the_backend() {
         assert!(unavailable(kernel.boolean(op, &[], &[], &opts, &ctx)));
     }
     assert!(unavailable(kernel.split(&[], &[], &opts, &ctx)));
+}
+
+/// The trait methods `Forward` implements, read from this file: a new trait method fails to
+/// compile in `Forward` until forwarded, and this count makes the next test fail until it calls
+/// the new method through `HardenedKernel` too.
+#[cfg(feature = "occt")]
+fn trait_method_count() -> usize {
+    let src = include_str!("api_contract.rs");
+    let start = src
+        .find("impl<K: BrepKernel> BrepKernel for Forward<K> {")
+        .unwrap();
+    let end = start
+        + src[start..]
+            .find(
+                "
+}
+",
+            )
+            .unwrap();
+    src[start..end]
+        .lines()
+        .filter(|l| l.starts_with("    fn "))
+        .count()
+}
+
+/// S20 KH-17: `HardenedKernel` reaches the inner kernel from every trait method (booleans and
+/// splits through the robust chain, everything else forwarded).
+#[cfg(feature = "occt")]
+#[test]
+fn the_hardened_kernel_forwards_every_method() {
+    let inner = Forward {
+        inner: OcctKernel::new(KernelConfig::default()),
+        calls: AtomicUsize::new(0),
+    };
+    let hardened = HardenedKernel::new(inner, RetryPolicy::exact_only(), None);
+    let k: &dyn BrepKernel = &hardened;
+    let ctx = JobCtx::detached();
+    let tol = Tolerance::DEFAULT;
+    let frame = Plane::XY;
+    let dir = Dir3::new_unchecked(Vec3::Z);
+    let axis = Line3 {
+        point: Point3::new(-5.0, 0.0, 0.0),
+        dir: Dir3::new_unchecked(Vec3::Y),
+    };
+    let a = k.make_box(&frame, Vec3::splat(10.0)).unwrap().shape;
+    let b = k
+        .make_box(&frame, Vec3::splat(5.0))
+        .unwrap()
+        .shape
+        .transformed(&Transform::from_translation(Vec3::splat(5.0)))
+        .unwrap();
+    let face = k
+        .make_planar_polygon(
+            &[Point3::ZERO, Point3::X, Point3::new(1.0, 1.0, 0.0)],
+            &[],
+            &tol,
+        )
+        .unwrap();
+    let seg = CurveSeg {
+        curve: Curve3::Line {
+            origin: Point3::ZERO,
+            dir,
+        },
+        t0: 0.0,
+        t1: 10.0,
+        tag: Tag(1),
+    };
+    let wire = k.make_wire(std::slice::from_ref(&seg), &tol).unwrap().shape;
+    let q = TessQuality::preview();
+    let calls = || hardened.inner().calls.load(Ordering::Relaxed);
+    let mut n = 0;
+    macro_rules! fwd {
+        ($e:expr) => {{
+            let before = calls();
+            let _ = $e;
+            assert!(calls() > before, "not forwarded: {}", stringify!($e));
+            n += 1;
+        }};
+    }
+    fwd!(k.check(&a, &CheckOpts::default()));
+    fwd!(k.make_planar_faces(&[], &tol));
+    fwd!(k.make_planar_polygon(&[], &[], &tol));
+    fwd!(k.make_face(&Surface::Plane(frame), &FaceBounds::Natural, 1e-6));
+    fwd!(k.make_wire(std::slice::from_ref(&seg), &tol));
+    fwd!(k.make_box(&frame, Vec3::ONE));
+    fwd!(k.make_cylinder(&frame, 1.0, 2.0, 6.0));
+    fwd!(k.make_cone(&frame, 1.0, 0.5, 2.0, 6.0));
+    fwd!(k.make_sphere(&frame, 1.0));
+    fwd!(k.make_torus(&frame, 2.0, 1.0, 6.0));
+    fwd!(k.prism(
+        &face,
+        &PrismExtent::Vector(Vec3::Z),
+        &PrismOpts {
+            taper: 0.0,
+            merge_coplanar: false
+        },
+        &ctx
+    ));
+    fwd!(k.revol(&face, &axis, 1.0, &ctx));
+    fwd!(k.pipe(&[face.clone(), wire.clone()], 1, &PipeOpts::default(), &ctx));
+    fwd!(k.thru_sections(
+        std::slice::from_ref(&wire),
+        &[LoftSection::Wire(0)],
+        &ThruSectionsOpts::default(),
+        &ctx
+    ));
+    fwd!(k.mirrored(&a, &frame));
+    fwd!(k.boolean(
+        BoolOp::Fuse,
+        std::slice::from_ref(&a),
+        std::slice::from_ref(&b),
+        &BoolOpts::default(),
+        &ctx
+    ));
+    fwd!(k.split(
+        std::slice::from_ref(&a),
+        std::slice::from_ref(&b),
+        &BoolOpts::default(),
+        &ctx
+    ));
+    fwd!(k.section(&a, &b, &ctx));
+    fwd!(k.fillet(
+        &a,
+        &[(EdgeId(0), FilletSpec::Constant(1.0))],
+        &FilletOpts::default(),
+        &ctx
+    ));
+    fwd!(k.chamfer(&a, &[(EdgeId(0), ChamferSpec::Equal(1.0))], &ctx));
+    fwd!(k.fillet_max_radius(&a, &[EdgeId(0)], 1.0, 2, &ctx));
+    fwd!(k.shell(
+        &a,
+        &[FaceId(0)],
+        &ShellOpts {
+            thickness: -1.0,
+            join: OffsetJoin::Arc,
+            per_face: Vec::new(),
+            tol: 0.0
+        },
+        &ctx
+    ));
+    fwd!(k.offset(&a, 1.0, OffsetJoin::Arc, 0.0, &ctx));
+    fwd!(k.thicken(&face, 1.0, OffsetJoin::Arc, &ctx));
+    fwd!(k.draft(
+        &a,
+        &[FaceId(0)],
+        &DraftOpts {
+            pull: dir,
+            angle: 0.05,
+            neutral: frame
+        },
+        &ctx
+    ));
+    fwd!(k.defeature(&a, &[FaceId(0)], &ctx));
+    fwd!(k.replace_face(&a, FaceId(0), &Surface::Plane(frame), &ctx));
+    fwd!(k.split_faces(&a, &[FaceId(0)], &wire, &ctx));
+    fwd!(k.offset_faces(&a, &[(FaceId(0), 1.0)], &ctx));
+    fwd!(k.heal(&a, &HealOpts::default(), &ctx));
+    fwd!(k.unify_same_domain(&a, &UnifyOpts::default()));
+    fwd!(k.sew(std::slice::from_ref(&face), &SewOpts::default(), &ctx));
+    fwd!(k.make_solid(&a));
+    fwd!(k.make_compound(std::slice::from_ref(&a)));
+    fwd!(k.plane_section(&a, &frame));
+    fwd!(k.project_edges(&a, &[EdgeId(0)], &frame));
+    fwd!(k.tessellate(&a, &q, &ctx));
+    fwd!(k.tessellate_many(std::slice::from_ref(&a), &q, &ctx));
+    fwd!(k.tessellate_edge(&a, EdgeId(0), &q));
+    fwd!(k.mass_props(&a));
+    fwd!(k.classify(&a, Point3::ONE, 1e-6));
+    fwd!(k.distance(&a, &b));
+    fwd!(k.closest_point(&a, Point3::splat(20.0)));
+    fwd!(k.ray_cast(
+        &a,
+        &Ray3 {
+            origin: Point3::new(5.0, 5.0, -5.0),
+            dir
+        },
+        100.0
+    ));
+    fwd!(k.interference(&a, &b, &ctx));
+    fwd!(k.eval_surface(&a, FaceId(0), Point2::ZERO));
+    fwd!(k.project_point_on_face(&a, FaceId(0), Point3::ZERO));
+    fwd!(k.edge_ends(&a, EdgeId(0)));
+    fwd!(k.sub_geom(
+        &a,
+        SubShape {
+            kind: SubKind::Face,
+            index: 0
+        }
+    ));
+    fwd!(k.sub_geom_all(&a));
+    assert_eq!(n, trait_method_count(), "call every trait method above");
 }

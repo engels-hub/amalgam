@@ -302,6 +302,7 @@ mod occt {
         FaultKernel {
             inner: occt(),
             abort,
+            exact_boolean_fails: false,
         }
     }
 
