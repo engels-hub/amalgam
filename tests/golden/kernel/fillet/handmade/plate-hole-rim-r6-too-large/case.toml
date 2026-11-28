@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/plate-hole-rim-r6-too-large"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "radius_too_large", "hole"]
+description = "the top rim of a hole in a 5 mm plate, r = 6"
+
+[expect]
+outcome = "clean_failure"
+failure_class = "RadiusTooLarge"
+max_radius = 5.0

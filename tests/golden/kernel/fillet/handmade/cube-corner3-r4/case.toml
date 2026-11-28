@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cube-corner3-r4"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "corner3"]
+description = "the 3 edges at one cube vertex, r = 4"
+
+[expect]
+outcome = "success"
+volume = 907.7049926967562
+volume_rel_tol = 0.000001

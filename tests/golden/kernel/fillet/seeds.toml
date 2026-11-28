@@ -1,0 +1,29 @@
+# S20 KH-02: the synthetic fillet cases (design note `kernel-robustness.md` §5.3). Each entry
+# expands to seeds `first .. first + count` of one `amg_brep::robust::corpus::fillet` generator;
+# the first `smoke` seeds are in the CI smoke subset. The cases are rebuilt from the seeds, never
+# stored. Changing a generator changes its cases: rewrite `../fillet-baseline.toml` in the same PR.
+schema = 1
+
+[[generator]]
+name = "prism_vertical_edges"
+first = 0
+count = 60
+smoke = 8
+
+[[generator]]
+name = "prism_mixed_edges"
+first = 0
+count = 35
+smoke = 5
+
+[[generator]]
+name = "boolean_stack"
+first = 0
+count = 35
+smoke = 5
+
+[[generator]]
+name = "radius_too_large"
+first = 0
+count = 20
+smoke = 4

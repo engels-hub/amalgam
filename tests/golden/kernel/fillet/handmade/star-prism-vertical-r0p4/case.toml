@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/star-prism-vertical-r0p4"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "concave", "acute", "smoke"]
+description = "all 10 vertical edges of a pentagram prism (36° tips, 252° notches)"
+
+[expect]
+outcome = "success"
+volume = 443.51494464853926
+volume_rel_tol = 0.000001

@@ -1,12 +1,11 @@
-//! Deterministic corpus generators of the robustness framework (design note §5.3, §7).
-//!
-//! KH-17 adds the boolean near-coincidence generator: seed lists, not files, each case with an
-//! analytic volume oracle. KH-02/KH-05 add the fillet and loft generators here.
+//! The boolean near-coincidence generator (KH-17, design note §7): seed lists, not files, each
+//! case with an analytic volume oracle.
 
 use std::f64::consts::PI;
 
 use amg_core::{Dir3, Plane, Point3, Vec3};
 
+use super::pick;
 use crate::error::KResult;
 use crate::kernel::BrepKernel;
 use crate::opts::BoolOp;
@@ -85,22 +84,6 @@ pub struct NearCase {
     pub offset: f64,
     /// B's rotation about z, rad.
     pub angle: f64,
-}
-
-/// SplitMix64 (Steele, Lea, Flood 2014): a fixed, dependency-free generator, so the case list
-/// is the same on every machine and toolchain.
-fn splitmix(state: &mut u64) -> u64 {
-    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    let mut z = *state;
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
-
-fn pick<T: Copy>(state: &mut u64, from: &[T]) -> T {
-    #[allow(clippy::cast_possible_truncation, reason = "the modulus fits usize")]
-    let i = (splitmix(state) % from.len() as u64) as usize;
-    from[i]
 }
 
 /// `n` cases from `seed`: family `i mod 10` (so every family is covered evenly), offset from

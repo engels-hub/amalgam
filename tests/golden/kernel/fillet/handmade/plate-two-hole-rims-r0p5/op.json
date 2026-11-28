@@ -1,0 +1,69 @@
+{
+  "op": "fillet",
+  "shape": 0,
+  "edges": [
+    [
+      {
+        "id": 9,
+        "geom": {
+          "class": "Circle",
+          "measure": 18.84955592153876,
+          "centroid": [
+            7.0,
+            15.0,
+            5.0
+          ],
+          "bbox": {
+            "min": [
+              7.0,
+              12.0,
+              5.0
+            ],
+            "max": [
+              13.0,
+              18.0,
+              5.0
+            ]
+          }
+        }
+      },
+      {
+        "Constant": 0.5
+      }
+    ],
+    [
+      {
+        "id": 10,
+        "geom": {
+          "class": "Circle",
+          "measure": 18.84955592153876,
+          "centroid": [
+            27.0,
+            15.0,
+            5.0
+          ],
+          "bbox": {
+            "min": [
+              27.0,
+              12.0,
+              5.0
+            ],
+            "max": [
+              33.0,
+              18.0,
+              5.0
+            ]
+          }
+        }
+      },
+      {
+        "Constant": 0.5
+      }
+    ]
+  ],
+  "opts": {
+    "shape": "Rational",
+    "tol_app_3d": null,
+    "fleche": null
+  }
+}

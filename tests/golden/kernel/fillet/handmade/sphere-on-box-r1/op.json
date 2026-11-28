@@ -1,0 +1,40 @@
+{
+  "op": "fillet",
+  "shape": 0,
+  "edges": [
+    [
+      {
+        "id": 9,
+        "geom": {
+          "class": "Circle",
+          "measure": 25.132741228718345,
+          "centroid": [
+            6.0,
+            10.0,
+            20.0
+          ],
+          "bbox": {
+            "min": [
+              6.0,
+              6.0,
+              20.0
+            ],
+            "max": [
+              14.0,
+              14.0,
+              20.0
+            ]
+          }
+        }
+      },
+      {
+        "Constant": 1.0
+      }
+    ]
+  ],
+  "opts": {
+    "shape": "Rational",
+    "tol_app_3d": null,
+    "fleche": null
+  }
+}

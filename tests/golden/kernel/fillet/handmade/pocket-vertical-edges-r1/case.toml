@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/pocket-vertical-edges-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "concave", "pocket", "smoke"]
+description = "the 4 concave vertical edges of a pocket, r = 1"
+
+[expect]
+outcome = "success"
+volume = 8504.292036732051
+volume_rel_tol = 0.000001

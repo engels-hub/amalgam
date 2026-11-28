@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cube-top-loop-r2"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "loop", "smoke"]
+description = "the 4 top edges of a cube (a loop), r = 2"
+
+[expect]
+outcome = "success"
+volume = 968.7315570194884
+volume_rel_tol = 0.000001

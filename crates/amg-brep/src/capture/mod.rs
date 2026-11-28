@@ -74,3 +74,8 @@ pub enum CaptureError {
     #[error("invalid corpus id `{0}`")]
     InvalidId(String),
 }
+
+/// The current time as RFC 3339 UTC (`2026-11-28T14:03:11Z`), for reports.
+pub(crate) fn time_rfc3339_now() -> String {
+    time::rfc3339(time::now())
+}

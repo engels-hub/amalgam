@@ -1,0 +1,11 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/fillet-after-chamfer-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "convex", "after_chamfer"]
+description = "a vertical edge ending on a chamfer face, r = 1"
+
+[expect]
+outcome = "success"

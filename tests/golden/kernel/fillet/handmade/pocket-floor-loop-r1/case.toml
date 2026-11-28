@@ -1,0 +1,12 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/pocket-floor-loop-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "concave", "pocket", "loop"]
+description = "the 4 concave floor edges of a pocket, r = 1"
+
+[expect]
+outcome = "success"
+volume_bounds = [8500.0, 8509.584073464102]

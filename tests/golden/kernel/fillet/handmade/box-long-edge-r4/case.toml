@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/box-long-edge-r4"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "smoke"]
+description = "a 30 mm vertical box edge, r = 4"
+
+[expect]
+outcome = "success"
+volume = 5896.991118430775
+volume_rel_tol = 0.000001

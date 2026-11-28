@@ -1,0 +1,11 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/sphere-on-box-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "concave", "intersection"]
+description = "the circle where a sphere meets a box top (obtuse concave edge), r = 1"
+
+[expect]
+outcome = "success"

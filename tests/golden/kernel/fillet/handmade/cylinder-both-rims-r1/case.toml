@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/cylinder-both-rims-r1"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex"]
+description = "both rims of a cylinder, r = 1"
+
+[expect]
+outcome = "success"
+volume = 772.5167034419759
+volume_rel_tol = 0.000001

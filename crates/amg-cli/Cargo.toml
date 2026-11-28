@@ -12,6 +12,7 @@ name = "amg-cli"
 path = "src/main.rs"
 
 [dependencies]
+amg-brep.workspace = true
 amg-core.workspace = true
 amg-jobs.workspace = true
 clap.workspace = true
@@ -20,6 +21,8 @@ tracing.workspace = true
 [features]
 # Tracy profiler layer (forwards to amg-jobs).
 tracy = ["amg-jobs/tracy"]
+# Link OCCT for `kernel harness` (S20 KH-02); without it every corpus case is a setup error.
+occt = ["amg-brep/occt"]
 
 [lints]
 workspace = true

@@ -1,0 +1,13 @@
+# Written by `cargo run -p amg-brep --features occt --example gen_fillet_corpus`.
+schema = 1
+id = "fillet/handmade/small-cube-edge-r0p2"
+op = "op.json"
+source = "handmade"
+licence = "LicenseRef-Amalgam-Personal"
+tags = ["handmade", "analytic", "convex", "small"]
+description = "a 1 mm cube edge, r = 0.2"
+
+[expect]
+outcome = "success"
+volume = 0.9914159265358979
+volume_rel_tol = 0.000001
