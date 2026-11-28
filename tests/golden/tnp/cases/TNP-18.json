@@ -4,7 +4,7 @@
  "naive_index_breaks": false,
  "script": "S17",
  "edit": [
-  {"patch":{"id":"$pat","merge":{"count":"3"}}}
+  {"patch":{"id":"$pat","merge":{"kind":{"Circular":{"count":{"Inline":"3"}}}}}}
  ],
  "expect": {"subject":{"feature":"$cha","ref":0},"outcome":"Error","error":"NotFound","intended":null}
 }

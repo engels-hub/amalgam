@@ -2017,3 +2017,24 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
     face groups are not sources. An `InContext` source whose occurrence is deleted behaves as for every other feature.
   - 3D sketch model-vertex links (SK-12 leftover) are not covered.
 - **Interface changes.** `amg-doc` (additive, S01 2026-11-26): `Feature::input_is_optional`. No change to `amg-brep`.
+
+### 2026-11-28 - sketch planes on planar faces (lane E for S01 DOC-13; additive, approved by the coordinator)
+- **What.** `SketchFeature::resolve_plane` (`amg-features/src/sketch/mod.rs`) now resolves
+  `PlaneInput::Ref(EntityRef::Topo(..))` (a planar face, or a face group) through CON-03
+  `construct::resolve::resolve_plane_input`, so the face reference goes through DOC-06 naming and
+  its `ResolutionRecord` is the sketch's record 0. This closes the SK-19 leftover ("sketch planes
+  on planar faces are still refused") noted in the SK-09 entry above. Before, such a sketch failed
+  with "sketching on a planar face needs the B-rep kernel".
+- **Frame.** The S03 planar-face frame rule (naming note §11.2, request §12): the face plane's
+  outward normal; origin at the projection of the world origin; x along the projection of world
+  X (world Y, then Z, if X is normal to the face). It depends only on the plane, not on the OCCT
+  surface parametrisation, so a face moved along its normal keeps the sketch's in-plane
+  coordinates (TNP-15). Private helper `face_frame`, unit test
+  `sketch::tests::face_frame_projects_the_world_origin_and_world_x`.
+- **Why.** Five DOC-13 corpus cases (TNP-14/15/20/29/30) sketch on a face; all five pass on S04
+  features.
+- **Interface change.** None in signatures: `PlaneInput::Ref(Topo)` was already accepted by the
+  type and is now resolved. Behaviour change only for documents that held such a sketch (they
+  failed before).
+- **Left for lane B.** Construction-plane refs keep the construction's own frame (unchanged);
+  a UI to pick the sketch face (UI-17) and a sketch-on-face test in `tests/sketch.rs` are lane B's.

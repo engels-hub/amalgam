@@ -1,10 +1,10 @@
 {
  "id": "TNP-17",
  "phase": "DOC-13",
- "naive_index_breaks": false,
+ "naive_index_breaks": true,
  "script": "S17",
  "edit": [
-  {"patch":{"id":"$pat","merge":{"count":"8"}}}
+  {"patch":{"id":"$pat","merge":{"kind":{"Circular":{"count":{"Inline":"8"}}}}}}
  ],
  "expect": {"subject":{"feature":"$cha","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Circle","centroid":[-21.2132,21.2132,10],"measure":25.13274}}
 }

@@ -9,7 +9,7 @@
   {"bind":"s2","sketch":{"plane":{"$pick":{"kind":"Face","near":[50,30,40],"class":"Plane"}},"entities":[["C",1,[50,30],5]]}}
  ],
  "edit": [
-  {"patch":{"id":"$e2","merge":{"extent":{"Distance":"30 mm"}}}}
+  {"patch":{"id":"$e2","merge":{"side1":{"extent":{"Distance":{"Inline":"30 mm"}}}}}}
  ],
  "expect": {"subject":{"feature":"$s2","ref":0},"outcome":"Error","error":"Ambiguous","intended":null}
 }

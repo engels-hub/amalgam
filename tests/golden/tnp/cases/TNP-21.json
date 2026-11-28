@@ -5,7 +5,7 @@
  "script": [
   {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[-50,0],[50,0]],["L",2,[50,0],[50,60]],["L",3,[50,60],[-50,60]],["L",4,[-50,60],[-50,0]]]}},
   {"bind":"e1","EXT":["$s1",[0,30],"40 mm","NewBody"]},
-  {"bind":"split","cmd":{"AddFeature":{"at":null,"feature":{"kind":"solid.split_body","v":1,"data":{"body":{"origin":"$e1","slot":0},"tool":"OriginYZ"}},"context":"$root","name":null}}},
+  {"bind":"split","cmd":{"AddFeature":{"at":null,"feature":{"kind":"solid.split_body","v":1,"data":{"body":{"origin":"$e1","slot":0},"tool":{"Origin":"YZPlane"}}},"context":"$root","name":null}}},
   {"bind":"fil","FIL":[{"$pick":{"kind":"Edge","near":[25,0,40],"class":"Line"}},"2 mm"]}
  ],
  "edit": [
