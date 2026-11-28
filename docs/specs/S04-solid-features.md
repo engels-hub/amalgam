@@ -690,7 +690,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-26 | Emboss / deboss of profiles and text on planar faces (project) and on cylindrical and conical faces (wrap by unrolling) | SOL-02, SK-10 | P1 | Todo | 1. Text "AgB" embossed 1 mm on a plane: volume = text area × 1 within 1e-6. 2. A 10 mm square wrapped on a cylinder r 20 and debossed 1 mm: volume within 1e-4 relative of the analytic value. 3. Editing the depth keeps glyph lateral names. 4. A freeform target face fails with `NotYet { what: "emboss on freeform faces" }`. |
 | SOL-27 | Surface repair tools (QUESTIONS #1, P1): patch (planar and N-sided, R-S04-9), stitch (sew to a solid when closed), unstitch, reverse normal | SOL-01, BREP-10 | P1 | Todo | 1. Stitching the 6 faces of an imported cube with 1e-4 mm gaps gives a valid solid with volume within 1e-6. 2. A planar patch closes a hole in a sheet; an N-sided G1 patch on a 4-sided curved gap is valid with boundary G1 deviation ≤ 0.5°. 3. Unstitch then stitch round-trips volume and face count. 4. Reverse normal flips the chosen faces (face orientation test). |
 | SOL-28 | Ruled, extend, trim, untrim surfaces | SOL-27 | P2 | Todo | Refine before Phase 5 (needs S02 requests for `BRepLib::ExtendFace` and ruled surfaces between edges). |
-| SOL-29 | Fusion-parity harness and recompute budget: owner Fusion designs (`$AMG_TESTDATA_DIR/fusion/`) rebuilt by Rust test scripts and compared by volume/area/bbox with the STEP exports; scripted 50-feature part bench | SOL-02, SOL-03, SOL-04, SOL-05, SOL-06, SOL-07, SOL-08, SOL-09 | P0 | Todo | 1. Every supplied owner design whose features exist is rebuilt; volume and area match the Fusion STEP within 1e-4 relative and bbox within 1e-3 mm, or the difference is explained in the log. Skipped cleanly if the folder is missing. 2. `budget/sol-recompute-50`: a 50-feature part (sketches, extrudes, cuts, fillets, a shell, a pattern, holes) recomputes after an edit to the first sketch in < 500 ms on the reference machine (vision budget); the bench prints the 5 slowest features. |
+| SOL-29 | Fusion-parity harness and recompute budget: owner Fusion designs (`$AMG_TESTDATA_DIR/fusion/`) rebuilt by Rust test scripts and compared by volume/area/bbox with the STEP exports; scripted 50-feature part bench | SOL-02, SOL-03, SOL-04, SOL-05, SOL-06, SOL-07, SOL-08, SOL-09 | P0 | Review | 1. Every supplied owner design whose features exist is rebuilt; volume and area match the Fusion STEP within 1e-4 relative and bbox within 1e-3 mm, or the difference is explained in the log. Skipped cleanly if the folder is missing. 2. `budget/sol-recompute-50`: a 50-feature part (sketches, extrudes, cuts, fillets, a shell, a pattern, holes) recomputes after an edit to the first sketch in < 500 ms on the reference machine (vision budget); the bench prints the 5 slowest features. |
 
 **Dependency and scope changes in this refinement** (2026-11-08):
 - SOL-01: DOC-02, BREP-04 → DOC-06, BREP-03, BREP-04, BREP-05, BREP-10, SK-19 (naming,
@@ -1957,3 +1957,46 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   - Thin walls from planar-face profiles; a thickness manipulator and distance anchors for
     curve selections (UI-06); picking priority between sketch curves and regions (UI-05, the
     "Profiles" filter now includes curves).
+
+### 2026-11-28 - SOL-29 Fusion-parity harness and recompute budget (lane C)
+- **Landed** (tests and a bench of `amg-features` only; no product code, no dependency, no
+  change in another lane's code).
+  - `tests/solid_fusion.rs` + `tests/solid_fusion/`: every `<name>.step`/`.stp` directly in
+    `$AMG_TESTDATA_DIR/fusion/` is rebuilt by the Rust script of the same name (`designs.rs`)
+    and compared: same solid count, volume and area within 1e-4 relative, bbox within 1e-3 mm.
+    Above 1e-6 mm sub-shape tolerance the IO-06 rule widens the volume bound to
+    area x tolerance and the bbox bound to the tolerance. A script can be `Pending(reason)` or
+    carry an `explained` reason for an accepted difference. Missing folder, unset variable or
+    a build without `occt`: skip. A STEP without a script, a script without a STEP and an LFS
+    pointer are listed, and fail only with `AMG_REQUIRE_TESTDATA=1`. Folder layout and script
+    format: `tests/solid_fusion/README.md`.
+  - `tests/solid_recompute/part.rs`: the 50-feature part (20 sketches, 20 extrudes incl.
+    cuts, 4 fillets, 3 chamfers, 1 shell, 2 feature patterns; one body, 150 faces). The first
+    sketch carries a driving width dimension. `tests/solid_recompute_50.rs` checks health,
+    validity, width and volume across three edits; `benches/sol_recompute.rs` is
+    `budget/sol-recompute-50`.
+- **Done-when evidence.**
+  1. No owner design is supplied (`$AMG_TESTDATA_DIR/fusion/` does not exist), so the owner
+     test skips and `DESIGNS` is empty. The self-made bracket (STEP written by our AP242
+     exporter into a temp folder) matches: volume 7.8e-15 rel, area 2.5e-15 rel, bbox
+     2.5e-29 mm, and its volume equals the analytic value within 1e-9. A 0.01 mm taller
+     script fails on bbox, a 0.05 mm wider bore on volume and area; a failing feature and an
+     unreadable file fail.
+  2. **Budget missed.** Ryzen 7 5700X3D, shared with other builds, never idle. Lowest 15-edit
+     median 665.6 ms (min 654.7, max 683.7); other runs 711.5 ms and 836.2 ms, and
+     1.86-2.02 s at 100 % CPU load. 32 of 50 features recompute (the 18 sketches on origin
+     planes stay cached) and their computes are almost the whole time (694.9 of 711.5 ms).
+     5 slowest in that run: pin pattern 131.0 ms (18.9 %), pin 108.4 (15.6 %), rim notch
+     105.0 (15.1 %), vent pattern 35.4 (5.1 %), rib 4 27.1 (3.9 %); the top three were the
+     same in every table read. Asserted only with `AMG_STRICT_TIMING=1` (fails there).
+- **Deviations.**
+  - `solid.hole` (SOL-12) does not exist: the part's holes are circle cut-extrudes.
+  - No owner design was rebuilt, so the Fusion checks other WPs left for SOL-29 (join with
+    nothing, a severing combine cut, to-object on curved targets) stay open.
+- **Leftovers.**
+  - Owner: supply 5-10 designs as the README describes; each then needs its script.
+  - Recompute speed (lane A, S02/S20, with KH-20): the three features after the blends and
+    chamfers (pin, pin pattern, rim notch) are about half of the time; one boolean feature
+    there costs about 105 ms against about 27 ms for a rib before the blends. Where that time
+    goes (boolean, unify, validation or naming) was not measured. Re-measure on an idle
+    machine.
