@@ -114,7 +114,7 @@ automated modeling, Form workspace, configurations, add-ins, motion, 3D sketch.
   budget, made the default only if ≥ 1.5× faster than wgpu; QUESTIONS #80)
 - C: IMP-09, IMP-10, IMP-14 (stochastic lattice), FRM-01..06, FRM-11, FRM-12, FRM-14..18 (S09 refined
   2026-11-08: exact evaluation, timeline, Form environment, topology tools II, thicken, packed conversion)
-- A: SOL-15, SOL-16, SOL-28
+- A: SOL-15, SOL-16, SOL-28, KH-21 and SOL-30 (speed follow-ups to KH-20 and SOL-29, owner 2026-11-28)
 - E: DOC-10, SCR-04, SCR-06, SCR-13, SCR-14, ASM-06, ASM-07
 - B: SK-12
 - G: MAT-04, IO-18 (3MF beam lattice), IO-19 (3MF full materials)
