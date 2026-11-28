@@ -646,7 +646,7 @@ pub fn promote(dump_dir: &std::path::Path, corpus_dir: &std::path::Path, id: &st
 
 ### `amg_brep::robust` (KH-17, KH-03, KH-04, KH-19, KH-06, KH-08, KH-18)
 ```rust
-pub const POLICY_VERSION: u32 = 1; // bumped by any change of default chains/ladders
+pub const POLICY_VERSION: u32 = 2; // bumped by any change of default chains/ladders/gate (2: KH-17 fix)
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RetryPolicy {
@@ -670,6 +670,8 @@ pub struct Validation {
     pub max_tolerance: f64,              // default = tol_cap
     pub volume_bounds: Option<(f64, f64)>,
     pub self_interference: bool,         // default false; loft sets true
+    #[serde(default)]
+    pub disjoint_solids: bool,           // result solids must not overlap; booleans/splits set it (KH-17 fix)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
@@ -682,6 +684,7 @@ pub enum StrategyId {
 pub enum Rejection {
     Check(Vec<String>), NotSolid, ToleranceTooLarge { max: f64, cap: f64 },
     VolumeOutOfBounds { got: f64, lo: f64, hi: f64 }, SelfInterference(usize),
+    OverlappingSolids(usize, usize),     // KH-17 fix; class InvalidResult
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AttemptOutcome { Accepted, Failed(capture::FailureInfo), Rejected(Rejection) }
@@ -1268,6 +1271,52 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   insertion / elevation); A5.9 itself was not made adaptive (the fallback covers it).
   No golden files: knot ops produce no persistent geometry, and the proptests compare against
   the input shape directly.
+
+### 2026-11-28 - KH-17 fix: unmerged fuse accepted with the wrong volume (lane A)
+- **Symptom:** the proptest `near_coincident_booleans_are_valid_or_classified` failed about
+  2 runs in 25 (random seed). Example `prop-9-1-6-Fuse` (`SkewCoaxial`, offset 1e-7 mm, tilt
+  1e-3 rad): robust `Ok` with volume 1570.80 mm³ against the oracle 1178.10 ± 4.09 mm³.
+- **Cause:** not a fuzzy or healing strategy. OCCT's **exact** fuse (`Direct`) returns both
+  cylinders unmerged: a compound of two overlapping solids, volume `V(A) + V(B)`. BRepCheck
+  passes each solid, and the fuse volume bound `V(∪) ≤ ΣV` accepts exactly `ΣV`. A sweep of the
+  proptest's whole case space (612 distinct cases) found 2 such cases, offset 1e-7 mm with tilt
+  +1e-3 and −1e-3 rad. 48 random draws hit one with p ≈ 0.13, which matches the flake rate.
+- **Fix (gate):** `Validation::disjoint_solids` (`#[serde(default)]`, off in `with_cap`).
+  `robust_boolean` / `robust_split` set it for solid operands. When the result has ≥ 2 solids
+  whose boxes overlap, `validate` samples 5 points per face (fractions of the face's uv box),
+  moves them inwards by `max(1e-3 × box diagonal, 100 × tol)` and keeps only those its own
+  solid classifies `Inside`. Any such point `Inside` another solid gives
+  `Rejection::OverlappingSolids(i, j)` (class `InvalidResult`). A hit is always a real overlap.
+  The check costs nothing for single-solid results or solids whose boxes do not overlap.
+  Split pieces that share faces and tangent cylinders pass (test).
+  - `prop-9-1-6`: direct rejected, then `Fuzzy { rung: 0 }` gives a valid result.
+  - `prop-9-1-7`: every strategy is rejected (fuzzy rungs keep 2.6e-3 mm tolerance, healed
+    operands fuse unmerged again), so it is a classified `InvalidResult` error.
+- **`POLICY_VERSION` 1 → 2** (coordinator decision): the gate change can change results, so
+  `kernel_version()` is now `…;policy-2`. `HardenedKernel` is not wired into `amg-features`
+  yet, so no cache is affected today. The assertion in `tests/robust.rs` was updated.
+- **Tests (`tests/robust.rs`):**
+  - The proptest now runs with `RngSeed::Fixed(0x4b483137)`; `AMG_NEAR_SEED=<u64>` draws
+    another sample. Failure persistence stays off: the regressions are explicit tests.
+  - `skew_coaxial_unmerged_fuse_is_refused` covers both cases.
+  - `touching_solids_pass_the_disjoint_check` guards against false refusals.
+  - `near_coincident_space_has_no_invalid_ok` runs all 612 distinct cases: 610 valid `Ok`,
+    2 classified `Err` (`prop-9-1-7` `InvalidResult`, `prop-9-2-7` `ToleranceTooLarge`),
+    0 invalid `Ok`.
+  - Ignored `near_coincident_seed_sweep` runs the proptest's sampling over seeds 0..200:
+    9600 cases, 9575 valid `Ok` (99.74 %), 25 classified `Err`, **0 invalid `Ok`**.
+- **Done-when re-check** (OCCT 8.0.1): numbers unchanged from the KH-17 entry.
+  - 1: generated 100, robust 99 valid, 0 invalid, 1 `ToleranceTooLarge`; corpus 131/131.
+  - 2: `exact_only` 233 identical to raw, 3 raw `Ok` refused by the gate (tolerance cap).
+  - 3: 119 inputs identical over 3 runs on 1 and 8 threads.
+  The 100-case set (seed 0x4b483137) never drew an unmerged-fuse case.
+- **Also fixed:** `api_contract::the_hardened_kernel_forwards_every_method` failed at `main`
+  (50 of 51 trait methods called). `cef8408` forwarded `make_thin_face` in `HardenedKernel` but
+  the test never called it; the test now does. The test was changed, not the wrapper.
+- **Leftovers:** a cut that silently returns its object unchanged would still pass the bounds
+  (`V(A∖B) ≤ V(A)`). No generated case does this. A sampled check (operand B's interior
+  points must be outside the result) would catch it; that is a later gate addition if the
+  corpora ever show one.
 
 ## Interface changes
 
