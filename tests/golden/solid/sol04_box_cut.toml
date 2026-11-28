@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol04_box_cut (S04 SOL-04). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 15599.999999999998
+area = 4960.0
+faces = 11
+edges = 24
+vertices = 16
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [40.0, 40.0, 10.0]

@@ -9,6 +9,7 @@
 //! - [`extrude`]: `solid.extrude` (SOL-01 framework, SOL-02 every start, direction and extent).
 //! - [`revolve`]: `solid.revolve` (SOL-03).
 //! - [`pattern`]: `solid.pattern` and `solid.mirror` (SOL-08).
+//! - [`primitive`]: `solid.box`, `solid.cylinder`, `solid.sphere` and `solid.torus` (SOL-04).
 //! - [`combine`]: `solid.combine` (SOL-07).
 //! - [`split`]: `solid.split_body` and `solid.split_face` (SOL-07).
 //! - [`moves`]: `solid.move` and `solid.align` (SOL-09).
@@ -33,6 +34,7 @@ pub mod face_ops;
 pub mod fillet;
 pub mod moves;
 pub mod pattern;
+pub mod primitive;
 pub mod profile;
 pub mod revolve;
 pub mod shell;
@@ -58,6 +60,7 @@ pub use pattern::{
     AngleSpan, ComputeType, Mirror, PathOrientation, Pattern, PatternDir, PatternKind,
     PatternObjects, Spacing,
 };
+pub use primitive::{BoxPrim, CylinderPrim, PrimitiveFrame, SpherePrim, TorusPrim};
 pub use profile::{
     ProfileFace, ProfileSource, cap_source, face_edge_source, profile_faces, region_source, tag_of,
     tag_source, to_curve2d,

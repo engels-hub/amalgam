@@ -636,7 +636,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-01 | Feature framework: `amg_features::dialog` (S11 §B + `new_component`, `DispatchRegistration`), `BodyOp`/`OpTarget`/`apply_body_op` (§3 incl. unify + compose, per-solid split, `Consumed`), `SolidTool` + `ToolRegistration`, `profile_faces`/`to_curve2d`, `SolidError` + `kernel_failure` highlight, preview behaviour; `solid.extrude` minimal (one side, distance, start at profile) end-to-end | DOC-06, BREP-03, BREP-04, BREP-05, BREP-10, SK-19 | P0 | Done | 1. `solid.extrude` (one side, distance) on a sketch rectangle 10×20, h 30: NewBody volume 6000 within 1e-9 relative; Join onto a box, Cut through a box, Intersect with a box each give the analytic volume and the face count expected after unify (golden `sol01_*`). 2. BodyOp rules, one test each: join touching 2 participants keeps the first `BodyId` and marks the second `Consumed`; a cut that splits a bar keeps piece 0's id and creates `BodyId{self,1}` with `derived_from`; a cut touching nothing fails `NothingToCut`; a mesh participant fails `WrongBodyKind`; join touching nothing creates a body and warns. 3. Two adjacent regions of one sketch (a rectangle split by a line) extrude to one body with 6 faces. 4. DOC-11 corpus cases TNP-01, TNP-02 and TNP-03 run on `solid.extrude` (instead of `test.brep_prism`) and meet their `expect`. 5. A kernel failure with `offending` edges (injected failing kernel) gives `Diagnostic::entities` resolving to those edges. 6. Preview: an extrude-cut of a 20-edge profile into a 200-face body, `ComputeMode::Preview`, median < 100 ms (criterion `budget/sol-extrude-preview`); full mode recorded. 7. `dialog::registration("solid.extrude")` exists and its `build(defaults)` round-trips through `read`. |
 | SOL-02 | Extrude: all starts, directions and extents (§4; note §3): offset start, start from a plane, two sides, symmetric (half/whole), taper per side, to object (plane, face, body, vertex; offset; extend faces), all; planar-face profiles; text profiles | SOL-01, CON-03, BREP-14, SK-06 | P0 | Done | 1. ≥ 20 golden cases cover every start × direction × extent combination the dialog allows, incl. to-object on an inclined plane, a cylinder face, a body and a vertex, with and without offset and extend; analytic volumes within 1e-9 relative, curved targets within 1e-6. 2. A face that doesn't cover the profile fails `TargetMissed` with the "Extend faces" hint; extend on fixes it; a B-spline target with extend fails `ExtendUnsupported`. 3. "All" cuts through 3 stacked bodies in one direction and through both sides in two-sided mode. 4. Text "AgB" (SK-10 `regions().solid`) extrudes to 3 solids with 4 holes in total (closes SK-10 Done-when 2). 5. Editing distance, taper or extent type keeps the lateral and cap names (`Exact` resolution of a downstream fillet ref). 6. Full-mode extrude-cut of a 100-edge profile into a 200-face body, median < 80 ms (`budget/sol-extrude-cut`). |
 | SOL-03 | Revolve: profiles, axis (sketch line, edge, construction or origin axis), angle, full, two sides, symmetric, to object; profile/axis validation | SOL-01, CON-03, BREP-14 | P0 | Done | 1. ≥ 8 golden cases (rectangle 90° and 360°, triangle with an edge on the axis → cone, two sides 30°/60°, symmetric 90°, each axis kind) match Pappus volumes within 1e-9 relative. 2. A profile crossing the axis fails `AxisCrossesProfile` naming the profile. 3. DOC-11 TNP-22 (edit to 360° → cap refs `NotFound`) runs on `solid.revolve` and meets its `expect`. 4. Revolve to a plane through the axis at 75° equals the 75° angle case within 1e-9. |
-| SOL-04 | Primitives: box, cylinder, sphere, torus on a `PrimitiveFrame` (origin plane, construction plane, planar face), with `OpTarget` | SOL-01, CON-03, BREP-14 | P0 | Todo | 1. Golden volume and area for each primitive (exact within 1e-9) and for a box joined to and cut from a body. 2. A box placed on a planar face follows the face after an upstream height edit (centroid within 1e-9). 3. Editing a box size keeps `XMin#0 … ZMax#0` names (`Exact`). 4. Each kind has a dialog with a distance manipulator anchor per size field. |
+| SOL-04 | Primitives: box, cylinder, sphere, torus on a `PrimitiveFrame` (origin plane, construction plane, planar face), with `OpTarget` | SOL-01, CON-03, BREP-14 | P0 | Review | 1. Golden volume and area for each primitive (exact within 1e-9) and for a box joined to and cut from a body. 2. A box placed on a planar face follows the face after an upstream height edit (centroid within 1e-9). 3. Editing a box size keeps `XMin#0 … ZMax#0` names (`Exact`). 4. Each kind has a dialog with a distance manipulator anchor per size field. |
 | SOL-05 | Fillet (constant, chord, variable; G1 only, G2 is KH-10 per QUESTIONS #55) and chamfer (equal, two distances, distance-angle) on raw BREP-06: edge sets per body, tangent-chain propagation (R-S04-1), failing-edge highlight | SOL-01, BREP-06, BREP-09 | P0 | Done | 1. ≥ 15 golden cases (cube edge, 4-edge tangent loop of a rounded rectangle, 3-edge vertex blend, variable 2→4 mm, chord 3 mm, all chamfer kinds, two bodies in one feature) within 1e-6 relative of reference volumes. 2. Picking one edge of a rounded-rectangle top selects all 8 tangent edges; with `tangent_chain = false` only that edge. 3. A radius larger than the adjacent face fails and `Diagnostic::entities` names exactly the failing edge(s). 4. DOC-11 TNP-11 and TNP-27 run on `solid.fillet` and meet their `expect`. 5. Preview of a 10-edge constant fillet on a 200-face body, median < 100 ms (`budget/sol-fillet-preview`). 6. KH-03 can start: S20's corpus harness drives `solid.fillet` through a public test entry point. |
 | SOL-06 | Shell (remove faces, hollow, inside/outside/both, tangent chain), draft (one side, two sides, symmetric; tangent chain), scale (uniform, non-uniform), thicken (`OpTarget`) | SOL-01, BREP-07, BREP-16, BREP-14 | P0 | Done | 1. Shelled box (top removed, 1 mm) inside, outside and both, and a hollow box (no faces removed, R-S04-8) match analytic volumes within 1e-9 relative. 2. Shelling a filleted box with tangent chain removes the top and its fillet ring (face count checked). 3. A thickness above the smallest concave radius fails with the offending faces highlighted. 4. Draft of 4 box sides at 3°: measured angles 3° ± 1e-9 rad, analytic volume; symmetric draft about a mid-plane matches the analytic volume. 5. Uniform scale 2 → volume × 8 within 1e-12 relative; non-uniform (1, 2, 3) of a sphere r 10 → ellipsoid volume within 1e-9. 6. Thicken of a B-spline sheet by 1 mm is valid and within 0.5 % of area × t. 7. TNP-X3 and TNP-X6 meet their `expect`. 8. Shell preview of a 100-face body, median < 100 ms (`budget/sol-shell-preview`). |
 | SOL-07 | Combine (join/cut/intersect, keep tools), split body (plane, face, body; extend tool), split face (surface tool; sketch curves along a vector) | SOL-01, BREP-16, CON-03 | P0 | Done | 1. Combine golden cases for each op, with and without keep tools; consumed tools are `Consumed { into }` (TNP-23 meets its `expect`). 2. Splitting a box by a plane gives pieces in the naming-note order (piece 0 keeps the `BodyId`); TNP-21 meets its `expect`. 3. Split face by a sketch line projected along the sketch normal and by a plane: two faces whose areas match within 1e-9. 4. A tool that doesn't cross fails `NoSplit` with the "extend the tool" hint. |
@@ -1705,3 +1705,62 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   `amg-ui`).
 - **Leftovers.** Manipulator anchors for the path distance (UI-06); a viewport pick for the
   path chain order; face patterns on curved supports; adjust for face-profile seeds.
+
+### 2026-11-28 - SOL-04 implemented (lane C)
+- **Landed.** `amg_features::solid::primitive`: `PrimitiveFrame`, `BoxPrim` (`solid.box`),
+  `CylinderPrim` (`solid.cylinder`), `SpherePrim` (`solid.sphere`) and `TorusPrim`
+  (`solid.torus`) with the Interfaces' fields, all `register_feature!` v1 + `register_tool!`
+  (so each can be a pattern/mirror seed), on `make_box`/`make_cylinder`/`make_sphere`/
+  `make_torus` and `apply_body_op`. Dialog registrations in `primitive/dialog.rs` (plane =
+  XY/YZ/XZ or "Selected plane" with a construction plane or planar face; Offset X/Y; Rotation;
+  one length field per size; Centered for the box; Operation; Objects; group "create", orders
+  40-43, not pinned). A preselected face or construction plane becomes the plane, preselected
+  bodies the participants. Extra public items: `PrimitiveFrame::{on, xy, resolve}` and a `new`
+  constructor per feature.
+- **Behaviour.** The plane resolves through CON-03 `resolve_plane_input` (a face gives its
+  outward normal); `u`, `v` are offsets along that plane's axes from its origin and `angle`
+  turns the frame counter-clockwise about the normal. Box: `size` along frame x, y, normal
+  with a corner at the frame origin; `centered` centres the footprint (x, y) only. Cylinder:
+  base centre at the origin. Sphere and torus: centred at the origin, torus axis = normal,
+  major > minor. Box height and cylinder height may be negative (below the plane, so a cut on
+  a face makes a pocket); the other sizes must exceed the linear tolerance. Bad sizes fail
+  `InvalidValue` naming the field. Names (naming note "Primitives"): `Gen { self, role, from:
+  None }` with `XMin#0 … ZMax#0` by outward normal in the box frame (ZMin is the lower z in
+  that frame, so a negative height puts `ZMax#0` on the plane); cylinder `Lateral#0`,
+  `StartCap#0` (on the placement plane, also for a negative height), `EndCap#0`; sphere and
+  torus `Surface#0`. `inputs()`: the plane (`Dependency::Construction` or `Entity`) and the
+  participants.
+- **Done-when evidence** (`crates/amg-features/tests/solid_primitive.rs` +
+  `solid_primitive/occt.rs`, 20 tests with OCCT, 6 without; goldens
+  `tests/golden/solid/sol04_*.toml`, 6 files, rel 1e-9; solids BRepCheck-valid):
+  1. `dw1_*`, volume and area within 1e-9 relative of the analytic value: box 10×20×30
+     6000 / 2200; cylinder r5 h10 250π / 150π; sphere r5 500π/3 / 100π; torus R10 r2
+     80π² / 80π²; a 10 mm box joined onto a 40×40×10 plate 17000 / 5200, 11 faces; a
+     10×10×4 pocket cut from it 15600 / 4960, 11 faces.
+  2. `dw2_a_box_on_a_planar_face_follows_an_upstream_height_edit`: a 4×6×10 box on the top
+     face of a plate; extrude height 20 → 80 → 12, the centroid is (unchanged x, y, h + 5)
+     within 1e-9 and the face reference resolves `Exact`.
+  3. `dw3_editing_a_box_size_keeps_the_face_names`: the six faces carry exactly the six role
+     names; references to all six resolve `Exact` to the matching side after two size edits,
+     and a downstream fillet edge stays `Exact`. `dw3_round_primitives_*` checks the other
+     kinds' names.
+  4. `dw4_every_primitive_dialog_*` and `dw4_anchors_*`: each kind's size fields (and only
+     those) have a `ManipKind::Distance` manipulator, and `anchors` returns one anchor per
+     size field, checked on an offset, rotated construction plane (box, centred box,
+     cylinder, sphere, torus) and, in `dw2`, on a face.
+- **Deviations.**
+  - Anchors resolve the plane against the final evaluated state with the root component as
+    context (`construct::resolve::resolve_in`; the registration's `anchors` gets no component
+    path), so a feature in a placed component shows them in component coordinates, and a
+    reference that no longer resolves there gives none. No anchors for the offsets or the
+    rotation.
+  - On a planar face, `u`/`v` are measured from the origin of the plane CON-03 returns (the
+    face's surface origin). It is stable under the height edit tested here; a kernel result
+    that re-parameterises the surface would shift the primitive in the plane.
+  - No benchmark: the vision document sets no primitive budget.
+- **Interface changes elsewhere.** None: only public `amg-brep`, `amg-doc` and
+  `amg-features::construct` APIs, plus existing crate-private dialog helpers of lane-A solid
+  modules (unchanged). No new dependency. amg-ui was not run; the four registrations are not
+  pinned, so the shell snapshots are not expected to change.
+- **Leftovers.** UI-06 manipulators for offsets and rotation; component-aware anchors; coil
+  and pipe (SOL-19) reuse `PrimitiveFrame`.
