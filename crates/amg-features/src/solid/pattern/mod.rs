@@ -16,17 +16,24 @@
 //! is instance 0 and is never produced again (the source body or seed feature stays). A
 //! position on the negative side of a symmetric pattern sets the field's top bit
 //! (`0x8000 | p` per rectangular field, `0x8000_0000 | p` for circular), so instance numbers
-//! stay stable when the count changes (TNP-17/18).
+//! stay stable when the count changes (TNP-17/18). Path patterns number instances by their
+//! position along the path (seed 0).
+//!
+//! SOL-23 adds path patterns ([`path`]), face patterns of a boss or pocket on a planar support
+//! (`faces`) and "adjust" compute of feature patterns (`adjust`).
 
+mod adjust;
 pub(crate) mod dialog;
+mod faces;
 mod mirror;
+pub mod path;
 
 use amg_brep::{BrepKernel, Shape};
 use amg_core::{Line3, Transform, Vec3};
 use amg_doc::{
     BodyChange, BodyChangeKind, BodyGeom, BodyId, BodyNaming, ContextBodies, Dependency, Dim,
-    EntityRef, Expr, Feature, FeatureError, FeatureId, FeatureOutput, OccurrenceId, RecomputeCtx,
-    TopoRef, register_feature,
+    EntityRef, Evaluated, Expr, Feature, FeatureError, FeatureId, FeatureOutput, OccurrenceId,
+    RecomputeCtx, TopoRef, register_feature,
 };
 use serde::{Deserialize, Serialize};
 
@@ -51,7 +58,7 @@ pub enum PatternObjects {
     Bodies(Vec<BodyId>),
     /// Additive/subtractive features (their tools, [`tool_of`]).
     Features(Vec<FeatureId>),
-    /// Faces of a body (SOL-23).
+    /// The faces of a boss or pocket on a planar face of one body (SOL-23).
     Faces(Vec<TopoRef>),
     /// Component occurrences (SOL-24).
     Occurrences(Vec<OccurrenceId>),
@@ -132,19 +139,19 @@ pub enum PatternKind {
         #[serde(default)]
         symmetric: bool,
     },
-    /// Along a path (SOL-23).
+    /// Along a path (SOL-23, [`path`]).
     Path {
-        /// The path curves.
+        /// The path curves (edges or sketch curves), chained end to end in this order.
         path: Vec<EntityRef>,
-        /// Instances.
+        /// Instances, the seed included; ≥ 1, integral.
         count: Expr,
-        /// Their spacing.
+        /// Their spacing along the path (arc length; `Extent` is seed-to-last).
         spacing: Spacing,
-        /// Start position as a fraction of the path.
+        /// The seed's position as a fraction of the path length, in [0, 1].
         start: Expr,
         /// Instance orientation.
         orientation: PathOrientation,
-        /// Reverse the path.
+        /// Place the instances towards the path's start instead of its end.
         flip: bool,
     },
 }
@@ -155,7 +162,8 @@ pub enum ComputeType {
     /// The seed's tool is built once and moved (fast; SOL-08).
     #[default]
     Identical,
-    /// The seed's inputs are moved per instance and each tool is rebuilt (SOL-23).
+    /// The seed's sketches are moved per instance and each tool is rebuilt against the unmoved
+    /// rest of the model, so extents are recomputed per instance (SOL-23).
     Adjust,
 }
 
@@ -245,6 +253,12 @@ pub(crate) enum Layout {
         count: u32,
         symmetric: bool,
     },
+    /// Along a path: the instances, already placed (positions beyond an open path's ends are
+    /// left out), and the count (seed included).
+    Path {
+        instances: Vec<(u32, Transform)>,
+        count: u32,
+    },
 }
 
 /// Signed positions `0, 1, …, n−1` (and `−1, …, −(n−1)` when symmetric), seed first.
@@ -305,6 +319,7 @@ impl Layout {
                     v.push((field(p, 0x8000_0000), t));
                 }
             }
+            Layout::Path { instances, .. } => v.clone_from(instances),
         }
         v
     }
@@ -322,12 +337,17 @@ impl Layout {
             Layout::Circular {
                 count, symmetric, ..
             } => n(*count, *symmetric),
+            Layout::Path { count, .. } => *count as usize,
         }
     }
 }
 
 /// An instance count: integral and ≥ 1.
-fn count_of(ctx: &RecomputeCtx<'_>, e: &Expr, field: &'static str) -> Result<u32, FeatureError> {
+pub(crate) fn count_of(
+    ctx: &RecomputeCtx<'_>,
+    e: &Expr,
+    field: &'static str,
+) -> Result<u32, FeatureError> {
     let x = ctx.eval_scalar(e)?;
     let r = x.round();
     if !x.is_finite() || (x - r).abs() > 1e-9 || r < 1.0 {
@@ -439,7 +459,28 @@ impl Pattern {
                     symmetric,
                 }
             }
-            PatternKind::Path { .. } => return Err(not_yet("pattern along a path")),
+            PatternKind::Path {
+                path,
+                count,
+                spacing,
+                start,
+                orientation,
+                flip,
+            } => {
+                let chain = path::resolve_path(ctx, path)?;
+                let spec = path::path_spec(ctx, count, spacing, start, *orientation, *flip)?;
+                let (instances, dropped) = path::path_instances(&chain, &spec, ctx.tolerance())?;
+                if !dropped.is_empty() {
+                    ctx.warn(super::common::warning(format!(
+                        "{} instance(s) lie beyond the end of the path and are left out.",
+                        dropped.len()
+                    )));
+                }
+                Layout::Path {
+                    instances,
+                    count: spec.count,
+                }
+            }
         };
         if layout.len() > MAX_INSTANCES {
             return Err(invalid(
@@ -505,33 +546,102 @@ impl Pattern {
         seeds: &[FeatureId],
         out: &mut FeatureOutput,
     ) -> Result<(), FeatureError> {
-        if self.compute == ComputeType::Adjust {
-            return Err(not_yet("adjust compute"));
-        }
         let inst = self.instances(ctx)?;
-        let tools = seed_tools(ctx, seeds)?;
-        let target = common_target(self.target.as_ref(), &tools)?;
+        let me = ctx.feature_id();
+        let mut parts: Vec<(Shape, BodyNaming)> = Vec::new();
+        let target = if self.compute == ComputeType::Adjust && !inst.is_empty() {
+            // Each instance rebuilds the seeds with their sketches moved (adjust.rs).
+            let mut target: Option<OpTarget> = None;
+            for (kk, tools) in adjust::adjusted_tools(ctx, seeds, &inst)? {
+                let t = common_target(self.target.as_ref(), &tools)?;
+                if target.as_ref().is_some_and(|x| *x != t) {
+                    return Err(invalid(
+                        "target",
+                        "the instances have different body operations; set the operation of \
+                         the pattern",
+                    ));
+                }
+                target = Some(t);
+                for tool in tools {
+                    let n = tool
+                        .naming
+                        .instanced(me, kk, &tool.shape)
+                        .map_err(|e| FeatureError::Kernel(format!("naming: {e}")))?;
+                    parts.push((tool.shape, n));
+                }
+            }
+            target
+        } else {
+            let tools = seed_tools(ctx, seeds)?;
+            let target = common_target(self.target.as_ref(), &tools)?;
+            parts.reserve(inst.len() * tools.len());
+            for (kk, t) in &inst {
+                ctx.check_cancelled()?;
+                for tool in &tools {
+                    let s = tool.shape.transformed(t).map_err(kerr)?;
+                    let n = tool
+                        .naming
+                        .instanced(me, *kk, &s)
+                        .map_err(|e| FeatureError::Kernel(format!("naming: {e}")))?;
+                    parts.push((s, n));
+                }
+            }
+            Some(target)
+        };
+        let Some(target) = target.filter(|_| !parts.is_empty()) else {
+            out.warnings.push(super::common::warning(
+                "The pattern has no instances besides the original.".into(),
+            ));
+            return Ok(());
+        };
+        let k = op_kernel(ctx);
+        let (shape, naming) = instances_compound(ctx, k, parts)?;
+        apply_body_op(
+            ctx,
+            ToolBody {
+                shape,
+                naming,
+                target,
+            },
+            out,
+        )
+    }
+}
+
+impl Pattern {
+    /// Face patterns: the faces' boss or pocket tool ([`faces::face_tool`]) placed per
+    /// instance and joined to (boss) or cut from (pocket) its body in one body operation.
+    fn face_pattern(
+        &self,
+        ctx: &RecomputeCtx<'_>,
+        refs: &[TopoRef],
+        out: &mut FeatureOutput,
+    ) -> Result<(), FeatureError> {
+        let inst = self.instances(ctx)?;
+        let k = op_kernel(ctx);
+        let tool = faces::face_tool(ctx, k, refs, out)?;
         if inst.is_empty() {
             out.warnings.push(super::common::warning(
                 "The pattern has no instances besides the original.".into(),
             ));
             return Ok(());
         }
-        let k = op_kernel(ctx);
         let me = ctx.feature_id();
-        let mut parts: Vec<(Shape, BodyNaming)> = Vec::with_capacity(inst.len() * tools.len());
+        let mut parts: Vec<(Shape, BodyNaming)> = Vec::with_capacity(inst.len());
         for (kk, t) in &inst {
             ctx.check_cancelled()?;
-            for tool in &tools {
-                let s = tool.shape.transformed(t).map_err(kerr)?;
-                let n = tool
-                    .naming
-                    .instanced(me, *kk, &s)
-                    .map_err(|e| FeatureError::Kernel(format!("naming: {e}")))?;
-                parts.push((s, n));
-            }
+            let s = tool.shape.transformed(t).map_err(kerr)?;
+            let n = tool
+                .naming
+                .instanced(me, *kk, &s)
+                .map_err(|e| FeatureError::Kernel(format!("naming: {e}")))?;
+            parts.push((s, n));
         }
         let (shape, naming) = instances_compound(ctx, k, parts)?;
+        let target = self.target.clone().unwrap_or(OpTarget {
+            op: tool.op,
+            participants: vec![tool.body],
+        });
         apply_body_op(
             ctx,
             ToolBody {
@@ -567,35 +677,45 @@ pub(crate) fn seed_tools(
     if seeds.is_empty() {
         return Err(invalid("features", "select at least one feature"));
     }
+    seeds
+        .iter()
+        .map(|&id| seed_tool_in(ctx, ctx.before(), id))
+        .collect()
+}
+
+/// The tool of seed `id` built against `before` (the state just before the computing feature,
+/// or a copy of it with moved sketches for adjust compute), named by the seed's own rules. A
+/// failure's highlights are copied to `ctx`.
+pub(crate) fn seed_tool_in(
+    ctx: &RecomputeCtx<'_>,
+    before: &Evaluated,
+    id: FeatureId,
+) -> Result<ToolBody, FeatureError> {
     let design = ctx.design();
     let me = design.timeline().node(ctx.feature_id()).map(|(i, _)| i);
-    let mut v = Vec::with_capacity(seeds.len());
-    for &id in seeds {
-        let Some((at, node)) = design.timeline().node(id) else {
-            return Err(FeatureError::MissingInput(Box::new(Dependency::Feature(
-                id,
-            ))));
-        };
-        if me.is_some_and(|m| at >= m) {
-            return Err(invalid(
-                "features",
-                format!("feature {id:?} comes after this one in the timeline"),
-            ));
-        }
-        if node.suppressed {
-            return Err(invalid("features", format!("feature {id:?} is suppressed")));
-        }
-        let sub = RecomputeCtx::new(design, ctx.before(), id, node.context, ctx.mode())
-            .with_kernel(ctx.kernel());
-        let sub = match ctx.job() {
-            Some(j) => sub.with_job(j),
-            None => sub,
-        };
-        let res = tool_of(node.feature.get(), &sub);
-        ctx.highlight(sub.highlights());
-        v.push(res?);
+    let Some((at, node)) = design.timeline().node(id) else {
+        return Err(FeatureError::MissingInput(Box::new(Dependency::Feature(
+            id,
+        ))));
+    };
+    if me.is_some_and(|m| at >= m) {
+        return Err(invalid(
+            "features",
+            format!("feature {id:?} comes after this one in the timeline"),
+        ));
     }
-    Ok(v)
+    if node.suppressed {
+        return Err(invalid("features", format!("feature {id:?} is suppressed")));
+    }
+    let sub =
+        RecomputeCtx::new(design, before, id, node.context, ctx.mode()).with_kernel(ctx.kernel());
+    let sub = match ctx.job() {
+        Some(j) => sub.with_job(j),
+        None => sub,
+    };
+    let res = tool_of(node.feature.get(), &sub);
+    ctx.highlight(sub.highlights());
+    res
 }
 
 /// The body operation of all instances: the override, else the seeds' (which must agree).
@@ -743,7 +863,7 @@ impl Feature for Pattern {
         match &self.objects {
             PatternObjects::Bodies(b) => self.body_pattern(ctx, b, &mut out)?,
             PatternObjects::Features(f) => self.feature_pattern(ctx, f, &mut out)?,
-            PatternObjects::Faces(_) => return Err(not_yet("face pattern")),
+            PatternObjects::Faces(t) => self.face_pattern(ctx, t, &mut out)?,
             PatternObjects::Occurrences(_) => return Err(not_yet("component pattern")),
         }
         Ok(out)

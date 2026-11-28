@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol23_adjust_to_slope_k3 (S04 SOL-23). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 8168.377326580075
+area = 2863.348752469205
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [36.0, 0.0, 0.0]
+bbox_max = [46.0, 20.0, 42.66173780423138]
