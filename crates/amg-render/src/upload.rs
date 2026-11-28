@@ -310,6 +310,12 @@ pub fn geometry_bytes_uploaded() -> u64 {
     GEOMETRY_BYTES.load(Ordering::Relaxed)
 }
 
+/// `Err(DeviceLost)` once the device is lost, so uploads fail with that rather than with the
+/// mapping error of a buffer that was never created.
+pub(crate) fn check_device(gpu: &Gpu) -> Result<(), RenderError> {
+    gpu.poll().map_err(RenderError::from)
+}
+
 /// Creates a buffer holding `data`, copying through the mapped range in chunks so the job can
 /// be cancelled between them.
 pub(crate) fn upload_chunked<T: bytemuck::Pod>(
@@ -319,6 +325,7 @@ pub(crate) fn upload_chunked<T: bytemuck::Pod>(
     usage: wgpu::BufferUsages,
     ctx: &JobCtx,
 ) -> Result<wgpu::Buffer, RenderError> {
+    check_device(gpu)?;
     let bytes: &[u8] = bytemuck::cast_slice(data);
     GEOMETRY_BYTES.fetch_add(bytes.len() as u64, Ordering::Relaxed);
     let buffer = gpu.device().create_buffer(&wgpu::BufferDescriptor {
@@ -356,6 +363,7 @@ fn upload_mapped<T, U: bytemuck::Pod>(
     ctx: &JobCtx,
     convert: impl Fn(&[T], &mut Vec<U>),
 ) -> Result<wgpu::Buffer, RenderError> {
+    check_device(gpu)?;
     let elem = size_of::<U>();
     let bytes = (data.len() * elem) as u64;
     GEOMETRY_BYTES.fetch_add(bytes, Ordering::Relaxed);

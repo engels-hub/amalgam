@@ -2,7 +2,8 @@
 //!
 //! [`install`] stores the [`Renderer`] in egui-wgpu's callback resources. Each [`Viewport`]
 //! adds a paint callback whose `prepare` records the 3D passes on egui's encoder and whose
-//! `paint` copies the final image 1:1 into egui's single-sample pass.
+//! `paint` copies the final image 1:1 into egui's single-sample pass. After a device loss the
+//! viewport paints a placeholder instead (RND-13).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,8 +17,8 @@ use crate::renderer::{
 use amg_core::Aabb3;
 
 use crate::{
-    Camera, ProjectedLabel, Projection, RenderError, Renderer, RendererConfig, ViewId, ViewStyle,
-    VisualStyle, nav,
+    Camera, Diagnostics, ProjectedLabel, Projection, RenderError, Renderer, RendererConfig, ViewId,
+    ViewStyle, VisualStyle, nav,
 };
 
 /// True if egui draws with the device of `gpu`.
@@ -28,7 +29,8 @@ pub fn shares_device(rs: &RenderState, gpu: &Gpu) -> bool {
     rs.instance == *gpu.instance() && rs.device == *gpu.device()
 }
 
-/// Puts a new [`Renderer`] into `rs.renderer.callback_resources`.
+/// Puts a new [`Renderer`] into `rs.renderer.callback_resources` and routes the device's
+/// uncaptured errors to `tracing` ([`Renderer::capture_errors`]).
 ///
 /// `egui_msaa_samples` is the sample count of egui's own pass (0 or 1 when it has none).
 ///
@@ -43,12 +45,14 @@ pub fn install(
     if !shares_device(rs, &gpu) {
         return Err(RenderError::DeviceMismatch);
     }
-    let renderer = Renderer::new(gpu, cfg)?;
+    let mut renderer = Renderer::new(gpu, cfg)?;
+    renderer.capture_errors();
     let composite = Composite::new(&rs.device, rs.target_format, egui_msaa_samples.max(1));
     rs.renderer.write().callback_resources.insert(GlueState {
         renderer,
         composite,
         binds: HashMap::new(),
+        lost_reported: false,
     });
     Ok(())
 }
@@ -71,7 +75,8 @@ pub struct Viewport {
 
 impl Viewport {
     /// Allocates all available space and adds the paint callback; the view is resized to the
-    /// allocated pixel size during `prepare`.
+    /// allocated pixel size during `prepare`. Once the device is lost it paints a placeholder
+    /// ([`DEVICE_LOST_TITLE`]) instead and sets [`ViewportResponse::lost`].
     pub fn show(&self, ui: &mut egui::Ui, rs: &RenderState) -> ViewportResponse {
         let (rect, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
@@ -80,21 +85,25 @@ impl Viewport {
             (rect.width() * pixels_per_point).round().max(0.0) as u32,
             (rect.height() * pixels_per_point).round().max(0.0) as u32,
         ];
+        // Polled outside the lock on egui's renderer.
+        let lost = with_renderer(rs, |r| Arc::clone(r.gpu())).is_some_and(|gpu| {
+            // The poll runs the device-lost callback if wgpu has not reported the loss yet.
+            let _ = gpu.poll();
+            gpu.is_lost()
+        });
         if ui.is_rect_visible(rect) {
-            ui.painter().add(egui_wgpu::Callback::new_paint_callback(
-                rect,
-                ViewportCallback {
-                    view: self.view,
-                    size_px,
-                },
-            ));
+            if lost {
+                paint_device_lost(ui, rect);
+            } else {
+                ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+                    rect,
+                    ViewportCallback {
+                        view: self.view,
+                        size_px,
+                    },
+                ));
+            }
         }
-        let lost = rs
-            .renderer
-            .read()
-            .callback_resources
-            .get::<GlueState>()
-            .is_some_and(|g| g.renderer.gpu().is_lost());
         ViewportResponse {
             response,
             rect,
@@ -103,6 +112,56 @@ impl Viewport {
             lost,
         }
     }
+}
+
+/// First line of the placeholder painted over a viewport whose device is lost.
+pub const DEVICE_LOST_TITLE: &str = "Graphics device lost";
+/// Second line of the placeholder.
+pub const DEVICE_LOST_HINT: &str = "Save your work and restart Amalgam.";
+
+/// The device-lost placeholder: a flat panel with two centred lines of text.
+fn paint_device_lost(ui: &egui::Ui, rect: egui::Rect) {
+    let painter = ui.painter_at(rect);
+    let visuals = ui.visuals();
+    painter.rect_filled(rect, 0.0, visuals.extreme_bg_color);
+    for (text, offset, size, color) in [
+        (DEVICE_LOST_TITLE, -12.0, 18.0, visuals.strong_text_color()),
+        (DEVICE_LOST_HINT, 12.0, 13.0, visuals.text_color()),
+    ] {
+        painter.text(
+            rect.center() + egui::vec2(0.0, offset),
+            egui::Align2::CENTER_CENTER,
+            text,
+            egui::FontId::proportional(size),
+            color,
+        );
+    }
+}
+
+/// Offset of the diagnostics panel from the viewport's top-left corner, points; the space above
+/// it is free for the host's toggle.
+const DIAGNOSTICS_OFFSET: egui::Vec2 = egui::vec2(8.0, 36.0);
+
+/// Paints the diagnostics overlay ([`Renderer::diagnostics`]) in the viewport's top-left corner,
+/// clipped to the viewport, and returns the panel's rectangle. The host decides when to show it
+/// (off by default). It only paints, so pointer input passes through.
+pub fn paint_diagnostics(
+    ui: &egui::Ui,
+    resp: &ViewportResponse,
+    diagnostics: &Diagnostics,
+) -> egui::Rect {
+    let painter = ui.painter_at(resp.rect);
+    let color = egui::Color32::from_gray(230);
+    let galley = painter.layout_no_wrap(
+        diagnostics.lines().join("\n"),
+        egui::FontId::monospace(11.0),
+        color,
+    );
+    let min = resp.rect.min + DIAGNOSTICS_OFFSET;
+    let panel = egui::Rect::from_min_size(min, galley.size() + egui::Vec2::splat(12.0));
+    painter.rect_filled(panel, 4.0, egui::Color32::from_black_alpha(190));
+    painter.galley(min + egui::Vec2::splat(6.0), galley, color);
+    panel
 }
 
 /// What [`Viewport::show`] allocated.
@@ -386,6 +445,8 @@ struct GlueState {
     composite: Composite,
     /// Per view: the generation of the targets the bind group was made for.
     binds: HashMap<ViewId, (u64, wgpu::BindGroup)>,
+    /// The device loss was logged (once, not every frame).
+    lost_reported: bool,
 }
 
 /// Copies a view's final image into egui's pass.
@@ -463,6 +524,13 @@ impl CallbackTrait for ViewportCallback {
         };
         state.renderer.set_view_size(self.view, self.size_px);
         if let Err(e) = state.renderer.encode(self.view, egui_encoder) {
+            if state.renderer.gpu().is_lost() {
+                // Nothing of the old frames may be composited any more.
+                state.binds.clear();
+                if std::mem::replace(&mut state.lost_reported, true) {
+                    return Vec::new();
+                }
+            }
             tracing::error!("viewport encode failed: {e}");
             return Vec::new();
         }
@@ -686,6 +754,26 @@ mod tests {
                 };
                 f(ui, &resp);
             });
+            let shapes = std::mem::take(&mut out.shapes);
+            out.drop_without_applying_deltas();
+            shapes
+        }
+
+        /// One frame without events; `f` gets the root ui.
+        fn frame_ui(
+            &mut self,
+            f: &mut dyn FnMut(&mut egui::Ui),
+        ) -> Vec<egui::epaint::ClippedShape> {
+            self.time += 1.0 / 60.0;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(640.0, 480.0),
+                )),
+                time: Some(self.time),
+                ..Default::default()
+            };
+            let mut out = self.ctx.run_ui(input, |ui| f(ui));
             let shapes = std::mem::take(&mut out.shapes);
             out.drop_without_applying_deltas();
             shapes
@@ -918,6 +1006,98 @@ mod tests {
         install(&rs, Arc::clone(&a), &RendererConfig::default(), 1).unwrap();
         let view = with_renderer(&rs, |r| r.create_view([4, 4])).unwrap();
         assert!(with_renderer(&rs, |r| r.view(view).is_some()).unwrap());
+    }
+
+    /// The texts and the number of paint callbacks among `shapes`.
+    fn texts_and_callbacks(shapes: &[egui::epaint::ClippedShape]) -> (Vec<String>, usize) {
+        let mut texts = Vec::new();
+        let mut callbacks = 0;
+        for clipped in shapes {
+            match &clipped.shape {
+                egui::Shape::Text(t) => texts.push(t.galley.text().to_owned()),
+                egui::Shape::Callback(_) => callbacks += 1,
+                _ => {}
+            }
+        }
+        (texts, callbacks)
+    }
+
+    /// Done-when 1 (RND-13): once the device is destroyed, `Viewport` reports `lost` and paints
+    /// the placeholder instead of its paint callback, and a callback of an earlier frame
+    /// prepares without a panic.
+    #[test]
+    fn gpu_viewport_paints_the_placeholder_after_device_loss() {
+        let Some(gpu) = gpu() else {
+            return;
+        };
+        let rs = render_state(&gpu, wgpu::TextureFormat::Rgba8Unorm);
+        install(&rs, Arc::clone(&gpu), &RendererConfig::default(), 1).unwrap();
+        let view = with_renderer(&rs, |r| r.create_view([4, 4])).unwrap();
+        assert!(with_renderer(&rs, |r| r.error_log().is_some()).unwrap());
+
+        let mut h = Harness::new();
+        let frame = |h: &mut Harness| {
+            let mut lost = None;
+            let shapes = h.frame_ui(&mut |ui| {
+                lost = Some(Viewport { view }.show(ui, &rs).lost);
+            });
+            (lost.unwrap(), texts_and_callbacks(&shapes))
+        };
+        let (lost, (texts, callbacks)) = frame(&mut h);
+        assert!(!lost);
+        assert_eq!((texts.len(), callbacks), (0, 1), "{texts:?}");
+        let callback = ViewportCallback {
+            view,
+            size_px: [64, 64],
+        };
+        let screen = ScreenDescriptor {
+            size_in_pixels: [64, 64],
+            pixels_per_point: 1.0,
+        };
+        let prepare = |encoder: &mut wgpu::CommandEncoder| {
+            let mut egui_renderer = rs.renderer.write();
+            let resources = &mut egui_renderer.callback_resources;
+            callback.prepare(gpu.device(), gpu.queue(), &screen, encoder, resources);
+            resources
+                .get::<GlueState>()
+                .map(|g| (g.binds.len(), g.lost_reported))
+                .unwrap()
+        };
+        let mut encoder = gpu.device().create_command_encoder(&Default::default());
+        assert_eq!(prepare(&mut encoder), (1, false));
+        gpu.queue().submit([encoder.finish()]);
+        gpu.device()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+
+        gpu.device().destroy();
+        let (lost, (texts, callbacks)) = frame(&mut h);
+        assert!(lost);
+        assert_eq!(callbacks, 0, "nothing is drawn with the lost device");
+        assert_eq!(texts, [DEVICE_LOST_TITLE, DEVICE_LOST_HINT]);
+        let mut encoder = gpu.device().create_command_encoder(&Default::default());
+        // The old image is dropped and the loss is logged once.
+        assert_eq!(prepare(&mut encoder), (0, true));
+        assert_eq!(prepare(&mut encoder), (0, true));
+    }
+
+    /// The diagnostics overlay paints its lines inside the viewport.
+    #[test]
+    fn paint_diagnostics_shows_the_lines_in_the_corner() {
+        let mut h = Harness::new();
+        let d = Diagnostics {
+            adapter: "Test adapter".into(),
+            backend: "Dx12".into(),
+            ..Diagnostics::default()
+        };
+        let mut panel = egui::Rect::NOTHING;
+        let shapes = h.frame(Vec::new(), &mut |ui, resp| {
+            panel = paint_diagnostics(ui, resp, &d);
+        });
+        let (texts, _) = texts_and_callbacks(&shapes);
+        assert_eq!(texts, [d.lines().join("\n")]);
+        assert!(Harness::viewport().contains_rect(panel), "{panel:?}");
+        assert_eq!(panel.min, VIEWPORT_MIN + DIAGNOSTICS_OFFSET);
     }
 
     /// Reads back the raw bytes of a composite into a target of `format`.

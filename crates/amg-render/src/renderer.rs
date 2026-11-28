@@ -7,13 +7,14 @@ use std::time::{Duration, Instant};
 
 use amg_core::{Dir3, Point3, SlotMap};
 use amg_jobs::JobSystem;
-use amg_jobs::gpu::{Gpu, Readback};
+use amg_jobs::gpu::{Gpu, GpuError, Readback};
 
 use crate::analysis::{
     ANALYSIS_RECORD_BYTES, AnalysisOutput, analysis_bind_layout, create_lut, lut_sampler,
 };
 use crate::camera::{Camera, DepthRange, Projection};
 use crate::cull::{DrawPlan, Frustum, MeshDraw};
+use crate::diagnostics::{Diagnostics, GpuErrorLog, VramUsage, texture_bytes};
 use crate::highlight::HighlightLayer;
 use crate::lines::{
     GpuEdges, LINE_RECORD_BYTES, LineDraw, LineGeometry, LinePass, LinePlan, LineView, VisualStyle,
@@ -507,6 +508,11 @@ impl GpuTimer {
         })
     }
 
+    /// VRAM of the resolve and staging buffers.
+    fn gpu_bytes(&self) -> u64 {
+        self.resolve.size() + self.slots.iter().map(|s| s.staging.size()).sum::<u64>()
+    }
+
     /// Reads every slot whose copy has finished, oldest frame first.
     fn harvest(&mut self) {
         let mut ready: Vec<usize> = (0..self.slots.len())
@@ -595,9 +601,24 @@ impl GpuTimer {
     }
 }
 
+impl ViewTargets {
+    /// VRAM of the targets.
+    fn gpu_bytes(&self) -> u64 {
+        [&self.depth, &self.overlay_depth, &self.resolved]
+            .into_iter()
+            .chain(self.msaa_color.as_ref())
+            .map(|v| texture_bytes(v.texture()))
+            .sum::<u64>()
+            + texture_bytes(&self.normal)
+            + texture_bytes(&self.final_texture)
+    }
+}
+
 #[derive(Debug)]
 struct ViewSlot {
     view: View,
+    /// What the last successful `encode` drew (diagnostics).
+    last_stats: FrameStats,
     targets: Option<ViewTargets>,
     /// Bumped whenever the targets are rebuilt, so `egui_glue` can refresh its bind groups.
     generation: u64,
@@ -636,6 +657,51 @@ struct PickTargets {
     depth_test: wgpu::TextureView,
     /// `ids` and `positions` for the pick cap depth pass.
     fix_bind: wgpu::BindGroup,
+}
+
+impl ViewSlot {
+    /// VRAM of the view's buffers (targets are counted apart).
+    fn buffer_bytes(&self) -> u64 {
+        let fixed = [
+            &self.camera_buffer,
+            &self.style_buffer,
+            &self.silhouette_buffer,
+            &self.section_buffer,
+            &self.visible_buffer,
+            &self.pick_visible,
+        ];
+        let o = &self.overlay;
+        let overlay = [
+            &o.records,
+            &o.lines,
+            &o.segments,
+            &o.segment_ids,
+            &o.points,
+            &o.point_ids,
+            &o.tris,
+        ];
+        fixed.into_iter().map(wgpu::Buffer::size).sum::<u64>()
+            + overlay
+                .into_iter()
+                .filter_map(|b| b.get())
+                .chain(&o.inset_cameras)
+                .map(wgpu::Buffer::size)
+                .sum::<u64>()
+            + [&self.timer, &self.pick_timer]
+                .into_iter()
+                .flatten()
+                .map(GpuTimer::gpu_bytes)
+                .sum::<u64>()
+    }
+}
+
+impl PickTargets {
+    /// VRAM of the targets.
+    fn gpu_bytes(&self) -> u64 {
+        texture_bytes(&self.ids)
+            + texture_bytes(&self.positions)
+            + texture_bytes(self.depth_test.texture())
+    }
 }
 
 /// One per app; owns the pipelines, the scene and all views. `Send + Sync`.
@@ -711,6 +777,10 @@ pub struct Renderer {
     overlay_sampler: wgpu::Sampler,
     /// Group 3 for untextured overlay draws (a 1x1 white image).
     white_image_bind: wgpu::BindGroup,
+    /// VRAM of the resources made once (LUT, globals, dummy field, white image).
+    fixed_bytes: u64,
+    /// RND-13: the uncaptured-error log, once [`Renderer::capture_errors`] installed it.
+    errors: Option<GpuErrorLog>,
 }
 
 /// The rectangle-select compute pipeline once built.
@@ -920,6 +990,8 @@ impl Renderer {
         )?;
         let white_image_bind =
             overlay_image_bind(device, &overlay_image_layout, &white.view, &overlay_sampler);
+        let fixed_bytes =
+            texture_bytes(&lut) + analysis_globals.size() + dummy_field.size() + white.gpu_bytes();
         let total: f64 = core_timings.iter().map(|t| t.ms).sum();
         tracing::debug!(
             ms = total,
@@ -976,6 +1048,8 @@ impl Renderer {
             overlay_image_layout,
             overlay_sampler,
             white_image_bind,
+            fixed_bytes,
+            errors: None,
             gpu,
         })
     }
@@ -1313,6 +1387,62 @@ impl Renderer {
         }
     }
 
+    /// Sends the device's uncaptured wgpu errors to `tracing`, each distinct one once, instead
+    /// of wgpu's default handler, which panics ([`GpuErrorLog`]). `egui_glue::install` calls it;
+    /// headless users opt in, so tests keep failing on invalid GPU use. Installs once; later
+    /// calls return the same log.
+    pub fn capture_errors(&mut self) -> GpuErrorLog {
+        self.errors
+            .get_or_insert_with(|| GpuErrorLog::install(self.gpu.device()))
+            .clone()
+    }
+
+    /// The log installed by [`Renderer::capture_errors`].
+    pub fn error_log(&self) -> Option<&GpuErrorLog> {
+        self.errors.as_ref()
+    }
+
+    /// VRAM held by the scene and the renderer, by category.
+    pub fn vram_usage(&self) -> VramUsage {
+        let instances = &self.instance_gpu;
+        VramUsage {
+            scene: self.scene.vram(),
+            view_targets: self
+                .views
+                .iter()
+                .filter_map(|(_, s)| s.targets.as_ref())
+                .map(ViewTargets::gpu_bytes)
+                .sum(),
+            pick_targets: self
+                .views
+                .iter()
+                .filter_map(|(_, s)| s.pick_targets.as_ref())
+                .map(PickTargets::gpu_bytes)
+                .sum(),
+            instance_buffers: instances.buffer.size()
+                + instances.lines.size()
+                + instances.analysis.size()
+                + instances.states.size(),
+            view_buffers: self.views.iter().map(|(_, s)| s.buffer_bytes()).sum(),
+            other: self.fixed_bytes,
+        }
+    }
+
+    /// The data of the diagnostics overlay for view `id`: adapter, what the last frame drew, GPU
+    /// pass timings, VRAM by category and the error count. `None` for an unknown view.
+    pub fn diagnostics(&self, id: ViewId) -> Option<Diagnostics> {
+        let slot = self.views.get(id)?;
+        let info = self.gpu.info();
+        Some(Diagnostics {
+            adapter: info.name.clone(),
+            backend: format!("{:?}", info.backend),
+            frame: slot.last_stats,
+            timings: self.gpu_timings(id),
+            vram: self.vram_usage(),
+            gpu_errors: self.errors.as_ref().map_or(0, GpuErrorLog::total),
+        })
+    }
+
     /// Adds a view of `size_px` with a default camera.
     pub fn create_view(&mut self, size_px: [u32; 2]) -> ViewId {
         let device = self.gpu.device();
@@ -1353,6 +1483,7 @@ impl Renderer {
                 view_cube: ViewCube::default(),
                 size_px,
             },
+            last_stats: FrameStats::default(),
             targets: None,
             generation: 0,
             camera_buffer,
@@ -1587,7 +1718,10 @@ impl Renderer {
     /// instance records are shared, each view has its own camera, visibility list and targets.
     ///
     /// # Errors
-    /// [`RenderError::UnknownKey`] for a removed view, [`RenderError::Gpu`] on device loss.
+    /// [`RenderError::UnknownKey`] for a removed view, [`RenderError::Gpu`] on device loss
+    /// ([`GpuError::DeviceLost`], on this and every later call; the device is not re-created).
+    /// wgpu reports a `destroy()`ed device lost only once its submitted work has finished, so a
+    /// call in that window may still succeed.
     ///
     /// Pick requests of the view ([`Renderer::request_pick`]) are recorded after the frame
     /// (RND-04); their results arrive through [`Renderer::poll_picks`] once the encoder is
@@ -1599,6 +1733,9 @@ impl Renderer {
     ) -> Result<FrameStats, RenderError> {
         self.encodes += 1;
         let stats = self.encode_view(id, encoder)?;
+        if let Some(slot) = self.views.get_mut(id) {
+            slot.last_stats = stats;
+        }
         self.record_picks(id, encoder);
         Ok(stats)
     }
@@ -4171,14 +4308,21 @@ impl Renderer {
     /// Non-blocking: polls the readbacks and returns the picks answered since the last call,
     /// each ticket exactly once.
     pub fn poll_picks(&mut self) -> Vec<(PickTicket, Result<PickResult, RenderError>)> {
-        if !self.picks.in_flight.is_empty()
+        if self.pending_picks() != 0
             && let Err(e) = self.gpu.poll()
         {
-            let message = e.to_string();
-            for f in self.picks.in_flight.drain(..) {
-                self.picks
-                    .done
-                    .push((f.ticket, Err(RenderError::InvalidData(message.clone()))));
+            let picks = &mut self.picks;
+            let mut failed: Vec<PickTicket> = picks.in_flight.drain(..).map(|f| f.ticket).collect();
+            // After a device loss no `encode` will record the queued picks either.
+            if matches!(e, GpuError::DeviceLost(_)) {
+                failed.extend(picks.queued.drain(..).map(|q| q.ticket));
+            }
+            for ticket in failed {
+                let error = match &e {
+                    GpuError::DeviceLost(m) => GpuError::DeviceLost(m.clone()).into(),
+                    other => RenderError::InvalidData(other.to_string()),
+                };
+                picks.done.push((ticket, Err(error)));
             }
         }
         let views = &self.views;

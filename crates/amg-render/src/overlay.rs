@@ -1211,6 +1211,7 @@ pub fn upload_image(gpu: &Gpu, img: &RgbaImage) -> Result<GpuImage, RenderError>
             limit: u64::from(limit),
         });
     }
+    crate::upload::check_device(gpu)?;
     let extent = wgpu::Extent3d {
         width: w,
         height: h,

@@ -58,8 +58,14 @@
 //! `look_at_plane`, projection switch, 300 ms transitions), the near-plane policy
 //! ([`Camera::depth_range_for`]: orthographic depth fitted to the visible scene), the view cube
 //! ([`nav::ViewCube`] drawn as an inset when `View::show_view_cube`, [`nav::view_cube_hit`]) and
-//! the `egui_glue::{view_cube, nav_bar}` widgets emitting `CameraAction`s. The remaining S10 API
-//! arrives with the later work packages.
+//! the `egui_glue::{view_cube, nav_bar}` widgets emitting `CameraAction`s.
+//!
+//! RND-13 adds robustness and diagnostics: after a device loss [`Renderer::encode`] and the
+//! uploads return [`amg_jobs::gpu::GpuError::DeviceLost`] and the `egui_glue` viewport paints a
+//! placeholder; [`GpuErrorLog`] sends uncaptured wgpu errors to `tracing`, each once;
+//! [`Renderer::vram_usage`] counts VRAM by category and [`Renderer::diagnostics`] feeds the
+//! diagnostics overlay (`egui_glue::paint_diagnostics`). The remaining S10 API arrives with the
+//! later work packages.
 
 #![warn(missing_docs)]
 
@@ -67,6 +73,7 @@ mod analysis;
 mod camera;
 mod colormap_data;
 mod cull;
+mod diagnostics;
 mod error;
 mod highlight;
 mod lines;
@@ -94,6 +101,7 @@ pub use analysis::{
     overhang_class, overhang_severity, upload_scalar_field, upload_vector_field, zebra_t,
 };
 pub use camera::{Camera, CameraUniform, DepthRange, Projection};
+pub use diagnostics::{Diagnostics, GpuErrorLog, SceneVram, VramUsage};
 pub use error::RenderError;
 pub use highlight::{HighlightItem, HighlightLayer, Range32};
 pub use lines::{
