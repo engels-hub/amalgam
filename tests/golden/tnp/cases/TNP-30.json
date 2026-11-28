@@ -1,7 +1,7 @@
 {
  "id": "TNP-30",
  "phase": "DOC-13",
- "naive_index_breaks": null,
+ "naive_index_breaks": false,
  "script": [
   {"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[100,0]],["L",2,[100,0],[100,60]],["L",3,[100,60],[0,60]],["L",4,[0,60],[0,0]]]}},
   {"bind":"plate","EXT":["$s1",[50,30],"10 mm","NewBody"]},

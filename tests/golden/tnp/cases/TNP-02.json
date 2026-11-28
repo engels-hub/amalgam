@@ -1,7 +1,8 @@
 {
  "id": "TNP-02",
  "phase": "DOC-06",
- "naive_index_breaks": true,
+ "naive_index_breaks": false,
+ "naive_index_breaks_doc06": true,
  "base": "B2",
  "script": [
   {"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$prism","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[100,0,20],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}}

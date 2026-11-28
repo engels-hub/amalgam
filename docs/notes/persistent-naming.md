@@ -1096,7 +1096,9 @@ cases in `amg-features/tests/tnp.rs`. Both are CI-gated, and DOC-13 must finish 
     - `solid.split_body {body, tool}`
 
     DOC-13 renames them to the final SOL-* schemas without changing a case's intent, and
-    updates the macro table in the corpus README.
+    updates the macro table in the corpus README. *(DOC-13, 2026-11-28: done; the case files
+    and the README's "S04 schemas" table are authoritative, the JSON copies below keep the
+    provisional names.)*
 
 **Checking.**
 - The entity check uses `ResolutionRecord.current.fingerprint` against `expect.entity`:
@@ -1137,7 +1139,7 @@ The fillet command template used below (radius `R`, pick `P`):
 | ID | Phase | Naive breaks | Category | Expected |
 |---|---|---|---|---|
 | TNP-01 | DOC-06 | no | dimension edit | Ok Exact |
-| TNP-02 | DOC-06 | **yes** | profile gains a vertex | Ok Exact |
+| TNP-02 | DOC-06 | no (lane-E: **yes**) | profile gains a vertex | Ok Exact |
 | TNP-03 | DOC-06 | **yes** | profile loses a vertex | Ok Exact |
 | TNP-04 | DOC-06 | — | inserted split, symmetric | Error Ambiguous |
 | TNP-05 | DOC-06 | **yes** | inserted split, asymmetric | Warning NewSplit |
@@ -1148,26 +1150,29 @@ The fillet command template used below (radius `R`, pick `P`):
 | TNP-10 | DOC-06 | no | fillet of fillet edge, radius edit | Ok Exact |
 | TNP-11 | DOC-06 | — | inserted fillet consumes edge | Error NotFound |
 | TNP-12 | DOC-06 | **yes** | tool profile gains a vertex | Ok Exact |
-| TNP-13 | DOC-13 | — | sketch curve redrawn | Warning FingerprintOnly |
+| TNP-13 | DOC-13 | **yes** | sketch curve redrawn | Warning FingerprintOnly |
 | TNP-14 | DOC-13 | **yes** | new profile added | Ok Exact |
 | TNP-15 | DOC-13 | no | sketch on face, height edit | Ok Exact |
 | TNP-16 | DOC-13 | **yes** | sketch circle deleted | Ok Exact |
-| TNP-17 | DOC-13 | — | pattern count 6 → 8 | Ok Exact |
+| TNP-17 | DOC-13 | **yes** | pattern count 6 → 8 | Ok Exact |
 | TNP-18 | DOC-13 | — | pattern count 6 → 3 | Error NotFound |
 | TNP-19 | DOC-13 | no | mirror copy, height edit | Ok Exact |
 | TNP-20 | DOC-13 | — | seen merge disappears | Error Ambiguous |
-| TNP-21 | DOC-13 | — | split body, size edit | Ok Exact |
+| TNP-21 | DOC-13 | no | split body, size edit | Ok Exact |
 | TNP-22 | DOC-13 | — | revolve to 360° removes caps | Error NotFound |
-| TNP-23 | DOC-13 | — | combine inserted (body lineage) | Ok Exact |
+| TNP-23 | DOC-13 | **yes** | combine inserted (body lineage) | Ok Exact |
 | TNP-24 | DOC-06 | **yes** | Accept match on a fillet input; fillet-of-fillet downstream | Ok Exact (no cascade) |
 | TNP-25 | DOC-06 | **yes** | set-valued fillet, one member consumed upstream | member Error NotFound (dropped), other Ok Exact, feature Warning |
 | TNP-26 | DOC-06 | no | seen split, pieces become congruent | Ok Exact |
 | TNP-27 | DOC-06 | no | fillet corner patch referenced, height edit | Ok Exact |
 | TNP-28 | DOC-06 | no | save/load, then TNP-07's edit | Warning IndexDrift |
-| TNP-29 | DOC-13 | ? | hole added to the plate region, profile re-picked | Ok Exact |
-| TNP-30 | DOC-13 | ? | profile list order reversed | Ok Exact |
+| TNP-29 | DOC-13 | **yes** | hole added to the plate region, profile re-picked | Ok Exact |
+| TNP-30 | DOC-13 | no | profile list order reversed | Ok Exact |
 
 "Naive breaks" is the prediction (`?` = `null`); the harness measures every case (§11.2).
+*(DOC-13, 2026-11-28: the column is now the measurement on the S04 features; TNP-13/17/23/29
+measured `true`, TNP-30 `false`, and TNP-02 `false` on S04 features while the lane-E test prism
+breaks it, recorded as `naive_index_breaks_doc06`. 13 of 30 cases break the naive baseline.)*
 DOC-06 Done-when 2 uses TNP-01, 02, 03, 05, 06, 07, 08, 09, 10, 12 as its 10 "resolve to
 the intended entity" cases; TNP-24..28 are DOC-06 cases too (TNP-28 covers Done-when 4,
 save/load). TNP-04, TNP-11 and TNP-25's dropped member count towards Done-when 3 (no silent
@@ -1190,7 +1195,7 @@ edge, starts with the new edge 5→1 and the indices of the existing ones shift.
 goes 6 → 7. (The first version inserted the point after the picked edge, which probably
 didn't shift its index; review MUST-FIX 5.)
 ```json
-{"id":"TNP-02","phase":"DOC-06","naive_index_breaks":true,"base":"B2",
+{"id":"TNP-02","phase":"DOC-06","naive_index_breaks":false,"naive_index_breaks_doc06":true,"base":"B2",
  "script":[{"bind":"fil","cmd":{"AddFeature":{"at":null,"feature":{"kind":"test.brep_fillet","v":1,"data":{"body":{"origin":"$prism","slot":0},"edges":[{"$pick":{"kind":"Edge","near":[100,0,20],"class":"Line"}}],"radius":5}},"context":"$root","name":null}}}],
  "edit":[{"cmd":{"EditFeature":{"id":"$prism","feature":{"kind":"test.brep_prism","v":1,"data":{"points":[[5,-20,30],[1,0,0],[2,100,0],[3,100,60],[4,0,60]],"z0":0,"height":40,"op":"New","target":null}}}}}],
  "expect":{"subject":{"feature":"$fil","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Line","centroid":[100,0,20],"measure":40}}}
@@ -1313,7 +1318,7 @@ identical edge (d ≈ 0; the next Line edge, the bottom-front one, is at d = 0.4
 itself also warns: its profile ref no longer matches by `ProfileId` and resolves by
 fingerprint (§5.4). Only the fillet's ref is the subject.
 ```json
-{"id":"TNP-13","phase":"DOC-13","naive_index_breaks":false,
+{"id":"TNP-13","phase":"DOC-13","naive_index_breaks":true,
  "script":[{"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[100,0]],["L",2,[100,0],[100,60]],["L",3,[100,60],[0,60]],["L",4,[0,60],[0,0]]]}},
            {"bind":"e1","EXT":["$s1",[50,30],"40 mm","NewBody"]},
            {"bind":"fil","FIL":[{"$pick":{"kind":"Edge","near":[50,0,40],"class":"Line"}},"5 mm"]}],
@@ -1379,7 +1384,7 @@ instance 3's top edge, at angle 180°, i.e. (−30,0,10).
 **TNP-17: pattern count 6 → 8.**
 The reference follows instance 3, now at 135°: (−21.2132, 21.2132).
 ```json
-{"id":"TNP-17","phase":"DOC-13","naive_index_breaks":false,"script":"S17",
+{"id":"TNP-17","phase":"DOC-13","naive_index_breaks":true,"script":"S17",
  "edit":[{"patch":{"id":"$pat","merge":{"count":"8"}}}],
  "expect":{"subject":{"feature":"$cha","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Edge","class":"Circle","centroid":[-21.21320,21.21320,10],"measure":25.13274}}}
 ```
@@ -1446,7 +1451,7 @@ The nearest is the inner seam (x = 10), 31.6 mm away (d ≈ 1.58 > 0.05) → Not
 
 **TNP-23: a combine inserted upstream folds body B into A; B's fillet follows via lineage.**
 ```json
-{"id":"TNP-23","phase":"DOC-13","naive_index_breaks":false,
+{"id":"TNP-23","phase":"DOC-13","naive_index_breaks":true,
  "script":[{"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[50,0]],["L",2,[50,0],[50,60]],["L",3,[50,60],[0,60]],["L",4,[0,60],[0,0]],["L",5,[60,0],[100,0]],["L",6,[100,0],[100,60]],["L",7,[100,60],[60,60]],["L",8,[60,60],[60,0]]]}},
            {"bind":"eA","EXT":["$s1",[25,30],"40 mm","NewBody"]},
            {"bind":"eB","EXT":["$s1",[80,30],"20 mm","NewBody"]},
@@ -1521,19 +1526,23 @@ by the authored `ProfileKey`) this case came out `FingerprintOnly`. The top face
 edit is the rectangle minus circles at (50,30) and (80,30), r5: area 6000 − 50π, centroid x
 = (6000·50 − 25π·50 − 25π·80)/area.
 ```json
-{"id":"TNP-29","phase":"DOC-13","naive_index_breaks":null,
+{"id":"TNP-29","phase":"DOC-13","naive_index_breaks":true,
  "script":[{"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[100,0]],["L",2,[100,0],[100,60]],["L",3,[100,60],[0,60]],["L",4,[0,60],[0,0]],["C",11,[50,30],5]]}},
            {"bind":"plate","EXT":["$s1",[20,30],"10 mm","NewBody"]},
-           {"bind":"s2","sketch":{"plane":{"$pick":{"kind":"Face","near":[20,15,10],"class":"Plane"}},"entities":[["C",1,[20,15],3]]}}],
+           {"bind":"s2","sketch":{"plane":{"$pick":{"kind":"Face","near":[50,30,10],"class":"Plane"}},"entities":[["C",1,[20,15],3]]}}],
  "edit":[{"sketch_edit":{"id":"$s1","add":[["C",12,[80,30],5]]}},
          {"patch":{"id":"$plate","merge":{"profiles":[{"$profile":{"sketch":"$s1","at":[20,30]}}]}}}],
- "expect":{"subject":{"feature":"$s2","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Face","class":"Plane","centroid":[49.59674,30,10],"measure":5842.92037}}}
+ "expect":{"subject":{"feature":"$s2","ref":0},"outcome":"Ok","quality":"Exact","entity":{"kind":"Face","class":"Plane","centroid":[49.596744,30,10],"measure":5842.92037}}}
 ```
+
+*(DOC-13 correction: the pick was at (20,15,10), where the nearest face centroid is the left
+lateral (25.5 mm away; the top face's is 33 mm away), so the case referenced the wrong face; it
+is now (50,30,10). The expected centroid x is 49.596744 (exact 49.5967437).)*
 
 **TNP-30: TNP-14's bosses with the profile list reversed.**
 Cap names don't depend on the order in which the feature lists its profiles.
 ```json
-{"id":"TNP-30","phase":"DOC-13","naive_index_breaks":null,
+{"id":"TNP-30","phase":"DOC-13","naive_index_breaks":false,
  "script":[{"bind":"s1","sketch":{"plane":"XY","entities":[["L",1,[0,0],[100,0]],["L",2,[100,0],[100,60]],["L",3,[100,60],[0,60]],["L",4,[0,60],[0,0]]]}},
            {"bind":"plate","EXT":["$s1",[50,30],"10 mm","NewBody"]},
            {"bind":"s2","sketch":{"plane":{"$pick":{"kind":"Face","near":[50,30,10],"class":"Plane"}},"entities":[["C",1,[20,20],5],["C",2,[60,20],5]]}},

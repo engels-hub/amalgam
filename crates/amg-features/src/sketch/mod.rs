@@ -2,8 +2,8 @@
 //!
 //! [`SketchFeature`] is the timeline feature around an [`amg_sketch::Sketch`]:
 //!
-//! - **Plane.** An origin plane or a construction plane ([`PlaneInput`]); planar faces wait for
-//!   the B-rep kernel.
+//! - **Plane.** An origin plane, a construction plane or a planar face ([`PlaneInput`]; faces in
+//!   the S03 planar-face frame, see `face_frame`).
 //! - **Dimensions.** The value of every driving dimension is an S01 [`Expr`] in
 //!   [`SketchFeature::dims`]. `Feature::exprs_mut` exposes them, so the command layer turns each
 //!   inline expression into a model parameter `d<n>` (Fusion behaviour).
@@ -44,7 +44,7 @@ pub use project::{ProjectionError, project_reference};
 pub fn link() {}
 
 /// Where the sketch lives. `Ref` is an `EntityRef::Construction(..)` plane or an
-/// `EntityRef::Topo(..)` planar face (not resolvable before the B-rep kernel lands).
+/// `EntityRef::Topo(..)` planar face (resolved by CON-03 `resolve_plane_input`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PlaneInput {
     /// World XY.
@@ -129,12 +129,26 @@ impl SketchFeature {
                     msg: "the referenced construction is not a plane".to_owned(),
                 }),
             },
-            PlaneInput::Ref(_) => Err(FeatureError::InvalidValue {
-                field: "plane",
-                msg: "sketching on a planar face needs the B-rep kernel".to_owned(),
-            }),
+            // A planar face (or face group), resolved through DOC-06 naming (S01 DOC-13).
+            PlaneInput::Ref(r) => {
+                let input = crate::construct::RefInput::Ref(r.clone());
+                let p = crate::construct::resolve::resolve_plane_input(ctx, &input)?;
+                Ok(face_frame(&p, ctx.tolerance()))
+            }
         }
     }
+}
+
+/// The S03 planar-face sketch frame: the face plane's normal, origin at the projection of the
+/// world origin, x along the projection of world X (world Y, then Z, if X is normal to the
+/// face). The frame depends only on the plane, not on the face's surface parametrisation, so a
+/// face moved along its normal keeps the sketch's in-plane coordinates.
+fn face_frame(p: &Plane, tol: &amg_core::Tolerance) -> Plane {
+    let origin = p.project(amg_core::Point3::ZERO);
+    [amg_core::Vec3::X, amg_core::Vec3::Y, amg_core::Vec3::Z]
+        .into_iter()
+        .find_map(|x| Plane::from_normal_x(origin, p.normal, x, tol).ok())
+        .unwrap_or(Plane::from_normal(origin, p.normal))
 }
 
 impl Feature for SketchFeature {
@@ -359,4 +373,36 @@ fn profile_warning(profiles: &ProfileSet) -> Option<Diagnostic> {
         cause: None,
         entities: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use amg_core::{Dir3, Point3, Tolerance, Vec3};
+
+    use super::*;
+
+    #[test]
+    fn face_frame_projects_the_world_origin_and_world_x() {
+        let tol = Tolerance::default();
+        // A +Z face at z = 40 whose surface frame has its own origin and x.
+        let face = Plane::from_normal_x(
+            Point3::new(30.0, 20.0, 40.0),
+            Dir3::Z,
+            Vec3::new(0.0, 1.0, 0.0),
+            &tol,
+        )
+        .unwrap();
+        let f = face_frame(&face, &tol);
+        assert!((f.origin - Point3::new(0.0, 0.0, 40.0)).length() < 1e-12);
+        assert!((f.x.get() - Vec3::X).length() < 1e-12);
+        assert!((f.normal.get() - Vec3::Z).length() < 1e-12);
+        // Local and world x, y coincide on a +Z face, at any height (note §11.2).
+        let l = f.to_local(Point3::new(12.0, -7.0, 40.0));
+        assert!((l.x - 12.0).abs() < 1e-12 && (l.y + 7.0).abs() < 1e-12);
+        // A face normal to world X takes world Y as its x axis.
+        let side = Plane::from_normal(Point3::new(100.0, 5.0, 5.0), Dir3::X);
+        let s = face_frame(&side, &tol);
+        assert!((s.origin - Point3::new(100.0, 0.0, 0.0)).length() < 1e-12);
+        assert!((s.x.get() - Vec3::Y).length() < 1e-12);
+    }
 }

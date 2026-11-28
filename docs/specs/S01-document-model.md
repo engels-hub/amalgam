@@ -881,7 +881,7 @@ inventory::collect!(ExtRegistration);
 | DOC-14 | Geometry cache persistence + autosave/recovery: `cache/index.json` + entries with salt check, lazy cache seeding on open, "save compact", journal writer, periodic recovery snapshot job, lock via `File::try_lock`, `find_recoverable`/`recover`, FND-07 hook | DOC-07, DOC-12, FND-07 | P0 | Done | 1. Opening a saved 50-feature test design with cache performs 0 feature computes (counter) and with a changed salt recomputes all. 2. Kill test: commit 20 commands, abort the process, `recover` yields a design equal to the pre-crash one. 3. A held lock is not offered for recovery. |
 | DOC-11 | Persistent naming design note `docs/notes/persistent-naming.md` | DOC-01 | P0 | Done | The note exists with these sections: (a) prior-art study covering all 7 sources in §4 with what we take/reject from each; (b) final `TopoName`/`NameSeg` grammar and `GeomFingerprint` fields + quantisation tolerances (may revise the provisional Interfaces); (c) per-feature naming rules table for every P0/P1 feature in S04 (extrude, revolve, primitives, fillet, chamfer, shell, draft, combine/boolean, split, pattern, mirror, move, sweep, loft, hole) plus mesh face groups and imported bodies; (d) split/merge disambiguation and resolver thresholds; (e) failure UX (warning vs error, re-pick flow); (f) golden corpus of ≥ 20 cases, each listed as base model + edit script (serialized `Command` JSON) + expected referenced entity, including ≥ 5 cases known to break naive index naming. The owner has marked the note `Accepted` in its header. |
 | DOC-06 | Persistent naming framework: final `TopoName`/`EntityRef`/`BodyNaming` types per DOC-11, `NamingBuilder` (incl. `from_history` over `amg_brep::ShapeHistory`), element-map storage in `Evaluated` + `.amg` cache, 4-stage resolver with `MatchQuality`, fingerprint computation | DOC-03, DOC-11, BREP-05, BREP-06 | P0 | Done | 1. Resolver unit tests on synthetic histories cover exact / split-disambiguated / fingerprint-only / not-found / ambiguous, plus unmerged, widened, class-changed (no ∞ arithmetic) and tombstone lookup by lineage. 2. 10 golden cases from the DOC-11 corpus (TNP-01/02/03/05/06/07/08/09/10/12) run on lane-E test features built directly on `BrepKernel` (box, prism from polygon, fillet, boolean cut, probe) and resolve to the intended entity (asserted by fingerprint); the other DOC-06-phase cases (TNP-04/11/24..28) meet their recorded `expect`. 3. Zero silent wrong resolutions (DOC-11 note §11.2 definition) over all DOC-06-phase cases. 4. Naming survives save/load (TNP-28). 5. The note §9 benches (`naming/finish-1000`, `naming/resolve`) run and their results are recorded in the note's §13. |
-| DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Todo | ≥ 90 % of the core corpus cases (DOC-11 note §11.4) meet their recorded `expect` (intended entity and quality, or the expected warning/error); the remainder fail with a feature error or warning; **0 silent wrong resolutions** (note §11.2 definition: a quiet `Ok` on a non-intended entity, or a quiet `Ok` where an error is expected). The harness measures the naive index baseline on every case and ≥ 5 cases are measured to break it (predictions in the corpus are corrected where the measurement differs). The held-out fuzz set (note §11.6) has 0 silent wrong resolutions. Runs in CI under 60 s (the fuzz set may run nightly if it doesn't fit). |
+| DOC-13 | Golden TNP corpus on real features: run the full DOC-11 corpus (≥ 20 cases) through S04 features in `tests/golden/tnp/`, CI-gated | DOC-06, SOL-02, SOL-03, SOL-05, SOL-07, SOL-08 | P0 | Review | ≥ 90 % of the core corpus cases (DOC-11 note §11.4) meet their recorded `expect` (intended entity and quality, or the expected warning/error); the remainder fail with a feature error or warning; **0 silent wrong resolutions** (note §11.2 definition: a quiet `Ok` on a non-intended entity, or a quiet `Ok` where an error is expected). The harness measures the naive index baseline on every case and ≥ 5 cases are measured to break it (predictions in the corpus are corrected where the measurement differs). The held-out fuzz set (note §11.6) has 0 silent wrong resolutions. Runs in CI under 60 s (the fuzz set may run nightly if it doesn't fit). |
 | DOC-15 | Context-body inputs: a feature can declare that it reads every body (or every body of a component) in its context, and the recompute cache key covers them; used by SOL-02 extrude "All" and SOL-08 feature patterns without an explicit target | DOC-06, SOL-02, SOL-08 | P0 | Done | 1. A `Dependency`/`Feature` API (additive) lets a feature declare context-body reads; the cache key hashes the keys of those bodies. 2. Regression tests: inserting or editing a feature between the seed and an "All" cut or a target-less feature pattern that changes a participating body recomputes the dependent feature (today it stays stale), and an unrelated edit still hits the cache. 3. SOL-02 "All" and SOL-08 patterns use it; no existing test changes. |
 
 | DOC-08 | Direct mode + bake: `SetDesignMode` both ways, `baked` bodies in `bodies/`, `BaseFeature` for Direct→History | DOC-03, DOC-07 | P1 | Done | On 3 test designs (solid, mesh, mixed), History→Direct→History keeps volume/area/bbox within 1e-9 relative and identical topology counts. `BodyId`s and body props are preserved. Undo restores the full timeline. Save/load in Direct mode round-trips. |
@@ -1206,6 +1206,54 @@ changes (2026-11-25, DOC-06).
   can't see (it would take the design as an argument), or `All` at the price of more misses.
   `Context` is also coarser than necessary for a target-less pattern: any body change earlier in
   the component recomputes it.
+
+### 2026-11-28 - DOC-13 golden TNP corpus on S04 features (lane E)
+- **Landed.** `amg-features/tests/tnp.rs` runs all 30 core cases of `tests/golden/tnp/` (note
+  §11.4) on the S04 features; `amg-features/tests/tnp_fuzz.rs` is the held-out fuzz set (note
+  §11.6); shared harness `amg-features/tests/tnp_common/mod.rs` (the DOC-06 macros plus `sketch`,
+  `sketch_edit`, `$profile`, `EXT`/`EXTN`/`FIL`/`CHA`, the oracle, the naive baseline and the
+  outcome classes). Both are CI-gated (`--features occt`; without it only the files are parsed).
+- **Real features for every case.** The DOC-13 cases use `sketch.sketch`, `solid.extrude`,
+  `solid.fillet`, `solid.chamfer`, `solid.pattern` (circular, features), `solid.mirror`,
+  `solid.split_body`, `solid.revolve`, `solid.combine`. The DOC-06 cases keep their files; the
+  harness maps `test.brep_box`/`test.brep_prism` to a sketch (one line per polygon edge, keyed by
+  its start-point tag) plus `solid.extrude`, and `test.brep_fillet` to `solid.fillet` (README
+  table), and asserts no `test.brep_*` feature is left. `test.probe` stays in TNP-27 (it only reads
+  a sphere-face reference; no S04 feature references a non-planar face only). No case needed an
+  extended feature (§11.5) or DOC-15.
+- **Done-when evidence** (release-optimised test profile, OCCT 8.0.1):
+  - Per-case table in the handoff report; 29 / 30 (97 %) meet their `expect`. TNP-04 misses with a
+    **warning**: the S04 fillet resolves edges with `DropMissing`, which expands a member whose
+    candidates are all new-split pieces to all of them with `NewSplit` (QUESTIONS #44, note §6),
+    so the symmetric split gives "Warning NewSplit, both pieces" instead of the test fillet's
+    `AllOrError` "Error Ambiguous". Flagged, not silent; the case file is unchanged (DOC-06 still
+    checks it on the test fillet).
+  - 0 silent wrong (note §11.2).
+  - 13 cases measured to break the naive index baseline (TNP-03/05/08/09/12/13/14/16/17/23/24/25/29).
+  - Fuzz: 200 runs, fixed seed, 0 silent wrong, 0 harness errors; outcomes Ok Exact 94, Warning
+    NewSplit 49, Widened 34, FingerprintOnly 11, IndexDrift 2, Error NotFound 10.
+  - Wall time: corpus 0.7 s, fuzz 4.1 s (no nightly gate needed).
+- **Corpus corrections** (case files and note §11.4): naive predictions measured differently on
+  S04 features: TNP-13, 17, 23 → `true`; TNP-29 → `true`, TNP-30 → `false` (were `null`); TNP-02 →
+  `false` on S04 features, with the lane-E measurement kept as `naive_index_breaks_doc06: true`
+  (`amg-doc/tests/tnp.rs` reads that field first, a 4-line change). TNP-29's plane pick moved from
+  (20,15,10) to (50,30,10): by nearest centroid the old point picked the left lateral face (25.5
+  mm away) rather than the top face (33 mm), so the case referenced the wrong face from the start
+  (the first run flagged it as a silent wrong). Its expected centroid x is now 49.596744 (exact
+  49.5967437; the recorded 49.59674 was 3.7e-6 off, outside the 1e-6 tolerance). The provisional
+  S04 field names of §11.2 are renamed to the final schemas in the case files (README table).
+- **Harness deviations.** `saveload` (TNP-28) asserts that every *non-sketch* output comes from
+  the `.amg` cache: solved sketches are not persisted yet (DOC-14, `io/cachefile.rs`), so the two
+  sketches recompute on open; element maps are still compared equal. `patch` replaces an
+  `{"Inline": …}` expression instead of merging it into the stored `{"Param": id}`. A
+  `$pick_on {at}` macro (the Line edge containing a point) is used by the fuzz set only, so its
+  pick and its oracle agree.
+- **Change outside lane E.** `amg-features::sketch` (lane B): sketch planes on planar faces, see
+  S03 2026-11-28 (needed by TNP-14/15/20/29/30; approved by the coordinator).
+- **Leftovers.** Persisted solved sketches in the cache (DOC-14) would let TNP-28 assert "every
+  output from the file" again. TNP-04 on the S04 fillet: if the owner wants `Ambiguous` there,
+  the fillet needs an `AllOrError` policy option (S04); otherwise a DOC-13-specific expectation
+  could be recorded.
 
 ## Interface changes
 

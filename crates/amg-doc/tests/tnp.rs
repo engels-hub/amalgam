@@ -671,7 +671,11 @@ mod run {
             if naive == Some(true) {
                 breaks += 1;
             }
-            let predicted = &case["naive_index_breaks"];
+            // `naive_index_breaks` is DOC-13's measurement on the S04 features; a case whose
+            // lane-E test-feature measurement differs records it here (README).
+            let predicted = case
+                .get("naive_index_breaks_doc06")
+                .unwrap_or(&case["naive_index_breaks"]);
             if let (Some(m), Some(p)) = (naive, predicted.as_bool())
                 && m != p
             {
