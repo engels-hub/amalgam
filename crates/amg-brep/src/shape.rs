@@ -101,6 +101,10 @@ struct ShapeInner {
     occ: Occ,
     index: OnceLock<SubShapeIndex>,
     bbox: OnceLock<Aabb3>,
+    /// `max_tolerance`, once asked (S20 KH-20: every boolean asks for its operands').
+    max_tol: OnceLock<f64>,
+    /// Whether a solid is inverted, once asked (KH-20: the boolean's `check_inverted`).
+    inverted: OnceLock<bool>,
 }
 
 /// An immutable B-rep shape. `Clone` is an `Arc` clone.
@@ -122,6 +126,8 @@ impl Shape {
                 occ,
                 index: OnceLock::new(),
                 bbox: OnceLock::new(),
+                max_tol: OnceLock::new(),
+                inverted: OnceLock::new(),
             }),
         }
     }
@@ -342,7 +348,20 @@ impl Shape {
     /// (`ShapeAnalysis_ShapeTolerance`), for S20's validation gate. 0 for a shape with no
     /// sub-shapes.
     pub fn max_tolerance(&self) -> f64 {
-        self.occ().max_tolerance()
+        *self
+            .inner
+            .max_tol
+            .get_or_init(|| self.occ().max_tolerance())
+    }
+
+    /// Whether a solid of the shape is inverted (`BOPTools_AlgoTools::IsInvertedSolid`, the test
+    /// OCCT's `check_inverted` boolean option runs on every argument solid); `false` without
+    /// solids. Cached: a body cut again and again (an extrude-cut preview) is classified once.
+    pub(crate) fn has_inverted_solid(&self) -> bool {
+        *self
+            .inner
+            .inverted
+            .get_or_init(|| self.occ().has_inverted_solid())
     }
 
     /// `BRepCheck` validity (S02 §9); [`crate::BrepKernel::check`] is the public entry.

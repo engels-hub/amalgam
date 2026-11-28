@@ -7,7 +7,7 @@ that depends on it starts.
 | Note | Produced by | Needed before | Status |
 |---|---|---|---|
 | `persistent-naming.md` | DOC-11 (2026-10-20) | DOC-06, DOC-13 | Proposed (awaiting owner `Accepted`) |
-| `kernel-metrics.md` | KH-02 / KH-05 (started by KH-17, 2026-11-28) | KH-03, KH-08 | Started: KH-17 boolean baseline |
+| `kernel-metrics.md` | KH-02 / KH-05 (started by KH-17, 2026-11-28) | KH-03, KH-08 | Started: KH-17 boolean baseline, KH-20 extrude-cut and shell profile |
 | `units-and-quantities.md` | S00 refinement (2026-10-19) | FND-10, DOC-04 | Written (mm–t–s units accepted 2026-10-20) |
 | `sketch-solver.md` | S03 refinement (2026-10-19); benchmark in SK-13 | SK-03 (ADR-007 gate) | Draft (pending SK-13 and ADR-007) |
 | `mesh-processing.md` | S07 refinement (2026-10-19) | MESH-01 | Written |

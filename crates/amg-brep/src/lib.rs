@@ -35,7 +35,7 @@ pub use amg_core::{
 pub use amg_jobs::JobCtx;
 
 pub use check::{CheckOpts, CheckReport};
-pub use config::{ENV_OCCT_THREADS, ENV_VALIDATE, KernelConfig, Validate};
+pub use config::{ENV_FAST_PATHS, ENV_OCCT_THREADS, ENV_VALIDATE, KernelConfig, Validate};
 pub use error::{KResult, KernelError};
 pub use foreign::{ForeignModel, ForeignNode, ForeignPrototype, ImportOpts, StepSchema};
 pub use history::{

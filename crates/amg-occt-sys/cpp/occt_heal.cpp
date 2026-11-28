@@ -10,11 +10,13 @@
 // sewing's modified sub-shapes.
 
 #include "amg-occt-sys/cpp/occt_history.hxx"
+#include "amg-occt-sys/cpp/occt_profile.hxx"
 #include "amg-occt-sys/cpp/occt_shim.hxx"
 
 #include "amg-occt-sys/src/bridge.rs.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -24,6 +26,7 @@
 #include <BOPAlgo_ArgumentAnalyzer.hxx>
 #include <BOPAlgo_CheckResult.hxx>
 #include <BOPAlgo_CheckStatus.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRep_Builder.hxx>
@@ -31,6 +34,7 @@
 #include <BRep_TFace.hxx>
 #include <BRep_TVertex.hxx>
 #include <BRep_Tool.hxx>
+#include <GeomAbs_SurfaceType.hxx>
 #include <Geom_Surface.hxx>
 #include <Message_ProgressIndicator.hxx>
 #include <Message_ProgressScope.hxx>
@@ -504,6 +508,82 @@ std::unique_ptr<OcOp> heal_op(const OcShape &shape, const OcHealParams &params,
   return op;
 }
 
+namespace {
+
+// Whether ShapeUpgrade_UnifySameDomain could merge two faces of these surface types: planes
+// only when parallel within `max(1e3 x ang_tol, 1e-6)` rad (its own test is ang_tol), other
+// elementary surfaces only with their own type; anything else (B-splines, offsets, extrusions,
+// ...) always could.
+bool same_domain_possible(const TopoDS_Face &a, const TopoDS_Face &b, double ang_tol) {
+  const BRepAdaptor_Surface sa(a, false);
+  const BRepAdaptor_Surface sb(b, false);
+  const GeomAbs_SurfaceType ta = sa.GetType();
+  const GeomAbs_SurfaceType tb = sb.GetType();
+  const auto elementary = [](GeomAbs_SurfaceType t) {
+    return t == GeomAbs_Plane || t == GeomAbs_Cylinder || t == GeomAbs_Cone ||
+           t == GeomAbs_Sphere || t == GeomAbs_Torus;
+  };
+  if (!elementary(ta) || !elementary(tb)) {
+    return true;
+  }
+  if (ta != tb) {
+    return false;
+  }
+  if (ta != GeomAbs_Plane) {
+    return true;
+  }
+  const double cos_max = std::cos(std::max(1e3 * ang_tol, 1e-6));
+  return std::abs(sa.Plane().Axis().Direction().Dot(sb.Plane().Axis().Direction())) >= cos_max;
+}
+
+// KH-20: whether UnifySameDomain (safe input mode, no internal edges, as unify_same_domain_op
+// runs it) could change `s` at all; a superset of what it merges. Faces merge only across an
+// edge shared by exactly two different faces on the same domain (UnifyFaces skips every other
+// edge), edges only through a vertex with exactly two edges (CheckSharedVertices keeps the
+// others). Without such a pair the algorithm returns its input unchanged with an empty
+// history, so the op can skip it.
+bool could_unify(const TopoDS_Shape &s, const OcUnifyParams &params) {
+  if (params.faces) {
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>,
+                               TopTools_ShapeMapHasher>
+        edge_faces;
+    TopExp::MapShapesAndAncestors(s, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    for (int i = 1; i <= edge_faces.Extent(); ++i) {
+      const TopoDS_Edge &edge = TopoDS::Edge(edge_faces.FindKey(i));
+      const NCollection_List<TopoDS_Shape> &faces = edge_faces(i);
+      if (BRep_Tool::Degenerated(edge) || faces.Extent() != 2 ||
+          faces.First().IsSame(faces.Last())) {
+        continue;
+      }
+      if (same_domain_possible(TopoDS::Face(faces.First()), TopoDS::Face(faces.Last()),
+                               params.ang_tol)) {
+        return true;
+      }
+    }
+  }
+  if (params.edges) {
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>,
+                               TopTools_ShapeMapHasher>
+        vertex_edges;
+    TopExp::MapShapesAndUniqueAncestors(s, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+    for (int i = 1; i <= vertex_edges.Extent(); ++i) {
+      if (vertex_edges(i).Extent() == 2) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+} // namespace
+
+bool unify_candidates(const OcShape &shape, const OcUnifyParams &params) {
+  if (shape.get().IsNull()) {
+    fail("unify_candidates: the shape is null");
+  }
+  return could_unify(shape.get(), params);
+}
+
 std::unique_ptr<OcOp> unify_same_domain_op(const OcShape &shape, const OcUnifyParams &params) {
   const TopoDS_Shape &input = shape.get();
   if (input.IsNull()) {
@@ -511,15 +591,27 @@ std::unique_ptr<OcOp> unify_same_domain_op(const OcShape &shape, const OcUnifyPa
   }
   // As unify_op (BREP-05): UnifySameDomain rebuilds what it merges through a BRepTools_ReShape
   // of its input, so it runs on a private copy whose map is the first step of the history.
+  const profile::Phases phases("unify_same_domain");
   BRepBuilderAPI_Copy copier(input, false, false);
+  phases.mark("copied");
+  if (params.fast && !could_unify(copier.Shape(), params)) {
+    // Nothing to merge: the copy is the result, as UnifySameDomain would return it.
+    auto op = std::make_unique<OcOp>();
+    op->shape = copier.Shape();
+    record_operands(*op, {input}, source_of(copier), {}, false);
+    phases.mark("nothing to unify, history recorded");
+    return op;
+  }
   ShapeUpgrade_UnifySameDomain unifier(copier.Shape(), params.edges, params.faces,
                                        params.concat_bsplines);
   unifier.SetLinearTolerance(params.lin_tol);
   unifier.SetAngularTolerance(params.ang_tol);
   unifier.Build();
+  phases.mark("built");
   auto op = std::make_unique<OcOp>();
   op->shape = unifier.Shape();
   record_operands(*op, {input}, source_of(copier), {history_step(unifier.History())}, false);
+  phases.mark("history recorded");
   return op;
 }
 

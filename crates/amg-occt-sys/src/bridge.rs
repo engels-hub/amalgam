@@ -295,7 +295,8 @@ pub mod ffi {
         fix_orientation: bool,
     }
 
-    /// `ShapeUpgrade_UnifySameDomain` options (BREP-10).
+    /// `ShapeUpgrade_UnifySameDomain` options (BREP-10); `fast` allows the KH-20 skip of the
+    /// algorithm when no face or edge pair of the shape could merge.
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
     struct OcUnifyParams {
         faces: bool,
@@ -303,6 +304,7 @@ pub mod ffi {
         concat_bsplines: bool,
         lin_tol: f64,
         ang_tol: f64,
+        fast: bool,
     }
 
     /// `BRepBuilderAPI_Sewing` options (BREP-10); `make_solid` turns every closed shell into a
@@ -742,6 +744,9 @@ pub mod ffi {
             opts: &OcBoolOpts,
             sink: &ProgressSink,
         ) -> Result<UniquePtr<OcOp>>;
+        /// Whether a solid of `shape` is inverted (`BOPTools_AlgoTools::IsInvertedSolid`, the
+        /// test behind `OcBoolOpts::check_inverted`); `false` without solids (KH-20).
+        fn shape_has_inverted_solid(shape: &OcShape) -> Result<bool>;
         /// The intersection edges and vertices of `a` and `b` (`BRepAlgoAPI_Section`,
         /// approximated, no pcurves). History: each face of either operand `Generated` into the
         /// section edges on it.
@@ -883,6 +888,9 @@ pub mod ffi {
         /// `ShapeUpgrade_UnifySameDomain` on a private copy, with the history from `shape`.
         fn unify_same_domain_op(shape: &OcShape, params: &OcUnifyParams)
         -> Result<UniquePtr<OcOp>>;
+        /// Whether `shape` has a face or edge pair `unify_same_domain_op` could merge (KH-20);
+        /// without one, the op skips the algorithm when `params.fast` is set.
+        fn unify_candidates(shape: &OcShape, params: &OcUnifyParams) -> Result<bool>;
         /// `BRepBuilderAPI_Sewing` of all `shapes` (one operand each) on a private copy, then
         /// with `make_solid` a solid per closed shell. A failure (an open result with
         /// `make_solid`, an OCCT exception) is reported by `op_bool_status`; the op then holds

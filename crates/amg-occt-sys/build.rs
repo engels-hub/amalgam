@@ -81,6 +81,7 @@ mod occt {
         println!("cargo:rerun-if-changed=cpp/occt_bool.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_query.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_history.hxx");
+        println!("cargo:rerun-if-changed=cpp/occt_profile.hxx");
         println!("cargo:rerun-if-changed=cpp/occt_naming.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_blend.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_offset.cpp");

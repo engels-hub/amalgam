@@ -950,6 +950,19 @@ impl OcctKernel {
         }
     }
 
+    /// Whether [`BrepKernel::unify_same_domain`] with `opts` could merge a face or edge pair of
+    /// `s`: with [`KernelConfig::fast_paths`] on, a shape without one skips
+    /// `ShapeUpgrade_UnifySameDomain` (S20 KH-20). Exists for the KH-20 tests.
+    ///
+    /// # Errors
+    /// `InvalidInput` for a null shape or bad options; `Occt`; `BackendUnavailable`.
+    #[doc(hidden)]
+    pub fn unify_candidates(&self, s: &Shape, opts: &UnifyOpts) -> KResult<bool> {
+        backend::require()?;
+        let input = heal::lower_unify(s, opts)?;
+        s.occ().unify_candidates(&input)
+    }
+
     /// A synthetic op with an OCCT progress range of `steps` steps of `step` busy work each,
     /// reporting through the progress/cancel bridge. Exists to test that bridge.
     ///
@@ -1075,7 +1088,17 @@ impl OcctKernel {
         ctx: &JobCtx,
     ) -> KResult<OpResult> {
         backend::require()?;
-        let input = boolean::lower(code, objects, tools, opts, self.default_parallel())?;
+        let mut input = boolean::lower(code, objects, tools, opts, self.default_parallel())?;
+        // KH-20: OCCT's check_inverted only widens the box of a solid that
+        // BOPTools_AlgoTools::IsInvertedSolid finds inverted. The same test, cached per shape,
+        // lets the op skip it when no operand solid is inverted (a body cut again and again is
+        // classified once); the result is the same.
+        if self.cfg.fast_paths
+            && input.check_inverted
+            && objects.iter().chain(tools).all(|s| !s.has_inverted_solid())
+        {
+            input.check_inverted = false;
+        }
         ctx.checkpoint()?;
         let (args, tools_in) = boolean::operand_split(code, objects, tools);
         let args: Vec<&Occ> = args.into_iter().map(Shape::occ).collect();
@@ -1755,7 +1778,7 @@ impl BrepKernel for OcctKernel {
     fn unify_same_domain(&self, s: &Shape, opts: &UnifyOpts) -> KResult<OpResult> {
         backend::require()?;
         let input = heal::lower_unify(s, opts)?;
-        let (occ, raw) = s.occ().unify_same_domain(&input)?;
+        let (occ, raw) = s.occ().unify_same_domain(&input, self.cfg.fast_paths)?;
         let shape = Shape::from_occ(occ);
         self.validate_result("unify_same_domain", &shape)?;
         let history = ops::history(&raw, ops::counts(s));

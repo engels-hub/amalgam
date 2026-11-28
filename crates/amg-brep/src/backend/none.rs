@@ -136,6 +136,10 @@ impl Occ {
         match *self {}
     }
 
+    pub(crate) fn has_inverted_solid(&self) -> bool {
+        match *self {}
+    }
+
     pub(crate) fn check(&self) -> CheckReport {
         match *self {}
     }
@@ -251,7 +255,15 @@ impl Occ {
         match *self {}
     }
 
-    pub(crate) fn unify_same_domain(&self, _p: &UnifyIn) -> KResult<(Occ, RawHistory)> {
+    pub(crate) fn unify_same_domain(
+        &self,
+        _p: &UnifyIn,
+        _fast: bool,
+    ) -> KResult<(Occ, RawHistory)> {
+        match *self {}
+    }
+
+    pub(crate) fn unify_candidates(&self, _p: &UnifyIn) -> KResult<bool> {
         match *self {}
     }
 

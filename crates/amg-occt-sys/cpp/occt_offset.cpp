@@ -13,6 +13,7 @@
 // OCCT itself does not refuse these offsets; it builds self-intersecting or empty results.
 
 #include "amg-occt-sys/cpp/occt_history.hxx"
+#include "amg-occt-sys/cpp/occt_profile.hxx"
 #include "amg-occt-sys/cpp/occt_shim.hxx"
 
 #include "amg-occt-sys/src/bridge.rs.h"
@@ -91,7 +92,8 @@ public:
 
   bool UserBreak() override { return progress_user_break(sink_); }
 
-  void Show(const Message_ProgressScope &, const bool) override {
+  void Show(const Message_ProgressScope &scope, const bool) override {
+    profile::scope(scope);
     progress_show(sink_, GetPosition());
   }
 
@@ -557,8 +559,10 @@ std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
   if (faces.size() != offsets.size()) {
     fail("offset: per-face lists differ in length");
   }
+  const profile::Phases phases("offset");
   auto op = std::make_unique<OcOp>();
   Copied c(input, index);
+  phases.mark("copied");
   const auto n = static_cast<std::size_t>(c.faces.Extent());
   std::vector<double> per_face(n, params.offset);
   std::vector<bool> removed(n, false);
@@ -579,6 +583,7 @@ std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
   if (check_curvature(*op, c, per_face)) {
     return op;
   }
+  phases.mark("curvature checked");
 
   const GeomAbs_JoinType join = params.join == 1 ? GeomAbs_Intersection : GeomAbs_Arc;
   BRepOffset_MakeOffset maker;
@@ -613,6 +618,7 @@ std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
   } catch (const Standard_Failure &failure) {
     op->errors.push_back(format_failure(failure));
   }
+  phases.mark("built");
   if (progress_user_break(sink) || maker.Error() == BRepOffset_UserBreak) {
     op->cancelled = true;
     return op;
@@ -664,8 +670,11 @@ std::unique_ptr<OcOp> offset_op(const OcShape &shape, const OcIndex &index,
     return op;
   }
   op->shape = canonical(result);
+  phases.mark("canonical order");
   canonical_regularity(op->shape);
+  phases.mark("canonical regularity");
   record(*op, maker, c, input, params.mode, removed, per_face);
+  phases.mark("history recorded");
   return op;
 }
 
