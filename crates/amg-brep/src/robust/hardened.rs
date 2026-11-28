@@ -13,7 +13,7 @@ use crate::capture::{FailureClass, FailureRecorder};
 use crate::check::{CheckOpts, CheckReport};
 use crate::error::{KResult, KernelError};
 use crate::geom;
-use crate::history::{FaceBuild, KernelWarning, OpResult};
+use crate::history::{FaceBuild, KernelWarning, OpResult, ThinFace};
 use crate::kernel::BrepKernel;
 use crate::opts::{
     BoolOp, BoolOpts, ChamferSpec, DraftOpts, FilletOpts, FilletSpec, HealOpts, LoftSection,
@@ -154,6 +154,10 @@ impl<K: BrepKernel> BrepKernel for HardenedKernel<K> {
 
     fn make_wire(&self, segs: &[geom::CurveSeg], tol: &Tolerance) -> KResult<OpResult> {
         self.inner.make_wire(segs, tol)
+    }
+
+    fn make_thin_face(&self, p: &geom::ThinProfile, tol: &Tolerance) -> KResult<ThinFace> {
+        self.inner.make_thin_face(p, tol)
     }
 
     fn make_box(&self, frame: &Plane, size: Vec3) -> KResult<OpResult> {
