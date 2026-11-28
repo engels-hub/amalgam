@@ -6,6 +6,7 @@ mod build;
 mod extract;
 mod heal;
 mod local;
+pub(crate) mod nurbs;
 mod offset;
 mod ops;
 mod query;

@@ -834,9 +834,9 @@ open request.
 | R11 | Raw `thru_sections` (ruled/smooth, point sections, `max_degree`, compatibility check) and multi-section `pipe` as baseline + fallback engines | KH-05, KH-08 | yes (BREP-15) |
 | R12 | `kernel_version()` includes `robust::POLICY_VERSION` | KH-17 | yes |
 | R13 | Fast-path classification data: face `Surface` params, edge `Curve3` type, edge↔face adjacency, `eval_surface` with curvatures (also used by `CrossBoundaryField` for G2) | KH-04, KH-08 | yes (BREP-02/09); S20 computes dihedral angle/convexity itself |
-| R14 | `amg-occt-sys` accepts additive S20 shim files (`plate.cpp` for `GeomPlate` in KH-19, `gordon.cpp` for `GeomFill_Gordon` in KH-16/KH-18) under S02's bridge and CATEGORY conventions | KH-16, KH-18, KH-19 | open |
-| R15 | Bump the pin from OCCT 8.0.0 to **8.0.1** (current vcpkg port; S02 already notes it fixes the `Standard_Strtod` race). 8.0.0p1 replaced 8.0.0's experimental `GeomFill_Gordon`, and 8.0.1 made fillet reconstruction state thread-local. Both matter to S20 (Gordon oracle/engine, parallel harness). With 8.0.0, KH-16/KH-18 skip the OCCT Gordon parts | KH-16, KH-18, KH-02 | open (S02 pins 8.0.0) |
-| R16 | Ordered wire traversal (`BRepTools_WireExplorer`): `Shape::wire_edges(&self) -> Vec<(EdgeId, bool /* reversed */)>` | KH-16 | open (confirm) |
+| R14 | `amg-occt-sys` accepts additive S20 shim files (`plate.cpp` for `GeomPlate` in KH-19, `gordon.cpp` for `GeomFill_Gordon` in KH-16/KH-18) under S02's bridge and CATEGORY conventions | KH-16, KH-18, KH-19 | done for KH-16 (`occt_nurbs.cpp`, which also holds the `GeomFill_Gordon` oracle; KH-16 log 2026-11-28); KH-19's `plate.cpp` open |
+| R15 | Bump the pin from OCCT 8.0.0 to **8.0.1** (current vcpkg port; S02 already notes it fixes the `Standard_Strtod` race). 8.0.0p1 replaced 8.0.0's experimental `GeomFill_Gordon`, and 8.0.1 made fillet reconstruction state thread-local. Both matter to S20 (Gordon oracle/engine, parallel harness). With 8.0.0, KH-16/KH-18 skip the OCCT Gordon parts | KH-16, KH-18, KH-02 | done (FND-13; the installed OCCT is 8.0.1 and ships the reworked `GeomFill_Gordon.hxx`, which KH-16 links) |
+| R16 | Ordered wire traversal (`BRepTools_WireExplorer`): `Shape::wire_edges(&self) -> Vec<(EdgeId, bool /* reversed */)>` | KH-16 | done inside `amg-brep` (KH-16): crate-private `Occ::wire_order` (shim `wire_edge_order`) behind the public `nurbs_conv::wire_to_chain`; no public `Shape::wire_edges` was added |
 | R17 | Additive `KernelWarning::Strategy { name: &'static str, detail: String }` so `HardenedKernel` can report a non-direct acceptance through `OpResult::warnings` | KH-17 | done (KH-17, 2026-11-28; S02 log note) |
 
 ## Work packages
@@ -848,7 +848,7 @@ open request.
 | KH-13 | `amg-nurbs` fitting: `parametrize`, averaging/approximation knots, `interpolate` (A9.1 with D1/D2 end rows, closed), `approximate_lsq` (A9.6 constrained), `approximate_to_tolerance` (adaptive + Hoschek), `approximate_onto_knots`, arc length + inverse, curve/surface `closest_point` | KH-12 | P1 | Done | 1. Interpolation reproduces data ≤ 1e-12·D and end derivatives within 1e-10 relative; P&T Ex. 9.1 data gives the book's parameters and knots. 2. `approximate_to_tolerance` on 1000 noisy samples of circles, helices and sine curves meets `tol` ∈ {1e-3, 1e-5} mm with ≤ 1.5× the pole count of a reference fit (the reference is the same algorithm without parameter correction, which proves that correction helps). 3. Reported `max_error` is within 1 % of the measured error at 2000 samples. 4. Closest point never exceeds the dense-sampling minimum + 1e-9 mm (10 k proptest queries, curves and surfaces). 5. Arc length of a circle arc is within 1e-12 relative. 6. Benchmarks: interpolate 200 points < 100 µs; fit 1000 points to 1e-5 mm < 5 ms. |
 | KH-14 | `amg-nurbs` compatibility + skinning: `make_compatible` (exact/approximated, rules in nurbs note §5.2), `loft_surfaces` (one patch per segment, shared v-params, shared corner derivatives), all `EndCondition`s with `CrossBoundaryField`, ruled/closed, `check` module | KH-13 | P1 | Todo | 1. Exact path: outputs equal the inputs ≤ 1e-12·D; approximated path: ≤ `fit_tol` (1e-5 mm) with ≤ `max_poles`; it falls back to approximation exactly when the union exceeds `exact_pole_limit` (unit test at the boundary). 2. Skins reproduce every section at its v-parameter (≤ 1e-12·D exact path, ≤ `fit_tol` approximated). 3. Neighbouring patches have bit-identical shared boundaries (`to_bits`), and G1 across tangent-merged segments is ≤ 1e-8 rad. 4. G1 end condition against analytic planes/cylinders: angle ≤ 1e-8 rad at 100 boundary samples; G2: normal-curvature mismatch ≤ 1e-6 relative; `PointTangent` apex tangent plane ⊥ `normal` within 1e-9 rad. 5. Two sections without end conditions give a ruled surface. 6. Benchmarks: 6 sections × 8 segments exact < 2 ms; approximated < 10 ms. |
 | KH-15 | `amg-nurbs` Gordon surfaces (network sort, Fritsch–Carlson reparametrisation, compatible families, boolean sum, closed networks) + `frames::rotation_minimizing` + `frames::centerline_sections` | KH-14 | P1 | Todo | 1. Every network curve is reproduced within `max(fit_tol, 1e-12·D)` on synthetic networks (bilinear, 3×3 … 6×6, non-uniform intersection parameters, closed) and all TiGL `CurveNetworks` fixtures (Apache-2.0, attributed). 2. Networks that miss by > `net_tol` give `NetworkMiss` with the right indices; a doubly-crossing guide gives `NetworkMultiple`. 3. A counter-test shows the uniform-parameter/degree-1-tensor shortcut fails these fixtures (guards the design choice). 4. RMF: orthonormal to 1e-12; planar curve normal constant to 1e-12; helix rotation vs Frenet = −∫τ ds within 1e-6 rad at 1000 steps. 5. Centerline sections: original sections are reproduced exactly; intermediate frames follow the RMF. 6. Gordon 5×5 < 20 ms. |
-| KH-16 | `amg_brep::nurbs_conv`: amg-nurbs ↔ OCCT `Geom_BSplineCurve/Surface` (+ knots/mults), `curve_seg_to_nurbs`, `surface_to_nurbs`, `edge_to_nurbs`, `wire_to_chain`, `nurbs_face` (on S02 `make_face`); OCCT differential tests (incl. `GeomFill_Gordon` on TiGL networks when OCCT ≥ 8.0.0p1) | KH-07, KH-12, BREP-03 | P1 | Todo | 1. amg-nurbs → OCCT → amg-nurbs round-trips bit-identically (poles, weights, knots). 2. OCCT `D0/D1/D2` vs `eval/derivs` on 10 k random parameters of 200 random curves/surfaces ≤ 1e-11·max(1, D). 3. Lines, circles, ellipses, planes, cylinders, cones, spheres and tori from OCCT convert to exact NURBS (radius error ≤ 1e-12·r). 4. `nurbs_face` on a skinned patch gives a BRepCheck-valid face whose OCCT tessellation lies within 1e-6 mm of `eval`. 5. With OCCT ≥ 8.0.0p1, KH-15 Gordon results lie within 1e-4 mm of `GeomFill_Gordon` on the TiGL set (or the differences are explained in the PR). |
+| KH-16 | `amg_brep::nurbs_conv`: amg-nurbs ↔ OCCT `Geom_BSplineCurve/Surface` (+ knots/mults), `curve_seg_to_nurbs`, `surface_to_nurbs`, `edge_to_nurbs`, `wire_to_chain`, `nurbs_face` (on S02 `make_face`); OCCT differential tests (incl. `GeomFill_Gordon` on TiGL networks when OCCT ≥ 8.0.0p1) | KH-07, KH-12, BREP-03 | P1 | Review | 1. amg-nurbs → OCCT → amg-nurbs round-trips bit-identically (poles, weights, knots). 2. OCCT `D0/D1/D2` vs `eval/derivs` on 10 k random parameters of 200 random curves/surfaces ≤ 1e-11·max(1, D). 3. Lines, circles, ellipses, planes, cylinders, cones, spheres and tori from OCCT convert to exact NURBS (radius error ≤ 1e-12·r). 4. `nurbs_face` on a skinned patch gives a BRepCheck-valid face whose OCCT tessellation lies within 1e-6 mm of `eval`. 5. With OCCT ≥ 8.0.0p1, KH-15 Gordon results lie within 1e-4 mm of `GeomFill_Gordon` on the TiGL set (or the differences are explained in the PR). |
 | KH-17 | `amg_brep::robust` framework: `RetryPolicy` presets, `validate` gate, `Attempt`/`RobustReport`, deterministic chain runner (deadline aborts), fuzzy ladder + glue + non-destructive in `robust_boolean`, `heal` levels with composed history, `POLICY_VERSION`, `HardenedKernel` decorator; boolean near-coincidence generator + proptests | KH-01, BREP-04, BREP-10 | P1 | Done | 1. On the BREP-04 boolean corpus plus 100 generated near-coincident cases (offsets 0…1e-4 mm, tangent cylinders, coplanar faces), `robust_boolean` gives valid `Ok` on ≥ 95 % of the generated cases with zero invalid `Ok`. Baseline raw OCCT and the improvement are recorded in `kernel-metrics.md`. 2. `exact_only` reproduces raw OCCT bit-identically. 3. Determinism: identical `.brep` bytes and `RobustReport` across two runs and across 1 vs 8 rayon threads. 4. A deadline expiry yields `Timeout` and never a later strategy's result (test with an injected slow strategy). 5. Healing history composition: a test feature filleting after `Unify` resolves names through the composed history (`ShapeHistory` test). 6. Every non-direct acceptance adds a warning. |
 | KH-02 | Fillet corpus + harness: `robust::corpus` generators (`prism_vertical_edges` with exact volume oracle, `prism_mixed_edges`, `boolean_stack`, `radius_too_large`), ≥ 50 handmade cases, case schema, process-isolated harness (`kernel-harness` example / `amg-cli kernel harness`), report JSON, `docs/notes/kernel-metrics.md`, baseline files + smoke-subset CI test | KH-01, BREP-06 | P1 | Done | 1. ≥ 200 cases (≥ 120 synthetic from `seeds.toml`, ≥ 50 handmade committed, the rest harvested/owner under `AMG_TESTDATA_DIR` when present). 2. The exact-volume oracle agrees with a high-resolution tessellation volume within 1e-4 relative on 20 cases (validates the formula). 3. Baseline raw `MakeFillet` success, clean-failure, invalid-Ok and crash counts plus p50/p95 time are recorded in `kernel-metrics.md`. 4. The smoke subset (≈ 40 cases) runs in CI `golden` in < 2 min and fails when a baseline-passing case is broken on purpose. 5. An OCCT access violation in one case (injected) is reported as `Crash` and the run completes. |
 | KH-03 | Fillet strategy wrapper + diagnostics: `robust::fillet::fillet` chain (design §4), failing-edge isolation (OCCT report, then ddmin), `max_radius`, `FilletDiagnosis` for SOL-05 | KH-02, KH-17, SOL-05 | P1 | Todo | 1. Full-corpus success rate ≥ baseline + 10 percentage points **and** ≥ 50 % of baseline failures fixed. 2. Zero regressions (every baseline-passing case still passes) and zero invalid `Ok`. 3. 100 % of failures name ≥ 1 failing edge and a `FailureClass`. 4. On `radius_too_large`, `max_radius` is within 2 % of the analytic limit; on other failures `r̂` succeeds and `1.02·r̂` fails in ≥ 95 % of cases (else flagged `approximate`). 5. Proptest: 256 generated parts give valid `Ok` or a classified `Err`, never a panic. 6. Before/after table in `kernel-metrics.md`. |
@@ -1609,6 +1609,105 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   writes its before/after table against this baseline. KH-05 reuses `case`/`harness` for lofts
   with its own seeds and baseline.
 
+### 2026-11-28 - KH-16 `amg_brep::nurbs_conv`: amg-nurbs ↔ OCCT conversion landed (lane A)
+- **Landed in `amg-brep`:** new public module `nurbs_conv`, with the Interfaces signatures:
+  - `From<&NurbsCurve3> for BSplineCurveData` and `From<&NurbsSurface3> for
+    BSplineSurfaceData`. Knots are grouped by exact equality (`to_knots_mults(0.0)`), the
+    result is never periodic, and poles are row-major with u outer, as in `Grid`. Weights are
+    kept when the curve is rational and dropped when they are all equal. OCCT stores no
+    weights for such a curve either, so the drop keeps round trips exact.
+  - `TryFrom<&BSplineCurveData> for NurbsCurve3` and `TryFrom<&BSplineSurfaceData> for
+    NurbsSurface3`. Clamped data maps one to one. Periodic data (OCCT form: equal end
+    multiplicities `m0 <= p`, `N = m0 + Σ interior` poles) is unwrapped:
+    - build the floating form with OCCT's alignment (`BSplCLib::KnotSequence`/`PoleIndex`:
+      `p + 1 − m0` knots before `k0`, poles `P_{i mod N}`; `k0 + T` is set to exactly
+      `k_last`);
+    - insert `k0` and `k_last` up to multiplicity `p` (P&T A5.1 in homogeneous coordinates);
+    - cut the curve there.
+
+    Surfaces do this per periodic direction.
+  - `curve_seg_to_nurbs`. Lines are degree 1 and keep the parameter. Circles and ellipses go
+    through `analytic::{circle_arc, ellipse_arc}` on the segment's angle range, mapped onto
+    `[t0, t1]`. B-splines are cut with `segment` (the whole domain passes through unchanged).
+    Periodic B-splines take any range on the periodic line, shifted into the period, and may
+    cross the seam once (joined). `t1 < t0` gives the reversed curve. `Curve3::Other` is an
+    `InvalidInput`.
+  - `surface_to_nurbs`. Planes use `plane_patch` (exact parametrisation). Cylinders, cones,
+    spheres and tori are the meridian profile at `u0` (a line, or a `circle_arc` over
+    `[v0, v1]`) revolved by `u1 − u0` with `analytic::revolution`. B-splines are cut with
+    `split` per direction; periodic ones take any box within one period. The domain is the
+    requested box, and `S_u × S_v` points the way OCCT's does.
+  - `edge_to_nurbs` (over the edge's range, in the curve's direction), `wire_to_chain` (edges
+    in `BRepTools_WireExplorer` order, reversed where the wire runs them backwards; an edge
+    shape gives itself; other kinds are `InvalidInput`) and `nurbs_face` (`make_face` on
+    `Surface::BSpline(s.into())`).
+  - **New, not in the Interfaces:** `nurbs_conv::oracle`, the OCCT oracles on plain data. These
+    are `round_trip_curve`/`round_trip_surface`, `curve_not_periodic`/`surface_not_periodic`,
+    `curve_d2`, `surface_d2` (returns `SurfaceD2`) and `gordon` (returns `GordonOracle`, which
+    holds the status, OCCT's deviations and the surface). KH-15 calls `oracle::gordon` for its
+    cross-check, from `amg-brep` tests, because `amg-nurbs` cannot depend on `amg-brep`.
+    Without OCCT every oracle returns `BackendUnavailable`, and the conversions work in both
+    builds.
+  - Backend: `backend/occt/nurbs.rs` (bridge lowering, `Occ::wire_order`) and a `nurbs`
+    stub module in `backend/none.rs`. `build.rs`'s `oc_curve`/`oc_surface` are now
+    `pub(super)`.
+- **`amg-occt-sys`:** new `cpp/occt_nurbs.cpp` (in `build.rs`; R14) with seven functions, all
+  category R. Five take only plain data:
+  - `bspline_curve_round_trip` and `bspline_surface_round_trip`;
+  - `bspline_curve_not_periodic` and `bspline_surface_not_periodic`;
+  - `bspline_curve_d2` and `bspline_surface_d2`.
+
+  `wire_edge_order` only reads the wire. `gordon_surface` runs `GeomFill_Gordon` in exact
+  mode, serially, and returns the new bridge struct `OcGordon`. `SHIM_VERSION` stays 4,
+  because no existing function changed.
+- **amg-nurbs fix (found by KH-16):** `KnotVector::reversed` mapped only the first and last
+  knot exactly. Other copies of an end knot became `(a + b) − b`, which can round away from
+  `a`, so a reversed curve could lose its clamping (for example `[4.674999961845322,
+  4.674999961845323 × 5, …]`). Every copy of an end knot now maps exactly onto the other end.
+  Regression test `knots::tests::reverse_keeps_end_runs_exact`. No existing test changed.
+- **Done-when evidence** (`tests/nurbs_conv.rs`; numbers printed with `--no-capture`):
+  1. Bit-identical round trip NURBS → data → OCCT → data → NURBS for 200 curves (degree 1–9,
+     interior multiplicities up to p, half rational) and 200 surfaces (degree 1–6 per
+     direction). Poles, weights and knots are compared by bits, and the OCCT data equals the
+     input data. A Rust-only round trip of the same kind also runs without OCCT.
+  2. 10 000 parameters over 200 random curves, D0/D1/D2: max relative error 1.05e-12,
+     2.05e-12 and 3.26e-12. 10 000 parameters over 200 random surfaces, S/Su/Sv/Suu/Svv/Suv:
+     ≤ 3.75e-13 (limit 1e-11). The periodic unwrap matches OCCT's periodic evaluation:
+     ≤ 9.6e-14 for 100 random periodic curves (and against OCCT's own `SetNotPeriodic`),
+     6.3e-14 for ranges trimmed across the seam, and ≤ 1.1e-14 for 60 periodic surfaces (u,
+     v and both).
+  3. Faces and edges of OCCT primitives on a tilted frame: box, cylinder (full and 2 rad),
+     cone (frustum and apex), sphere, torus (full and 3 rad). Max radial error / r is
+     4.9e-15, and the patch corners agree with OCCT's `eval_surface` within 1e-11 mm. Two
+     OCCT ellipses (a `make_wire` edge and an oblique cylinder section): 7.4e-16·r. Rust-only
+     analytic boxes, including `u0 ≠ 0` and partial spheres and tori: ≤ 1.9e-15·r.
+  4. `nurbs_face` on a P&T §10.3 skinned bicubic patch (non-rational and rational, `Natural`
+     and `UvRect` bounds) is BRepCheck-valid. The face's surface reads back bit-identical, and
+     every one of 2 440 to 5 061 tessellation vertices lies within 2.1e-14 mm of the surface
+     (limit 1e-6).
+  5. OCCT 8.0.1 has `GeomFill_Gordon` (`GeomFill_Gordon.hxx` in the install). Wrapped as
+     `oracle::gordon`, it reproduces a 4 × 4 iso-curve network of a bicubic patch within
+     5.8e-13 mm (status `Done`, exact, about 0.2 s). **The KH-15 comparison is deferred to
+     KH-15:** amg-nurbs has no Gordon surface yet, and the TiGL network set is not in the
+     repository. KH-15 compares `amg_nurbs` Gordon results with `oracle::gordon` within
+     1e-4 mm, or explains the differences.
+- **Deviations:**
+  - The oracle module is public API beyond the Interfaces (see above).
+  - R16 is met inside the crate: no `Shape::wire_edges`.
+  - `wire_to_chain` also accepts an edge shape.
+  - Analytic arcs are rational quadratic, so they keep the analytic parameter only at 90°
+    segment boundaries. Lines and planes keep it everywhere.
+- **Leftovers:**
+  - KH-15 runs the Done-when 5 comparison on the TiGL networks (fetch them as test data).
+  - `surface_to_nurbs` rejects a box that crosses the seam of a periodic B-spline surface.
+    Faces from OCCT have not needed it.
+  - Pre-existing and unrelated: the KH-13 proptest
+    `closest_props::surface_closest_point_beats_dense_sampling` fails on some random seeds.
+    Seed 7560825692560342496 gives 1.6e-9 mm against a dense distance of 0, and it fails on
+    unmodified `main` too. The proptest regression file it wrote was deleted, not committed.
+  - `amg-brep::io parallel_step_writes_of_one_model` (STEP I/O, untouched) failed once in a
+    full parallel `--features occt` run and passed 3 of 3 alone.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1660,3 +1759,23 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - `amg-brep`: `toml` is now a normal dependency (case and baseline files); the crate-private
   `capture::time_rfc3339_now` was added for report timestamps. `robust::corpus` paths of KH-17
   are unchanged (re-exports). No `BrepKernel` or `KernelOp` change.
+
+### 2026-11-28: KH-16 -> S02 (`amg-brep` and `amg-occt-sys`, shared crates, lane A)
+- `amg-brep`, additive:
+  - the public module `nurbs_conv`, with the Interfaces functions, the `From`/`TryFrom`
+    impls and the `oracle` submodule;
+  - `backend/occt/nurbs.rs` and the `nurbs` stub in `backend/none.rs`;
+  - `backend/occt/build.rs`'s `oc_curve` and `oc_surface` widened from private to
+    `pub(super)`.
+
+  No `BrepKernel` method, `KernelOp` or `Shape` API changed, so the wrappers
+  (`RecordingKernel`, `HardenedKernel`) are untouched.
+- `amg-occt-sys`, additive:
+  - new `cpp/occt_nurbs.cpp` (R14): the B-spline round trips and `SetNotPeriodic`,
+    `bspline_*_d2`, `wire_edge_order` and `gordon_surface`, all category R;
+  - the bridge struct `OcGordon`.
+
+  `GeomFill_Gordon` is in TKGeomAlgo, which is already linked. `SHIM_VERSION` stays 4.
+- `amg-nurbs` (S20's own crate): `KnotVector::reversed` now maps every copy of an end knot
+  exactly (bug fix, see the KH-16 log).
+- No new dependency; `THIRD_PARTY.md` unchanged. Recorded in S02's Interface changes.

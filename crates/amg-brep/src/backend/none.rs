@@ -468,3 +468,67 @@ pub(crate) mod xde {
         Err(KernelError::BackendUnavailable)
     }
 }
+
+/// NURBS conversion oracles without OCCT: every call is `BackendUnavailable` (S20 KH-16).
+pub(crate) mod nurbs {
+    use amg_core::{Point3, Vec3};
+
+    use super::Occ;
+    use crate::KResult;
+    use crate::error::KernelError;
+    use crate::geom::{BSplineCurveData, BSplineSurfaceData};
+
+    /// What one `GeomFill_Gordon` run gave.
+    pub(crate) struct RawGordon {
+        pub(crate) status: u8,
+        pub(crate) approximate: bool,
+        pub(crate) max_contact_gap: f64,
+        pub(crate) max_profile_deviation: f64,
+        pub(crate) max_guide_deviation: f64,
+        pub(crate) surface: Option<BSplineSurfaceData>,
+    }
+
+    pub(crate) fn curve_round_trip(_c: &BSplineCurveData) -> KResult<BSplineCurveData> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn surface_round_trip(_s: &BSplineSurfaceData) -> KResult<BSplineSurfaceData> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn curve_not_periodic(_c: &BSplineCurveData) -> KResult<BSplineCurveData> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn surface_not_periodic(_s: &BSplineSurfaceData) -> KResult<BSplineSurfaceData> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn curve_d2(
+        _c: &BSplineCurveData,
+        _ts: &[f64],
+    ) -> KResult<Vec<(Point3, Vec3, Vec3)>> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn surface_d2(
+        _s: &BSplineSurfaceData,
+        _uvs: &[(f64, f64)],
+    ) -> KResult<Vec<(Point3, [Vec3; 5])>> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    pub(crate) fn gordon(
+        _profiles: &[BSplineCurveData],
+        _guides: &[BSplineCurveData],
+        _tol: f64,
+    ) -> KResult<RawGordon> {
+        Err(KernelError::BackendUnavailable)
+    }
+
+    impl Occ {
+        pub(crate) fn wire_order(&self) -> KResult<Vec<(u32, bool)>> {
+            match *self {}
+        }
+    }
+}

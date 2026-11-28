@@ -20,6 +20,7 @@ pub mod io;
 mod kernel;
 mod local;
 mod lock;
+pub mod nurbs_conv;
 mod offset;
 mod ops;
 pub mod opts;
