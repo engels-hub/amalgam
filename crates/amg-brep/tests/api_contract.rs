@@ -866,6 +866,17 @@ fn the_hardened_kernel_forwards_every_method() {
     fwd!(k.check(&a, &CheckOpts::default()));
     fwd!(k.make_planar_faces(&[], &tol));
     fwd!(k.make_planar_polygon(&[], &[], &tol));
+    fwd!(k.make_thin_face(
+        &ThinProfile {
+            plane: frame,
+            chain: Vec::new(),
+            closed: false,
+            left: 1.0,
+            right: 0.0,
+            end_tags: [Tag(1), Tag(2)],
+        },
+        &tol
+    ));
     fwd!(k.make_face(&Surface::Plane(frame), &FaceBounds::Natural, 1e-6));
     fwd!(k.make_wire(std::slice::from_ref(&seg), &tol));
     fwd!(k.make_box(&frame, Vec3::ONE));

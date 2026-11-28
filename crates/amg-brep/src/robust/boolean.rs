@@ -62,7 +62,8 @@ impl Op {
 ///
 /// Each result passes the gate: `p.validation` with `require_solid` when every operand is a
 /// solid body, a tolerance cap of `max(input tolerance, min(cap, 10 × fuzzy))` and, for solid
-/// operands, volume bounds (`V(∪) ≤ ΣV`, `V(A \ B) ≥ V(A) − V(B)`, `V(∩) ≤ min`, …). Every
+/// operands, volume bounds (`V(∪) ≤ ΣV`, `V(A \ B) ≥ V(A) − V(B)`, `V(∩) ≤ min`, …) and
+/// [`Validation::disjoint_solids`] (an unmerged fuse returns its overlapping operands). Every
 /// non-direct acceptance adds a report warning; rungs above 1e-5 mm add a second one.
 /// OCCT's non-destructive mode is always on (S02 `boolean`): the inputs are never modified.
 ///
@@ -310,6 +311,7 @@ impl Gate {
     fn validation(&self, fuzzy: f64) -> Validation {
         let mut v = self.validation.clone();
         v.require_solid |= self.solid_operands;
+        v.disjoint_solids |= self.solid_operands;
         let cap = if fuzzy > 0.0 {
             v.max_tolerance.min(10.0 * fuzzy)
         } else {

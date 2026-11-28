@@ -65,6 +65,18 @@ rayon pools.
 attempt deadline returns `Timeout` after 341 ms through `Chain` (the strategy behind it never
 runs) and after 568 ms through `robust_boolean` (operand volumes for the gate included).
 
+**KH-17 fix (2026-11-28, `POLICY_VERSION` 2).** The proptest's random draws hit
+`SkewCoaxial` fuses at offset 1e-7 mm and tilt ±1e-3 rad. There OCCT's exact fuse returns both
+cylinders unmerged (volume `ΣV` = 1570.80 against 1178.10 mm³), and the volume bounds accepted
+it. The gate now refuses overlapping result solids (`Validation::disjoint_solids`).
+
+| set | cases | valid Ok | classified Err | invalid Ok |
+|---|---|---|---|---|
+| proptest case space, every distinct case | 612 | 610 (99.7 %) | 2 | 0 |
+| proptest sampling, seeds 0..200 × 48 | 9600 | 9575 (99.74 %) | 25 | 0 |
+
+The 100-case table above is unchanged: its seed draws neither case.
+
 ### Overhead of the direct path (S20 target: ≤ raw op + validation, < 5 %)
 
 `cargo bench -p amg-brep --features occt --bench robust`, criterion medians, release:

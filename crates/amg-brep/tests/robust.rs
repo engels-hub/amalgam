@@ -28,7 +28,7 @@ fn hardened_kernel_passes_backend_errors_through() {
         amg_brep::kernel_version()
             .ends_with(&format!("policy-{}", amg_brep::robust::POLICY_VERSION))
     );
-    assert_eq!(amg_brep::robust::POLICY_VERSION, 1);
+    assert_eq!(amg_brep::robust::POLICY_VERSION, 2);
     if !amg_brep::OCCT_BACKEND {
         let r = k.boolean(
             BoolOp::Fuse,
@@ -74,6 +74,7 @@ mod occt {
         Relation, Shape, SubKind, SubShape, Validate, Vec3,
     };
     use proptest::prelude::*;
+    use proptest::test_runner::RngSeed;
 
     use super::bool_corpus::{Case, corpus};
     use super::fault::FaultKernel;
@@ -903,6 +904,234 @@ mod occt {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The proptest case from its four indices (family, offset, tilt or angle, op).
+    fn near_case_of(f: usize, o: usize, a: usize, op: u8) -> NearCase {
+        let family = NearFamily::ALL[f];
+        let angle = match family {
+            NearFamily::BoxFaceOffset | NearFamily::FlushPocket | NearFamily::ShiftedCopy => {
+                ANGLES[a % ANGLES.len()]
+            }
+            NearFamily::TiltedFace | NearFamily::SkewCoaxial => TILTS[a],
+            _ => 0.0,
+        };
+        let op = match (family, op) {
+            (NearFamily::BoxFaceOffset | NearFamily::TiltedFace, 0) => BoolOp::Fuse,
+            (NearFamily::BoxFaceOffset | NearFamily::TiltedFace, 1) => BoolOp::Cut,
+            (NearFamily::BoxFaceOffset | NearFamily::TiltedFace, _) => BoolOp::Common,
+            (NearFamily::FlushPocket | NearFamily::TangentHole, _) => BoolOp::Cut,
+            (NearFamily::TangentCylinders | NearFamily::ShiftedCopy, 1) => BoolOp::Cut,
+            _ => BoolOp::Fuse,
+        };
+        NearCase {
+            id: format!("prop-{f}-{o}-{a}-{op:?}"),
+            family,
+            op,
+            offset: OFFSETS[o],
+            angle,
+        }
+    }
+
+    /// The proptest's seed: fixed, so a run is reproducible; `AMG_NEAR_SEED=<u64>` draws
+    /// another sample (the KH-17 fix ran seeds 0..200).
+    fn near_seed() -> u64 {
+        std::env::var("AMG_NEAR_SEED")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(SEED)
+    }
+
+    /// Whether a robust result is a valid `Ok` or a classified `Err`; the message otherwise.
+    fn valid_or_classified(
+        k: &dyn BrepKernel,
+        c: &NearCase,
+        r: &Result<RobustOutput, RobustError>,
+    ) -> Result<bool, String> {
+        match r {
+            Ok(out) => valid_ok(k, &out.result.shape, Some(c.expected_volume()))
+                .map(|()| true)
+                .map_err(|why| {
+                    format!("{}: invalid Ok via {:?}: {why}", c.id, out.report.accepted)
+                }),
+            Err(e) if e.class == FailureClass::Other => Err(format!("{}: unclassified {e}", c.id)),
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// KH-17 fix regressions (seen in KH-20's runs of the proptest): a skewed coaxial fuse at
+    /// offset 1e-7 mm and tilt ±1e-3 rad, where OCCT's exact fuse returns both cylinders unmerged
+    /// (two overlapping solids, volume `ΣV` = 1570.80 mm³ against 1178.10 mm³) and the volume
+    /// bounds alone accepted it. The disjoint-solid check now refuses the direct result.
+    #[test]
+    fn skew_coaxial_unmerged_fuse_is_refused() {
+        let k = kernel(Validate::Off);
+        for (o, a) in [(1, 6), (1, 7)] {
+            let c = near_case_of(9, o, a, 0);
+            assert_eq!(c.id, format!("prop-9-{o}-{a}-Fuse"));
+            let (objects, tools) = c.operands(&k).unwrap();
+            let raw = k
+                .boolean(
+                    c.op,
+                    &objects,
+                    &tools,
+                    &BoolOpts::default(),
+                    &JobCtx::detached(),
+                )
+                .unwrap();
+            let gate = Validation {
+                require_solid: true,
+                disjoint_solids: true,
+                ..Validation::default()
+            };
+            let rejected = robust::validate(&k, &raw.shape, &gate);
+            if raw.shape.solids().len() > 1 {
+                assert!(
+                    matches!(rejected, Err(robust::Rejection::OverlappingSolids(0, 1))),
+                    "{}: {rejected:?}",
+                    c.id
+                );
+            }
+            let r = near_robust(&k, &c, &objects, &tools, &RetryPolicy::recompute());
+            let outcome = valid_or_classified(&k, &c, &r);
+            assert!(outcome.is_ok(), "{outcome:?}");
+            let report = match &r {
+                Ok(out) => &out.report,
+                Err(e) => &e.report,
+            };
+            eprintln!("{}: {:?}", c.id, report.without_timing().attempts);
+        }
+    }
+
+    /// The disjoint-solid check passes pieces that only share faces (a split) and solids that
+    /// only touch along a line (tangent cylinders), so it adds no false refusals.
+    #[test]
+    fn touching_solids_pass_the_disjoint_check() {
+        let k = kernel(Validate::Off);
+        let gate = Validation {
+            require_solid: true,
+            disjoint_solids: true,
+            ..Validation::default()
+        };
+        let (a, b) = overlapping_boxes(&k);
+        let pieces = k
+            .split(
+                std::slice::from_ref(&a),
+                std::slice::from_ref(&b),
+                &BoolOpts::default(),
+                &JobCtx::detached(),
+            )
+            .unwrap();
+        assert!(pieces.shape.solids().len() >= 2);
+        robust::validate(&k, &pieces.shape, &gate).unwrap();
+        let c = NearCase {
+            id: "tangent".into(),
+            family: NearFamily::TangentCylinders,
+            op: BoolOp::Fuse,
+            offset: 0.0,
+            angle: 0.0,
+        };
+        let (objects, tools) = c.operands(&k).unwrap();
+        let fused = k
+            .boolean(
+                BoolOp::Fuse,
+                &objects,
+                &tools,
+                &BoolOpts::default(),
+                &JobCtx::detached(),
+            )
+            .unwrap();
+        robust::validate(&k, &fused.shape, &gate).unwrap();
+        // Two overlapping boxes side by side in one compound are refused.
+        let both = k.make_compound(&[a, b]).unwrap();
+        assert!(matches!(
+            robust::validate(&k, &both, &gate),
+            Err(robust::Rejection::OverlappingSolids(0, 1))
+        ));
+    }
+
+    /// Every distinct case of the proptest's space (612 of them): no invalid `Ok`, ≥ 95 % valid.
+    #[test]
+    fn near_coincident_space_has_no_invalid_ok() {
+        let k = kernel(Validate::Off);
+        let mut seen = std::collections::BTreeSet::new();
+        let (mut ok, mut err, mut bad) = (0usize, 0usize, Vec::new());
+        for f in 0..NearFamily::ALL.len() {
+            for o in 0..OFFSETS.len() {
+                for a in 0..TILTS.len() {
+                    for op in 0u8..3 {
+                        let c = near_case_of(f, o, a, op);
+                        let key = format!("{:?} {} {} {:?}", c.family, c.offset, c.angle, c.op);
+                        if !seen.insert(key) {
+                            continue;
+                        }
+                        let (objects, tools) = c.operands(&k).unwrap();
+                        let r = near_robust(&k, &c, &objects, &tools, &RetryPolicy::recompute());
+                        match valid_or_classified(&k, &c, &r) {
+                            Ok(true) => ok += 1,
+                            Ok(false) => {
+                                eprintln!(
+                                    "classified Err {}: {:?}",
+                                    c.id,
+                                    r.as_ref().err().map(|e| e.class)
+                                );
+                                err += 1;
+                            }
+                            Err(why) => bad.push(why),
+                        }
+                    }
+                }
+            }
+        }
+        let n = seen.len();
+        eprintln!(
+            "near-coincident space: {n} cases, {ok} valid Ok, {err} classified Err, {} invalid Ok",
+            bad.len()
+        );
+        assert!(bad.is_empty(), "{bad:#?}");
+        assert!(ok * 100 >= 95 * n, "{ok} of {n} valid");
+    }
+
+    /// The proptest's sampling over seeds `0..AMG_NEAR_SEEDS` (default 200), tallied: the
+    /// KH-17 fix evidence (`cargo nextest run … --run-ignored all near_coincident_seed_sweep`).
+    #[test]
+    #[ignore = "slow: about 9600 robust booleans"]
+    fn near_coincident_seed_sweep() {
+        use proptest::test_runner::TestRunner;
+        let seeds: u64 = std::env::var("AMG_NEAR_SEEDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(200);
+        let k = kernel(Validate::Off);
+        let tally = std::cell::RefCell::new((0usize, 0usize, Vec::<String>::new()));
+        for seed in 0..seeds {
+            let mut runner = TestRunner::new(ProptestConfig {
+                cases: 48,
+                failure_persistence: None,
+                rng_seed: RngSeed::Fixed(seed),
+                ..ProptestConfig::default()
+            });
+            runner
+                .run(&near_case(), |c| {
+                    let (objects, tools) = c.operands(&k).unwrap();
+                    let r = near_robust(&k, &c, &objects, &tools, &RetryPolicy::recompute());
+                    let mut t = tally.borrow_mut();
+                    match valid_or_classified(&k, &c, &r) {
+                        Ok(true) => t.0 += 1,
+                        Ok(false) => t.1 += 1,
+                        Err(why) => t.2.push(format!("seed {seed}: {why}")),
+                    }
+                    Ok(())
+                })
+                .unwrap();
+        }
+        let (ok, err, bad) = tally.into_inner();
+        let n = ok + err + bad.len();
+        eprintln!(
+            "seed sweep: {seeds} seeds, {n} cases, {ok} valid Ok, {err} classified Err, {} invalid Ok",
+            bad.len()
+        );
+        assert!(bad.is_empty(), "{bad:#?}");
+    }
+
     fn near_case() -> impl Strategy<Value = NearCase> {
         (
             0usize..NearFamily::ALL.len(),
@@ -910,35 +1139,16 @@ mod occt {
             0usize..TILTS.len(),
             0u8..3,
         )
-            .prop_map(|(f, o, a, op)| {
-                let family = NearFamily::ALL[f];
-                let angle = match family {
-                    NearFamily::BoxFaceOffset
-                    | NearFamily::FlushPocket
-                    | NearFamily::ShiftedCopy => ANGLES[a % ANGLES.len()],
-                    NearFamily::TiltedFace | NearFamily::SkewCoaxial => TILTS[a],
-                    _ => 0.0,
-                };
-                let op = match (family, op) {
-                    (NearFamily::BoxFaceOffset | NearFamily::TiltedFace, 0) => BoolOp::Fuse,
-                    (NearFamily::BoxFaceOffset | NearFamily::TiltedFace, 1) => BoolOp::Cut,
-                    (NearFamily::BoxFaceOffset | NearFamily::TiltedFace, _) => BoolOp::Common,
-                    (NearFamily::FlushPocket | NearFamily::TangentHole, _) => BoolOp::Cut,
-                    (NearFamily::TangentCylinders | NearFamily::ShiftedCopy, 1) => BoolOp::Cut,
-                    _ => BoolOp::Fuse,
-                };
-                NearCase {
-                    id: format!("prop-{f}-{o}-{a}-{op:?}"),
-                    family,
-                    op,
-                    offset: OFFSETS[o],
-                    angle,
-                }
-            })
+            .prop_map(|(f, o, a, op)| near_case_of(f, o, a, op))
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig { cases: 48, failure_persistence: None, ..ProptestConfig::default() })]
+        #![proptest_config(ProptestConfig {
+            cases: 48,
+            failure_persistence: None,
+            rng_seed: RngSeed::Fixed(near_seed()),
+            ..ProptestConfig::default()
+        })]
 
         /// Design note §7: near-coincident inputs give a valid `Ok` (BRepCheck, closed solids,
         /// the oracle volume) or a classified `Err`; never a panic, never an invalid `Ok`.
