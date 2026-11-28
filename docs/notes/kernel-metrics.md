@@ -252,3 +252,75 @@ access violation of `boolean_stack-0005` goes through the same path in every ful
 |---|---|---|
 | `fillet/synthetic/boolean_stack-0005` | access violation in `BRepFilletAPI_MakeFillet::Build` (OCCT 8.0.1) | found by KH-02; reproducer (`kernel-harness show --id boolean_stack-0005`, then a Draw script) still to write |
 | `fillet/synthetic/prism_mixed_edges-0008` (and `-0013`, `-0016`) | `MakeFillet` returns an invalid shape (`SelfIntersectingWire`) at a convex vertex where a vertical and two top edges are filleted | found by KH-02 |
+
+## 2026-11-28 — KH-03: fillet strategy chain (`robust::fillet`), before/after
+
+Source: `kernel_corpus::full_fillet_corpus`, which since KH-03 runs every case with both
+strategies (`raw` = `OcctKernel::fillet` with the validation policy off; `hardened` =
+`HardenedKernel` with `RetryPolicy::recompute()`, which now routes `fillet` through
+`robust::fillet::fillet`). Same machine, harness and profile as the KH-02 baseline; times are the
+fillet call alone, test profile. Before = the KH-02 baseline re-run at the start of KH-03 (raw
+and hardened were identical then: the decorator forwarded fillets). Reports:
+`D:/coding/amalgam-handoff/kh03/{before-raw,after}.json` (not committed).
+
+| set | before (raw = hardened) | after, hardened | change |
+|---|---|---|---|
+| all: valid Ok / expecting success | 183 / 191 (95.8 %) | 183 / 191 (95.8 %) | 0 |
+| all: clean failures / expecting one | 25 / 25 | 25 / 25 | 0 |
+| all: **invalid Ok** | **3** | **0** | −3 (now classified `VertexBlend` errors) |
+| all: crashes | 1 | 1 | 0 (`boolean_stack-0005`, OCCT access violation, still isolated) |
+| expected class matched (`RadiusTooLarge` on the 25 too-large cases) | 0 / 25 | **25 / 25** | +25 |
+| errors naming ≥ 1 failing edge and a meaningful class | 29 / 29 (OCCT names all) | 32 / 32 | |
+| regressions against the KH-02 baseline | – | **0** | |
+| p50 / p95 ms, all | 3.18 / 18.41 | 7.65–11.29 / 59–83 | gate on every result; failures run isolation + max radius |
+| p50 ms, `prism_vertical_edges` (all direct) | 3.61 | 5.44–7.57 | gate (BRepCheck, volume) |
+| p50 ms, `radius_too_large` | 1.75 | 50–71 | `max_radius` bisection (12 + 2 fillets per failing edge) |
+
+Per tag, after (hardened): `synthetic` 126/130, 0 invalid; `handmade` 57/61; `smoke` 39/39;
+`prism_vertical_edges` 60/60; `prism_mixed_edges` 32/35, 0 invalid (raw 3); `boolean_stack`
+34/35 + 1 crash; `corner3` 19/23, 0 invalid (raw 3); `concave` 34/35, 0 invalid (raw 1);
+`near_limit` 6/8. Raw numbers are unchanged from KH-02. Hardened errors by class: 26
+`RadiusTooLarge`, 3 `VertexBlend`, 2 `InvalidInput`, 1 `NotDone`. No corpus case is accepted by
+a non-direct strategy: every direct result that the gate refuses (the 3 corner-3 invalid Oks)
+also fails with every later strategy (shape variants and healing give the same invalid shape;
+the sequential ones end in `ChFiDS_WalkingFailure` or in a radius propagated into a neighbour
+edge, see below). The later strategies are exercised by injected-fault tests
+(`robust_fillet::chain`).
+
+**The 8 cases that still fail** (unchanged set; none is reachable by a strategy around
+`MakeFillet`):
+
+| case | after | owner |
+|---|---|---|
+| `prism_mixed_edges-0008`, `-0013`, `-0016` | `VertexBlend`, 9 / 6 / 3 edges named (was invalid Ok) | KH-19 corner patches |
+| `boolean_stack-0005` | `Crash` (access violation in `MakeFillet`, every strategy dies in the direct attempt) | KH-09 |
+| `cube-edge-r10-full` | `RadiusTooLarge`, max radius 9.99756 mm (r = the face width) | KH-04 (a blend that consumes a face) |
+| `cube-all-edges-r5-sphere` | `NotDone`, edge 0 | KH-04/KH-19 |
+| `near-flat-vertex-r5`, `-r50` | `InvalidInput` (`MakeFillet::Add` refuses a 2° crease) | KH-04 (analytic plane/plane blend) |
+
+**Done-when 1 is not met:** "+10 percentage points" is above 100 % from a 95.8 % baseline, and
+"≥ 50 % of the 8 baseline failures fixed" needs 4 of the cases above, which belong to other WPs.
+
+**Max radius** (`robust_fillet::corpus_failures_name_edges_classes_and_max_radii`): on the 25
+cases with an analytic limit (20 `radius_too_large` + 5 handmade too-large), `max_radius` is
+within **6.0e-4** relative of the limit (worst; target 2 %), all exact (`r̂` works, `1.02·r̂`
+fails), class `RadiusTooLarge`. On the other failures (`max_radius_is_consistent_on_inflated_radii`:
+the 95 `prism_vertical_edges` + `boolean_stack` cases with every radius ×4, 52 failures, 69 failing
+edges with `r̂` below the request): **69 of 69 exact**.
+
+**Proptest** (`robust_fillet::generated_parts_are_valid_or_classified`, seed `0x4b483033`, 256
+distinct parts from the four generators, seeds 1000–999999, worker processes): hardened 199
+valid Ok + 57 classified Err (each naming edges), 0 invalid Ok, 0 crashes; raw on the same parts
+199 valid, 53 classified, **4 invalid Ok**.
+
+**Overhead when the direct attempt is accepted** (`cargo bench -p amg-brep --features occt
+--bench robust -- robust-fillet`, criterion medians; target "≤ raw + validation, < 5 %"):
+
+| part | raw | raw + gate | robust (direct accepted) | vs raw + gate |
+|---|---|---|---|---|
+| 10 mm cube, 4 vertical edges r 2 | 3.04 ms | 5.19 ms | 5.25 ms | +1.1 % |
+| 10 mm cube, 12 edges r 1 | 7.03 ms | 12.72 ms | 12.68 ms | −0.3 % (noise) |
+
+A first version computed the gate's volume bound from `sub_geom` lengths and projected normals
+(+12.6 % / +6.7 %); lines and circles now take their length from the parameter range and planes
+their normal from the surface.

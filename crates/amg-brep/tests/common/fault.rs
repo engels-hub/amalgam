@@ -26,12 +26,23 @@ pub fn not_done(op: &'static str) -> KernelError {
 /// - `make_torus` with `major == 42` panics;
 /// - with `abort`, `make_sphere` aborts the process (a hard crash inside the op);
 /// - with `exact_boolean_fails` (S20 KH-17), `boolean` and `split` with `fuzzy == 0` fail with
-///   an injected `OpFailed`, so a robust chain has to use the fuzzy ladder.
+///   an injected `OpFailed`, so a robust chain has to use the fuzzy ladder;
+/// - `fillet_fault` (S20 KH-03) makes `fillet` fail in one of the ways of [`FilletFault`].
 #[derive(Debug)]
 pub struct FaultKernel<K> {
     pub inner: K,
     pub abort: bool,
     pub exact_boolean_fails: bool,
+    pub fillet_fault: Option<FilletFault>,
+}
+
+/// How `FaultKernel::fillet` fails (KH-03 chain tests).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilletFault {
+    /// With the default `FilletOpts` (rational blends): a shape variant has to be used.
+    DefaultOpts,
+    /// With more than one edge in the call: a sequential strategy has to be used.
+    Together,
 }
 
 impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
@@ -156,6 +167,25 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
         opts: &FilletOpts,
         ctx: &JobCtx,
     ) -> KResult<OpResult> {
+        let fails = match self.fillet_fault {
+            Some(FilletFault::DefaultOpts) => *opts == FilletOpts::default(),
+            Some(FilletFault::Together) => edges.len() > 1,
+            None => false,
+        };
+        if fails {
+            return Err(KernelError::LocalOpFailed {
+                op: "fillet",
+                message: "injected NotDone".into(),
+                offending: edges
+                    .iter()
+                    .map(|(e, _)| SubShape {
+                        kind: amg_brep::SubKind::Edge,
+                        index: e.0,
+                    })
+                    .collect(),
+                partial: None,
+            });
+        }
         self.inner.fillet(s, edges, opts, ctx)
     }
     fn chamfer(

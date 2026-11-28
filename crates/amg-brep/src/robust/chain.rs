@@ -378,6 +378,23 @@ impl<'c> Chain<'c> {
     }
 }
 
+/// Runs `f` under a child of `job`'s cancellation that is also cancelled when `deadline` passes
+/// (the chain's attempt rule, for calls that are not attempts: KH-03's diagnostic probes).
+/// Returns `f`'s value and whether the deadline expired.
+pub(crate) fn with_deadline<T>(
+    job: &JobCtx,
+    deadline: Duration,
+    f: impl FnOnce(&JobCtx) -> T,
+) -> (T, bool) {
+    let token = job.cancel_token().child();
+    let ctx = JobCtx::with_token(token.clone());
+    let watchdog = Watchdog::arm(token, deadline);
+    let start = Instant::now();
+    let value = f(&ctx);
+    let timed_out = watchdog.fired() || start.elapsed() > deadline;
+    (value, timed_out)
+}
+
 fn cancelled_info() -> FailureInfo {
     FailureInfo::new(FailureClass::Cancelled, "cancelled")
 }
