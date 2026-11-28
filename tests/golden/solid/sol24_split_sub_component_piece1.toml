@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol24_split_sub_component_piece1 (S04 SOL-24). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 7200.000000000004
+area = 2600.0000000000005
+faces = 6
+edges = 12
+vertices = 8
+bbox_min = [21.999999999999993, 0.0, 0.0]
+bbox_max = [40.0, 40.0, 10.0]

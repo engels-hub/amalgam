@@ -101,8 +101,10 @@ Full rules in the note §2. Summary:
   all are empty.
 - Every boolean result is simplified with `unify_same_domain` (faces + edges), composed into
   the history before naming (naming note §5.1, QUESTIONS #48).
-- Participants must be solid bodies of the feature's context component (`WrongBodyKind`,
-  `OtherComponent`).
+- Participants must be solid bodies of the feature's context component or of a component
+  placed exactly once below it (SOL-24, Fusion's assembly context: the tool is moved into the
+  participant's component space; `WrongBodyKind`, `OtherComponent`, `AmbiguousPlacement`,
+  `MirroredPlacement`; a join fuses bodies of one component only, `MixedComponents`).
 
 ### 4. Extents (extrude, revolve, hole, rib)
 Full algorithm in the note §3.
@@ -238,6 +240,31 @@ pub fn tool_of(seed: &dyn Feature, ctx: &RecomputeCtx<'_>) -> Result<ToolBody, F
 /// per-solid split, Consumed/Created{derived_from}/Deleted body changes, warnings.
 pub fn apply_body_op(ctx: &RecomputeCtx<'_>, tool: ToolBody, out: &mut FeatureOutput)
     -> Result<(), FeatureError>;
+
+// ===== amg_features::solid::component (SOL-24): transaction builders, not features ===========
+pub enum ComponentOpError { NoComponent(ComponentId), NotOccurrences, NoOccurrences,
+    NoOccurrence(OccurrenceId), NotInContext { occ: OccurrenceId, context: ComponentId },
+    Feature(FeatureError), Command(CommandError) }
+/// `"Component"`, `"Component1"`, … (first free).
+pub fn unique_component_name(design: &Design, base: &str) -> String;
+/// [NewComponent { parent, name, identity }, AddFeature { context: <new component> }].
+pub fn new_component_commands(design: &Design, parent: ComponentId, name: &str, feature: FeatureBox,
+    feature_name: Option<String>) -> Result<Vec<Command>, ComponentOpError>;
+/// Pattern layout of a `PatternObjects::Occurrences` pattern in `context` (seed and suppressed left out).
+pub fn occurrence_pattern_transforms(design: &Design, eval: &Evaluated, pattern: &Pattern,
+    context: ComponentId) -> Result<Vec<(u32, Transform)>, ComponentOpError>;
+/// One `AddOccurrence { parent: context, component, transform: T_k · L }` per source and instance.
+pub fn pattern_occurrences(design: &Design, eval: &Evaluated, pattern: &Pattern, context: ComponentId)
+    -> Result<Vec<Command>, ComponentOpError>;
+/// One `AddOccurrence` at `M · L` per source, `M` the reflection about the plane (det −1).
+pub fn mirror_occurrences(design: &Design, eval: &Evaluated, mirror: &Mirror, context: ComponentId)
+    -> Result<Vec<Command>, ComponentOpError>;
+pub fn reflection(plane: &Plane) -> Transform;
+// amg_features::dialog (SOL-24): AddFeature, or new_component_commands when
+// `reg.new_component(values)` is `Some(name)`.
+pub enum CommitError { Fields(FieldErrors), Component(ComponentOpError) }
+pub fn new_feature_commands(reg: &DialogRegistration, values: &FieldValues, design: &Design,
+    context: ComponentId) -> Result<Vec<Command>, CommitError>;
 /// `unify_same_domain { faces, edges }` on `r.shape`, history composed into `r.history`.
 pub fn simplify(k: &dyn BrepKernel, r: OpResult) -> amg_brep::KResult<OpResult>;
 
@@ -656,7 +683,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-21 | Setback corners for fillets (S20 KH-19 corner patches): `CornerType::Setback` with setback distances | SOL-20, KH-19 | P1 | Todo | 1. The `corner3` subset driven through `solid.fillet` with setback reaches KH-19's success rate (≥ 95 %). 2. TNP-27 still meets its `expect` with setback on. |
 | SOL-22 | Silhouette split (R-S04-4): faces split along the silhouette for a view direction, optional body split | SOL-07 | P1 | Todo | 1. A sphere r 10 split for +Z gives two faces of area 2π·100 within 1e-6 relative. 2. A cylinder seen side-on splits into two half-cylinders; with `split_body` the body splits into two solids of equal volume within 1e-9. 3. A B-spline face split matches the sampled silhouette within 1e-4 mm. |
 | SOL-23 | Pattern on path (spacing/extent, start, orientation), face pattern (boss/pocket on a planar support), adjust compute type | SOL-08, CON-03 | P0 | Review | 1. 8 instances along a spline path with path-direction orientation: instance frames within 1e-9 of `CurveEval` frames. 2. A face pattern of a boss (6 faces) on a plate gives the analytic volume; a pocket the same. 3. Adjust compute of a to-object extrude seed across a sloped target gives per-instance heights matching the reference within 1e-6. |
-| SOL-24 | Component operations: "New component" body op (`new_component`, S11 request), component pattern and mirror (occurrences), cross-component participants | SOL-08, ASM-02 | P0 | Todo | 1. Extrude with "New component" creates one component and one body in one undo entry. 2. A circular pattern of an occurrence creates 6 occurrences with the right transforms; mirror creates a mirrored occurrence. 3. A cut whose participant is in a sub-component (assembly context) works and is undone in one step. |
+| SOL-24 | Component operations: "New component" body op (`new_component`, S11 request), component pattern and mirror (occurrences), cross-component participants | SOL-08, ASM-02 | P0 | Review | 1. Extrude with "New component" creates one component and one body in one undo entry. 2. A circular pattern of an occurrence creates 6 occurrences with the right transforms; mirror creates a mirrored occurrence. 3. A cut whose participant is in a sub-component (assembly context) works and is undone in one step. |
 | SOL-25 | Thread feature on cylindrical faces (cosmetic/modeled, full length or length+offset, handedness), shared geometry with tapped holes; ISO metric + UNC/UNF tables (BSP/NPT only on request; QUESTIONS #54); per-feature `clearance` (QUESTIONS #53) | SOL-12 | P1 | Todo | 1. ISO M3, M6, M10, M20 external modeled threads on cylinders: crest pitch within 1e-6 mm and diameters within 1e-4 mm of ISO 68-1 (BREP-11 checks reused). 2. A thread size is inferred from the face diameter (Ø6 → M6×1). 3. ¼-20 UNC and ¼-28 UNF pass the same checks. 4. `clearance` on a modeled thread shifts diameters by the given radial amount. |
 | SOL-26 | Emboss / deboss of profiles and text on planar faces (project) and on cylindrical and conical faces (wrap by unrolling) | SOL-02, SK-10 | P1 | Todo | 1. Text "AgB" embossed 1 mm on a plane: volume = text area × 1 within 1e-6. 2. A 10 mm square wrapped on a cylinder r 20 and debossed 1 mm: volume within 1e-4 relative of the analytic value. 3. Editing the depth keeps glyph lateral names. 4. A freeform target face fails with `NotYet { what: "emboss on freeform faces" }`. |
 | SOL-27 | Surface repair tools (QUESTIONS #1, P1): patch (planar and N-sided, R-S04-9), stitch (sew to a solid when closed), unstitch, reverse normal | SOL-01, BREP-10 | P1 | Todo | 1. Stitching the 6 faces of an imported cube with 1e-4 mm gaps gives a valid solid with volume within 1e-6. 2. A planar patch closes a hole in a sheet; an N-sided G1 patch on a 4-sided curved gap is valid with boundary G1 deviation ≤ 0.5°. 3. Unstitch then stitch round-trips volume and face count. 4. Reverse normal flips the chosen faces (face orientation test). |
@@ -1705,3 +1732,97 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   `amg-ui`).
 - **Leftovers.** Manipulator anchors for the path distance (UI-06); a viewport pick for the
   path chain order; face patterns on curved supports; adjust for face-profile seeds.
+
+### 2026-11-28 - SOL-24 implemented (lane C)
+- **Landed.**
+  - `amg_features::solid::component` (new, public): component operations are **transaction
+    builders**, not features (components and occurrences are authored state, S01 §6; same
+    pattern as S06 ASM-09's builders). Each returns the commands of one undo entry, checked on
+    a copy of the design. `new_component_commands` (`NewComponent` at the identity in the
+    active component + `AddFeature` with the new component as context; name made unique,
+    `"Component"`, `"Component1"`, …), `pattern_occurrences` / `occurrence_pattern_transforms`
+    (one `AddOccurrence` of the same component per source and instance, at `T_k · L`; `T_k`
+    from the same layout code as body/feature patterns, `Pattern::instances` in a
+    `RecomputeCtx::new` over the latest `Evaluated`; seed and suppressed instances left out;
+    sources must be placed directly in the active component), `mirror_occurrences` (one
+    `AddOccurrence` at `M · L`, `M = reflection(plane)`, determinant −1; the component is
+    shared, not copied), `ComponentOpError`, `unique_component_name`, `reflection`.
+  - `amg_features::dialog::new_feature_commands` + `CommitError`: commits a new feature from
+    dialog values: `AddFeature`, or `new_component_commands` when `reg.new_component` returns a
+    name. `solid.extrude` and `solid.revolve` register `new_component`; their "Operation" choice
+    gains "New component" (id `new_component`, built as `BodyOp::NewBody`, "Objects" hidden).
+  - Cross-component participants in `apply_body_op` (§3): a participant of a component placed
+    exactly once below the feature's component is accepted; the tool is moved into that
+    component's space (`Shape::transformed`, the product of the captured local transforms on
+    the occurrence chain, `RecomputeCtx::occurrence_transform`). Cut / intersect per
+    participant; a join fuses touched participants of one component (else `MixedComponents`)
+    and tool-only solids go back to the feature's component. New `SolidError` variants
+    `AmbiguousPlacement`, `MirroredPlacement`, `MixedComponents`. `live_body` (combine, split,
+    moves) is unchanged: those still require the context component.
+  - `solid.pattern` / `solid.mirror` stored with `PatternObjects::Occurrences` now fail with a
+    clear `InvalidValue` pointing at the builders (was `NotYet`).
+- **Done-when evidence** (`crates/amg-features/tests/solid_component.rs` +
+  `solid_component/occt.rs`, 11 tests, 5 with OCCT; 2 unit tests in `component.rs`; goldens
+  `tests/golden/solid/sol24_*.toml`, 2 files, rel 1e-9; results BRepCheck-valid):
+  1. `dw1_extrude_with_new_component_commits_one_component_in_one_undo_entry` and
+     `occt::dw1_new_component_extrude_*`: the extrude dialog with "New component" on a 10×20
+     rectangle (default 10 mm) gives 2 commands; committed as one transaction: undo stack +1,
+     components +1 (named `Component`), the feature's context is the new component, exactly one
+     new body, in that component, volume 2000.0000000000005 mm³ (rel 1e-9), bbox (0,0,0)–
+     (10,20,10) (identity placement). One undo removes component, feature and body. Also: the
+     option exists in both dialogs and hides "Objects"; `new_component` is `None` for other
+     operations; a second "New component" is named `Component1`; "New body" stays one
+     `AddFeature`.
+  2. `dw2_circular_pattern_of_an_occurrence_creates_six_occurrences`: full circular pattern of 6
+     about Z of an occurrence at `T(40,0,5)·Rz(15°)`: 5 `AddOccurrence` in one undo entry, 6
+     occurrences of the component, each local and evaluated world transform equal to
+     `Rz(k·60°)·L` (worst element deviation 3.2e-14, limit 1e-12); one undo leaves 1.
+     `dw2_mirror_creates_a_mirrored_occurrence`: mirror about YZ: one occurrence at
+     `diag(−1,1,1)·L` (deviation 0), determinant −1, same component. With OCCT
+     (`occt::dw2_pattern_and_mirror_*`): a 10×10×4 body in the component seen through all 7
+     occurrences (seed, 5 instances, XZ mirror) sits at the expected world centres (worst
+     4.3e-14 mm) and the design still has one body. Also a 3×2 rectangular pattern with one
+     suppressed instance (4 new occurrences at `(20 i, 15 j)`), an empty layout giving no
+     commands, and clean errors for occurrences outside the active component, empty or
+     non-occurrence selections, missing occurrences, a count of 2.5, and a stored component
+     pattern feature.
+  3. `occt::dw3_cut_in_assembly_context_*`: a 40×40×10 box in sub-component "Sub" placed at
+     `T(50,20,5)·Rz(90°)`; a root extrude cut (10×10, 30 mm) with the Sub body as participant:
+     15 000 mm³ (rel 1e-9), 10 faces, body still in Sub, centroid in Sub's space
+     (19.3333, 20, 5) within 4.0e-15 mm (hole at local (30, 20)); golden
+     `sol24_cut_sub_component`; the cut is one undo entry and one undo restores 16 000 mm³.
+     Moving the occurrence +5 mm along world X recomputes the cut (hole now at local (30, 25),
+     centroid y 19.6667, exact). `occt::dw3_a_slot_*`: a slot across the box splits it; both
+     7200 mm³ pieces stay in Sub (`successors`, golden `sol24_split_sub_component_piece1`).
+     `occt::dw3_join_and_errors_*`: a root join boss fused into the Sub body (18 000 mm³, still
+     in Sub); a second placement of Sub gives `AmbiguousPlacement` (2), undo heals it; a body of
+     a sibling component gives `OtherComponent`.
+- **Gates.** `cargo fmt --all --check`; `cargo clippy -p amg-features --all-targets -D warnings`
+  default and `--features occt`; `cargo clippy -p amg-doc --all-targets -D warnings`;
+  `cargo nextest run -p amg-features` default (369 passed) and `--features occt` (585 passed),
+  `-p amg-doc` (279 passed).
+- **Deviations.**
+  - Component patterns and mirrors are not timeline features (no `solid.pattern` node is
+    stored): editing a count later means deleting / adding occurrences. A parametric component
+    pattern would need features that create occurrences in recompute (S01 change, not
+    requested here). `PatternObjects::Occurrences` stays in the data shape as the builders'
+    input.
+  - "New component" is offered on extrude and revolve only (not thicken, combine or the
+    primitives SOL-04 adds in parallel); editing such a feature reads back as "New body" (the
+    component is authored state, as decided 2026-11-08).
+  - One existing assertion changed: `solid_extrude.rs::dw7_*` checked `new_component.is_none()`
+    "until SOL-24"; it now checks `is_some()`.
+  - Join in an assembly context needs every touched participant in one component; cut and
+    intersect take participants of several components. Participants seen through a mirrored
+    occurrence are refused (a reflected tool would need `mirrored`, not a located copy).
+- **Interface changes elsewhere.** S01 (`amg-doc/src/recompute.rs`, recorded in S01 Interface
+  changes 2026-11-28): cache keys of features reading bodies of other components cover the
+  occurrence placements; `CreatedFrom` pieces stay in their parent body's component. S11
+  (recorded 2026-11-28): `dialog::new_feature_commands` for UI-05; requests for UI-05 to commit
+  through it and for a selectable occurrence `EntityRef`. No `amg-ui` change, no new dependency.
+  `context_reads` unchanged: cross-component participants are listed in `inputs()` (the
+  placement part is the S01 change). The extrude and revolve "Operation" dropdowns have a fifth
+  option, so a UI snapshot that renders an open operation dropdown would change (none found).
+- **Leftovers.** UI-05: commit through `new_feature_commands`; an occurrence pick so the pattern
+  and mirror dialogs can offer components (S11 request); "New component" for thicken / combine
+  / primitives; parametric component patterns (S01); joins across components.

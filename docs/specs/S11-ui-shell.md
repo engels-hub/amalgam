@@ -3288,3 +3288,16 @@ Flagged for lane D review. No new third-party dependency; no change to `amg-rend
   - `SessionStats::projection_refreshes`;
   - `view::colors::LOCKED` and `view::color_of`.
 - Requests (not implemented): pick targets for sketch curves and points (repeats CON-04's request), so that Project can take earlier sketch geometry from the view.
+
+### 2026-11-28: SOL-24 (lane C, S04) - "New component" commit helper; requests for UI-05
+- `amg_features::dialog::new_feature_commands(reg, values, design, context) -> Result<Vec<Command>,
+  CommitError>`: the commands that commit a new feature from its dialog values, `AddFeature` or,
+  when `DialogRegistration::new_component` returns a name, `NewComponent` (identity, in `context`) +
+  `AddFeature` in the new component. Apply them in one transaction (one undo entry).
+  `solid.extrude` and `solid.revolve` register `new_component`; their "Operation" dropdown gains a
+  fifth option "New component" (id `new_component`; "Objects" hidden for it). No `amg-ui` change.
+- Requests (not implemented): UI-05 commits new features through `new_feature_commands` (today it
+  builds `AddFeature` itself, so "New component" behaves as "New body" until then). A selectable
+  occurrence (`EntityFilter::OCCURRENCE` has no `EntityRef` yet) so the pattern and mirror dialogs
+  can offer components; until then component patterns and mirrors are reachable only through
+  `amg_features::solid::component::{pattern_occurrences, mirror_occurrences}` (API / scripting).

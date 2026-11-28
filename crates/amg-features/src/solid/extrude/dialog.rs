@@ -46,6 +46,41 @@ pub(crate) const OPS: [(&str, BodyOp, &str); 4] = [
     ("intersect", BodyOp::Intersect, "Intersect"),
 ];
 
+/// The operation option "New component" (SOL-24): a new body in a new component placed at the
+/// identity in the active component. Not stored (the feature holds `NewBody`); the dialog
+/// commits it through [`new_component_of`] and `dialog::new_feature_commands`.
+pub(crate) const NEW_COMPONENT: &str = "new_component";
+
+/// The operation options of a profile feature: the body operations, then "New component".
+pub(crate) fn op_options() -> Vec<(&'static str, &'static str)> {
+    OPS.iter()
+        .map(|(id, _, label)| (*id, *label))
+        .chain(std::iter::once((NEW_COMPONENT, "New component")))
+        .collect()
+}
+
+/// The body operation of an operation option (`NewBody` for "New component").
+pub(crate) fn op_of(id: &str) -> Option<BodyOp> {
+    if id == NEW_COMPONENT {
+        return Some(BodyOp::NewBody);
+    }
+    OPS.iter().find(|(o, _, _)| *o == id).map(|(_, op, _)| *op)
+}
+
+/// Shown unless the operation makes a new body (in this or a new component).
+pub(crate) fn uses_participants() -> Condition {
+    not(Condition::Any(vec![
+        is(OPERATION, "new_body"),
+        is(OPERATION, NEW_COMPONENT),
+    ]))
+}
+
+/// `DialogRegistration::new_component` of the profile features: `Some("")` (a default name)
+/// when the operation is "New component".
+pub(crate) fn new_component_of(v: &FieldValues) -> Option<String> {
+    (v.choice(OPERATION, "new_body").ok() == Some(NEW_COMPONENT)).then(String::new)
+}
+
 // Option labels differ from every field label (the UI harness finds fields by label).
 const STARTS: [(&str, &str); 3] = [
     ("profile", "Profile plane"),
@@ -215,11 +250,7 @@ fn schema() -> &'static DialogSchema {
             is(EXTENT2, "distance"),
             None,
         );
-        let operation = choice(
-            OPERATION,
-            "Operation",
-            &OPS.map(|(id, _, label)| (id, label)),
-        );
+        let operation = choice(OPERATION, "Operation", &op_options());
         let mut bodies = FieldSpec::new(
             BODIES,
             "Objects",
@@ -230,7 +261,7 @@ fn schema() -> &'static DialogSchema {
             },
         );
         bodies.tooltip = Some("Bodies the operation applies to.".into());
-        bodies.visible_if = Some(not(is(OPERATION, "new_body")));
+        bodies.visible_if = Some(uses_participants());
         let mut fields = vec![
             profiles,
             start,
@@ -506,8 +537,8 @@ fn build(v: &FieldValues, old: Option<&dyn Feature>) -> Result<FeatureBox, Field
         Err(e) => errs.0.push(e),
     }
     let id = take_choice(v, OPERATION, "new_body", &mut errs);
-    match OPS.iter().find(|(o, _, _)| *o == id) {
-        Some((_, op, _)) => f.target.op = *op,
+    match op_of(id) {
+        Some(op) => f.target.op = op,
         None => errs
             .0
             .push((FieldKey(OPERATION), format!("unknown operation `{id}`"))),
@@ -591,6 +622,6 @@ inventory::submit! {
             shortcut: Some("E"),
             keywords: &["extrude", "boss", "pocket", "pull", "push", "taper", "text"],
         },
-        new_component: None,
+        new_component: Some(new_component_of),
     }
 }

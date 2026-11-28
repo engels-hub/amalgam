@@ -36,7 +36,10 @@ fn a_profile_ref() -> EntityRef {
 fn dw7_extrude_dialog_build_of_defaults_round_trips_through_read() {
     let doc = Document::new("dw7");
     let reg = dialog::registration("solid.extrude").expect("solid.extrude registers a dialog");
-    assert!(reg.new_component.is_none(), "None until SOL-24");
+    assert!(
+        reg.new_component.is_some(),
+        "\"New component\" since SOL-24"
+    );
     let schema = (reg.schema)();
     assert_eq!(schema.kind, "solid.extrude");
     let profiles = schema.field(FieldKey("profiles")).unwrap();
