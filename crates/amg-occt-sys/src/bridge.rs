@@ -666,6 +666,15 @@ pub mod ffi {
         ) -> Result<UniquePtr<OcBuild>>;
         /// One wire through the single loop of `edges`, closed when `closed`.
         fn make_wire(edges: &OcLoopsIn, closed: bool, tol: f64) -> Result<UniquePtr<OcBuild>>;
+        /// The planar wall `left` mm to the left and `right` mm to the right of one open or
+        /// closed chain (the single loop of `chain`). Its edge map holds `(edge, code)` pairs.
+        fn make_thin_face(
+            chain: &OcPlanarIn,
+            closed: bool,
+            left: f64,
+            right: f64,
+            tol: f64,
+        ) -> Result<UniquePtr<OcBuild>>;
         fn build_count(build: &OcBuild) -> Result<u32>;
         fn build_shape(build: &OcBuild, i: u32) -> Result<UniquePtr<OcShape>>;
         fn build_edge_map(build: &OcBuild, i: u32) -> Result<Vec<u32>>;

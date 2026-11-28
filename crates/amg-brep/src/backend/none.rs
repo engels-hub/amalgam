@@ -48,6 +48,16 @@ impl Occ {
         Err(KernelError::BackendUnavailable)
     }
 
+    pub(crate) fn thin_face(
+        _chain: &PlanarIn,
+        _closed: bool,
+        _left: f64,
+        _right: f64,
+        _tol: f64,
+    ) -> KResult<(Occ, Vec<u32>)> {
+        Err(KernelError::BackendUnavailable)
+    }
+
     pub(crate) fn face_on_surface(
         _surface: &Surface,
         _bounds: &BoundsIn,

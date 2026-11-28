@@ -251,16 +251,16 @@ fn without_occt_extrude_fails_with_backend_unavailable() {
 }
 
 #[test]
-fn unsupported_options_fail_with_not_yet() {
-    let mut doc = Document::new("not-yet");
+fn a_thin_extrude_needs_a_positive_thickness() {
+    let mut doc = Document::new("thin-zero");
     let s = add(
         &mut doc,
         FeatureBox::new(rect_sketch(&[[0.0, 0.0, 10.0, 20.0]])),
     );
     let mut e = Extrude::distance(profiles(&doc, s), "30 mm", OpTarget::default());
-    // Symmetric extrudes landed with SOL-02; thin extrudes are SOL-18.
+    // Symmetric extrudes landed with SOL-02, thin extrudes with SOL-18 (`solid_thin.rs`).
     e.thin = Some(amg_features::solid::ThinSpec {
-        thickness: amg_doc::Expr::Inline(amg_doc::ExprSrc("1 mm".into())),
+        thickness: amg_doc::Expr::Inline(amg_doc::ExprSrc("0 mm".into())),
         side: amg_features::solid::ThinSide::Side1,
     });
     let id = add(&mut doc, FeatureBox::new(e));
@@ -268,7 +268,7 @@ fn unsupported_options_fail_with_not_yet() {
         panic!("{:?}", health(&doc, id));
     };
     assert!(
-        d.message.contains("not available in this build yet"),
+        d.message.contains("thickness must be positive"),
         "{}",
         d.message
     );

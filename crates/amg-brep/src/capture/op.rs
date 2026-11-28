@@ -190,6 +190,13 @@ pub enum KernelOp {
         /// Tolerance.
         tol: Tolerance,
     },
+    /// `make_thin_face`.
+    MakeThinFace {
+        /// Chain and widths.
+        profile: geom::ThinProfile,
+        /// Tolerance.
+        tol: Tolerance,
+    },
     /// `make_box`.
     MakeBox {
         /// Frame.
@@ -484,6 +491,7 @@ impl KernelOp {
             KernelOp::MakePlanarPolygon { .. } => "make_planar_polygon",
             KernelOp::MakeFace { .. } => "make_face",
             KernelOp::MakeWire { .. } => "make_wire",
+            KernelOp::MakeThinFace { .. } => "make_thin_face",
             KernelOp::MakeBox { .. } => "make_box",
             KernelOp::MakeCylinder { .. } => "make_cylinder",
             KernelOp::MakeCone { .. } => "make_cone",
@@ -645,6 +653,9 @@ impl KernelOp {
                 tol,
             } => k.make_face(surface, bounds, *tol).map(|f| vec![f.face]),
             KernelOp::MakeWire { segs, tol } => shape(k.make_wire(segs, tol)),
+            KernelOp::MakeThinFace { profile, tol } => {
+                k.make_thin_face(profile, tol).map(|f| vec![f.build.face])
+            }
             KernelOp::MakeBox { frame, size } => shape(k.make_box(frame, *size)),
             KernelOp::MakeCylinder {
                 frame,
@@ -847,6 +858,17 @@ mod tests {
             },
             KernelOp::MakeWire {
                 segs: vec![seg],
+                tol,
+            },
+            KernelOp::MakeThinFace {
+                profile: geom::ThinProfile {
+                    plane: frame,
+                    chain: Vec::new(),
+                    closed: false,
+                    left: 1.0,
+                    right: 0.0,
+                    end_tags: [geom::Tag(1), geom::Tag(2)],
+                },
                 tol,
             },
             KernelOp::MakeBox {

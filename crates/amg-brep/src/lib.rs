@@ -40,7 +40,7 @@ pub use error::{KResult, KernelError};
 pub use foreign::{ForeignModel, ForeignNode, ForeignPrototype, ImportOpts, StepSchema};
 pub use history::{
     FaceBuild, InputSub, KernelWarning, OpResult, OpRole, Relation, SPLIT_QUANTUM, ShapeHistory,
-    SplitKey, split_order_key,
+    SplitKey, ThinFace, split_order_key,
 };
 pub use kernel::{BrepKernel, OcctKernel, init, kernel_version};
 pub use opts::{

@@ -17,8 +17,8 @@ use crate::dialog::{
 use crate::solid::common::OpTarget;
 use crate::solid::extent::{Direction, Extent, ExtentSide};
 use crate::solid::extrude::dialog::{
-    OPS, choice, expr, is, new_component_of, not, one_ref, op_of, op_options, take_choice,
-    take_expr, target_filter, uses_participants,
+    OPS, build_thin, choice, expr, is, new_component_of, not, one_ref, op_of, op_options,
+    take_choice, take_expr, target_filter, thin_fields, thin_values, uses_participants,
 };
 use crate::solid::pattern::dialog::{AXES, axis_values, read_axis};
 
@@ -110,12 +110,16 @@ fn schema() -> &'static DialogSchema {
             PROFILES,
             "Profiles",
             FieldKind::Selection {
-                filter: EntityFilter::PROFILE | EntityFilter::PLANAR_FACE,
+                filter: EntityFilter::PROFILE
+                    | EntityFilter::PLANAR_FACE
+                    | EntityFilter::SKETCH_CURVE,
                 min: 1,
                 max: None,
             },
         );
-        profiles.tooltip = Some("Sketch profiles or planar faces to revolve.".into());
+        profiles.tooltip = Some(
+            "Sketch profiles or planar faces to revolve; sketch curves for a thin wall.".into(),
+        );
         let axis = choice(AXIS, "Axis", &AXES);
         let mut axis_ref = FieldSpec::new(
             AXIS_REF,
@@ -175,11 +179,9 @@ fn schema() -> &'static DialogSchema {
         let mut fields = vec![profiles, axis, axis_ref, direction, whole];
         fields.extend(side1);
         fields.extend(side2);
-        fields.extend([
-            FieldSpec::new(FLIP, "Flip", FieldKind::FlipDirection),
-            operation,
-            bodies,
-        ]);
+        fields.push(FieldSpec::new(FLIP, "Flip", FieldKind::FlipDirection));
+        fields.extend(thin_fields());
+        fields.extend([operation, bodies]);
         DialogSchema {
             kind: "solid.revolve",
             title: "Revolve".into(),
@@ -249,7 +251,8 @@ fn values_of(r: &Revolve, design: &Design) -> FieldValues {
     } else {
         None
     };
-    side_values(v, SIDE2, DEFAULT_ANGLE2, side2, design)
+    let v = side_values(v, SIDE2, DEFAULT_ANGLE2, side2, design);
+    thin_values(v, r.thin.as_ref(), design)
         .with(FLIP, FieldValue::Flip(r.flip))
         .with(OPERATION, FieldValue::Choice(op))
         .with(
@@ -397,6 +400,7 @@ fn build(v: &FieldValues, old: Option<&dyn Feature>) -> Result<FeatureBox, Field
         Ok(b) => f.flip = b,
         Err(e) => errs.0.push(e),
     }
+    f.thin = build_thin(v, &f.profiles, &mut errs);
     let id = take_choice(v, OPERATION, "new_body", &mut errs);
     match op_of(id) {
         Some(op) => f.target.op = op,

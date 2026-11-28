@@ -92,6 +92,24 @@ pub struct Loop2 {
     pub edges: Vec<ProfileEdge2>,
 }
 
+/// A wall along an open or closed planar chain (S04 R-S04-3): the chain widened by `left` mm to
+/// its left and `right` mm to its right, seen against `plane.normal` along the chain.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ThinProfile {
+    /// The sketch plane; the face normal is `plane.normal`.
+    pub plane: Plane,
+    /// The chain in order, each edge oriented along it, in `plane`'s local `(u, v)`.
+    pub chain: Vec<ProfileEdge2>,
+    /// Whether the last edge ends where the first starts. A lone circle must be closed.
+    pub closed: bool,
+    /// Width left of the chain, mm, `>= 0`.
+    pub left: f64,
+    /// Width right of the chain, mm, `>= 0`; `left + right > 0`.
+    pub right: f64,
+    /// Tags of the straight end caps of an open chain: at its start and at its end.
+    pub end_tags: [Tag; 2],
+}
+
 /// One planar region: outer loop CCW, holes CW (S03 convention), in `plane`'s local `(u, v)`.
 /// Holes must lie inside the outer loop.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]

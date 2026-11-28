@@ -8,8 +8,8 @@ use amg_brep::{
     DistanceResult, DraftOpts, EdgeEnds, EdgeId, FaceBuild, FaceId, FilletOpts, FilletSpec,
     HealOpts, JobCtx, KResult, KernelError, Line3, LoftSection, MassProps, OffsetJoin, OpResult,
     PipeOpts, Plane, Point2, Point3, PrismExtent, PrismOpts, Ray3, RayHit, SewOpts, Shape,
-    ShellOpts, SubShape, SubShapeGeom, SurfacePoint, TessMesh, TessQuality, ThruSectionsOpts,
-    Tolerance, UnifyOpts, Vec3,
+    ShellOpts, SubShape, SubShapeGeom, SurfacePoint, TessMesh, TessQuality, ThinFace,
+    ThruSectionsOpts, Tolerance, UnifyOpts, Vec3,
 };
 
 /// The injected "not done" failure.
@@ -60,6 +60,9 @@ impl<K: BrepKernel> BrepKernel for FaultKernel<K> {
         tol: f64,
     ) -> KResult<FaceBuild> {
         self.inner.make_face(surface, bounds, tol)
+    }
+    fn make_thin_face(&self, p: &geom::ThinProfile, tol: &Tolerance) -> KResult<ThinFace> {
+        self.inner.make_thin_face(p, tol)
     }
     fn make_wire(&self, segs: &[geom::CurveSeg], tol: &Tolerance) -> KResult<OpResult> {
         self.inner.make_wire(segs, tol)

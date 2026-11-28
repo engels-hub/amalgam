@@ -604,12 +604,14 @@ fn edge_ends(&self, s: &Shape, e: EdgeId) -> KResult<EdgeEnds>;
 /// R-S04-2 (BREP-05): = naming note §12 Q3. Splits a compound result into per-solid results
 /// with restricted, reindexed histories, in S02 split order.
 impl OpResult { pub fn per_solid(&self) -> KResult<Vec<OpResult>>; }
-/// R-S04-3 (BREP-03): thin region of an open or closed planar chain (BRepOffsetAPI_MakeOffset,
-/// open-result mode). Offset edges keep the source tags; end-cap edges get `end_tags`.
+/// R-S04-3 (BREP-03, added by SOL-18): thin region of an open or closed planar chain
+/// (BRepOffsetAPI_MakeOffset, open-result mode, sharp corners). Offset edges keep the source
+/// tags; end-cap edges get `end_tags`; `ThinFace::left` tells the two boundaries apart.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ThinProfile { pub plane: Plane, pub chain: Vec<geom::ProfileEdge2>, pub closed: bool,
                          pub left: f64, pub right: f64 /* mm each side, ≥ 0, sum > 0 */, pub end_tags: [geom::Tag; 2] }
-fn make_thin_face(&self, p: &ThinProfile, tol: &Tolerance) -> KResult<FaceBuild>;
+pub struct ThinFace { pub build: FaceBuild, pub left: Vec<EdgeId> }
+fn make_thin_face(&self, p: &ThinProfile, tol: &Tolerance) -> KResult<ThinFace>;
 /// R-S04-4 (BREP-17): silhouette curves of faces seen along `dir` (Contap_Contour).
 fn silhouette_curves(&self, s: &Shape, faces: &[FaceId], dir: Dir3) -> KResult<Vec<geom::CurveSeg>>;
 /// R-S04-5 (BREP-16): move faces along their normals by per-face distances; neighbours
@@ -677,7 +679,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-15 | Rule fillet (rule-based edge selection: all edges, between faces/features, rules for concave/convex) | SOL-05 | P2 | Todo | Refine before Phase 5: rule set, its naming (edges re-derived per recompute), and Done-when. |
 | SOL-16 | Derive / insert design as component | DOC-07, ASM-01, SOL-01 | P2 | Todo | Refine before Phase 5: external design reference, update semantics, naming via `BodyNaming::for_import`. |
 | SOL-17 | Sheet metal (flange, bend, unfold, flat pattern) | SOL-01, SOL-06 | P3 | Todo | Placeholder: split into 1–3-day WPs before Phase 6. |
-| SOL-18 | Thin extrude and thin revolve: open and closed chains, side 1/2/center (R-S04-3), names `ThinInner`/`ThinOuter`/`ThinEnd` | SOL-02, SOL-03 | P0 | Todo | 1. Thin extrude of an open line+arc chain (length L, t 2 mm, h 10 mm) in each side mode: volume L·t·h within 1e-9 relative. 2. A closed rectangle thin extrude gives a ring with the analytic volume. 3. A thin revolve of an open chain matches Pappus within 1e-9. 4. Editing the thickness keeps all names (`Exact`). |
+| SOL-18 | Thin extrude and thin revolve: open and closed chains, side 1/2/center (R-S04-3), names `ThinInner`/`ThinOuter`/`ThinEnd` | SOL-02, SOL-03 | P0 | Review | 1. Thin extrude of an open line+arc chain (length L, t 2 mm, h 10 mm) in each side mode: volume L·t·h within 1e-9 relative. 2. A closed rectangle thin extrude gives a ring with the analytic volume. 3. A thin revolve of an open chain matches Pappus within 1e-9. 4. Editing the thickness keeps all names (`Exact`). |
 | SOL-19 | Coil (all size modes, sections, positions, taper) and pipe (path chain, sections, hollow, distance) | SOL-04, SOL-10, BREP-11 | P0 | Todo | 1. Circular-section coil (d 20, 5 turns, pitch 4, section 2): volume within 0.1 % of section area × helix length. 2. Square and triangle sections and inside/outside positions give valid solids with reference volumes within 0.1 %. 3. Hollow pipe along a 3-segment path: volume within 1e-6 of the analytic value. 4. A coil whose pitch is smaller than its section size fails with a self-intersection error, never an invalid body. |
 | SOL-20 | Fillet/chamfer on S20's robust chain: `robust::fillet::fillet` with `FilletDiagnosis` (failing edges highlighted, largest workable radius in the message), `max_radius` as a background job, interactive policy in preview | SOL-05, KH-03 | P0 | Todo | 1. On the KH-02 fillet corpus driven through `solid.fillet`, the success rate equals KH-03's recorded rate (no loss in the feature layer). 2. 100 % of failures highlight ≥ 1 edge and show a max radius when `max_radius` returns one. 3. Preview never exceeds the interactive deadline (test with an injected slow strategy). |
 | SOL-21 | Setback corners for fillets (S20 KH-19 corner patches): `CornerType::Setback` with setback distances | SOL-20, KH-19 | P1 | Todo | 1. The `corner3` subset driven through `solid.fillet` with setback reaches KH-19's success rate (≥ 95 %). 2. TNP-27 still meets its `expect` with setback on. |
@@ -1885,3 +1887,73 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
 - **Leftovers.** UI-05: commit through `new_feature_commands`; an occurrence pick so the pattern
   and mirror dialogs can offer components (S11 request); "New component" for thicken / combine
   / primitives; parametric component patterns (S01); joins across components.
+
+### 2026-11-28 - SOL-18 thin extrude and thin revolve (lane C)
+- **Landed.** `thin` on `solid.extrude` and `solid.revolve` (was `NotYet`).
+  - New `solid::extrude::thin` (crate-private, used by revolve too): the walls as
+    `ProfileFace`s with the new source `ProfileSource::Wall(Wall { cap, edges, refs })` (new
+    public types `Wall`, `WallEdge`, `WallBoundary`). Everything after the profile (starts,
+    directions, extents, taper, to object, body operations, pattern tools) is the existing
+    sweep code.
+  - Selection: a sketch region gives one closed wall per loop (outer and holes); sketch curves
+    (`EntityRef::SketchCurve`) are joined by end points within 1e-6 mm into open or closed
+    chains; more than two curves at a point is an error; curves that only cross are separate
+    chains. All walls of the feature are fused into one tool. Planar-face profiles are refused.
+  - Orientation: closed chains run counter-clockwise about the sketch normal; an open chain
+    starts at its end on the end curve with the lower entity id. `Side1` widens to the chain's
+    left (into a closed chain), `Side2` to the right, `Center` half each. `flip` reverses the
+    sweep only.
+  - Naming: `ThinInner#side` (left boundary) and `ThinOuter#side` (right) from
+    `SketchCurve`; `ThinEnd#(2*side + end)` from the `SketchPoint` at that chain end (`end` 0 =
+    start), so side 0 has `ThinEnd#0/1` and side 1 `#2/#3`; caps `StartCap#side` /
+    `EndCap#side` from `Profile { sketch, chain curve ids }` (for a region's outer loop this
+    equals `Region(p)`). No name depends on thickness, side mode or pick order.
+  - Dialogs (schema only): both gain "Thin", "Wall thickness" and "Wall side" (the last two
+    hidden while off); "Profiles" also accepts sketch curves, and curves without Thin are a
+    field error. The extrude defaults turn Thin on when only sketch curves are preselected; the
+    revolve keeps taking a preselected curve as the axis. SOL-24's "New component" is
+    unchanged.
+  - `amg-brep`: R-S04-3 `make_thin_face` (S02 Interface changes 2026-11-28).
+- **Done-when evidence** (`crates/amg-features/tests/solid_thin.rs` + `solid_thin/occt.rs`,
+  18 tests, 14 with OCCT; 5 unit tests in `thin.rs`; `crates/amg-brep/tests/thin.rs`, 7 tests;
+  23 goldens `tests/golden/solid/sol18_*.toml`, rel 1e-9; t 2 mm, h 10 mm):
+  1. Line 10 + tangent quarter arc r 5 (L = 10 + 5π/2): centre volume = L·t·h = 357.079632679
+     (rel 3.2e-16). A side mode moves the mid line t/2 off the chain, so its length is
+     L ∓ (π/2)(t/2): side 1 325.663706144 (rel 1.8e-16), side 2 388.495559215 (rel 0). With no
+     net turn L·t·h holds literally in every mode: the line + two opposite quarter arcs
+     (514.159265359, rel ≤ 2.3e-16) and a single tilted line (260, rel ≤ 2.2e-16).
+  2. 20 × 10 rectangle (region and four curves): 1040 / 1360 / 1200 mm³ for side 1 / side 2 /
+     centre (rel ≤ 3.4e-16), 10 faces. Also circles, a region with a hole and two regions
+     sharing an edge.
+  3. Line + tangent arc in XZ revolved about Z, 90° and 360°, each side mode, against the
+     closed-form first moment: rel ≤ 1.2e-15.
+  4. Thickness and side edits (4 per case) keep every face, edge and vertex name, and every
+     reference taken before resolves `Exact` (open extrude 50, closed extrude 50, open revolve
+     38 references; also spline and ellipse walls and a downstream fillet).
+- **Deviations.**
+  - Done-when 1 as written ("volume L·t·h in each side mode") is not true for a chain with a
+    net turn in a side mode; tested as above.
+  - Existing assertions that expected `NotYet` for thin now expect "thickness must be positive"
+    (`solid_extrude.rs`, renamed `a_thin_extrude_needs_a_positive_thickness`;
+    `solid_revolve/occt.rs`).
+  - `make_thin_face` returns `ThinFace` (a `FaceBuild` plus the left edges), not a bare
+    `FaceBuild`: the feature cannot name the two boundaries otherwise.
+- **Gates.** `cargo fmt --all --check`; `cargo clippy --all-targets -D warnings` for
+  `amg-features` and `amg-brep` (default and `--features occt`) and `amg-doc`;
+  `cargo nextest run` for `amg-features` (default and occt), `amg-brep` (default and occt) and
+  `amg-doc` (counts in the WP report).
+- **Interface changes elsewhere.** S02 (`amg-brep`, `amg-occt-sys`, lane A), additive. No
+  `amg-ui`, `amg-doc` or dependency change. No new toolbar entry, so no new shell snapshot
+  change is expected; the Extrude and Revolve dialogs show one more checkbox ("Thin"), so a
+  snapshot of an open dialog would change (amg-ui was not run).
+- **Leftovers.**
+  - Kernel `mass_props` (BREP-09, lane A) integrates solids with free-form faces poorly: the
+    closed 15 × 9 ellipse wall reads 740.13 mm³ for a true 765.81 mm³ (3.4 %), while its cap
+    areas (rel 3e-9) and a fine mesh (rel 4e-7) are right; `Shape::volume` reads 765.34. A
+    plain extrude between two analytic ellipses is exact. The value is the same with exact
+    offset curves and with the B-splines.
+  - `BRepOffsetAPI_MakeOffset` fails cleanly on a very acute outer corner (5.7° interior; 15°
+    works) and on walls that close or touch themselves (no partial walls are built).
+  - Thin walls from planar-face profiles; a thickness manipulator and distance anchors for
+    curve selections (UI-06); picking priority between sketch curves and regions (UI-05, the
+    "Profiles" filter now includes curves).

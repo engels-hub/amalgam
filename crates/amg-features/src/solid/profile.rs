@@ -29,6 +29,41 @@ pub enum ProfileSource {
         /// The selection key of the pick.
         key: u32,
     },
+    /// The wall of a thin feature along one chain of sketch curves (SOL-18).
+    Wall(Wall),
+}
+
+/// The names of a thin wall (naming note §5.2, "Thin").
+#[derive(Clone, Debug)]
+pub struct Wall {
+    /// The cap name source: `Profile { sketch, chain curves }`.
+    pub cap: NameSource,
+    /// Every edge of the wall face, with the name of the face swept from it.
+    pub edges: Vec<WallEdge>,
+    /// The selected references the chain came from (for highlights).
+    pub refs: Vec<EntityRef>,
+}
+
+/// One edge of a thin wall face.
+#[derive(Clone, Debug)]
+pub struct WallEdge {
+    /// The edge of [`ProfileFace::face`].
+    pub edge: EdgeId,
+    /// Which boundary of the wall it is.
+    pub boundary: WallBoundary,
+    /// The sketch curve of a side edge, the sketch point of an end edge.
+    pub source: NameSource,
+}
+
+/// A boundary of a thin wall.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum WallBoundary {
+    /// Left of the oriented chain (inside a closed one): `ThinInner`.
+    Inner,
+    /// Right of the chain: `ThinOuter`.
+    Outer,
+    /// The end cap of an open chain, at its start (0) or end (1): `ThinEnd`.
+    End(u32),
 }
 
 /// One profile as a planar face, ready to sweep.
@@ -38,12 +73,13 @@ pub struct ProfileFace {
     pub face: amg_brep::Shape,
     /// The profile plane; its normal is the face normal and the extrude direction.
     pub plane: Plane,
-    /// The tag of every edge: the sketch entity id (note §3.4).
+    /// The tag of every edge: the sketch entity id (note §3.4). Empty for a thin wall, whose
+    /// names are in its [`Wall`].
     pub edge_tags: Vec<(EdgeId, Tag)>,
     /// Where it came from.
     pub source: ProfileSource,
     /// Regions of one sketch that share boundary curves share a group (they are fused into one
-    /// tool solid); groups are numbered from 0 in profile order.
+    /// tool solid, as are all walls of a thin feature); groups are numbered from 0 in profile order.
     pub group: u32,
 }
 
@@ -130,7 +166,7 @@ fn boundary_sources(p: &Profile) -> Vec<EntityId> {
 
 /// The region a profile reference names in the current solve: by key, else by fingerprint
 /// (with a `FingerprintOnly` warning on this feature, note §5.4).
-fn resolve_region<'a>(
+pub(crate) fn resolve_region<'a>(
     ctx: &RecomputeCtx<'a>,
     r: &EntityRef,
     sketch: SketchId,
@@ -162,7 +198,7 @@ fn resolve_region<'a>(
     .into())
 }
 
-fn parallel(a: &Plane, b: &Plane) -> bool {
+pub(crate) fn parallel(a: &Plane, b: &Plane) -> bool {
     a.normal.get().dot(b.normal.get()).abs() >= 1.0 - 1e-9
 }
 
@@ -220,7 +256,8 @@ pub fn profile_faces(
             _ => {
                 return Err(SolidError::Invalid {
                     field: "profiles",
-                    msg: "a profile must be a sketch region or a planar face".into(),
+                    msg: "a profile must be a sketch region or a planar face (sketch curves need Thin)"
+                        .into(),
                 }
                 .into());
             }
@@ -424,6 +461,7 @@ pub fn cap_source(ctx: &RecomputeCtx<'_>, f: &ProfileFace) -> Result<NameSource,
             Ok(region_source(*sketch, p))
         }
         ProfileSource::Face { key, .. } => Ok(NameSource::Selection { key: *key }),
+        ProfileSource::Wall(w) => Ok(w.cap.clone()),
     }
 }
 

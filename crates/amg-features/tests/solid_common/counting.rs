@@ -64,6 +64,13 @@ impl BrepKernel for Counting {
         self.inner.make_face(surface, bounds, tol)
     }
 
+    fn make_thin_face(
+        &self,
+        p: &amg_brep::geom::ThinProfile,
+        tol: &Tolerance,
+    ) -> KResult<amg_brep::ThinFace> {
+        self.inner.make_thin_face(p, tol)
+    }
     fn make_wire(&self, segs: &[CurveSeg], tol: &Tolerance) -> KResult<OpResult> {
         self.inner.make_wire(segs, tol)
     }

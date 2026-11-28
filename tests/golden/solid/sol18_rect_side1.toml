@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol18_rect_side1 (S04 SOL-18). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 1040.0000000000002
+area = 1248.0
+faces = 10
+edges = 24
+vertices = 16
+bbox_min = [0.0, 0.0, 0.0]
+bbox_max = [20.0, 10.0, 10.0]

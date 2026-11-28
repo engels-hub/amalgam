@@ -1,15 +1,18 @@
 //! `solid.extrude` (S04 §4, note §3): every start (profile plane, offset, planar object),
 //! direction (one side, two sides, symmetric) and extent (distance, to object, all), a taper
-//! per side, sketch-region, text and planar-face profiles. Thin extrudes are SOL-18.
+//! per side, sketch-region, text and planar-face profiles, and thin extrudes (`thin`): a wall
+//! of a given thickness along open or closed chains of sketch curves or along region loops.
 //!
 //! Naming (naming note §5.2): laterals `Gen { self, Lateral#side, SketchCurve(sketch, entity) }`
 //! from the builder tags (face profiles: the body edge's name), caps `StartCap#side` /
 //! `EndCap#side` from `Region(p)` (face profiles: `Sel(key)`); `side` is 1 for the second side
 //! of two-sided and symmetric extrudes. Regions of one sketch that share curves, and the two
-//! sides of a profile, are fused (and unified) into one tool solid first (note §3.4).
+//! sides of a profile, are fused (and unified) into one tool solid first (note §3.4). The
+//! side faces of a thin wall are `ThinInner` / `ThinOuter` / `ThinEnd` instead of `Lateral`.
 
 pub(crate) mod dialog;
 pub(crate) mod sides;
+pub(crate) mod thin;
 
 use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, InputSub, Relation, Shape, ShapeHistory, SubKind, SubShape,
@@ -35,7 +38,8 @@ use sides::{Side, SideExtent, side_solid};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Extrude {
-    /// Profile regions (`EntityRef::Profile`) or planar faces (`EntityRef::Topo` faces).
+    /// Profile regions (`EntityRef::Profile`) or planar faces (`EntityRef::Topo` faces); with
+    /// `thin`, profile regions or sketch curves (`EntityRef::SketchCurve`).
     pub profiles: Vec<EntityRef>,
     /// Where the extent starts.
     #[serde(default)]
@@ -313,13 +317,10 @@ pub(crate) fn compound_of(
 
 impl SolidTool for Extrude {
     fn tool(&self, ctx: &RecomputeCtx<'_>) -> Result<ToolBody, FeatureError> {
-        if self.thin.is_some() {
-            return Err(SolidError::NotYet {
-                what: "thin extrude",
-            }
-            .into());
-        }
-        let faces = profile_faces(ctx, &self.profiles)?;
+        let faces = match &self.thin {
+            Some(spec) => thin::thin_faces(ctx, &self.profiles, spec)?,
+            None => profile_faces(ctx, &self.profiles)?,
+        };
         let n0 = faces[0].plane.normal.get();
         let u = if self.flip { -n0 } else { n0 };
         let sides = self.sides(ctx, u)?;
@@ -368,7 +369,7 @@ impl Feature for Extrude {
         let mut d: Vec<Dependency> = Vec::new();
         for p in &self.profiles {
             d.push(Dependency::Entity(p.clone()));
-            if let EntityRef::Profile { sketch, .. } = p {
+            if let EntityRef::Profile { sketch, .. } | EntityRef::SketchCurve { sketch, .. } = p {
                 let s = Dependency::Sketch(*sketch);
                 if !d.contains(&s) {
                     d.push(s);
