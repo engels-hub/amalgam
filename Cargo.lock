@@ -249,6 +249,7 @@ dependencies = [
  "amg-core",
  "amg-jobs",
  "amg-testkit",
+ "blake3",
  "bytemuck",
  "criterion 0.8.2",
  "faer",
@@ -256,7 +257,9 @@ dependencies = [
  "memory-stats",
  "proptest",
  "rayon",
+ "serde",
  "thiserror 2.0.21",
+ "toml",
 ]
 
 [[package]]

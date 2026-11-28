@@ -14,9 +14,13 @@
 //! [`tet10_bracket`] (CMP-10) adds an unstructured-pattern case: a voxelised L-bracket split
 //! into TET10 elements, with the row positions for nested dissection ([`grid_coords`] gives
 //! them for the grid problems).
+//!
+//! [`sphere_bricks`] (CMP-02) is the narrow-band sphere SDF brick grid of the grid tests and
+//! benches.
 
 use rayon::prelude::*;
 
+use crate::grid::{BRICK_EDGE, BrickCoord, BrickGrid, BrickLayout, Fill, GridValue, TILE_EDGE};
 use crate::sparse::SymCsr;
 
 /// Boundary condition of [`q1_elasticity`].
@@ -557,6 +561,133 @@ pub fn tet10_bracket(cells_per_unit: u32) -> Bracket {
         .flat_map(|&p| std::iter::repeat_n(p, 3))
         .collect();
     Bracket { k, f, coords }
+}
+
+/// How a brick of [`sphere_bricks`] relates to the band.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BrickClass {
+    Band,
+    Inside,
+    Outside,
+}
+
+/// The exact class of brick `b` (corner samples `8b..=8b+8`) for a sphere of radius `r` at the
+/// origin and a band of half-width `band`: `Band` iff some point of the brick is within the band.
+fn sphere_class(b: BrickCoord, r: f64, band: f64) -> BrickClass {
+    let e = f64::from(BRICK_EDGE);
+    let (mut near, mut far) = (0.0f64, 0.0f64);
+    for c in b.0 {
+        let lo = f64::from(c) * e;
+        let hi = lo + e;
+        let n = if lo > 0.0 {
+            lo
+        } else if hi < 0.0 {
+            -hi
+        } else {
+            0.0
+        };
+        let f = lo.abs().max(hi.abs());
+        near += n * n;
+        far += f * f;
+    }
+    let (near, far) = (near.sqrt(), far.sqrt());
+    if near <= r + band && far >= r - band {
+        BrickClass::Band
+    } else if far < r - band {
+        BrickClass::Inside
+    } else {
+        BrickClass::Outside
+    }
+}
+
+/// A narrow-band signed distance grid of a sphere of radius `radius` cells centred on corner
+/// sample `(0, 0, 0)` ([`BrickLayout::CORNERS`]): sample `ijk` holds `|ijk| - radius` (in cells,
+/// negative inside), rounded to `T`. Bricks with a point within `band` cells of the surface are
+/// stored (aprons included); the other slots are `Fill1` inside and `Fill0` outside, with fill
+/// values `[band, -band]`, and tiles without band bricks are filled whole. The grid is
+/// canonical. The cell box is `[-8 e, 8 e)³` with `e = ceil((radius + band) / 8) + 1`.
+///
+/// # Panics
+/// If the box exceeds the grid limits (radius above about 8 000 cells).
+#[allow(
+    clippy::expect_used,
+    reason = "documented panic on out-of-range test sizes"
+)]
+pub fn sphere_bricks<T: GridValue>(radius: f64, band: f64) -> BrickGrid<T> {
+    let edge = f64::from(BRICK_EDGE);
+    let e = ((radius + band) / edge).ceil() as i32 + 1;
+    let half = e * BRICK_EDGE as i32;
+    let fill = [T::from_f32(band as f32), T::from_f32(-band as f32)];
+    let mut g = BrickGrid::new(BrickLayout::CORNERS, fill, ([-half; 3], [half; 3]))
+        .expect("sphere box within the grid limits");
+    let tb = g.tile_box();
+    let bricks_per_axis = tb.dims.map(|d| d * TILE_EDGE);
+    let origin = tb.origin_brick();
+    // Every brick of the tile box, classified (parallel over z slabs, deterministic order).
+    let classes: Vec<(BrickCoord, BrickClass)> = (0..bricks_per_axis[2])
+        .into_par_iter()
+        .flat_map_iter(|z| {
+            (0..bricks_per_axis[1]).flat_map(move |y| {
+                (0..bricks_per_axis[0]).map(move |x| {
+                    let b = BrickCoord([
+                        origin.0[0] + x as i32,
+                        origin.0[1] + y as i32,
+                        origin.0[2] + z as i32,
+                    ]);
+                    (b, sphere_class(b, radius, band))
+                })
+            })
+        })
+        .collect();
+    let mut tile_has_band = vec![false; tb.tile_count() as usize];
+    let mut band_bricks: Vec<(u64, BrickCoord)> = Vec::new();
+    for &(b, class) in &classes {
+        if class == BrickClass::Band {
+            let i = tb.candidate_index(b).expect("in box");
+            tile_has_band[(i / 512) as usize] = true;
+            band_bricks.push((i, b));
+        }
+    }
+    band_bricks.sort_unstable_by_key(|&(i, _)| i);
+    let layout = BrickLayout::CORNERS;
+    let s = layout.samples_per_axis() as i32;
+    for chunk in band_bricks.chunks(4096) {
+        let data: Vec<Vec<T>> = chunk
+            .par_iter()
+            .map(|&(_, b)| {
+                let o = b.min_cell();
+                (0..layout.samples() as i32)
+                    .map(|k| {
+                        let p =
+                            [o[0] + k % s, o[1] + (k / s) % s, o[2] + k / (s * s)].map(f64::from);
+                        let d = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt() - radius;
+                        T::from_f32(d as f32)
+                    })
+                    .collect()
+            })
+            .collect();
+        for (&(_, b), d) in chunk.iter().zip(&data) {
+            g.insert(b, d).expect("in box, right length");
+        }
+    }
+    for &(b, class) in &classes {
+        let r = (tb.candidate_index(b).expect("in box") / 512) as usize;
+        if class == BrickClass::Inside && tile_has_band[r] {
+            g.set_fill(b, Fill::Fill1).expect("in box");
+        }
+    }
+    for (r, &has_band) in tile_has_band.iter().enumerate() {
+        if has_band {
+            continue;
+        }
+        let tile = tb.tile_of_root(r as u32);
+        let b = BrickCoord(tile.map(|t| t * TILE_EDGE as i32));
+        if sphere_class(b, radius, band) == BrickClass::Inside {
+            g.set_tile_fill(tile, Fill::Fill1).expect("in box");
+        }
+    }
+    g.canonicalize();
+    g
 }
 
 #[cfg(test)]

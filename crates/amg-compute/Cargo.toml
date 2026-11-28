@@ -11,6 +11,8 @@ publish.workspace = true
 amg-core.workspace = true
 # Not `workspace = true`: this crate's own `gpu` feature decides whether `amg_jobs::gpu` exists.
 amg-jobs = { path = "../amg-jobs", default-features = false }
+# CMP-02: `BrickGrid::content_hash`.
+blake3.workspace = true
 bytemuck.workspace = true
 # The workspace pin (ADR-006; same as amg-mesh and amg-sketch). `rayon` for the parallel
 # supernodal factorisation (it adds faer's `spindle` dependency).
@@ -30,6 +32,13 @@ amg-testkit.workspace = true
 criterion.workspace = true
 memory-stats = "1.2.0"
 proptest.workspace = true
+# CMP-02 golden file (tests/golden/compute/brick_sphere.toml).
+serde.workspace = true
+toml.workspace = true
+
+[[bench]]
+name = "grid"
+harness = false
 
 [[bench]]
 name = "gpu_layer"

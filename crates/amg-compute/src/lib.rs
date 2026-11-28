@@ -2,12 +2,14 @@
 //!
 //! Spec: S15. Lane: F. Design note: `docs/notes/compute-numerics.md`.
 //!
-//! Today this crate has the GPU layer (CMP-07), the GPU primitives (CMP-01) and the sparse
-//! direct solvers (CMP-03):
+//! Today this crate has the GPU layer (CMP-07), the GPU primitives (CMP-01), the grids (CMP-02)
+//! and the sparse direct solvers (CMP-03):
 //! - [`precision`]: which floating-point precision GPU numeric kernels run in on a device.
 //! - [`gpu`] (feature `gpu`): typed buffers, kernels, the dispatch context and the WGSL prelude.
 //! - [`prim`]: reduce, dot, segmented reduce, scan, compaction, radix sort and `AtomicCounter`
 //!   (feature `gpu`), plus their CPU references in `prim::cpu`.
+//! - [`grid`]: `DenseGrid`, the sparse `BrickGrid` and (feature `gpu`) its GPU mirror
+//!   `GpuBrickGrid` with generated WGSL accessors (CMP-02).
 //! - [`sparse`]: `SymCsr`, symbolic analysis, Cholesky and Bunch–Kaufman LDLᵀ on faer.
 //! - [`testprob`]: structured Q1 Poisson and elasticity problems and a TET10 bracket for tests
 //!   and benches.
@@ -16,6 +18,7 @@
 //! on a device with `SHADER_F64` and to f32 elsewhere (ADR-004 note of 2026-11-09).
 
 mod error;
+pub mod grid;
 pub mod precision;
 pub mod prim;
 pub mod sparse;
@@ -36,6 +39,8 @@ mod sealed {
     impl Sealed for f64 {}
     impl Sealed for u32 {}
     impl Sealed for i32 {}
+    impl Sealed for u8 {}
+    impl Sealed for half::f16 {}
 }
 
 /// Where a solver runs.

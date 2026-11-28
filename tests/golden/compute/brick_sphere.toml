@@ -1,0 +1,22 @@
+# CMP-02 golden: narrow-band sphere SDF brick grids (`testprob::sphere_bricks::<f16>`).
+# Checked by crates/amg-compute/tests/grid.rs (golden_*). Counts must match exactly; the
+# measured band error must stay within its bound. Rewrite with AMG_BLESS=1.
+
+[sphere_r100_cell0_1]
+band_cells = 4.0
+brick_bytes = 718619040
+brick_count = 492880
+index_bytes = 10584064
+index_fraction_bound = 0.1
+radius_cells = 1000.0
+tile_nodes = 5104
+
+[sphere_r50_cell0_5]
+band_cells = 4.0
+brick_bytes = 7231680
+brick_count = 4960
+index_bytes = 114944
+max_band_error = 0.0034747501547656157
+max_band_error_bound = 0.01
+radius_cells = 100.0
+tile_nodes = 56

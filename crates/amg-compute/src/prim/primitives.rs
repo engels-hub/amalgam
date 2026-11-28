@@ -243,6 +243,18 @@ impl Primitives {
         self.scan_impl(cx, kind, input, output, total, false)
     }
 
+    /// Like [`Primitives::scan`] of the flags `input[i] != 0` (0 or 1) instead of the values.
+    pub(crate) fn scan_flags(
+        &self,
+        cx: &mut ComputeCtx,
+        kind: ScanKind,
+        input: &GpuVec<u32>,
+        output: &GpuVec<u32>,
+        total: Option<(&GpuVec<u32>, u64)>,
+    ) -> ComputeResult<()> {
+        self.scan_impl(cx, kind, input, output, total, true)
+    }
+
     fn scan_impl(
         &self,
         cx: &mut ComputeCtx,
