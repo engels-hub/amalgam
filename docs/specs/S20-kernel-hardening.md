@@ -1527,6 +1527,41 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   error distribution or knot removal afterwards would tighten it. No surface fitting (not in
   KH-13).
 
+### 2026-11-28 - KH-13 fix: closest point stopped short of the global minimum (lane A)
+- **Symptom:** the proptest `surface_closest_point_beats_dense_sampling` failed on some random
+  seeds. Seed 7560825692560342496 (rational (3, 2) surface, a query on the surface) returned
+  1.59e-9 mm against the bound of dense minimum (0) + 1e-9 mm. `f64` was not the limit: the
+  fixed code certifies the same query within the bound.
+- **Cause 1 (the flake):** Newton from a far piece midpoint used its 50 iterations in an
+  indefinite region and stopped one step short of convergence. Subdivision should then restart
+  it from a closer midpoint, but `MAX_DEPTH` = 64 was shared by both surface directions: a
+  patch only shrank to 2⁻³² of its width per direction, and the node was dropped before any
+  midpoint beat 1.59e-9 mm. The curve search (one direction, 64 halvings) did not have this.
+- **Cause 2 (found while checking, much larger):** `Patch::split` chose the direction from the
+  corner chords. On a Bézier patch whose corners coincide in one direction (closed, or
+  collapsed edges) that extent is zero, so the direction was never split. Errors on the
+  original code: 8.9 mm in the new regression test, up to 88 mm in ad-hoc probes.
+- **Fix (`amg-nurbs` `project.rs`):** separate depth limits (`CURVE_MAX_DEPTH` 64,
+  `SURF_MAX_DEPTH` 128); the split direction uses the longest control polygon per direction.
+  Newton, the bounds, `EPS_ABS` (1e-10 mm), the node budget and the public API are unchanged.
+  The test bound stays 1e-9 mm, so no spec wording changes.
+- **Tests (`tests/closest_props.rs`):** the proptests run with
+  `RngSeed::Fixed(0x4b483133)`, `AMG_CLOSEST_SEED=<u64>` draws another sample, failure
+  persistence is off (regressions are explicit tests). New:
+  `surface_closest_point_regression_newton_stall_and_depth_limit` (the seed above),
+  `closest_point_on_closed_and_collapsed_patches` (five degenerate control-net layouts); both
+  fail on the old code, and the first still fails with only the split fix. Ignored
+  `closest_point_seed_sweep` (command in the module docs).
+- **Measured:** seed sweep 0..50, 532 000 queries (512 000 random curve and surface, 20 000
+  on degenerate patches): 0 violations, worst excess 9.6e-14 mm (curves) / 1.9e-11 mm
+  (surfaces). Large run, 2000 cases per kind (320 000 queries): 9.1e-14 / 3.5e-11 mm. Crate
+  suite 82 tests in 2.4 s. Surface closest point costs about 4–6 % more on the sphere and torus
+  bench queries (same node counts; the control-polygon extents).
+- **Leftovers:** the node budget (`MAX_NODES` 20 000) still ends a search silently, without
+  the 1e-10 mm certificate. Surfaces degenerated to a line (all poles collinear) are slow
+  (about 20 ms per query in a probe, faster than before the fix); a rank check or a reported
+  "not certified" flag would be a later WP if such input matters.
+
 ### 2026-11-28 - KH-02 fillet corpus and process-isolated harness (lane A)
 - **Landed in `amg-brep`:** `robust::corpus` is now a directory module. KH-17's
   near-coincidence generator moved unchanged to the private `corpus::near` and is re-exported,

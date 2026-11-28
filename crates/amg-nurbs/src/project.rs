@@ -10,6 +10,12 @@
 //! are halved (de Casteljau) until every remaining bound is within `EPS` of the best
 //! distance. The returned distance is then within `EPS` (1e-10 mm, or 4 ulp of the model
 //! scale for very large models) of the true minimum.
+//!
+//! That guarantee does not depend on Newton converging: a Newton run that stops short (its
+//! iteration cap, a stalled line search) is repaired by subdivision, which continues until a
+//! piece midpoint beats the stalled distance and restarts Newton next to the foot point.
+//! It does depend on the pieces being allowed to shrink far enough, so the depth limits must
+//! not bind before the parameters run out of `f64` resolution.
 
 #![allow(
     clippy::float_cmp,
@@ -29,8 +35,12 @@ use crate::{CtrlPt, CurvePoint, NurbsCurve, NurbsSurface, SurfacePoint, UV};
 const EPS_ABS: f64 = 1e-10;
 /// Node budget per query (keeps the work bounded; never reached in the KH-13 tests).
 const MAX_NODES: usize = 20_000;
-/// Subdivision depth limit per piece.
-const MAX_DEPTH: u32 = 64;
+/// Subdivision depth limit per curve piece: more halvings than a parameter has bits.
+const CURVE_MAX_DEPTH: u32 = 64;
+/// Depth limit per surface patch, shared by both directions. With 64 a patch only reached a
+/// width of 2⁻³² per direction (about 1e-7 mm on a 100 mm patch), too coarse to certify
+/// [`EPS_ABS`] (KH-13 fix).
+const SURF_MAX_DEPTH: u32 = 2 * CURVE_MAX_DEPTH;
 
 /// Heap entry: smallest lower bound first, then insertion order (deterministic).
 struct Entry {
@@ -230,7 +240,7 @@ impl<P: CtrlPt> NurbsCurve<P> {
                 }
             }
             let depth = nodes[e.node].depth;
-            if depth >= MAX_DEPTH || !(t0 < tm && tm < t1) {
+            if depth >= CURVE_MAX_DEPTH || !(t0 < tm && tm < t1) {
                 continue;
             }
             let (l, r) = split_half(&nodes[e.node].pts);
@@ -418,12 +428,26 @@ impl Patch {
         lb.max(hull4_dist(q, &k) - delta)
     }
 
+    /// Geometric extent in u and v: the longest control polygon of each direction. The corner
+    /// chords would not do: on a patch closed in one direction they are zero, so that
+    /// direction would never be split and the search could not converge.
+    fn extents(&self) -> (f64, f64) {
+        let e: SmallVec<[Point3; 16]> = self.pts.iter().map(|&h| euc(h)).collect();
+        let (nu, nv) = (self.nu, self.nv);
+        let polygon = |first: usize, stride: usize, n: usize| -> f64 {
+            (1..n)
+                .map(|k| (e[first + k * stride] - e[first + (k - 1) * stride]).length())
+                .sum()
+        };
+        let ext_u = (0..nv).fold(0.0f64, |m, j| m.max(polygon(j, nv, nu)));
+        let ext_v = (0..nu).fold(0.0f64, |m, i| m.max(polygon(i * nv, 1, nv)));
+        (ext_u, ext_v)
+    }
+
     /// Halves along the direction with the larger geometric extent.
     fn split(&self) -> Option<(Patch, Patch)> {
-        let e = |i: usize, j: usize| euc(self.at(i, j));
         let (nu, nv) = (self.nu, self.nv);
-        let ext_u = (e(nu - 1, 0) - e(0, 0)).length() + (e(nu - 1, nv - 1) - e(0, nv - 1)).length();
-        let ext_v = (e(0, nv - 1) - e(0, 0)).length() + (e(nu - 1, nv - 1) - e(nu - 1, 0)).length();
+        let (ext_u, ext_v) = self.extents();
         let um = 0.5 * (self.u.0 + self.u.1);
         let vm = 0.5 * (self.v.0 + self.v.1);
         let can_u = self.u.0 < um && um < self.u.1;
@@ -660,7 +684,7 @@ impl NurbsSurface<Point3> {
                     best = r;
                 }
             }
-            if nd.depth >= MAX_DEPTH {
+            if nd.depth >= SURF_MAX_DEPTH {
                 continue;
             }
             let Some((l, r)) = nd.split() else { continue };
