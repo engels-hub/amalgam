@@ -75,12 +75,12 @@ Sketch → extrude/revolve → fillet/chamfer/shell → patterns → timeline ed
   (draft, split, defeature), BREP-17 (section, projection), SOL-01..09, SOL-18 (thin), SOL-20
   (fillet on the S20 chain), SOL-23 (path/face patterns), SOL-24 (component ops), SOL-29 (parity
   harness, recompute budget), CON-01..04, INS-07, INS-10,
-  INS-11, KH-02, KH-03, KH-05, KH-12, KH-13, KH-16, KH-17
+  INS-11, INS-14, BREP-19, KH-02, KH-03, KH-05, KH-12, KH-13, KH-16, KH-17
 - B: SK-07, SK-16..19, SK-22, SK-09
 - D: RND-13 (device loss, diagnostics), UI-05, UI-06, UI-09, UI-12, UI-13, UI-14, UI-16, UI-17,
   UI-22 (solid body display)
-- E: DOC-06, DOC-13, ASM-01, ASM-13 (pending positions / capture), ASM-09, ASM-10, ASM-02, FND-12, SCR-07, SCR-05 (CLI), SCR-08 (kernel CLI)
-- G: IO-06, IO-09, AM-10 (slicer profile import)
+- E: DOC-06, DOC-13, ASM-01, ASM-13 (pending positions / capture), ASM-09, ASM-10, ASM-02, FND-12, SCR-07, SCR-05 (CLI), SCR-08 (kernel CLI), DOC-16 (TNP-04 expectation)
+- G: IO-06, IO-09, AM-10 (slicer profile import), AM-16 (editable machine settings)
 - F (starts early, independent): CMP-07, CMP-01..03
 
 ## Phase 3 — Advanced modeling & lattices

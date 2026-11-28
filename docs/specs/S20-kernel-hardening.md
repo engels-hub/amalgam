@@ -1712,6 +1712,9 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
 ### 2026-11-28 - Owner: KH-20 budget misses accepted (lane A)
 - The owner accepted the KH-20 misses (`budget/sol-extrude-cut` 105 ms vs < 80 ms, `budget/sol-shell-preview` ~313 ms vs < 100 ms, both OCCT-bound and measured under load) and marked KH-20 Done with its byte-identical fast paths. Follow-up for later: **KH-21** (idle re-measure, OCCT offset overlay patch, a boolean that does not rebuild untouched faces), P2.
 
+### 2026-11-28 - Owner decisions (KH-12 Done-when 3)
+- The owner confirmed the KH-12 reading of Done-when 3: "Bezier inputs" means piecewise-Bezier curves (interior knots at multiplicity p), since a single Bezier segment has no interior knot to remove after elevation.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)

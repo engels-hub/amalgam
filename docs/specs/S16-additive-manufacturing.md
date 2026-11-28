@@ -721,6 +721,7 @@ Testing).
 | AM-08 | Support preview (tree): support points from AM-02 (overhang sampling + islands), downward merging within the α cone, resin tips + raft, preview mesh + volume/contact count, optional "export with supports" for resin | AM-02, AM-15 | P1 | Todo | On the test set every support point is connected to the plate or part, no branch exceeds α from vertical, and preview supports do not intersect the part (MESH-19 check). Support volume is within 2× of the AM-02 estimate. 100 k-tri model < 3 s. |
 | AM-14 | 3D packing for SLS (voxel height-field first-fit decreasing) | AM-05 | P3 | Todo | 30 random corpus parts in a 150³ volume: no voxel overlap at a 1 mm grid plus spacing, packing density ≥ 15 %, deterministic. |
 | AM-09 | Metal PBF distortion simulation (inherent strain): layer activation on voxel FE, strain calibration per material, distortion field overlay, recoater collision warning | FEM-04, CMP-05, AM-02 | P3 | Todo | Cantilever benchmark (NIST AM-Bench-style geometry) distortion within 15 % of the published value; 1 M voxels < 5 min (vision topopt budget class). |
+| AM-16 | Editable machine settings (owner 2026-11-28): in the machine picker, edit a machine's build volume (x, y, z), bed origin and slot count, saved as a user profile (built-ins stay read-only; editing one saves a copy), so values such as the KCM bed (built-in 220 × 220 vs the owner's Orca preset 200 × 220) can be tweaked | AM-10, AM-11 | P1 | Todo | 1. Editing a built-in machine's bed size saves a user profile copy and the setup uses it; the built-in file is unchanged. 2. Invalid values (≤ 0, non-numeric) are refused in the dialog with a message. 3. The edited profile round-trips through TOML and reloads after restart. 4. The plate scene and out-of-volume check use the edited size. |
 
 Phase placement for the new and re-scoped WPs is proposed in the Refinement log. The roadmap
 is not edited here.
@@ -1259,6 +1260,9 @@ Status `Review`. Done-when 1-5 are met; evidence in `D:/coding/amalgam-handoff/A
   only): the picker needs an "Import from slicers" action that runs `discover` + `import_*` as a job
   and calls `NewSetupDialog::offer` (proposed as a small new WP). Offering the Orca process angle in
   Overhang Settings (open question 3) belongs with it.
+
+### 2026-11-28 - Owner decisions (machine settings)
+- The KCM bed size differs between the built-in profile (220 x 220) and the owner's Orca preset (200 x 220). The owner wants it to be a setting that can be tweaked rather than a fixed choice: new WP **AM-16** (editable build volume, bed origin and slots in the machine picker, saved as a user profile), P1, Phase 2. The built-in stays 220 x 220 until then.
 
 ## Interface changes
 

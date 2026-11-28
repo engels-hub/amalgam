@@ -478,6 +478,9 @@ All lane E. SCR-01..06 keep their original meaning; SCR-05 lost `study run` (now
   the follow-up, e.g. SCR-05); `ops::measure` (SCR-09); direct-mode `AddFeature` (`Document::bake_feature`)
   is not wrapped by `ScriptDoc` (SCR-01/SCR-02); owner confirmation of QUESTIONS #104.
 
+### 2026-11-28 - Owner decisions (QUESTIONS #104)
+- The owner confirmed the layering edges `amg-script -> amg-io` and `amg-script -> amg-mesh` added by SCR-07 (QUESTIONS #104 answered).
+
 ## Interface changes
 Landed with SCR-07 (2026-11-28):
 - **Layering (S00 / architecture; owner decision, QUESTIONS #104, applied pending owner confirmation):**
