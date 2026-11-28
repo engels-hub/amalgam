@@ -11,6 +11,18 @@
 // sink asks to, so cancellation reaches the parser; the transfer reports through a
 // `Message_ProgressRange`. IGES is not thread-safe in OCCT 8.0: its functions run under
 // amg-brep's global lock (category G).
+//
+// Threading contract of the STEP functions (BREP-13 fix, 2026-11-28): every call has its own
+// reader or writer, its own `XSControl_WorkSession` and its own `STEPCAFControl_Controller`, so
+// no translator state is shared between concurrent calls. OCCT keeps one controller per norm in
+// a process-wide registry (`XSControl_Controller::Recorded("STEP")`), and that controller owns
+// the only `STEPCAFControl_ActorWrite`: the assembly map (`RegisterAssembly`), the standard mode
+// (`SetStdMode(true)` clears the map), the group mode and the AP context. Every
+// `STEPCAFControl_Writer` that selects the norm the usual way writes through that one actor, so
+// a writer finishing (`SetStdMode(true)`) while another one transferred cleared the other's
+// assembly map and its assembly was written as one flat part, without colours (about 1 in 4 runs
+// of `parallel_step_writes_of_one_model`). The shared statics (`Interface_Static`) are only read
+// by STEP calls: the parameters are passed as `DESTEP_Parameters`.
 
 #include "amg-occt-sys/cpp/occt_shim.hxx"
 
@@ -70,11 +82,13 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Shape.hxx>
+#include <Transfer_ActorOfFinderProcess.hxx>
 #include <UnitsMethods_LengthUnit.hxx>
 #include <XCAFDoc_ColorTool.hxx>
 #include <XCAFDoc_ColorType.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XSControl_Controller.hxx>
 #include <XSControl_WorkSession.hxx>
 #include <gp_Trsf.hxx>
 
@@ -114,6 +128,35 @@ void init_translators() {
     Interface_Static::SetIVal("write.iges.brep.mode", 1);
   });
 }
+
+// A work session with a STEP controller of its own (see the threading contract above). The
+// reader and writer constructors select the registered norm, so `adopt_controller` installs this
+// session's controller again after them.
+struct StepSession {
+  occ::handle<STEPCAFControl_Controller> controller = new STEPCAFControl_Controller;
+  occ::handle<XSControl_WorkSession> session = new XSControl_WorkSession;
+
+  StepSession() { session->SetController(controller); }
+
+  // Puts the session back on its own controller; true when it had been switched to another one
+  // (the caller then starts a fresh model).
+  bool adopt_controller() const {
+    if (session->NormAdaptor() == controller) {
+      return false;
+    }
+    session->SetController(controller);
+    return true;
+  }
+
+  // Fails unless the session writes through its own actor (never the registered controller's).
+  void check_private() const {
+    const occ::handle<XSControl_Controller> shared = XSControl_Controller::Recorded("STEP");
+    if (session->NormAdaptor() != controller ||
+        (!shared.IsNull() && session->NormAdaptor()->ActorWrite() == shared->ActorWrite())) {
+      fail("STEP session: the translator actor is shared");
+    }
+  }
+};
 
 // Reports `offset + scale * position` of the indicator to the sink. (`Show` must not throw: OCCT
 // calls it from progress-scope destructors.)
@@ -680,8 +723,15 @@ std::unique_ptr<OcXde> xde_read_step(rust::Str path, bool names, bool colors,
   // rest.
   ProgressFileBuf buffer(file, sink, 0.2);
   std::istream stream(&buffer);
-  auto owned = std::make_shared<STEPCAFControl_Reader>();
-  STEPCAFControl_Reader &reader = *owned;
+  // The session (with its controller) is kept with the reader: a cancelled read hands both over.
+  struct OwnedReader {
+    StepSession step;
+    STEPCAFControl_Reader reader{step.session, true};
+  };
+  auto owned = std::make_shared<OwnedReader>();
+  owned->step.adopt_controller();
+  owned->step.check_private();
+  STEPCAFControl_Reader &reader = owned->reader;
   // A cancelled read hands the reader and its parsed model to the caller to free elsewhere.
   const auto cancelled = [&]() -> std::unique_ptr<OcXde> {
     data.status.cancelled = true;
@@ -849,7 +899,12 @@ OcXdeStatus xde_write_step(rust::Str path, const OcXdeWriteParams &write,
   params.WriteMaterial = false;
   TreeWriter tree(protos, meta, face_colors, nodes);
   const occ::handle<TDocStd_Document> &doc = tree.build();
-  STEPCAFControl_Writer writer;
+  const StepSession step;
+  STEPCAFControl_Writer writer(step.session, true);
+  if (step.adopt_controller()) {
+    writer.ChangeWriter().Model(true);
+  }
+  step.check_private();
   writer.SetColorMode(true);
   writer.SetNameMode(true);
   writer.SetLayerMode(false);

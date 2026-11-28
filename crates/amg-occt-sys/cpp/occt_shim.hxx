@@ -510,9 +510,10 @@ OcEdgeEnds edge_ends(const OcIndex &index, std::uint32_t e);
 
 // -- STEP and IGES through XCAF (BREP-13), implemented in occt_xde.cpp --
 
-// CATEGORY: R (takes no shape; one STEPCAFControl_Reader and one private XCAF document per call,
-// thread-safe per instance on OCCT 8.0.1; the translator registration runs once under
-// std::call_once; shapes it made get missing 3D curves built in place before they are returned)
+// CATEGORY: R (takes no shape; one STEPCAFControl_Reader, work session and STEP controller (so
+// one translator actor) and one private XCAF document per call, thread-safe on OCCT 8.0.1; the
+// translator registration runs once under std::call_once; shapes it made get missing 3D curves
+// built in place before they are returned)
 std::unique_ptr<OcXde> xde_read_step(rust::Str path, bool names, bool colors,
                                      const ProgressSink &sink);
 
@@ -537,7 +538,9 @@ rust::Vec<OcXdeFaceColor> xde_face_colors(const OcXde &xde);
 std::unique_ptr<OcShape> xde_proto_shape(const OcXde &xde, std::uint32_t i);
 
 // CATEGORY: C (the XCAF document holds private BRepBuilderAPI_Copy copies of the prototypes made
-// here, so the callers' TShapes never enter an XCAF compound; one STEPCAFControl_Writer per call)
+// here, so the callers' TShapes never enter an XCAF compound; one STEPCAFControl_Writer, work
+// session and STEP controller per call: the registered controller's write actor is not
+// reentrant, BREP-13 fix)
 OcXdeStatus xde_write_step(rust::Str path, const OcXdeWriteParams &params,
                            const OcShapeList &protos, rust::Slice<const OcXdeProto> meta,
                            rust::Slice<const OcXdeFaceColor> face_colors,
