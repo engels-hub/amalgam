@@ -368,6 +368,8 @@ impl NurbsSurface3 {
     pub fn refine_knots(&self, d: UV, ts: &[f64]) -> Result<Self, NurbsError>;
     pub fn elevate_degree(&self, d: UV, by: usize) -> Result<Self, NurbsError>;
     pub fn split(&self, d: UV, t: f64) -> Result<(Self, Self), NurbsError>;
+    /// A5.7 per direction (KH-12): one Bézier strip per non-empty span of `d`.
+    pub fn bezier_strips(&self, d: UV) -> Vec<Self>;
     pub fn reversed(&self, d: UV) -> Self;
     pub fn transposed(&self) -> Self;
     pub fn transformed(&self, t: &Transform) -> Self;
@@ -834,7 +836,7 @@ open request.
 |---|---|---|---|---|---|
 | KH-01 | Kernel failure capture: `capture` module (`CaptureConfig`, `FailureRecorder`, `RecordingKernel`, `KernelOp` for the ops existing at the time, `EdgeRecord` fingerprints), `OnFailure` + `WriteAhead` modes, dedup + retention, `replay`, `promote`; `kernel-replay` example (and `amg-cli kernel replay` if lane E accepts) | BREP-02, BREP-12, BREP-04, FND-04 | P0 | Done | 1. Forced failures (too-large fillet radius, boolean on an invalid argument, an injected `NotDone`) write a dump whose `manifest.json` validates against schema 1. 2. Replaying each dump **in a fresh process** gives `Reproduced` for 100 % of dumps in a ≥ 10-dump test set covering every op variant present. 3. Index stability: on 20 STEP parts + 200 generated parts, all edge/face indices survive `.brep` write → read; a forced re-index falls back to fingerprints and reports `reindexed_by_fingerprint`. 4. `WriteAhead`: a child process aborted inside the op leaves `pending/`, and `recover_pending` turns it into a `Crash` dump that replays. 5. The same failure twice gives one dump with `count = 2`; retention prunes to `max_dumps`/`max_bytes`. 6. `OnFailure` adds no file I/O and < 1 µs per successful call (criterion). |
 | KH-07 | `amg-nurbs` core: `CtrlPt`, `KnotVector`, `basis`, `NurbsCurve`/`NurbsSurface` + `Grid` with validation, eval + derivatives (A2.1–A2.3, A3.2, A3.6, A4.1–A4.4), reverse/reparametrize/transform/bbox, `analytic` module (A7.1, ellipse, A8.1, extrusion, ruled-with-equal-knots, cylinder, cone, sphere, torus), `NurbsError`; curvo dev-dep oracle | FND-03 | P1 | Done | 1. P&T Ex. 2.3 basis values to 1e-15, partition of unity to 1e-14. 2. Rational circle radius error ≤ 1e-14·r; sphere and torus points on the analytic surface ≤ 1e-13·R (1000 samples). 3. Derivatives match central finite differences within 1e-6 relative and analytic circle/helix tangent and curvature within 1e-12. 4. Differential test vs curvo 0.3.3 on 1000 random curves/surfaces (degree 1–7, rational and non-rational): ≤ 1e-12·max(1, D). 5. Constructors reject every invalid input with the right `NurbsError` (table test); no panic in a proptest over random inputs. 6. Benchmarks: cubic point < 60 ns, bicubic point + first derivatives < 250 ns. |
-| KH-12 | `amg-nurbs` knot operations: insertion (A5.1/A5.3), refinement (A5.4/A5.5), Bézier decomposition (A5.6/A5.7), removal (A5.8), degree elevation (A5.9/A5.10), split/segment/join, `continuity_at`, `KnotVector::union`/`missing_from` | KH-07 | P1 | Todo | 1. Proptests (512 cases): insertion, refinement, elevation, decomposition and split + join keep the shape within 1e-12·max(1, D) at 1000 samples. 2. Removal keeps deviation ≤ `tol` and removes the knot when the curve was produced by insertion (round trip). 3. Elevating by k then removing knots gives the original pole count back for Bézier inputs. 4. Matches curvo `try_refine_knot`/`try_elevate_degree` ≤ 1e-12·D. 5. Benchmarks: refine 20 knots into 50 poles < 10 µs; elevate 3→5 of 50 poles < 20 µs. |
+| KH-12 | `amg-nurbs` knot operations: insertion (A5.1/A5.3), refinement (A5.4/A5.5), Bézier decomposition (A5.6/A5.7), removal (A5.8), degree elevation (A5.9/A5.10), split/segment/join, `continuity_at`, `KnotVector::union`/`missing_from` | KH-07 | P1 | Review | 1. Proptests (512 cases): insertion, refinement, elevation, decomposition and split + join keep the shape within 1e-12·max(1, D) at 1000 samples. 2. Removal keeps deviation ≤ `tol` and removes the knot when the curve was produced by insertion (round trip). 3. Elevating by k then removing knots gives the original pole count back for Bézier inputs. 4. Matches curvo `try_refine_knot`/`try_elevate_degree` ≤ 1e-12·D. 5. Benchmarks: refine 20 knots into 50 poles < 10 µs; elevate 3→5 of 50 poles < 20 µs. |
 | KH-13 | `amg-nurbs` fitting: `parametrize`, averaging/approximation knots, `interpolate` (A9.1 with D1/D2 end rows, closed), `approximate_lsq` (A9.6 constrained), `approximate_to_tolerance` (adaptive + Hoschek), `approximate_onto_knots`, arc length + inverse, curve/surface `closest_point` | KH-12 | P1 | Todo | 1. Interpolation reproduces data ≤ 1e-12·D and end derivatives within 1e-10 relative; P&T Ex. 9.1 data gives the book's parameters and knots. 2. `approximate_to_tolerance` on 1000 noisy samples of circles, helices and sine curves meets `tol` ∈ {1e-3, 1e-5} mm with ≤ 1.5× the pole count of a reference fit (the reference is the same algorithm without parameter correction, which proves that correction helps). 3. Reported `max_error` is within 1 % of the measured error at 2000 samples. 4. Closest point never exceeds the dense-sampling minimum + 1e-9 mm (10 k proptest queries, curves and surfaces). 5. Arc length of a circle arc is within 1e-12 relative. 6. Benchmarks: interpolate 200 points < 100 µs; fit 1000 points to 1e-5 mm < 5 ms. |
 | KH-14 | `amg-nurbs` compatibility + skinning: `make_compatible` (exact/approximated, rules in nurbs note §5.2), `loft_surfaces` (one patch per segment, shared v-params, shared corner derivatives), all `EndCondition`s with `CrossBoundaryField`, ruled/closed, `check` module | KH-13 | P1 | Todo | 1. Exact path: outputs equal the inputs ≤ 1e-12·D; approximated path: ≤ `fit_tol` (1e-5 mm) with ≤ `max_poles`; it falls back to approximation exactly when the union exceeds `exact_pole_limit` (unit test at the boundary). 2. Skins reproduce every section at its v-parameter (≤ 1e-12·D exact path, ≤ `fit_tol` approximated). 3. Neighbouring patches have bit-identical shared boundaries (`to_bits`), and G1 across tangent-merged segments is ≤ 1e-8 rad. 4. G1 end condition against analytic planes/cylinders: angle ≤ 1e-8 rad at 100 boundary samples; G2: normal-curvature mismatch ≤ 1e-6 relative; `PointTangent` apex tangent plane ⊥ `normal` within 1e-9 rad. 5. Two sections without end conditions give a ruled surface. 6. Benchmarks: 6 sections × 8 segments exact < 2 ms; approximated < 10 ms. |
 | KH-15 | `amg-nurbs` Gordon surfaces (network sort, Fritsch–Carlson reparametrisation, compatible families, boolean sum, closed networks) + `frames::rotation_minimizing` + `frames::centerline_sections` | KH-14 | P1 | Todo | 1. Every network curve is reproduced within `max(fit_tol, 1e-12·D)` on synthetic networks (bilinear, 3×3 … 6×6, non-uniform intersection parameters, closed) and all TiGL `CurveNetworks` fixtures (Apache-2.0, attributed). 2. Networks that miss by > `net_tol` give `NetworkMiss` with the right indices; a doubly-crossing guide gives `NetworkMultiple`. 3. A counter-test shows the uniform-parameter/degree-1-tensor shortcut fails these fixtures (guards the design choice). 4. RMF: orthonormal to 1e-12; planar curve normal constant to 1e-12; helix rotation vs Frenet = −∫τ ds within 1e-6 rad at 1000 steps. 5. Centerline sections: original sections are reproduced exactly; intermediate frames follow the RMF. 6. Gordon 5×5 < 20 ms. |
@@ -1193,6 +1195,79 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   progress inside attempts (an `amg-jobs` addition, see Interface changes); a corpus case
   where only the `Heal` strategies succeed (none of the 236 cases needs them, so that path is
   covered by `compose_operands` unit tests and the attempt log of a failing case).
+
+### 2026-11-28 - KH-12 amg-nurbs knot operations landed (lane A)
+- **Landed** in `crates/amg-nurbs` (no new dependency): crate-private kernels on homogeneous
+  points in `knot_ops` (A5.1 insertion, A5.4 refinement, A5.6 decomposition, A5.8 removal,
+  A5.9 elevation + a blossom fallback, see below); curve API in `curve_ops` (`insert_knot`,
+  `refine_knots`, `remove_knot`, `elevate_degree`, `bezier_segments`, `split`, `segment`,
+  `join`, `continuity_at`); surface API per direction in `surface_ops` (`insert_knot` A5.3,
+  `refine_knots` A5.5, `elevate_degree` A5.10, `split`, and `bezier_strips` A5.7, added to
+  Interfaces); `KnotVector::union` / `missing_from`. The surface methods are on
+  `NurbsSurface<P>` (superset of the `NurbsSurface3` impl in Interfaces). Surface knot removal is
+  not in Interfaces and was not added.
+- **Measured** (tests print them; 512 proptest cases each, 1000 samples per curve, 32 × 32 per
+  surface): insertion, refinement, elevation, decomposition, split + join and segment keep the
+  shape within 8.7e-16·max(1, D) (curves) and 5.1e-16·max(1, D) (surfaces), budget 1e-12.
+  Removal: insert + remove round trip 4.2e-16·max(1, D) at `tol` = 1e-9·max(1, D), pole count
+  restored every time; approximate removal of perturbed curves stays within `tol` (worst
+  deviation/tol 0.90 over 118 removals). Bézier form (every interior knot raised to
+  multiplicity p) elevated by k and cleaned by `remove_knot` gives exactly the pole count and
+  knots of the elevated original, shape 1.0e-15·max(1, D). curvo 0.3.3: refinement on 1000
+  random curves 5.0e-16·max(1, D); elevation on 1000 curves 2.8e-16·max(1, D) (see curvo note).
+  Benchmarks (`benches/knot_ops.rs`, `AMG_STRICT_TIMING=1` passed; machine shared with another
+  worker): refine 20 knots into 50 poles 1.1–1.2 µs (< 10), elevate 3→5 of 50 poles 3.1–3.2 µs
+  (< 20); the blossom elevation path on uneven knots 17.8 µs (no budget).
+- **Decisions / deviations:**
+  - **A5.9 accuracy on uneven knots.** Its knot-removal step extrapolates by about the ratio of
+    neighbouring spans: measured on 20 000 random curves the error stays below 0.006·ε up to
+    ratio 4 but reaches 1e5·ε at ratio 2000. `elevate_degree` therefore uses A5.9 when every
+    neighbouring-span ratio is ≤ 4 and otherwise an equivalent path: A5.6 decomposition, Bézier
+    elevation (both convex), then each pole is the blossom of the elevated piece with the least
+    extrapolation in its support. Same knots and pole count; ≤ 0.003·ε on all 4000 test curves.
+  - **A5.8 removal** removes one copy per pass, and the redundant (checked) equation goes where
+    the left/right recurrences amplify rounding least instead of the middle. Re-inserting the
+    knot reproduces every other old pole exactly, so the per-pass residual bounds the deviation
+    (rational: scaled by `(1 + |P|max) / w_min`, eq. 5.30). Copies are removed while the summed
+    bounds stay ≤ `tol`. The book's middle placement lost 1e-10·D next to near-coincident knots
+    (a span 1e-5 of its neighbours) and needed `tol` up to 1e-3·D to remove exact copies there.
+  - Parameters within 1e-12 (relative to the domain scale) of an existing knot snap onto it in
+    insert / refine / split / remove / `continuity_at` (shape-preserving; avoids zero-length
+    spans). `insert_knot` caps the multiplicity at the degree; domain ends are no-ops for
+    insert / refine. `refine_knots` sorts its input; `InvalidKnots` if a multiplicity would
+    exceed the degree; `OutOfDomain` for non-finite or outside values.
+  - `split` / `segment` keep the parameters; the halves share the split pole bit-identically.
+    `join` elevates the lower degree, shifts `other` to start at `self`'s end (keeping its
+    parameter length), keeps `self`'s end pole at the joint and scales `other`'s weights to
+    match the joint weight. `Incompatible` for a gap > `tol.linear`.
+  - `continuity_at`: ends → C0, non-knots → Cn; at knots, tangent angle (unit-vector chord) and
+    derivative / curvature vectors compared within `tol.angular` (relative); multiplicity
+    ≤ degree − 3 is Cn without numerics; G2-but-not-C1 joints report G1 (enum order).
+  - `KnotVector::union` keeps `self`'s value for knots within `tol`; `missing_from` emits
+    `self`'s value for matched knots so insertion raises multiplicities without near-duplicates.
+  - **Done-when 3 reading:** a single Bézier segment elevated by k has p + k + 1 poles and no
+    interior knot, so nothing can be removed. The test uses Bézier-form inputs (each interior
+    knot at multiplicity p, i.e. `bezier_segments` joined) and checks that elevation followed by
+    removal gives the pole count of the elevated original. It also checks that a single Bézier
+    segment gains exactly k poles. Owner: say if another reading was meant.
+  - **curvo 0.3.3 `try_elevate_degree` has bugs:** it allocates `n + t + 3` poles and never
+    truncates (the result is zero-padded), it panics when more are needed, and for t ≥ 2 it
+    underflows `i - degree_inc` (a panic with overflow checks). With interior multiplicities
+    ≤ p − 2 it also returns non-positive weights or a curve off the input in part of the cases
+    (1000 general curves: 605 match ours within 3.6e-16·max(1, D), 286 panic or are degenerate,
+    109 drift; cause not traced). The Done-when 4 oracle elevates with curvo one degree at a
+    time (the result is unique for a knot vector), reads the valid prefix, and uses ≤ 4 spans
+    with interior multiplicity p − 1 or p: 0 of 1000 excluded. General knots are covered by the
+    shape proptests.
+- **Tests:** `tests/knot_props.rs` (Done-when 1–3 proptests + a deterministic `measured_worst`
+  sweep), `tests/knot_ops_oracle.rs` (Done-when 4), `tests/knot_ops_unit.rs` (error table,
+  continuity classes, join / segment, circle decomposition, surface split / strips), unit tests
+  for `union` / `missing_from`, `benches/knot_ops.rs` (Done-when 5). The amg-nurbs suite runs in
+  about 1.5 s under nextest.
+- **Left for later WPs:** surface knot removal (not in Interfaces; KH-14 compatibility only needs
+  insertion / elevation); A5.9 itself was not made adaptive (the fallback covers it).
+  No golden files: knot ops produce no persistent geometry, and the proptests compare against
+  the input shape directly.
 
 ## Interface changes
 

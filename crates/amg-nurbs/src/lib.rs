@@ -9,7 +9,10 @@
 //! KH-07 provides the core: [`KnotVector`], [`basis`], [`NurbsCurve`], [`NurbsSurface`] +
 //! [`Grid`] with validation, evaluation and derivatives (A2.1–A2.3, A3.2, A3.6, A4.1–A4.4),
 //! reverse / reparametrize / transform / bbox, and the exact [`analytic`] conversions.
-//! Knot operations (KH-12), fitting and closest point (KH-13), skinning (KH-14) and Gordon
+//! KH-12 adds the knot operations (P&T ch. 5): insertion, refinement, Bézier decomposition,
+//! removal, degree elevation, split / segment / join and continuity for curves, the
+//! per-direction counterparts for surfaces, and [`KnotVector::union`] /
+//! [`KnotVector::missing_from`]. Fitting and closest point (KH-13), skinning (KH-14) and Gordon
 //! surfaces (KH-15) build on it.
 //!
 //! Nothing panics on user-reachable input: constructors validate every invariant and return
@@ -22,10 +25,13 @@ pub mod analytic;
 pub mod basis;
 mod ctrl_pt;
 mod curve;
+mod curve_ops;
 mod error;
 mod grid;
+mod knot_ops;
 mod knots;
 mod surface;
+mod surface_ops;
 
 pub use amg_core::{Aabb3, Dir3, Line3, Plane, Point2, Point3, Tolerance, Transform, Vec3};
 pub use ctrl_pt::CtrlPt;

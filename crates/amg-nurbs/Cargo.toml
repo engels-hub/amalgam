@@ -26,5 +26,9 @@ curvo = "=0.3.3"
 name = "eval"
 harness = false
 
+[[bench]]
+name = "knot_ops"
+harness = false
+
 [lints]
 workspace = true
