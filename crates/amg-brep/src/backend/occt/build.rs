@@ -26,7 +26,7 @@ pub(super) fn oc_frame(p: &Plane) -> ffi::OcFrame {
     }
 }
 
-fn oc_curve(c: &Curve3, first: f64, last: f64) -> ffi::OcCurve {
+pub(super) fn oc_curve(c: &Curve3, first: f64, last: f64) -> ffi::OcCurve {
     let mut out = ffi::OcCurve {
         kind: ffi::OcCurveKind::Absent,
         first,
@@ -91,7 +91,7 @@ fn oc_loops(loops: &LoopsIn) -> ffi::OcLoopsIn {
     }
 }
 
-fn oc_surface(s: &Surface) -> ffi::OcSurface {
+pub(super) fn oc_surface(s: &Surface) -> ffi::OcSurface {
     let mut out = ffi::OcSurface {
         kind: ffi::OcSurfaceKind::Other,
         frame: ffi::OcFrame::default(),

@@ -3615,3 +3615,23 @@ Additive; no existing method changes.
   edge tolerances to about 0.1 mm. A wall that overlaps or touches itself is an error.
 - Noted for BREP-09: the `mass_props` volume of solids with free-form faces can be percent-level
   wrong (S04 log 2026-11-28, SOL-18 leftovers).
+
+### 2026-11-28: additions from S20 KH-16 (lane A)
+Additive; no existing method or shim function changed.
+- `amg-brep`: new public module `nurbs_conv`. It holds the amg-nurbs ↔ `geom::BSplineCurveData`/
+  `BSplineSurfaceData` conversions (periodic data unwrapped), `curve_seg_to_nurbs`,
+  `surface_to_nurbs`, `edge_to_nurbs`, `wire_to_chain`, `nurbs_face` (on `make_face`), and
+  the plain-data OCCT oracles `nurbs_conv::oracle`. It also adds `backend/occt/nurbs.rs` and a
+  stub in `backend/none.rs`; `build.rs`'s `oc_curve`/`oc_surface` are now `pub(super)`.
+- S20 request R16 (ordered wire traversal) is met inside the crate. The crate-private
+  `Occ::wire_order` (`BRepTools_WireExplorer`) backs `wire_to_chain`. No public
+  `Shape::wire_edges` was added; S02 may expose one later with the same shim.
+- `amg-occt-sys` (R14): new `cpp/occt_nurbs.cpp` in `build.rs` with seven category-R
+  functions:
+  - `bspline_curve_round_trip` and `bspline_surface_round_trip`;
+  - `bspline_curve_not_periodic` and `bspline_surface_not_periodic`;
+  - `bspline_curve_d2` and `bspline_surface_d2`;
+  - `wire_edge_order`, and `gordon_surface` (`GeomFill_Gordon`, OCCT 8.0.1), which returns
+    the new struct `OcGordon`.
+
+  `SHIM_VERSION` stays 4, and `kernel_version()` is unchanged.

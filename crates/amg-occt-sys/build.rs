@@ -89,6 +89,7 @@ mod occt {
         println!("cargo:rerun-if-changed=cpp/occt_sweep.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_local.cpp");
         println!("cargo:rerun-if-changed=cpp/occt_xde.cpp");
+        println!("cargo:rerun-if-changed=cpp/occt_nurbs.cpp");
 
         let fixtures = cfg!(feature = "fixture-gen");
         let mut bridges = vec!["src/bridge.rs"];
@@ -113,6 +114,7 @@ mod occt {
             .file("cpp/occt_sweep.cpp")
             .file("cpp/occt_local.cpp")
             .file("cpp/occt_xde.cpp")
+            .file("cpp/occt_nurbs.cpp")
             .include(&include)
             .std("c++17");
         if fixtures {

@@ -63,6 +63,7 @@ struct OcXdeProto;
 struct OcXdeFaceColor;
 struct OcXdeStatus;
 struct OcXdeWriteParams;
+struct OcGordon;
 
 // Defined on the Rust side (`extern "Rust"` in bridge.rs): the progress/cancel target of one call.
 struct ProgressSink;
@@ -554,6 +555,33 @@ OcXdeStatus xde_write_iges(rust::Str path, const OcXdeWriteParams &params,
 // CATEGORY: C (strips the 3D curve of edge `edge` on a private BRepBuilderAPI_Copy, then runs the
 // readers' missing-curve repair on it; exists to test that repair)
 std::unique_ptr<OcShape> xde_guard_probe(const OcShape &shape, std::uint32_t edge);
+
+// -- NURBS conversion and oracles (S20 KH-16), implemented in occt_nurbs.cpp --
+
+// CATEGORY: R (takes no shape; builds a new Geom_BSplineCurve from plain data)
+OcCurve bspline_curve_round_trip(const OcCurve &curve);
+
+// CATEGORY: R (takes no shape; builds a new Geom_BSplineSurface from plain data)
+OcSurface bspline_surface_round_trip(const OcSurface &surface);
+
+// CATEGORY: R (takes no shape; SetNotPeriodic on a new curve built here)
+OcCurve bspline_curve_not_periodic(const OcCurve &curve);
+
+// CATEGORY: R (takes no shape; SetUNotPeriodic/SetVNotPeriodic on a new surface built here)
+OcSurface bspline_surface_not_periodic(const OcSurface &surface);
+
+// CATEGORY: R (takes no shape; evaluates a new curve built here, whose cache is its own)
+rust::Vec<V3> bspline_curve_d2(const OcCurve &curve, rust::Slice<const double> ts);
+
+// CATEGORY: R (takes no shape; evaluates a new surface built here, whose cache is its own)
+rust::Vec<V3> bspline_surface_d2(const OcSurface &surface, rust::Slice<const double> uvs);
+
+// CATEGORY: R (BRepTools_WireExplorer only reads the wire)
+rust::Vec<std::uint32_t> wire_edge_order(const OcShape &shape, const OcIndex &index);
+
+// CATEGORY: R (takes no shape; GeomFill_Gordon on new curves built here, serial mode)
+OcGordon gordon_surface(rust::Slice<const OcCurve> profiles, rust::Slice<const OcCurve> guides,
+                        double tol);
 
 } // namespace amg::occt
 

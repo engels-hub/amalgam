@@ -529,6 +529,18 @@ pub mod ffi {
         iges_unit_flag: i32,
     }
 
+    /// `GeomFill_Gordon` result (S20 KH-16, the KH-15 oracle). `status` is the
+    /// `GeomFill_Gordon::ResultStatus` value (1 = Done); `surface` is a B-spline only when done.
+    #[derive(Clone, Debug, PartialEq)]
+    struct OcGordon {
+        status: u8,
+        approximate: bool,
+        max_contact_gap: f64,
+        max_profile_deviation: f64,
+        max_guide_deviation: f64,
+        surface: OcSurface,
+    }
+
     extern "Rust" {
         /// The progress/cancel target of one shim call (S02 §1, occt-integration.md §3.4).
         type ProgressSink;
@@ -1004,6 +1016,27 @@ pub mod ffi {
         /// A copy of `shape` whose edge `edge` lost its 3D curve and got it back from the
         /// readers' repair. Raises if the repair did not rebuild exactly that curve.
         fn xde_guard_probe(shape: &OcShape, edge: u32) -> Result<UniquePtr<OcShape>>;
+
+        // -- NURBS conversion and oracles (S20 KH-16), implemented in occt_nurbs.cpp --
+
+        /// `curve` (kind `BSpline`) built as a `Geom_BSplineCurve` and copied back out.
+        fn bspline_curve_round_trip(curve: &OcCurve) -> Result<OcCurve>;
+        /// `surface` (kind `BSpline`) built as a `Geom_BSplineSurface` and copied back out.
+        fn bspline_surface_round_trip(surface: &OcSurface) -> Result<OcSurface>;
+        /// `curve` (kind `BSpline`, may be periodic) after `SetNotPeriodic`.
+        fn bspline_curve_not_periodic(curve: &OcCurve) -> Result<OcCurve>;
+        /// `surface` (kind `BSpline`) after `SetUNotPeriodic` and `SetVNotPeriodic`.
+        fn bspline_surface_not_periodic(surface: &OcSurface) -> Result<OcSurface>;
+        /// `Geom_BSplineCurve::D2` at each of `ts`: point, first and second derivative.
+        fn bspline_curve_d2(curve: &OcCurve, ts: &[f64]) -> Result<Vec<V3>>;
+        /// `Geom_BSplineSurface::D2` at each `(uvs[2i], uvs[2i + 1])`: point, `Du`, `Dv`, `Duu`,
+        /// `Dvv`, `Duv`.
+        fn bspline_surface_d2(surface: &OcSurface, uvs: &[f64]) -> Result<Vec<V3>>;
+        /// The edges of a wire (or the single edge of an edge) in `BRepTools_WireExplorer`
+        /// order: pairs `(edge index in `index`, 1 when the edge runs reversed in the wire)`.
+        fn wire_edge_order(shape: &OcShape, index: &OcIndex) -> Result<Vec<u32>>;
+        /// `GeomFill_Gordon` over B-spline `profiles` and `guides` (exact mode, serial).
+        fn gordon_surface(profiles: &[OcCurve], guides: &[OcCurve], tol: f64) -> Result<OcGordon>;
     }
 }
 

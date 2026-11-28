@@ -289,9 +289,22 @@ impl KnotVector {
     pub(crate) fn reversed(&self) -> KnotVector {
         let m = self.0.len();
         let (a, b) = (self.0[0], self.0[m - 1]);
-        let mut v: Vec<f64> = self.0.iter().rev().map(|&k| (a + b) - k).collect();
-        v[0] = a;
-        v[m - 1] = b;
+        // Every copy of an end knot maps exactly onto the other end: `(a + b) − b` need not
+        // round to `a`, which would unclamp the reversed vector.
+        let mut v: Vec<f64> = self
+            .0
+            .iter()
+            .rev()
+            .map(|&k| {
+                if k.to_bits() == b.to_bits() {
+                    a
+                } else if k.to_bits() == a.to_bits() {
+                    b
+                } else {
+                    (a + b) - k
+                }
+            })
+            .collect();
         for i in 1..m {
             v[i] = v[i].clamp(a, b);
             if v[i] < v[i - 1] {
@@ -423,5 +436,21 @@ mod tests {
         assert!((rev.as_slice()[2] - 0.7).abs() < 1e-15);
         assert!((rev.reversed().as_slice()[2] - 0.3).abs() < 1e-15);
         assert_eq!(k.reparametrized((1.0, 1.0)), k);
+    }
+
+    /// KH-16 regression: `(a + b) − b` rounds away from `a` here, which left the reversed
+    /// vector's first knot run unequal (no longer clamped).
+    #[test]
+    fn reverse_keeps_end_runs_exact() {
+        let (a, b) = (4.674999961845322, 10.909196713383889);
+        assert_ne!((a + b) - b, a, "the case must round");
+        let mut k = vec![a; 4];
+        k.push(6.8);
+        k.extend([b; 4]);
+        let k = KnotVector::new(k).unwrap();
+        let rev = k.reversed();
+        assert!(rev.is_clamped(3));
+        assert!(rev.as_slice()[..4].iter().all(|&x| x == a));
+        assert!(rev.as_slice()[5..].iter().all(|&x| x == b));
     }
 }
