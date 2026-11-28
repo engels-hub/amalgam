@@ -57,8 +57,9 @@ pub use eval::{
 pub use event::DocEvent;
 pub use expr::{Dim, ExprError};
 pub use feature::{
-    BodyChange, BodyChangeKind, ComputeMode, Dependency, Feature, FeatureBox, FeatureDataError,
-    FeatureError, FeatureMeta, FeatureOutput, MigrationError, RecomputeCtx, UnknownFeature,
+    BodyChange, BodyChangeKind, ComputeMode, ContextBodies, Dependency, Feature, FeatureBox,
+    FeatureDataError, FeatureError, FeatureMeta, FeatureOutput, MigrationError, RecomputeCtx,
+    UnknownFeature,
 };
 pub use history::{DEFAULT_UNDO_DEPTH, History, Transaction, UndoEntry, UndoStack};
 pub use id::{

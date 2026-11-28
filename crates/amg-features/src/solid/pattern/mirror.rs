@@ -8,14 +8,14 @@ use amg_brep::{BrepKernel, OpResult, Shape};
 use amg_core::Plane;
 use amg_doc::naming::OperandNaming;
 use amg_doc::{
-    BodyChange, BodyChangeKind, BodyGeom, BodyId, BodyNaming, Dependency, EntityRef, Feature,
-    FeatureError, FeatureId, FeatureOutput, OccurrenceId, RecomputeCtx, register_feature,
+    BodyChange, BodyChangeKind, BodyGeom, BodyId, BodyNaming, ContextBodies, Dependency, EntityRef,
+    Feature, FeatureError, FeatureId, FeatureOutput, OccurrenceId, RecomputeCtx, register_feature,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
     PatternObjects, common_target, instances_compound, invalid, not_yet, ref_dependency,
-    require_objects, seed_tools,
+    require_objects, seed_reads, seed_tools,
 };
 use crate::construct::RefInput;
 use crate::construct::resolve::resolve_plane_input;
@@ -169,6 +169,10 @@ impl Feature for Mirror {
             d.extend(t.inputs());
         }
         d
+    }
+
+    fn context_reads(&self) -> Option<ContextBodies> {
+        seed_reads(&self.objects)
     }
 
     fn validate(&self) -> Result<(), FeatureError> {

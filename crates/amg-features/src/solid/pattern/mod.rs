@@ -24,9 +24,9 @@ mod mirror;
 use amg_brep::{BrepKernel, Shape};
 use amg_core::{Line3, Transform, Vec3};
 use amg_doc::{
-    BodyChange, BodyChangeKind, BodyGeom, BodyId, BodyNaming, Dependency, Dim, EntityRef, Expr,
-    Feature, FeatureError, FeatureId, FeatureOutput, OccurrenceId, RecomputeCtx, TopoRef,
-    register_feature,
+    BodyChange, BodyChangeKind, BodyGeom, BodyId, BodyNaming, ContextBodies, Dependency, Dim,
+    EntityRef, Expr, Feature, FeatureError, FeatureId, FeatureOutput, OccurrenceId, RecomputeCtx,
+    TopoRef, register_feature,
 };
 use serde::{Deserialize, Serialize};
 
@@ -189,6 +189,14 @@ pub(crate) fn invalid(field: &'static str, msg: impl Into<String>) -> FeatureErr
 
 pub(crate) fn not_yet(what: &'static str) -> FeatureError {
     SolidError::NotYet { what }.into()
+}
+
+/// The bodies a pattern or mirror reads without listing them. A feature pattern or mirror
+/// rebuilds each seed's tool against the state just before itself ([`seed_tools`]; an "All"
+/// seed measures the bodies there) and, without a `target`, applies it to the seeds'
+/// participants. `inputs` can see neither, so this holds with and without a `target`.
+pub(crate) fn seed_reads(o: &PatternObjects) -> Option<ContextBodies> {
+    matches!(o, PatternObjects::Features(_)).then_some(ContextBodies::Context)
 }
 
 /// `InvalidValue` for an empty body or feature selection.
@@ -642,6 +650,10 @@ impl Feature for Pattern {
             d.extend(t.inputs());
         }
         d
+    }
+
+    fn context_reads(&self) -> Option<ContextBodies> {
+        seed_reads(&self.objects)
     }
 
     fn exprs(&self) -> Vec<&Expr> {
