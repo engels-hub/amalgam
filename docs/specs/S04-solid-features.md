@@ -655,7 +655,7 @@ note §5.2 checked by at least one edit-and-resolve test per feature.
 | SOL-20 | Fillet/chamfer on S20's robust chain: `robust::fillet::fillet` with `FilletDiagnosis` (failing edges highlighted, largest workable radius in the message), `max_radius` as a background job, interactive policy in preview | SOL-05, KH-03 | P0 | Todo | 1. On the KH-02 fillet corpus driven through `solid.fillet`, the success rate equals KH-03's recorded rate (no loss in the feature layer). 2. 100 % of failures highlight ≥ 1 edge and show a max radius when `max_radius` returns one. 3. Preview never exceeds the interactive deadline (test with an injected slow strategy). |
 | SOL-21 | Setback corners for fillets (S20 KH-19 corner patches): `CornerType::Setback` with setback distances | SOL-20, KH-19 | P1 | Todo | 1. The `corner3` subset driven through `solid.fillet` with setback reaches KH-19's success rate (≥ 95 %). 2. TNP-27 still meets its `expect` with setback on. |
 | SOL-22 | Silhouette split (R-S04-4): faces split along the silhouette for a view direction, optional body split | SOL-07 | P1 | Todo | 1. A sphere r 10 split for +Z gives two faces of area 2π·100 within 1e-6 relative. 2. A cylinder seen side-on splits into two half-cylinders; with `split_body` the body splits into two solids of equal volume within 1e-9. 3. A B-spline face split matches the sampled silhouette within 1e-4 mm. |
-| SOL-23 | Pattern on path (spacing/extent, start, orientation), face pattern (boss/pocket on a planar support), adjust compute type | SOL-08, CON-03 | P0 | Todo | 1. 8 instances along a spline path with path-direction orientation: instance frames within 1e-9 of `CurveEval` frames. 2. A face pattern of a boss (6 faces) on a plate gives the analytic volume; a pocket the same. 3. Adjust compute of a to-object extrude seed across a sloped target gives per-instance heights matching the reference within 1e-6. |
+| SOL-23 | Pattern on path (spacing/extent, start, orientation), face pattern (boss/pocket on a planar support), adjust compute type | SOL-08, CON-03 | P0 | Review | 1. 8 instances along a spline path with path-direction orientation: instance frames within 1e-9 of `CurveEval` frames. 2. A face pattern of a boss (6 faces) on a plate gives the analytic volume; a pocket the same. 3. Adjust compute of a to-object extrude seed across a sloped target gives per-instance heights matching the reference within 1e-6. |
 | SOL-24 | Component operations: "New component" body op (`new_component`, S11 request), component pattern and mirror (occurrences), cross-component participants | SOL-08, ASM-02 | P0 | Todo | 1. Extrude with "New component" creates one component and one body in one undo entry. 2. A circular pattern of an occurrence creates 6 occurrences with the right transforms; mirror creates a mirrored occurrence. 3. A cut whose participant is in a sub-component (assembly context) works and is undone in one step. |
 | SOL-25 | Thread feature on cylindrical faces (cosmetic/modeled, full length or length+offset, handedness), shared geometry with tapped holes; ISO metric + UNC/UNF tables (BSP/NPT only on request; QUESTIONS #54); per-feature `clearance` (QUESTIONS #53) | SOL-12 | P1 | Todo | 1. ISO M3, M6, M10, M20 external modeled threads on cylinders: crest pitch within 1e-6 mm and diameters within 1e-4 mm of ISO 68-1 (BREP-11 checks reused). 2. A thread size is inferred from the face diameter (Ø6 → M6×1). 3. ¼-20 UNC and ¼-28 UNF pass the same checks. 4. `clearance` on a modeled thread shifts diameters by the given radial amount. |
 | SOL-26 | Emboss / deboss of profiles and text on planar faces (project) and on cylindrical and conical faces (wrap by unrolling) | SOL-02, SK-10 | P1 | Todo | 1. Text "AgB" embossed 1 mm on a plane: volume = text area × 1 within 1e-6. 2. A 10 mm square wrapped on a cylinder r 20 and debossed 1 mm: volume within 1e-4 relative of the analytic value. 3. Editing the depth keeps glyph lateral names. 4. A freeform target face fails with `NotYet { what: "emboss on freeform faces" }`. |
@@ -1626,3 +1626,82 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   declare them the same way.
 - Leftover: a pattern whose seed lives in another component (explicit `target` only) does not
   cover bodies that seed reads in its own component.
+
+### 2026-11-28 - SOL-23 implemented (lane C)
+- **Landed.** `amg_features::solid::pattern` extended (SOL-08 module, `solid.pattern` stays v1;
+  data shapes unchanged, as in the Interfaces):
+  - `pattern::path` (public; `PathChain`): `PatternKind::Path` resolves each path ref through
+    CON-03 (`resolve_input` + `construct::curves::curve_of`), chains the curves end to end in
+    order (reversing a curve where needed; ends meet within 1e-4 mm, else `Invalid { path }`),
+    and places instance `k` at arc length `s_0 ± k·step` (`s_0 = start·L`, `start` ∈ [0, 1];
+    `step` = spacing or extent/(count − 1); `−` when `flip`). `count` includes the seed (k = 0);
+    instance numbers are positions (as circular). A closed path wraps around; on an open path,
+    positions beyond the ends are dropped with a warning and their numbers stay reserved.
+    `Identical` orientation translates by `C(s_k) − C(s_0)`; `PathDirection` maps the frame at
+    `s_0` onto the frame at `s_k`, frames from `construct::math::plane_along_path` (normal =
+    tangent, x = principal normal). Works for body and feature patterns.
+  - `pattern::faces`: `PatternObjects::Faces` — the picked faces must belong to one solid and
+    their boundary edges must all border one planar, unpicked face (the support; coplanar
+    faces accepted). The tool is the picked faces (`Shape::sub_shape`) sewn (`sew`,
+    `make_solid`) with a cap on the support plane (`make_face`, `FaceBounds::Loops` of the
+    boundary edge curves, largest loop first). Faces reaching out along the support's outward
+    normal make a boss (`Join` with the body), faces reaching into it a pocket (`Cut`); an
+    explicit `target` overrides. Tool names `PatternFace#j` (source: the picked face's name)
+    and `PatternCap#0`, then `instanced(self, k)`; one `apply_body_op` for all instances.
+  - `pattern::adjust`: `ComputeType::Adjust` for feature patterns rebuilds every seed per
+    instance in a sub-context whose `before` is a copy of the state just before the pattern
+    with the seeds' sketches (`Dependency::Sketch` of the seed's `inputs()`) moved by the
+    instance transform (`SketchGeom::plane`); everything else (extent targets, "All" bodies,
+    start planes) stays, so extents are recomputed per instance. Tools named
+    `instanced(self, k)`, one body operation, targets must agree across instances.
+  - `seed_tools` split into `seed_tool_in(ctx, before, id)` (shared by identical and adjust).
+  - Dialog (`pattern/dialog.rs`, pattern entry only): pattern type "Path" with fields `path`
+    (edges/sketch curves), `path_count`, `path_spacing_type`, `path_distance`, `path_start`,
+    `path_orientation`, `path_flip`; object type "Faces" with a `faces` selection (pattern
+    only, the mirror dialog is unchanged); `compute` (Identical/Adjust, shown for features;
+    `build` now reads it instead of keeping the old value). `read` returns values for path
+    patterns now.
+- **Done-when evidence** (`crates/amg-features/tests/solid_pattern_sol23.rs` +
+  `solid_pattern_sol23/occt.rs`, 12 tests, 9 with OCCT; 4 unit tests in `path.rs`/`adjust.rs`;
+  goldens `tests/golden/solid/sol23_*.toml`, 4 files, rel 1e-9; results BRepCheck-valid):
+  1. `dw1_eight_instances_along_a_spline_follow_the_curve_frames`: 8 instances (seed + 7) of a
+     4 mm block along a cubic sketch spline (6 poles), start 0.1, spacing 0.1·L, path direction:
+     every instance transform maps the reference frame at `s_0` onto the reference frame at
+     `s_k` (computed independently with `resolve_in` + `curve_of` + `path_param` +
+     `plane_along_path`) within 1e-9 (worst origin deviation 1.8e-15 mm; axes within 1e-9);
+     each copy's centroid within 1e-9 of the mapped seed centroid (worst 1.0e-16 mm); volume
+     64 mm³ (1e-12). Identical orientation gives pure translations to `C(s_k)`. Also extent
+     (last instance on the path end), flip from the end with two positions beyond the start
+     (dropped with a warning), a disconnected path and start 1.5 as clean errors.
+  2. `dw2_face_pattern_of_a_boss_*`: the 6 faces (5 sides + top) of a 5 mm pentagon boss on a
+     120×60×10 plate, 3 along X at 35 mm: 76 440 mm³ = 72 000 + 3·296·5 (rel 3.8e-16), 24
+     faces, one solid. `dw2_face_pattern_of_a_pocket_*`: the 6 faces of a 3 mm pentagon pocket
+     cut up from the plate's bottom: 69 336 mm³ = 72 000 − 3·296·3 (rel 2.1e-16). Faces of a
+     whole body or without one planar support fail with clear messages.
+  3. `dw3_adjust_recomputes_a_to_object_extent_per_instance`: a 10×20 extrude to the bottom of
+     a box tilted 20°, patterned 4 along X at 12 mm with adjust: mean heights
+     32.10660 / 36.47424 / 40.84189 mm = 15 + tan 20°·(x0 + 35), worst deviation 7.1e-15 mm
+     (limit 1e-6); each top at the slope height at its far edge within 1e-6. The same
+     pattern with identical compute keeps the seed's height. A planar-face-profile seed with
+     adjust fails ("… has none; use identical compute"); adjust along a straight path with
+     an "All" hole seed matches the analytic plate volume (1e-9).
+- **Gates.** `cargo fmt --all --check`; `cargo clippy -p amg-features --all-targets -D warnings`
+  default and `--features occt`; `cargo nextest run -p amg-features` default (357 passed) and
+  `--features occt` (566 passed), `-p amg-doc`. Existing tests unchanged.
+- **Deviations.**
+  - The path chain uses the curves in the given order (no automatic sorting of an unordered
+    pick); Frenet frames flip at inflection points and are arbitrary (but deterministic) on
+    straight stretches, as `plane_along_path` defines them.
+  - Adjust moves only sketches; a seed without one (planar-face profile) is refused rather
+    than moving that body. Sketch entities used as extent targets of the seed move too.
+  - Face patterns need a planar support (Done-when scope); bosses/pockets on curved faces and
+    faces spanning several supports are refused.
+- **Interface changes elsewhere.** None: only public `amg-brep` (`sew`, `make_face`,
+  `Shape::{sub_shape, curve, edge_faces, …}`, `tessellate_edge`) and `amg-doc`
+  (`Evaluated::set_sketch`, `RecomputeCtx::new`) APIs; no new dependency. `context_reads`
+  unchanged (feature patterns, identical or adjust, still declare `ContextBodies::Context`;
+  face patterns list their faces, whose body is the participant). The pattern dialog gains
+  fields (UI shell snapshots that render the pattern dialog would change; none found in
+  `amg-ui`).
+- **Leftovers.** Manipulator anchors for the path distance (UI-06); a viewport pick for the
+  path chain order; face patterns on curved supports; adjust for face-profile seeds.

@@ -1,0 +1,13 @@
+# B-rep metrics of solid/sol23_face_pattern_pocket (S04 SOL-23). Written by `AMG_BLESS=1`.
+
+[tolerances]
+rel = 0.000000001
+
+[metrics]
+volume = 69336.00000000001
+area = 18597.46562489026
+faces = 24
+edges = 57
+vertices = 38
+bbox_min = [-10.0, -10.0, 0.0]
+bbox_max = [110.0, 50.0, 10.0]
