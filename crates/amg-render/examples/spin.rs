@@ -647,11 +647,6 @@ fn main() {
         println!("instance flags: {:?}", gpu_config.instance_flags);
     }
     let gpu = Gpu::new_blocking(&gpu_config).expect("open the GPU device");
-    let validation = Arc::clone(&errors);
-    gpu.device().on_uncaptured_error(Arc::new(move |e| {
-        validation.fetch_add(1, Ordering::Relaxed);
-        eprintln!("wgpu validation error: {e}");
-    }));
 
     let data = match &args.stl {
         Some(path) => read_stl(path),
@@ -728,6 +723,12 @@ fn main() {
                 "egui must share the Gpu device"
             );
             egui_glue::install(&rs, shared_gpu, &RendererConfig::default(), 1)?;
+            // Replaces the renderer's error log: the stress run counts every error.
+            let validation = Arc::clone(&app_errors);
+            rs.device.on_uncaptured_error(Arc::new(move |e| {
+                validation.fetch_add(1, Ordering::Relaxed);
+                eprintln!("wgpu validation error: {e}");
+            }));
             let (view, instance) = egui_glue::with_renderer(&rs, |r| {
                 let key = r.scene_mut().insert_mesh(mesh);
                 let instance = r

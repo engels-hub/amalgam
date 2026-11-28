@@ -9,6 +9,7 @@ use crate::analysis::{
     AnalysisOutput, AnalysisRecord, Animation, GpuField, GroupShade, Shading,
     build_analysis_record, deformation_of, group_shade,
 };
+use crate::diagnostics::SceneVram;
 use crate::highlight::{
     FaceHighlight, HighlightItem, HighlightLayer, Resolved, SlotGeometry, resolve,
 };
@@ -922,14 +923,21 @@ impl RenderScene {
         out
     }
 
-    /// VRAM used by the meshes, edge sets, point sets and fields. The renderer's own instance and
-    /// visibility buffers are not included.
+    /// VRAM used by the meshes, edge sets, point sets, fields and images. The renderer's own
+    /// targets and buffers are not included ([`crate::Renderer::vram_usage`] counts them).
     pub fn gpu_bytes(&self) -> u64 {
-        self.meshes.values().map(GpuMesh::gpu_bytes).sum::<u64>()
-            + self.edges.values().map(GpuEdges::gpu_bytes).sum::<u64>()
-            + self.points.values().map(GpuPoints::gpu_bytes).sum::<u64>()
-            + self.fields.values().map(GpuField::gpu_bytes).sum::<u64>()
-            + self.images.values().map(GpuImage::gpu_bytes).sum::<u64>()
+        self.vram().total()
+    }
+
+    /// [`RenderScene::gpu_bytes`] by category.
+    pub fn vram(&self) -> SceneVram {
+        SceneVram {
+            meshes: self.meshes.values().map(GpuMesh::gpu_bytes).sum(),
+            edges: self.edges.values().map(GpuEdges::gpu_bytes).sum(),
+            points: self.points.values().map(GpuPoints::gpu_bytes).sum(),
+            fields: self.fields.values().map(GpuField::gpu_bytes).sum(),
+            images: self.images.values().map(GpuImage::gpu_bytes).sum(),
+        }
     }
 
     /// Adds an uploaded image ([`crate::upload_image`]) for overlay image planes and sprites.

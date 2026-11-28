@@ -244,7 +244,37 @@ impl Renderer {
     pub fn gpu_timings(&self, id: ViewId) -> Option<GpuTimings>;
     /// Headless: encodes, submits and starts reading back `final`.
     pub fn capture(&mut self, id: ViewId) -> Result<Capture, RenderError>;
+    // Added by RND-13 (additive):
+    /// Uncaptured wgpu errors → `tracing`, each once (`egui_glue::install` calls it).
+    pub fn capture_errors(&mut self) -> GpuErrorLog;
+    pub fn error_log(&self) -> Option<&GpuErrorLog>;
+    pub fn vram_usage(&self) -> VramUsage;
+    /// Data of the diagnostics overlay.
+    pub fn diagnostics(&self, id: ViewId) -> Option<Diagnostics>;
 }
+// ===== diagnostics (RND-13) =====
+#[derive(Clone, Debug, Default)]
+pub struct GpuErrorLog { /* shared counters */ }
+impl GpuErrorLog {
+    pub fn install(device: &wgpu::Device) -> GpuErrorLog;
+    pub fn total(&self) -> u64;      // repeats included
+    pub fn distinct(&self) -> usize; // logged, at most 64
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SceneVram { pub meshes: u64, pub edges: u64, pub points: u64, pub fields: u64,
+                       pub images: u64 }
+impl SceneVram { pub fn total(&self) -> u64; }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VramUsage { pub scene: SceneVram, pub view_targets: u64, pub pick_targets: u64,
+                       pub instance_buffers: u64, pub view_buffers: u64, pub other: u64 }
+impl VramUsage {
+    pub fn categories(&self) -> [(&'static str, u64); 10];
+    pub fn total(&self) -> u64;
+}
+#[derive(Clone, Debug, Default)]
+pub struct Diagnostics { pub adapter: String, pub backend: String, pub frame: FrameStats,
+                         pub timings: Option<GpuTimings>, pub vram: VramUsage, pub gpu_errors: u64 }
+impl Diagnostics { pub fn lines(&self) -> Vec<String>; }
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameStats { pub instances_drawn: u32, pub triangles: u64, pub edge_segments: u64, pub culled: u32 }
 #[derive(Clone, Debug, Default)]
@@ -328,6 +358,7 @@ impl RenderScene {
     pub fn begin_overlays(&mut self) -> &mut OverlayList;
     pub fn visible_bounds(&self) -> Aabb3;
     pub fn gpu_bytes(&self) -> u64;
+    pub fn vram(&self) -> SceneVram;                       // RND-13: gpu_bytes by category
     pub fn revision(&self) -> u64;
 }
 #[derive(Clone, Debug)]
@@ -571,6 +602,10 @@ pub mod egui_glue {
     #[derive(Clone, Debug)]
     pub struct ViewportResponse { pub response: egui::Response, pub rect: egui::Rect,
                                   pub pixels_per_point: f32, pub size_px: [u32; 2], pub lost: bool }
+    // Added by RND-13: `Viewport::show` paints a placeholder instead of its callback when lost.
+    pub const DEVICE_LOST_TITLE: &str; pub const DEVICE_LOST_HINT: &str;
+    /// The diagnostics overlay in the viewport's top-left corner; returns the panel rect.
+    pub fn paint_diagnostics(ui: &egui::Ui, resp: &ViewportResponse, d: &Diagnostics) -> egui::Rect;
     /// Paints `project_labels(view)` with egui (crisp at any zoom).
     pub fn paint_labels(ui: &egui::Ui, resp: &ViewportResponse, labels: &[ProjectedLabel]);
     /// View-cube inset interaction (drawn by the renderer; hit-tested here). Returns the
@@ -641,7 +676,7 @@ pub mod egui_glue {
 | RND-10 | Appearance materials: PBR textures (base, normal, roughness/metal), image-based environment lighting (prefiltered cube, BRDF LUT), mapping from S17 appearances | RND-02, MAT-02 | P2 | Todo | 1. A material-ball scene matches its golden image. 2. Assigning an S17 appearance changes the rendering with no geometry re-upload. 3. With IBL on, the 5 M-tri budget holds. |
 | RND-11 | Navigation and view cube: `nav` module (orbit free/constrained about pivot, zoom-to-cursor, pan with grabbed point, fit, standard views, `look_at_plane`, projection switch, 300 ms transitions, near-plane policy), view-cube inset rendering (via RND-07) + `view_cube_hit` + face labels, `egui_glue::{view_cube, nav_bar}` emitting `CameraAction`. | RND-03, RND-07 | P0 | Done | Unit tests (no GPU): 1. Orbit keeps the pivot pixel fixed (≤ 1e-6 px). 2. Zoom-to-cursor keeps the anchor pixel fixed (≤ 1e-6 px), perspective and ortho, over 1e-3..1e5 mm distances. 3. Pan keeps the grabbed point under the cursor (≤ 1e-6 px). 4. Fit: all 8 bound corners are inside the view, and the bounding sphere spans ≥ 90 % of the smaller viewport dimension. 5. Projection switch keeps apparent size at the target within 0.1 %. 6. Table test of all 26 cube regions + Home. 7. `look_at_plane` puts plane x to screen right and the normal toward the viewer (±1e-9). 8. Widget test (headless `egui::Context`): a click on each cube face region emits the matching `CameraAction`. 9. Headless (WARP): a 0.01 mm feature 1e4 mm from the origin, zoomed to fill the view, is stable within 0.5 px over a 360° orbit. |
 | RND-12 | Line and point renderer: segment-quad lines with capsule SDF (width, AA, round joins), dashes, view-space depth offset, hidden-edge pass, point sprites, silhouettes post pass, edge-based visual styles (all six) using `POLYGON_MODE_LINE` for mesh wireframe with feature-edge fallback. | RND-02, RND-03 | P0 | Done | 1. 1-px and 3-px polylines with 170° turns have no gaps (pixel connectivity test). 2. Edges on their own faces are visible for ≥ 99 % of edge pixels at view distances 1e-2..1e5 mm, and an edge 0.5 mm behind a face is hidden. 3. Hidden-edge styles show dashes at a known occluded edge. 4. Cylinder silhouettes are present (pixel test). 5. The RND-02 bench with 5 M tris + 100 k edge segments in ShadedVisibleEdges has GPU p99 ≤ 12 ms and wall p99 ≤ 16.6 ms on the owner GPU (**vision budget**). |
-| RND-13 | Robustness and diagnostics: device-lost detection (`encode` → `Err(DeviceLost)`, `ViewportResponse::lost`, placeholder paint), an optional diagnostics overlay (pass timings, triangles, VRAM by category), and a validation-error capture to logs (`on_uncaptured_error` → tracing). | RND-03 | P1 | Todo | 1. `device.destroy()` in a test makes the next `encode` return `DeviceLost` with no panic, and `Viewport` paints the placeholder. 2. VRAM counters equal the sum of `gpu_bytes`. 3. A forced validation error appears in the log once, with its label. |
+| RND-13 | Robustness and diagnostics: device-lost detection (`encode` → `Err(DeviceLost)`, `ViewportResponse::lost`, placeholder paint), an optional diagnostics overlay (pass timings, triangles, VRAM by category), and a validation-error capture to logs (`on_uncaptured_error` → tracing). | RND-03 | P1 | Review | 1. `device.destroy()` in a test makes the next `encode` return `DeviceLost` with no panic, and `Viewport` paints the placeholder. 2. VRAM counters equal the sum of `gpu_bytes`. 3. A forced validation error appears in the log once, with its label. |
 | RND-14 | Large-mesh scaling: meshopt clusters (≤ 128 tris) built in the upload job, GPU cluster frustum/back-face-cone culling + multi-draw-indirect (fallback: per-cluster CPU culling), buffer chunking beyond `max_buffer_size`, optional LOD (meshopt simplify) for distant instances | RND-02, RND-03 | P2 | Todo | 1. A 20 M-tri mesh orbits at GPU p99 ≤ 12 ms (2560×1440, 4× MSAA, owner GPU). 2. No regression > 5 % on the 5 M bench. 3. Picking is still exact (RND-04 tests pass on clustered meshes). |
 
 **Notes on the table:**
@@ -1871,7 +1906,68 @@ pass; GPU tests on the RTX 5060 Ti and with `AMG_WGPU_BACKEND=warp`; `cargo clip
   (see the RND-07 leftover); cheap, not benched.
 - The nav bar uses text buttons; icons come with S11's icon atlas.
 
+### 2026-11-28 - RND-13 robustness and diagnostics
+
+*Landed (`amg-render`, new module `diagnostics.rs`; `amg-ui::viewport`):*
+- **Device loss.** `encode` / `capture` already returned `RenderError::Gpu(DeviceLost)` through
+  `Gpu::poll`; this is now tested after `device.destroy()`. `upload_*` (meshes, edges, points,
+  fields, images) poll first and return `DeviceLost` instead of a mapping error. `poll_picks`
+  answers queued and in-flight picks with `DeviceLost` (before: in-flight ones as `InvalidData`,
+  queued ones never). `Viewport::show` polls, sets `ViewportResponse::lost` and paints a
+  placeholder instead of the paint callback; `prepare` drops the old composite bind groups and
+  logs the loss once. `RenderViewport` then draws only the placeholder (no labels, view cube,
+  nav bar or toggle) and requests a repaint so the UI-10 banner appears.
+- **Errors.** `GpuErrorLog` is an `on_uncaptured_error` handler that writes to `tracing`
+  (`error`, field `kind`), each distinct message once, at most 64 distinct messages.
+  `egui_glue::install` installs it; `Renderer::new` does **not**, so headless tests still panic
+  on invalid GPU use (wgpu's default handler). Error scopes are unaffected. The `spin` example
+  now registers its counting handler after `install` (which would otherwise replace it).
+- **VRAM and overlay.** `RenderScene::vram` (per category; `gpu_bytes` is its total),
+  `Renderer::vram_usage` (plus view targets, pick targets, instance and view buffers, fixed
+  resources), `Renderer::diagnostics` and `egui_glue::paint_diagnostics`. `RenderViewport` has a
+  "Stats" toggle in the top-left corner, off by default (`show_diagnostics`). `NullViewport` is
+  unchanged, so no UI snapshot changes.
+
+*Evidence (RTX 5060 Ti, DX12; GPU tests skip without an adapter):*
+1. `gpu_encode_after_destroy_returns_device_lost`,
+   `gpu_destroy_with_frames_in_flight_ends_in_device_lost` (`tests/diagnostics.rs`),
+   `gpu_viewport_paints_the_placeholder_after_device_loss` (`egui_glue`),
+   `gpu_lost_device_leaves_only_the_placeholder` (`amg-ui` `tests/viewport_diagnostics.rs`).
+2. `gpu_vram_counters_equal_the_sum_of_gpu_bytes` (each category against the handles' own
+   `gpu_bytes`), `gpu_vram_counts_view_targets_and_buffers` (exact target bytes: 24 B/pixel at
+   1x, 80 B/pixel at 4x).
+3. `gpu_validation_error_is_logged_once_with_its_label`: three identical failing
+   `create_buffer` calls give one `ERROR` event naming `label = 'amg-test-bad-buffer'`; the
+   counter reads 3.
+
+*Deviations and limits:*
+- wgpu reports a `destroy()`ed device lost only when its submitted work has finished, so with
+  frames in flight an `encode` in that window can still succeed (1 did in a test run). On an
+  idle queue the very next `encode` returns `DeviceLost`.
+- egui draws with the same device, so after a **real** loss the window may be unable to present
+  the placeholder or the S11 banner at all. Not verified: tests destroy the device and inspect
+  egui's shapes headlessly. A driver reset was not provoked either, and wgpu 30 panics from
+  `Device::poll` on fatal poll errors, which this crate does not intercept.
+- VRAM counts requested sizes: no driver padding, pipelines or egui resources, and nothing that
+  lives only while a capture or pick is in flight.
+- The `windows-core` misaligned-pointer abort once seen in
+  `lines::gpu_polylines_with_sharp_turns_have_no_gaps` is **not explained** by this work: that
+  test is headless (default error handler, unchanged), and the new handler touches no DX12 or
+  `windows` code. It did not reproduce (full suite once, the test alone 5 more times).
+
+*Leftovers:* S11 follow-up for a save path that does not depend on presenting a frame after a
+real device loss; the overlay shows the previous frame's data and updates only when the app
+repaints; the toggle is a viewport button, not a command or preference.
+
 ## Interface changes
+
+### 2026-11-28: RND-13 (additive, lane D only)
+No other lane's code changes. `amg-render`: `Renderer::{capture_errors, error_log, vram_usage,
+diagnostics}`, `GpuErrorLog`, `SceneVram`, `VramUsage`, `Diagnostics`, `RenderScene::vram`,
+`egui_glue::{paint_diagnostics, DEVICE_LOST_TITLE, DEVICE_LOST_HINT}` (§Interfaces).
+`amg-ui::viewport`: `RenderViewport::{diagnostics_shown, show_diagnostics}`.
+**Behaviour:** after `egui_glue::install`, uncaptured wgpu errors on the shared device are
+logged instead of panicking (this includes compute work outside an error scope).
 
 ### 2026-11-09: RND-01 changes outside lane D's crates (minimal and additive)
 - **Root `Cargo.toml` (S00):** workspace deps `egui`, `egui-wgpu`, `eframe` 0.36.2, as this spec

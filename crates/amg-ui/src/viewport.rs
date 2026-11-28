@@ -6,6 +6,9 @@
 //! UI-03: the frame carries the document's camera, which [`RenderViewport`] writes into its S10
 //! view; it also draws the view cube and the nav bar and hands their [`CameraAction`]s to the
 //! router, and supplies a [`GpuPickService`] for its view.
+//!
+//! RND-13: after a device loss only the renderer's placeholder is drawn (no view widgets), and a
+//! "Stats" toggle in the top-left corner shows the diagnostics overlay (off by default).
 
 use amg_render::egui_glue::{self, CameraAction, Viewport};
 use amg_render::{Background, Camera, ViewId};
@@ -102,6 +105,8 @@ pub struct RenderViewport {
     sections: Vec<amg_render::SectionKey>,
     background: Option<[f32; 3]>,
     lost: bool,
+    /// The diagnostics overlay is shown (RND-13).
+    diagnostics: bool,
     actions: Vec<CameraAction>,
     exclusions: Vec<egui::Rect>,
 }
@@ -124,6 +129,7 @@ impl RenderViewport {
             sections: Vec::new(),
             background: None,
             lost: false,
+            diagnostics: false,
             actions: Vec::new(),
             exclusions: Vec::new(),
         }
@@ -132,6 +138,33 @@ impl RenderViewport {
     /// The view drawn.
     pub fn view(&self) -> ViewId {
         self.view
+    }
+
+    /// Whether the diagnostics overlay is shown.
+    pub fn diagnostics_shown(&self) -> bool {
+        self.diagnostics
+    }
+
+    /// Shows or hides the diagnostics overlay (the "Stats" toggle does the same).
+    pub fn show_diagnostics(&mut self, shown: bool) {
+        self.diagnostics = shown;
+    }
+
+    /// The overlay (when on) and its toggle, in the viewport's top-left corner.
+    fn diagnostics_ui(&mut self, ui: &mut egui::Ui, out: &egui_glue::ViewportResponse) {
+        let toggle =
+            egui::Rect::from_min_size(out.rect.min + egui::vec2(8.0, 8.0), egui::vec2(48.0, 22.0));
+        self.exclusions.push(toggle);
+        let mut toggle_ui = ui.new_child(egui::UiBuilder::new().max_rect(toggle));
+        toggle_ui
+            .toggle_value(&mut self.diagnostics, "Stats")
+            .on_hover_text("Show render diagnostics");
+        if self.diagnostics {
+            let view = self.view;
+            if let Some(d) = egui_glue::with_renderer(&self.rs, |r| r.diagnostics(view)).flatten() {
+                egui_glue::paint_diagnostics(ui, out, &d);
+            }
+        }
     }
 
     /// Makes the scene's section planes equal `planes` (INS-09): existing keys are rewritten in
@@ -192,7 +225,19 @@ impl ViewportBackend for RenderViewport {
         self.sync_sections(frame.sections);
         self.background = Some(bg);
         let out = Viewport { view: self.view }.show(ui, &self.rs);
+        out.response
+            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Viewport"));
+        if out.lost && !self.lost {
+            // The shell's banner reads `device_lost` before this tab is drawn.
+            ui.ctx().request_repaint();
+        }
         self.lost = out.lost;
+        if out.lost {
+            // The placeholder stands alone: nothing of the view is left to label or navigate.
+            self.exclusions.clear();
+            self.actions.clear();
+            return out.response;
+        }
         let labels =
             egui_glue::with_renderer(&self.rs, |r| r.project_labels(view)).unwrap_or_default();
         egui_glue::paint_labels(ui, &out, &labels);
@@ -222,8 +267,7 @@ impl ViewportBackend for RenderViewport {
                 None => {}
             }
         }
-        out.response
-            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Viewport"));
+        self.diagnostics_ui(ui, &out);
         out.response
     }
 
