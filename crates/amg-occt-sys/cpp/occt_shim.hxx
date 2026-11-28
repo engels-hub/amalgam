@@ -364,6 +364,11 @@ std::unique_ptr<OcOp> boolean_op(std::uint8_t op, const OcShapeList &objects,
                                  const OcShapeList &tools, const OcBoolOpts &opts,
                                  const ProgressSink &sink);
 
+// CATEGORY: R (BRepClass3d_SolidClassifier keeps its state in itself; the solids are only read)
+// KH-20: whether a solid of `shape` is inverted (BOPTools_AlgoTools::IsInvertedSolid, the test
+// behind BOPAlgo's check_inverted option).
+bool shape_has_inverted_solid(const OcShape &shape);
+
 // CATEGORY: N (BRepAlgoAPI_Section with SetNonDestructive(true) on private top-level TShapes:
 // both shapes are only read)
 std::unique_ptr<OcOp> section_op(const OcShape &a, const OcShape &b, bool parallel,
@@ -408,6 +413,10 @@ std::unique_ptr<OcOp> heal_op(const OcShape &shape, const OcHealParams &params,
 // CATEGORY: C (ShapeUpgrade_UnifySameDomain on a private BRepBuilderAPI_Copy made here; `shape`
 // is only read)
 std::unique_ptr<OcOp> unify_same_domain_op(const OcShape &shape, const OcUnifyParams &params);
+
+// CATEGORY: R (maps and surface types of `shape` only; KH-20: whether unify_same_domain_op could
+// merge anything, i.e. does not skip the algorithm under `params.fast`)
+bool unify_candidates(const OcShape &shape, const OcUnifyParams &params);
 
 // CATEGORY: C (BRepBuilderAPI_Sewing re-tolerances the edges and vertices it merges, so it runs on
 // one private BRepBuilderAPI_Copy of all the shapes made here; they are only read)

@@ -853,7 +853,7 @@ open request.
 | KH-09 | Upstream OCCT bug reports/patches for isolated issues found by the harnesses | KH-02 | P3 | Todo | Ongoing. Each report links a minimal Draw script or a C++ reproducer and its corpus case id; the list is kept in `kernel-metrics.md`. |
 | KH-10 | **Phase 7:** Rust fillet engine, including G2 (curvature-continuous) blends as a continuity option (QUESTIONS #55; placeholder, refine into 1–3-day WPs before Phase 7) | KH-04, KH-19, KH-15 | P3 | Todo | 1. Beats KH-03 + KH-04 + KH-19 success rate on the full corpus with zero regressions. 2. G2 option: on constant and variable radius corpus cases the curvature across both blend boundaries is continuous (max jump < 1e-3 of the local 1/R on 50 samples per boundary), blend volumes match the exact-volume oracle where one exists, and G1 results are unchanged. |
 | KH-11 | **Phase 7:** corpus-driven replacement of further OCCT ops (booleans, offset, SSI) with Rust (placeholder; refine before Phase 7) | KH-10 | P3 | Todo | each replacement beats OCCT on its corpus |
-| KH-20 | Kernel speed for interactive solid ops: profile and speed up the OCCT boolean behind extrude-cut and the offset behind shell (parallel mode, fuzzy/glue options, local operation on the faces the tool touches, simple-offset path for previews where valid), with no change in results on the existing goldens | SOL-02, SOL-06, KH-17 | P1 | Todo | 1. `budget/sol-extrude-cut` (100-edge profile into a 200-face body, full mode) median < 80 ms; today 121 ms, of which the boolean is about 105 ms. 2. `budget/sol-shell-preview` (100-face body) median < 100 ms; today 369 ms, of which `BrepKernel::shell` is 363 ms. 3. All BREP-04, BREP-07, SOL-02 and SOL-06 goldens still pass with the same tolerances, and `HardenedKernel` results stay deterministic. 4. Before/after numbers recorded in `kernel-metrics.md`, measured on an idle machine. |
+| KH-20 | Kernel speed for interactive solid ops: profile and speed up the OCCT boolean behind extrude-cut and the offset behind shell (parallel mode, fuzzy/glue options, local operation on the faces the tool touches, simple-offset path for previews where valid), with no change in results on the existing goldens | SOL-02, SOL-06, KH-17 | P1 | Review | 1. `budget/sol-extrude-cut` (100-edge profile into a 200-face body, full mode) median < 80 ms; today 121 ms, of which the boolean is about 105 ms. 2. `budget/sol-shell-preview` (100-face body) median < 100 ms; today 369 ms, of which `BrepKernel::shell` is 363 ms. 3. All BREP-04, BREP-07, SOL-02 and SOL-06 goldens still pass with the same tolerances, and `HardenedKernel` results stay deterministic. 4. Before/after numbers recorded in `kernel-metrics.md`, measured on an idle machine. |
 
 Status values: `Todo`, `Refining`, `Ready`, `In progress (agent/branch)`, `Review`, `Done`, `Blocked (reason)`.
 KH-01 (Phase 1 background) and KH-07 (`amg-nurbs`, not gated by ADR-002) are specified first and
@@ -1269,6 +1269,113 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
   No golden files: knot ops produce no persistent geometry, and the proptests compare against
   the input shape directly.
 
+### 2026-11-28 - KH-20 kernel speed for extrude-cut and shell (lane A)
+- **Profiled first.** A new env-gated phase tracer in the shim (`AMG_OCCT_PROFILE=1`, below)
+  recorded where the time goes; tables are in `kernel-metrics.md`.
+  - Extrude-cut (`budget/sol-extrude-cut`, ~122 ms before, under load): the OCCT boolean
+    ~88 ms (intersection 38, building the result 50, of which splits of solids 23 with the
+    inverted-solid checks), `unify_same_domain` ~22 ms, the rest in the feature (tool,
+    history composition, naming).
+  - Shell (`budget/sol-shell-preview`, ~313 ms): `BRepOffset_Inter3d::ContextIntByInt`
+    207 ms and `ConnexIntByInt` 91 ms. Inward, `ContextIntByInt` intersects the bounded
+    removed face (98 edges) with every enlarged offset face through a full
+    `BOPAlgo_PaveFiller` per pair. `BRepOffset_Tool::Inter3D` takes its analytic plane path
+    only for unbounded faces, and OCCT enlarges the removed face only when `offset > 0`.
+    Outward, the same shell takes 73 ms.
+- **Landed in `amg-brep` / `amg-occt-sys`.** Every change gives byte-identical results.
+  1. `unify_same_domain` skips `ShapeUpgrade_UnifySameDomain` when no face or edge pair could
+     merge (`could_unify` in `occt_heal.cpp`). The scan is a superset of what the algorithm
+     merges (safe input mode, no internal edges, as the op runs it):
+     - faces could merge only across an edge with exactly two different faces on possibly
+       the same domain: parallel planes within `max(1e3 × ang_tol, 1e-6)` rad, the same
+       elementary type, or any non-elementary surface;
+     - edges could merge only through a vertex with exactly two edges.
+
+     The copy and its history stay, so the result is the same copy with the same `Modified`
+     relations. 22 → 11 ms on the 300-face cut result.
+  2. The boolean's `check_inverted` runs once per `Shape`. OCCT's option only widens the box of
+     a solid that `BOPTools_AlgoTools::IsInvertedSolid` finds inverted
+     (`BOPDS_DS::BuildBndBoxSolid`, its only use in BOPAlgo 8.0). `Shape::has_inverted_solid`
+     runs the same test, cached, and `run_boolean` passes `check_inverted: false` to OCCT when
+     no operand has an inverted solid. A body cut again and again (an extrude-cut preview) is
+     checked once; the new tool still is, every time. −4 to −5 ms.
+  3. `Shape::max_tolerance` is cached: each boolean asks for its operands' tolerances for
+     `ToleranceGrown`.
+  4. `KernelConfig::fast_paths` (default on) and `#[doc(hidden)] OcctKernel::unify_candidates`.
+     `AMG_KERNEL_FAST_PATHS=0` turns items 1 and 2 off for before/after runs.
+  5. New files:
+     - bench `benches/kernel_speed.rs`;
+     - tests `tests/kernel_speed.rs` (4);
+     - shared shapes `tests/common/speed_parts.rs`;
+     - shim `cpp/occt_profile.hxx`, the phase tracer (stderr, only with `AMG_OCCT_PROFILE=1`;
+       marks in boolean, offset and unify).
+- **Done-when evidence.** Measured on the shared machine with another worker building, **not
+  idle**; the owner re-measures. Numbers are 25-run medians and criterion; "before" is the same
+  binary with the fast paths off.
+  1. **Not met.** `budget/sol-extrude-cut` median 121.7 → 104.8 ms (criterion 112.9 → 99.8 ms,
+     −12 %). The boolean alone takes 84–88 ms, so 80 ms cannot be reached by kernel-side
+     changes that keep the result. `BRepAlgoAPI_BooleanOperation` dominates: building the
+     result over all 300 faces (splits of containers, faces, solids) ~50 ms, the PaveFiller
+     ~38 ms. The other levers:
+     - fuzzy and glue do not apply: the tool really intersects the body, so glue would be
+       wrong, and a fuzzy value changes results;
+     - parallel mode is already on: serial takes 124 ms, and 8 vs 16 OCCT threads were no
+       faster in SOL-02;
+     - `use_obb` brings nothing;
+     - both inverted checks off would give ~80 ms for the boolean, but the fresh tool's check
+       has to run;
+     - a local operation only on the faces the tool touches cannot give the same result:
+       BOPAlgo builds the result from the whole operands.
+  2. **Not met.** `budget/sol-shell-preview` 311.6 / 336.2 ms (criterion 315.0 / 313.6 ms),
+     unchanged. The dominating calls are `ContextIntByInt` + `ConnexIntByInt` (~300 of
+     313 ms), and no OCCT option reaches them. Tried and dropped:
+     - The same shell as OCCT's outward shell of the inside-out solid (reversed shape,
+       negated offset), which takes the fast branch. OCCT dropped the offset faces and
+       oriented a face wrongly (`BadOrientationOfSubshape`) with both joins.
+     - A positive base offset with every face's own offset negative. `myOffset`'s sign also
+       decides the side in ten other places (loops on the context face, trimming, the final
+       reverse), so the rim would come out wrong.
+     - `BRepOffset_MakeSimpleOffset` for previews. Not valid here: the star prism's edges
+       are sharp, and the simple offset is meant for G1-connected faces, so the result's
+       tolerances grow to about the thickness.
+  3. Met. Existing tests pass unchanged with the fast paths on:
+     - `amg-brep` + `amg-occt-sys` with `occt`: 402 passed (BREP-04 boolean and BREP-07 offset
+       goldens, KH-17 robust corpus);
+     - `amg-features` with `occt`: 605 passed (SOL-02 and SOL-06 goldens and Done-when tests);
+     - default build: 504 passed.
+
+     New tests:
+     - `unify_skip_is_byte_identical_to_the_plain_run`: 9 shapes × 2 options, with skip and
+       no-skip cases asserted through `unify_candidates`;
+     - `offsets_and_shells_are_unchanged_by_the_flag`: the BREP-07 corpus;
+     - `extrude_cut_and_unify_are_deterministic`: bytes and history over two runs on 1- and
+       8-thread rayon pools;
+     - `the_extrude_cut_boolean_is_the_same_serial_and_parallel`: parallel mode on and off.
+
+     `HardenedKernel` is unchanged and routes through the same `boolean`; KH-17's determinism
+     and `exact_only` tests pass.
+  4. Partly met. Before/after numbers are in `kernel-metrics.md` (2026-11-28 KH-20 section),
+     but measured under load, not on an idle machine.
+- **Deviations.** No `amg-features` change (the budget benches were run as they are). No
+  `BrepKernel` trait change, so the `HardenedKernel` forwarding is untouched. The shell part of
+  the WP produced only measurements and a diagnosis, no speed-up.
+- **Finding (KH-17, not changed here).** `tests/robust.rs`
+  `near_coincident_booleans_are_valid_or_classified` is flaky. Its proptest draws random cases,
+  and about 2 runs in 25 fail, with the fast paths off as well. Example: `prop-9-1-6-Fuse`
+  (`SkewCoaxial`, offset 1e-7, angle 1e-3) gives a robust `Ok` with volume 1570.80 against the
+  oracle's 1178.10 ± 4.09. The oracle of the skewed-coaxial fuse or the gate's volume bounds
+  needs a look.
+- **Leftovers.**
+  - The shell budget needs a change in OCCT. One option is a patch to
+    `BRepOffset_Inter3d::ContextIntByInt` (enlarge the context face for inward offsets too, or
+    filter the context face's edges by box before `Inter3D`) through an overlay port like
+    `ports/manifold`. That needs a vcpkg rebuild and the owner's decision: a new WP.
+  - The extrude-cut budget: re-measure on the idle reference machine (the boolean's 84–88 ms
+    were measured under load). Otherwise it needs a boolean that does not rebuild untouched
+    faces, which OCCT's BOPAlgo does not offer.
+  - A cheaper inverted check for freshly built tools: a prism of a planar face could be marked
+    as not inverted when it is built, but that is an assumption, not the same test.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -1297,3 +1404,15 @@ Additive requests recorded by the integration pass; the owning lane confirms or 
 - Proposed for `amg-jobs` (not changed): `JobCtx::with_child_token(&self) -> (JobCtx,
   CancelToken)`, a context that keeps the job's progress range but can be cancelled on its own,
   so robust attempts can report progress inside OCCT ops.
+
+### 2026-11-28: KH-20 -> S02 (`amg-brep` shared API, lane A)
+- `KernelConfig::fast_paths: bool` is additive (default on; `ENV_FAST_PATHS` =
+  `AMG_KERNEL_FAST_PATHS` turns it off). Every in-tree `KernelConfig { .. }` literal uses `..`
+  defaults.
+- Also new: `#[doc(hidden)] OcctKernel::unify_candidates`, the crate-private
+  `Shape::has_inverted_solid`, and caches of `max_tolerance` and of the inverted test on
+  `Shape`.
+- Shim (`amg-occt-sys`): `OcUnifyParams::fast`, `unify_candidates` (R),
+  `shape_has_inverted_solid` (R) and `occt_profile.hxx` (the env-gated tracer).
+- Results are byte-identical, so `kernel_version()` and `POLICY_VERSION` stay as they are.
+  Recorded in S02.

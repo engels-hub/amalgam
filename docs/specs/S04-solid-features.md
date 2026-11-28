@@ -1957,3 +1957,17 @@ All of these run on `amg-jobs` through the recompute engine; nothing runs on the
   - Thin walls from planar-face profiles; a thickness manipulator and distance anchors for
     curve selections (UI-06); picking priority between sketch curves and regions (UI-05, the
     "Profiles" filter now includes curves).
+
+### 2026-11-28 - Note from S20 KH-20 (lane A): the SOL-02 / SOL-06 budgets
+- No `amg-features` change; the budget benches ran as they are. Measured under load (another
+  worker building), with the same binary and the fast paths off for "before".
+  - `budget/sol-extrude-cut` 121.7 → 104.8 ms median (criterion 112.9 → 99.8 ms), budget
+    80 ms. The kernel's `unify_same_domain` (SOL-01 `simplify`) now skips the algorithm when
+    nothing can merge (22 → 11 ms), and the boolean's inverted check runs once per body. The
+    OCCT boolean alone is 84–88 ms.
+  - `budget/sol-shell-preview` unchanged at ~312–336 ms (budget 100 ms):
+    `BRepOffset_Inter3d::ContextIntByInt` / `ConnexIntByInt` take ~300 ms and need a change
+    in OCCT itself.
+
+  Both budgets stay open with S20 KH-20 (details in its log and in
+  `docs/notes/kernel-metrics.md`).

@@ -3188,6 +3188,21 @@ Also tested:
 - A sub-assembly that is used twice is not written back as one shared assembly.
 - Layers, validation properties, GD&T and materials are not read.
 
+### 2026-11-28 - Note from S20 KH-20 (lane A)
+- Profile of the BREP-04 boolean and the BREP-07 shell behind the S04 budgets: S20 KH-20 log
+  and `docs/notes/kernel-metrics.md`. Two of BREP-04/BREP-10's ops changed, with
+  byte-identical results:
+  - `unify_same_domain` skips `ShapeUpgrade_UnifySameDomain` when no face or edge pair could
+    merge;
+  - `boolean`/`split` run OCCT's inverted-solid test once per `Shape` (cached) and turn
+    `check_inverted` off for OCCT when no operand solid is inverted.
+
+  `KernelConfig::fast_paths` (env `AMG_KERNEL_FAST_PATHS=0`) turns both off. BREP-07 is
+  unchanged: the inward shell is dominated by `BRepOffset_Inter3d::ContextIntByInt` /
+  `ConnexIntByInt`, which no OCCT option reaches.
+- Shim diagnostics: `AMG_OCCT_PROFILE=1` prints per-phase times (shim steps and OCCT progress
+  scopes) of `boolean_op`, `offset_op` and `unify_same_domain_op` to stderr.
+
 ## Interface changes
 
 ### 2026-10-20: requests from the wave-2 refinements (S02, S05, S10, S11, S12, S16, S17, S20)
@@ -3568,6 +3583,15 @@ and `testdata/brep/iges/`. No other lane's files changed.
   `tests/api_contract.rs` now also checks that `HardenedKernel` reaches the inner kernel from
   every trait method (the count is read from `Forward`'s impl, so a new method fails it
   until added).
+
+### 2026-11-28: additions from S20 KH-20 (lane A)
+- `KernelConfig::fast_paths: bool` (default on; `ENV_FAST_PATHS` = `AMG_KERNEL_FAST_PATHS`):
+  additive field. In-tree literals all use `..` defaults.
+- `#[doc(hidden)] OcctKernel::unify_candidates(&Shape, &UnifyOpts) -> KResult<bool>`.
+- `Shape` caches `max_tolerance` and the inverted-solid test.
+- Shim: `OcUnifyParams::fast`, `unify_candidates` (R), `shape_has_inverted_solid` (R).
+- No behaviour change: results are byte-identical (S20 KH-20 tests), so `kernel_version()` is
+  unchanged.
 
 ### 2026-11-26: requests from S12 IO-06 (lane G; no S02 file other than this entry changed)
 - **Unnamed products.** `write_step` of a `ForeignNode`/`ForeignPrototype` without a name (or with `Some("")`) gives `PRODUCT('Product <n>', ...)`: OCCT's STEP writer invents the name, so a re-read reports `Product <n>` where the source had none. Request: keep such products unnamed (empty `PRODUCT` name and id), for example by setting the `StepBasic_Product` names after the transfer. IO-06's round-trip tests accept the generated pattern until then.

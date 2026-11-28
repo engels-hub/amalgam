@@ -453,6 +453,14 @@ impl Occ {
         must(ffi::shape_max_tolerance(&self.shape), "shape_max_tolerance")
     }
 
+    /// Whether a solid of the shape is inverted (`BOPTools_AlgoTools::IsInvertedSolid`).
+    pub(crate) fn has_inverted_solid(&self) -> bool {
+        must(
+            ffi::shape_has_inverted_solid(&self.shape),
+            "shape_has_inverted_solid",
+        )
+    }
+
     pub(crate) fn check(&self) -> CheckReport {
         let raw = match ffi::check_shape(&self.shape, self.index()) {
             Ok(raw) => raw,

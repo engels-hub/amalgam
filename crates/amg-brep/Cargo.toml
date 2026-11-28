@@ -138,5 +138,10 @@ name = "robust"
 harness = false
 required-features = ["occt"]
 
+[[bench]]
+name = "kernel_speed"
+harness = false
+required-features = ["occt"]
+
 [lints]
 workspace = true

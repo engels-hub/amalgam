@@ -47,8 +47,9 @@ impl Occ {
         Ok(outcome(&op)?.map(|(occ, raw)| (occ, raw, fixes)))
     }
 
-    /// `ShapeUpgrade_UnifySameDomain` with options on a private copy (category C).
-    pub(crate) fn unify_same_domain(&self, p: &UnifyIn) -> KResult<(Occ, RawHistory)> {
+    /// `ShapeUpgrade_UnifySameDomain` with options on a private copy (category C); `fast` skips
+    /// the algorithm when no face or edge pair could merge (KH-20).
+    pub(crate) fn unify_same_domain(&self, p: &UnifyIn, fast: bool) -> KResult<(Occ, RawHistory)> {
         let op = ffi::unify_same_domain_op(
             &self.shape,
             &ffi::OcUnifyParams {
@@ -57,10 +58,27 @@ impl Occ {
                 concat_bsplines: p.concat_bsplines,
                 lin_tol: p.lin_tol,
                 ang_tol: p.ang_tol,
+                fast,
             },
         )
         .map_err(|e| to_kernel_error(&e))?;
         take(&op)
+    }
+
+    /// Whether `ShapeUpgrade_UnifySameDomain` could merge a face or edge pair of `self` (KH-20).
+    pub(crate) fn unify_candidates(&self, p: &UnifyIn) -> KResult<bool> {
+        ffi::unify_candidates(
+            &self.shape,
+            &ffi::OcUnifyParams {
+                faces: p.faces,
+                edges: p.edges,
+                concat_bsplines: p.concat_bsplines,
+                lin_tol: p.lin_tol,
+                ang_tol: p.ang_tol,
+                fast: true,
+            },
+        )
+        .map_err(|e| to_kernel_error(&e))
     }
 
     /// `shapes` sewn on one private copy (category C), with progress and cancel.

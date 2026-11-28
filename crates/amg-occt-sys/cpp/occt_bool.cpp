@@ -11,6 +11,7 @@
 // and the operand sub-shapes the alerts name.
 
 #include "amg-occt-sys/cpp/occt_history.hxx"
+#include "amg-occt-sys/cpp/occt_profile.hxx"
 #include "amg-occt-sys/cpp/occt_shim.hxx"
 
 #include "amg-occt-sys/src/bridge.rs.h"
@@ -29,6 +30,7 @@
 #include <BRepAlgoAPI_BuilderAlgo.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
+#include <BOPTools_AlgoTools.hxx>
 #include <BRepGProp.hxx>
 #include <BRep_Builder.hxx>
 #include <GProp_GProps.hxx>
@@ -38,6 +40,7 @@
 #include <Message_Report.hxx>
 #include <NCollection_List.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_AlertWithShape.hxx>
 #include <TopoDS_Edge.hxx>
@@ -57,7 +60,8 @@ public:
 
   bool UserBreak() override { return progress_user_break(sink_); }
 
-  void Show(const Message_ProgressScope &, const bool) override {
+  void Show(const Message_ProgressScope &scope, const bool) override {
+    profile::scope(scope);
     progress_show(sink_, GetPosition());
   }
 
@@ -227,6 +231,7 @@ std::unique_ptr<OcOp> boolean_op(std::uint8_t op_kind, const OcShapeList &object
   if (op_kind != 3 && tools.shapes.empty()) {
     throw std::invalid_argument("boolean_op: no tools");
   }
+  const profile::Phases phases("boolean");
   // Operands in history order (objects, then tools), each detached (see `detached`). Their
   // face/edge/vertex index order is the callers' shapes' order.
   const std::vector<TopoDS_Shape> args = detached_all(objects.shapes);
@@ -256,12 +261,24 @@ std::unique_ptr<OcOp> boolean_op(std::uint8_t op_kind, const OcShapeList &object
     Message_ProgressScope scope(indicator->Start(), "amg boolean", 1);
     algo->Build(scope.Next());
   }
+  phases.mark("built");
   if (!finish(*op, *algo, operands, sink)) {
     return op;
   }
   op->shape = algo->Shape();
+  phases.mark("finished");
   record_operands(*op, operands, source_of(*algo), {}, true);
+  phases.mark("history recorded");
   return op;
+}
+
+bool shape_has_inverted_solid(const OcShape &shape) {
+  for (TopExp_Explorer it(shape.get(), TopAbs_SOLID); it.More(); it.Next()) {
+    if (BOPTools_AlgoTools::IsInvertedSolid(TopoDS::Solid(it.Current()))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::unique_ptr<OcOp> section_op(const OcShape &a, const OcShape &b, bool parallel,

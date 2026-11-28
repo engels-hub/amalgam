@@ -8,6 +8,22 @@ use amg_core::Tolerance;
 pub const ENV_VALIDATE: &str = "AMG_KERNEL_VALIDATE";
 /// Environment variable read by [`KernelConfig::from_env`]: OCCT pool threads, at least 1.
 pub const ENV_OCCT_THREADS: &str = "AMG_OCCT_THREADS";
+/// Environment variable read once per process for the default of [`KernelConfig::fast_paths`]:
+/// `0`, `off` or `false` turns the KH-20 fast paths off (before/after measurements).
+pub const ENV_FAST_PATHS: &str = "AMG_KERNEL_FAST_PATHS";
+
+/// The default of [`KernelConfig::fast_paths`]: on unless [`ENV_FAST_PATHS`] says off.
+fn default_fast_paths() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        !std::env::var(ENV_FAST_PATHS).is_ok_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "0" | "off" | "false" | "no"
+            )
+        })
+    })
+}
 
 /// When op results are checked with `BRepCheck` (S02 §9).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -57,6 +73,11 @@ pub struct KernelConfig {
     pub bool_parallel: bool,
     /// Model tolerance.
     pub tolerance: Tolerance,
+    /// The S20 KH-20 fast paths: `unify_same_domain` skips `ShapeUpgrade_UnifySameDomain` when
+    /// no face or edge pair of the shape could merge, with byte-identical results (KH-20
+    /// equivalence tests). On by default; off with [`ENV_FAST_PATHS`]`=0` for before/after
+    /// measurements.
+    pub fast_paths: bool,
 }
 
 impl Default for KernelConfig {
@@ -66,6 +87,7 @@ impl Default for KernelConfig {
             occt_threads: None,
             bool_parallel: true,
             tolerance: Tolerance::DEFAULT,
+            fast_paths: default_fast_paths(),
         }
     }
 }
