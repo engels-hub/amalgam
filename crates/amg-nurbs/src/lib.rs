@@ -12,8 +12,10 @@
 //! KH-12 adds the knot operations (P&T ch. 5): insertion, refinement, Bézier decomposition,
 //! removal, degree elevation, split / segment / join and continuity for curves, the
 //! per-direction counterparts for surfaces, and [`KnotVector::union`] /
-//! [`KnotVector::missing_from`]. Fitting and closest point (KH-13), skinning (KH-14) and Gordon
-//! surfaces (KH-15) build on it.
+//! [`KnotVector::missing_from`]. KH-13 adds [`fit`] (parametrisation, interpolation, least
+//! squares, approximation to a tolerance and onto given knots, P&T ch. 9), arc length and its
+//! inverse, and global curve / surface `closest_point`. Skinning (KH-14) and Gordon surfaces
+//! (KH-15) build on it.
 //!
 //! Nothing panics on user-reachable input: constructors validate every invariant and return
 //! [`NurbsError`]; evaluation clamps parameters into the domain.
@@ -22,14 +24,18 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod analytic;
+mod arclen;
 pub mod basis;
 mod ctrl_pt;
 mod curve;
 mod curve_ops;
 mod error;
+pub mod fit;
 mod grid;
 mod knot_ops;
 mod knots;
+mod linalg;
+mod project;
 mod surface;
 mod surface_ops;
 
