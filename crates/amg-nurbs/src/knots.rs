@@ -224,6 +224,67 @@ impl KnotVector {
             .collect()
     }
 
+    /// Merge keeping the maximum multiplicity of each distinct knot. Knots within `tol` of
+    /// each other are the same knot; the value of `self` is kept for them. Determines the
+    /// common refinement of two knot vectors (curve compatibility, KH-14).
+    pub fn union(&self, other: &KnotVector, tol: f64) -> KnotVector {
+        let tol = tol.max(0.0);
+        let (ka, ma) = self.to_knots_mults(tol);
+        let (kb, mb) = other.to_knots_mults(tol);
+        let mut v = Vec::with_capacity(self.len() + other.len());
+        let (mut i, mut j) = (0, 0);
+        while i < ka.len() || j < kb.len() {
+            let take = match (ka.get(i), kb.get(j)) {
+                (Some(&a), Some(&b)) if (a - b).abs() <= tol => {
+                    let m = ma[i].max(mb[j]);
+                    i += 1;
+                    j += 1;
+                    (a, m)
+                }
+                (Some(&a), Some(&b)) if a < b => {
+                    i += 1;
+                    (a, ma[i - 1])
+                }
+                (Some(_), Some(&b)) | (None, Some(&b)) => {
+                    j += 1;
+                    (b, mb[j - 1])
+                }
+                (Some(&a), None) => {
+                    i += 1;
+                    (a, ma[i - 1])
+                }
+                (None, None) => break,
+            };
+            v.extend(std::iter::repeat_n(take.0, take.1));
+        }
+        KnotVector::new_unchecked(v)
+    }
+
+    /// Knots that must be inserted into `self` to obtain `target` (`target ⊇ self`), sorted.
+    /// A target knot within `tol` of a knot of `self` is emitted with `self`'s value, so
+    /// inserting the result raises that knot's multiplicity instead of adding a near-duplicate.
+    /// Knots of `self` missing from `target` are ignored.
+    pub fn missing_from(&self, target: &KnotVector, tol: f64) -> Vec<f64> {
+        let tol = tol.max(0.0);
+        let (ks, ms) = self.to_knots_mults(tol);
+        let (kt, mt) = target.to_knots_mults(tol);
+        let mut out = Vec::new();
+        let mut i = 0;
+        for (&t, &m) in kt.iter().zip(&mt) {
+            while i < ks.len() && ks[i] < t - tol {
+                i += 1;
+            }
+            let (val, have) = match ks.get(i) {
+                Some(&k) if (k - t).abs() <= tol => (k, ms[i]),
+                _ => (t, 0),
+            };
+            if m > have {
+                out.extend(std::iter::repeat_n(val, m - have));
+            }
+        }
+        out
+    }
+
     /// Mirrored knots `a + b − u_{m−i}` (used by curve/surface reversal).
     pub(crate) fn reversed(&self) -> KnotVector {
         let m = self.0.len();
@@ -326,6 +387,29 @@ mod tests {
         assert_eq!(g[0], 0.0);
         assert_eq!(g[5], 1.0);
         assert_eq!(KnotVector::bezier(2).as_slice(), &[0., 0., 0., 1., 1., 1.]);
+    }
+
+    #[test]
+    fn union_and_missing() {
+        let a = KnotVector::new(vec![0., 0., 0., 0.5, 1., 1., 1.]).unwrap();
+        let b = KnotVector::new(vec![0., 0., 0.25, 0.5, 0.5, 1., 1.]).unwrap();
+        let u = a.union(&b, 1e-12);
+        assert_eq!(u.as_slice(), &[0., 0., 0., 0.25, 0.5, 0.5, 1., 1., 1.]);
+        assert_eq!(a.missing_from(&u, 1e-12), vec![0.25, 0.5]);
+        assert_eq!(b.missing_from(&u, 1e-12), vec![0., 1.]);
+        assert!(u.missing_from(&u, 0.0).is_empty());
+        // Near-equal knots keep self's value.
+        let c = KnotVector::new(vec![0., 0., 0.5 + 1e-14, 1., 1.]).unwrap();
+        assert_eq!(a.union(&c, 1e-12).as_slice(), a.as_slice());
+        assert_eq!(
+            a.missing_from(
+                &KnotVector::new(vec![0., 0., 0., 0.5, 0.5 + 1e-14, 1., 1., 1.]).unwrap(),
+                1e-12
+            ),
+            vec![0.5]
+        );
+        // Union is commutative up to which near-equal value is kept.
+        assert_eq!(b.union(&a, 0.0), u);
     }
 
     #[test]
