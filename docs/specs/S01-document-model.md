@@ -2144,3 +2144,18 @@ Additive; lane E to confirm.
   `Feature` wrappers that delegate to another feature must forward it.
 - No change to `Dependency`, `design.json` or `ENGINE_FORMAT_VERSION`.
 - Lane A code touched (declaration only): `solid::extrude`, `solid::pattern` (and mirror).
+
+### 2026-11-28: bodies of other components in body operations (lane C for S04 SOL-24; lane E to confirm)
+Small changes in `recompute.rs`; no change to `Dependency`, `design.json` or `ENGINE_FORMAT_VERSION`.
+- Cache key: a feature whose `inputs()` list a `Dependency::Body` of a component other than its
+  context (S04: a cut in an assembly context on a body of a sub-component) now hashes every
+  occurrence on the root paths of its context and of those components, at the captured position
+  (never the pending one). Only such features hash this section, so every existing key keeps its
+  layout. Without it, moving the sub-component left the cut cached at the old placement.
+- `BodyChangeKind::CreatedFrom` puts the new body in the component of its `derived_from` body
+  (before: the baked component, else the node's context). Same result for every existing feature
+  (their pieces split off bodies of their own context); a piece split off a sub-component body
+  stays in that sub-component.
+- Test: `crates/amg-features/tests/solid_component/occt.rs` (`dw3_*`: the moved occurrence
+  recomputes the cut; both pieces of a split stay in the sub-component). `cargo nextest run -p
+  amg-doc` passes unchanged.

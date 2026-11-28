@@ -6,10 +6,12 @@ use amg_brep::{
     BoolOp, BoolOpts, BrepKernel, InputSub, KResult, KernelConfig, OcctKernel, OpResult, Relation,
     ShapeHistory, SubKind, SubShape, UnifyOpts, Validate,
 };
+use amg_core::Transform;
 use amg_doc::naming::{NamingBuilder, OperandNaming};
 use amg_doc::{
-    BodyChange, BodyChangeKind, BodyGeom, BodyId, BodyNaming, ComputeMode, Dependency, Diagnostic,
-    EntityRef, Feature, FeatureError, FeatureOutput, RecomputeCtx, SetPolicy, TopoRef,
+    BodyChange, BodyChangeKind, BodyGeom, BodyId, BodyNaming, ComponentId, ComputeMode, Dependency,
+    Design, Diagnostic, EntityRef, Feature, FeatureError, FeatureOutput, OccurrenceId,
+    RecomputeCtx, SetPolicy, TopoRef,
 };
 use amg_jobs::JobCtx;
 use serde::{Deserialize, Serialize};
@@ -492,6 +494,9 @@ pub(crate) struct Participant<'a> {
     pub(crate) id: BodyId,
     pub(crate) shape: &'a amg_brep::Shape,
     pub(crate) naming: &'a BodyNaming,
+    /// A body of a sub-component (SOL-24): its component and the map from the feature's
+    /// component space into that component's space. `None` in the feature's own component.
+    pub(crate) local: Option<(ComponentId, Transform)>,
 }
 
 /// Body `id` as it is just before this feature (§3): its live successor followed, `None` (with
@@ -525,11 +530,109 @@ pub(crate) fn live_body<'a>(
         id: live,
         shape,
         naming,
+        local: None,
     }))
 }
 
+/// Every occurrence chain from component `from` down to a placement of `to` (`[[]]` when they
+/// are the same), in id order.
+pub(crate) fn paths_below(
+    design: &Design,
+    from: ComponentId,
+    to: ComponentId,
+) -> Vec<Vec<OccurrenceId>> {
+    if from == to {
+        return vec![Vec::new()];
+    }
+    let mut v = Vec::new();
+    for (oid, occ) in design.occurrences() {
+        if occ.parent != from {
+            continue;
+        }
+        for rest in paths_below(design, occ.component, to) {
+            let mut p = Vec::with_capacity(rest.len() + 1);
+            p.push(oid);
+            p.extend(rest);
+            v.push(p);
+        }
+    }
+    v
+}
+
+/// The placement of component `c` in the feature's component space (SOL-24): the product of
+/// the captured local transforms ([`RecomputeCtx::occurrence_transform`]) along its only
+/// occurrence chain below the context.
+///
+/// # Errors
+/// [`SolidError::OtherComponent`] if `c` is not below the context,
+/// [`SolidError::AmbiguousPlacement`] if it is placed there more than once,
+/// [`SolidError::MirroredPlacement`] for a reflection.
+pub(crate) fn placement_below(
+    ctx: &RecomputeCtx<'_>,
+    body: BodyId,
+    c: ComponentId,
+) -> Result<Transform, SolidError> {
+    let paths = paths_below(ctx.design(), ctx.context(), c);
+    let path = match paths.as_slice() {
+        [] => return Err(SolidError::OtherComponent(body)),
+        [p] => p,
+        many => {
+            return Err(SolidError::AmbiguousPlacement {
+                body,
+                placements: many.len(),
+            });
+        }
+    };
+    let t = path.iter().try_fold(Transform::IDENTITY, |acc, o| {
+        ctx.occurrence_transform(*o).map(|l| acc * l)
+    });
+    let t = t.ok_or(SolidError::OtherComponent(body))?;
+    if t.matrix3.determinant() < 0.0 {
+        return Err(SolidError::MirroredPlacement(body));
+    }
+    Ok(t)
+}
+
+/// A body-operation participant (§3, SOL-24): like [`live_body`], but a solid of a component
+/// placed once below the feature's component is accepted too (Fusion's assembly context); the
+/// tool is then moved into that component's space.
+fn live_participant<'a>(
+    ctx: &RecomputeCtx<'a>,
+    id: BodyId,
+    out: &mut FeatureOutput,
+) -> Result<Option<Participant<'a>>, FeatureError> {
+    let Some(live) = follow(ctx, id) else {
+        return live_body(ctx, id, out);
+    };
+    let component = ctx
+        .before()
+        .body(live)
+        .ok_or_else(|| FeatureError::MissingInput(Box::new(Dependency::Body(live))))?
+        .component;
+    if component == ctx.context() {
+        return live_body(ctx, id, out);
+    }
+    let placement = placement_below(ctx, live, component)?;
+    let (shape, naming) = input_solid(ctx, live)?;
+    Ok(Some(Participant {
+        id: live,
+        shape,
+        naming,
+        local: Some((component, placement.inverse())),
+    }))
+}
+
+/// The tool in participant `p`'s space (a located copy; the tool itself in the context).
+fn tool_for(tool: &amg_brep::Shape, p: &Participant<'_>) -> Result<amg_brep::Shape, FeatureError> {
+    match &p.local {
+        None => Ok(tool.clone()),
+        Some((_, t)) => tool.transformed(t).map_err(kerr),
+    }
+}
+
 /// The live, deduplicated participants (§3): successors followed, missing ones dropped with a
-/// warning; each must be a solid of the context component.
+/// warning; each must be a solid of the context component or of a component placed once below
+/// it (SOL-24).
 fn participants<'a>(
     ctx: &RecomputeCtx<'a>,
     target: &OpTarget,
@@ -537,7 +640,7 @@ fn participants<'a>(
 ) -> Result<Vec<Participant<'a>>, FeatureError> {
     let mut v: Vec<Participant<'a>> = Vec::new();
     for &id in &target.participants {
-        let Some(p) = live_body(ctx, id, out)? else {
+        let Some(p) = live_participant(ctx, id, out)? else {
             continue;
         };
         if v.iter().any(|q| q.id == p.id) {
@@ -723,7 +826,8 @@ fn join(
 ) -> Result<(), FeatureError> {
     let mut touched: Vec<&Participant<'_>> = Vec::new();
     for p in parts {
-        if touches(k, p.shape, &tool.shape, tol).map_err(kerr)? {
+        let local = tool_for(&tool.shape, p)?;
+        if touches(k, p.shape, &local, tol).map_err(kerr)? {
             touched.push(p);
         }
     }
@@ -732,12 +836,23 @@ fn join(
             .push(warning("Nothing to join; created a new body.".to_owned()));
         return new_bodies(ctx, k, tool, 0, out);
     }
+    // One fuse needs one space: every touched participant in the same component (SOL-24).
+    let space = touched[0].local.as_ref().map(|(c, _)| *c);
+    if touched
+        .iter()
+        .any(|p| p.local.as_ref().map(|(c, _)| *c) != space)
+    {
+        return Err(SolidError::MixedComponents.into());
+    }
+    let local_tool = tool_for(&tool.shape, touched[0])?;
+    // Tool-only solids become bodies of the feature's component, so they go back there.
+    let back: Option<Transform> = touched[0].local.as_ref().map(|(_, t)| t.inverse());
     let objects: Vec<amg_brep::Shape> = touched.iter().map(|p| p.shape.clone()).collect();
     let fused = with_job(ctx, |job| {
         k.boolean(
             BoolOp::Fuse,
             &objects,
-            std::slice::from_ref(&tool.shape),
+            std::slice::from_ref(&local_tool),
             &BoolOpts::default(),
             job,
         )
@@ -766,15 +881,19 @@ fn join(
             .filter(|(i, _)| contributes(&piece.history, u16::try_from(*i).unwrap_or(u16::MAX)))
             .map(|(_, p)| p.id)
             .collect();
+        let shape = match (&back, contributors.is_empty()) {
+            (Some(t), true) => piece.shape.transformed(t).map_err(kerr)?,
+            _ => piece.shape,
+        };
         let mut b = ctx.naming_builder();
         b.from_history(&operands, &piece.history);
-        let naming = finish_naming(b, k, &piece.shape, out)?;
+        let naming = finish_naming(b, k, &shape, out)?;
         match contributors.split_first() {
             Some((&keep, rest)) => {
                 out.bodies.push(BodyChange {
                     id: keep,
                     change: BodyChangeKind::Modified {
-                        geom: solid_geom(piece.shape),
+                        geom: solid_geom(shape),
                         naming: Some(naming),
                     },
                 });
@@ -789,7 +908,7 @@ fn join(
                 out.bodies.push(BodyChange {
                     id: ctx.new_body_id(next_slot),
                     change: BodyChangeKind::Created {
-                        geom: solid_geom(piece.shape),
+                        geom: solid_geom(shape),
                         naming: Some(naming),
                     },
                 });
@@ -891,11 +1010,12 @@ fn cut(
     // Split-off pieces are numbered from 1, so the first split body's piece k is slot k.
     let mut next_slot = 1u32;
     for p in parts {
-        if !boxes_meet(p.shape, &tool.shape, tol) {
+        let local = tool_for(&tool.shape, p)?;
+        if !boxes_meet(p.shape, &local, tol) {
             continue;
         }
         ctx.check_cancelled()?;
-        let r = bool_one(ctx, k, BoolOp::Cut, p, &tool.shape, out)?;
+        let r = bool_one(ctx, k, BoolOp::Cut, p, &local, out)?;
         if untouched(&r.history) {
             continue;
         }
@@ -925,9 +1045,10 @@ fn intersect(
     let mut any = false;
     let mut next_slot = 1u32;
     for p in parts {
-        let rs = if boxes_meet(p.shape, &tool.shape, tol) {
+        let local = tool_for(&tool.shape, p)?;
+        let rs = if boxes_meet(p.shape, &local, tol) {
             ctx.check_cancelled()?;
-            let r = bool_one(ctx, k, BoolOp::Common, p, &tool.shape, out)?;
+            let r = bool_one(ctx, k, BoolOp::Common, p, &local, out)?;
             pieces(r).map_err(kerr)?
         } else {
             Vec::new()

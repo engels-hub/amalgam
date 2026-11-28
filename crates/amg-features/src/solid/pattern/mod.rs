@@ -864,7 +864,12 @@ impl Feature for Pattern {
             PatternObjects::Bodies(b) => self.body_pattern(ctx, b, &mut out)?,
             PatternObjects::Features(f) => self.feature_pattern(ctx, f, &mut out)?,
             PatternObjects::Faces(t) => self.face_pattern(ctx, t, &mut out)?,
-            PatternObjects::Occurrences(_) => return Err(not_yet("component pattern")),
+            PatternObjects::Occurrences(_) => {
+                return Err(invalid(
+                    "objects",
+                    "a component pattern places occurrences; use `component::pattern_occurrences`",
+                ));
+            }
         }
         Ok(out)
     }

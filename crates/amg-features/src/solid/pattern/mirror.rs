@@ -28,7 +28,8 @@ use crate::solid::error::kernel_failure;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mirror {
-    /// What is mirrored (bodies or features; components are SOL-24).
+    /// What is mirrored (bodies or features; occurrences through
+    /// [`mirror_occurrences`](crate::solid::component::mirror_occurrences), SOL-24).
     pub objects: PatternObjects,
     /// The mirror plane: an origin or construction plane, or a planar face.
     pub plane: RefInput,
@@ -198,7 +199,12 @@ impl Feature for Mirror {
             PatternObjects::Bodies(b) => self.bodies(ctx, &plane, b, &mut out)?,
             PatternObjects::Features(f) => self.features(ctx, &plane, f, &mut out)?,
             PatternObjects::Faces(_) => return Err(not_yet("face mirror")),
-            PatternObjects::Occurrences(_) => return Err(not_yet("component mirror")),
+            PatternObjects::Occurrences(_) => {
+                return Err(invalid(
+                    "objects",
+                    "a component mirror places an occurrence; use `component::mirror_occurrences`",
+                ));
+            }
         }
         Ok(out)
     }

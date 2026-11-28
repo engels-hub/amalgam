@@ -17,7 +17,8 @@ use crate::dialog::{
 use crate::solid::common::OpTarget;
 use crate::solid::extent::{Direction, Extent, ExtentSide};
 use crate::solid::extrude::dialog::{
-    OPS, choice, expr, is, not, one_ref, take_choice, take_expr, target_filter,
+    OPS, choice, expr, is, new_component_of, not, one_ref, op_of, op_options, take_choice,
+    take_expr, target_filter, uses_participants,
 };
 use crate::solid::pattern::dialog::{AXES, axis_values, read_axis};
 
@@ -159,11 +160,7 @@ fn schema() -> &'static DialogSchema {
             is(EXTENT2, "angle"),
             None,
         );
-        let operation = choice(
-            OPERATION,
-            "Operation",
-            &OPS.map(|(id, _, label)| (id, label)),
-        );
+        let operation = choice(OPERATION, "Operation", &op_options());
         let mut bodies = FieldSpec::new(
             BODIES,
             "Objects",
@@ -174,7 +171,7 @@ fn schema() -> &'static DialogSchema {
             },
         );
         bodies.tooltip = Some("Bodies the operation applies to.".into());
-        bodies.visible_if = Some(not(is(OPERATION, "new_body")));
+        bodies.visible_if = Some(uses_participants());
         let mut fields = vec![profiles, axis, axis_ref, direction, whole];
         fields.extend(side1);
         fields.extend(side2);
@@ -401,8 +398,8 @@ fn build(v: &FieldValues, old: Option<&dyn Feature>) -> Result<FeatureBox, Field
         Err(e) => errs.0.push(e),
     }
     let id = take_choice(v, OPERATION, "new_body", &mut errs);
-    match OPS.iter().find(|(o, _, _)| *o == id) {
-        Some((_, op, _)) => f.target.op = *op,
+    match op_of(id) {
+        Some(op) => f.target.op = op,
         None => errs
             .0
             .push((FieldKey(OPERATION), format!("unknown operation `{id}`"))),
@@ -491,6 +488,6 @@ inventory::submit! {
             shortcut: None,
             keywords: &["revolve", "revolution", "lathe", "turn", "spin", "axis"],
         },
-        new_component: None,
+        new_component: Some(new_component_of),
     }
 }

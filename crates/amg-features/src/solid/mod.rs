@@ -10,6 +10,7 @@
 //! - [`revolve`]: `solid.revolve` (SOL-03).
 //! - [`pattern`]: `solid.pattern` and `solid.mirror` (SOL-08).
 //! - [`primitive`]: `solid.box`, `solid.cylinder`, `solid.sphere` and `solid.torus` (SOL-04).
+//! - [`component`]: "New component", component patterns and mirrors (SOL-24).
 //! - [`combine`]: `solid.combine` (SOL-07).
 //! - [`split`]: `solid.split_body` and `solid.split_face` (SOL-07).
 //! - [`moves`]: `solid.move` and `solid.align` (SOL-09).
@@ -26,6 +27,7 @@
 
 pub mod combine;
 pub mod common;
+pub mod component;
 pub mod draft;
 pub mod error;
 pub mod extent;

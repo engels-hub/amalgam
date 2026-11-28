@@ -16,6 +16,24 @@ pub enum SolidError {
     /// A participant is in another component than the feature.
     #[error("body {0:?} is in another component")]
     OtherComponent(BodyId),
+    /// A participant in a sub-component placed more than once below the feature's component,
+    /// so the tool's placement relative to it is ambiguous (SOL-24).
+    #[error(
+        "body {body:?} is in a component placed {placements} times below the feature's component"
+    )]
+    AmbiguousPlacement {
+        /// The body.
+        body: BodyId,
+        /// Its number of placements below the feature's component.
+        placements: usize,
+    },
+    /// A participant seen through a mirrored occurrence (SOL-24): a reflected tool would need
+    /// new geometry with flipped faces.
+    #[error("body {0:?} is placed through a mirrored occurrence")]
+    MirroredPlacement(BodyId),
+    /// A join whose touched participants are in different components (SOL-24).
+    #[error("a join can't fuse bodies of different components")]
+    MixedComponents,
     /// A cut whose tool touches no participant.
     #[error("nothing to cut: the tool touches no participant")]
     NothingToCut,
@@ -63,7 +81,11 @@ impl SolidError {
     /// The field an input problem is about (`None` for kernel-side failures).
     fn field(&self) -> Option<&'static str> {
         match self {
-            SolidError::WrongBodyKind | SolidError::OtherComponent(_) => Some("participants"),
+            SolidError::WrongBodyKind
+            | SolidError::OtherComponent(_)
+            | SolidError::AmbiguousPlacement { .. }
+            | SolidError::MirroredPlacement(_)
+            | SolidError::MixedComponents => Some("participants"),
             SolidError::NonParallelProfiles => Some("profiles"),
             SolidError::ExtendUnsupported | SolidError::TargetMissed => Some("extent"),
             SolidError::AxisCrossesProfile => Some("axis"),
@@ -83,7 +105,18 @@ impl amg_core::Diagnostic for SolidError {
             SolidError::WrongBodyKind => {
                 "Convert the mesh to a solid first, or use a mesh boolean in the Mesh workspace."
             }
-            SolidError::OtherComponent(_) => "Activate the component that holds the body.",
+            SolidError::OtherComponent(_) => {
+                "Activate the component that holds the body, or one of its parents."
+            }
+            SolidError::AmbiguousPlacement { .. } => {
+                "Activate the component that holds the body, so the placement is unique."
+            }
+            SolidError::MirroredPlacement(_) => {
+                "Activate the mirrored component and run the feature there."
+            }
+            SolidError::MixedComponents => {
+                "Join bodies of one component at a time, or move them into one component."
+            }
             SolidError::NothingToCut => {
                 "Move the profile or the distance so the tool overlaps a body."
             }

@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use amg_core::{Cancelled, Quantity, Tolerance};
+use amg_core::{Cancelled, Quantity, Tolerance, Transform};
 use amg_jobs::JobCtx;
 
 use crate::assembly::Placements;
@@ -423,7 +423,10 @@ impl<'a> Pass<'a> {
                     naming,
                     derived_from,
                 } => {
-                    self.put_body(c.id, node, geom, naming.as_ref(), false);
+                    // A piece split off a body stays in that body's component (S04 SOL-24: a
+                    // cut in an assembly context splits a body of a sub-component).
+                    let component = self.out.body(*derived_from).map(|b| b.component);
+                    self.put_body_in(c.id, node, geom, naming.as_ref(), false, component);
                     self.body_key.insert(c.id, key);
                     self.out.add_successor(*derived_from, c.id, true);
                 }
@@ -474,10 +477,24 @@ impl<'a> Pass<'a> {
         naming: Option<&crate::naming::BodyNaming>,
         keep_component: bool,
     ) {
+        self.put_body_in(id, node, geom, naming, keep_component, None);
+    }
+
+    /// [`put_body`](Self::put_body) with a fallback component (before the node's context).
+    fn put_body_in(
+        &mut self,
+        id: BodyId,
+        node: &FeatureNode,
+        geom: &BodyGeom,
+        naming: Option<&crate::naming::BodyNaming>,
+        keep_component: bool,
+        fallback: Option<ComponentId>,
+    ) {
         let component = keep_component
             .then(|| self.out.body(id).map(|b| b.component))
             .flatten()
             .or_else(|| self.design.baked(id).map(|b| b.component))
+            .or(fallback)
             .unwrap_or(node.context);
         self.out.set_body(
             id,
@@ -553,6 +570,10 @@ impl<'a> Pass<'a> {
         if let Some(scope) = f.context_reads() {
             self.hash_context_bodies(&mut h, scope, node.context);
         }
+
+        // Only features that read bodies of other components hash this, so every other key
+        // keeps its layout.
+        self.hash_foreign_placements(&mut h, &inputs, node.context);
 
         h.u64(node.context.0);
         h.tag(match self.mode {
@@ -678,6 +699,49 @@ impl<'a> Pass<'a> {
             h.u64(u64::from(id.slot));
             h.u64(component.0);
             h.key(key);
+        }
+    }
+
+    /// A feature that reads a body of another component (S04 SOL-24: a body operation in an
+    /// assembly context) sees it through the placements between its context and that
+    /// component, so every occurrence on the root paths of both is part of its key, at its
+    /// captured position (never the pending one).
+    fn hash_foreign_placements(
+        &self,
+        h: &mut KeyHasher,
+        inputs: &[Dependency],
+        context: ComponentId,
+    ) {
+        let mut foreign: Vec<ComponentId> = inputs
+            .iter()
+            .filter_map(|d| match d {
+                Dependency::Body(b) => self.out.body(*b).map(|b| b.component),
+                _ => None,
+            })
+            .filter(|c| *c != context)
+            .collect();
+        if foreign.is_empty() {
+            return;
+        }
+        foreign.sort_unstable();
+        foreign.dedup();
+        h.tag(0xfb);
+        for c in std::iter::once(context).chain(foreign) {
+            h.u64(c.0);
+            for path in self.design.occurrence_paths(c) {
+                h.u64(u64::try_from(path.len()).unwrap_or(u64::MAX));
+                for o in path {
+                    h.u64(o.0);
+                    let t = self
+                        .positions
+                        .get(o)
+                        .or_else(|| self.design.occurrence(o).map(|occ| occ.transform))
+                        .unwrap_or(Transform::IDENTITY);
+                    for x in t.to_cols_array() {
+                        h.f64(x);
+                    }
+                }
+            }
         }
     }
 

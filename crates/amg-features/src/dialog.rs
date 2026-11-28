@@ -489,7 +489,8 @@ pub struct DialogRegistration {
     pub command: CommandMeta,
     /// S04 addition: `Some(f)` and `f(values) == Some(name)` means the user chose "New
     /// component": UI-05 commits `AddComponent { name }` and `AddFeature` with the new
-    /// component as context in one transaction. `None` for every registration until SOL-24.
+    /// component as context in one transaction. Set by `solid.extrude` and `solid.revolve`
+    /// (SOL-24); commit with [`new_feature_commands`].
     pub new_component: Option<fn(&FieldValues) -> Option<String>>,
 }
 
@@ -542,6 +543,48 @@ pub fn registrations() -> impl Iterator<Item = &'static DialogRegistration> {
 pub fn dispatches() -> impl Iterator<Item = &'static DispatchRegistration> {
     crate::solid::link();
     inventory::iter::<DispatchRegistration>.into_iter()
+}
+
+/// Why [`new_feature_commands`] built no commands.
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum CommitError {
+    /// `build` rejected field values.
+    #[error("invalid field values: {0:?}")]
+    Fields(FieldErrors),
+    /// The component operation failed (missing component, refused command).
+    #[error(transparent)]
+    Component(#[from] crate::solid::component::ComponentOpError),
+}
+
+/// The commands that commit a new feature from its dialog values (S04 SOL-24, for S11 UI-05):
+/// `AddFeature` in `context`, or, when the registration's
+/// [`new_component`](DialogRegistration::new_component) returns a name, `NewComponent` in
+/// `context` + `AddFeature` with the new component as context
+/// ([`new_component_commands`](crate::solid::component::new_component_commands)). Apply them
+/// in one transaction: one undo entry.
+///
+/// # Errors
+/// [`CommitError::Fields`] from `build`; [`CommitError::Component`] when the design refuses
+/// the commands.
+pub fn new_feature_commands(
+    reg: &DialogRegistration,
+    values: &FieldValues,
+    design: &Design,
+    context: amg_doc::ComponentId,
+) -> Result<Vec<amg_doc::Command>, CommitError> {
+    let feature = (reg.build)(values, None).map_err(CommitError::Fields)?;
+    match reg.new_component.and_then(|f| f(values)) {
+        Some(name) => Ok(crate::solid::component::new_component_commands(
+            design, context, &name, feature, None,
+        )?),
+        None => Ok(vec![amg_doc::Command::AddFeature {
+            at: None,
+            feature,
+            context,
+            name: None,
+        }]),
+    }
 }
 
 #[cfg(test)]
