@@ -165,6 +165,26 @@ macro_rules! with_cap {
 }
 pub(crate) use with_cap;
 
+/// A2.3 with `n = 1` into `out0[..=degree]` (values) and `out1[..=degree]` (first
+/// derivatives) through the smallest stack buffer. Caller guarantees `degree <= MAX_DEGREE`
+/// and a valid `span`.
+#[inline]
+pub(crate) fn ders1_into(
+    knots: &[f64],
+    span: usize,
+    u: f64,
+    degree: usize,
+    out0: &mut [f64; MAX_DEGREE + 1],
+    out1: &mut [f64; MAX_DEGREE + 1],
+) {
+    with_cap!(degree, N => {
+        let mut b = [[0.0; N]; 2];
+        ders_basis_funs_n::<N>(knots, span, u, degree, 1, &mut b);
+        out0[..=degree].copy_from_slice(&b[0][..=degree]);
+        out1[..=degree].copy_from_slice(&b[1][..=degree]);
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp, reason = "exact expected values")]
 mod tests {

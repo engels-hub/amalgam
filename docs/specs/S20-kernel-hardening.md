@@ -414,6 +414,7 @@ pub mod fit {
         pub ends: EndDerivs<P>,
         pub closed: bool,                     // periodic interpolation, then clamped
     }
+    impl<P> Default for InterpOpts<P> { fn default() -> Self; } // KH-13: degree 3, centripetal
     /// A9.1 (+ §9.2.2/9.2.3 derivative rows). Data points reproduced to rounding.
     pub fn interpolate<P: CtrlPt>(pts: &[P], o: &InterpOpts<P>) -> Result<NurbsCurve<P>, NurbsError>;
     #[derive(Clone, Debug)]
@@ -434,6 +435,10 @@ pub mod fit {
         m: Parametrization) -> Result<Fit<P>, NurbsError>;
     #[derive(Clone, Debug)]
     pub struct OntoOpts<P> { pub tol: f64, pub fix_end_tangents: bool, pub ends: EndDerivs<P>, pub corrections: u8 /* default 3 */ }
+    impl<P> Default for OntoOpts<P> { fn default() -> Self; } // KH-13: tol 1e-5, 3 corrections
+    /// KH-13 Done-when 2 reference (`#[doc(hidden)]`): the same algorithm without Hoschek correction.
+    pub fn approximate_to_tolerance_uncorrected<P: CtrlPt>(pts: &[P], degree: usize, tol: f64,
+        max_poles: usize, m: Parametrization) -> Result<Fit<P>, NurbsError>;
     /// Re-approximate `c` on the given degree + knot vector (shared-knot compatibility).
     pub fn approximate_onto_knots<P: CtrlPt>(c: &NurbsCurve<P>, degree: usize, knots: &KnotVector,
         o: &OntoOpts<P>) -> Result<Fit<P>, NurbsError>;
@@ -837,7 +842,7 @@ open request.
 | KH-01 | Kernel failure capture: `capture` module (`CaptureConfig`, `FailureRecorder`, `RecordingKernel`, `KernelOp` for the ops existing at the time, `EdgeRecord` fingerprints), `OnFailure` + `WriteAhead` modes, dedup + retention, `replay`, `promote`; `kernel-replay` example (and `amg-cli kernel replay` if lane E accepts) | BREP-02, BREP-12, BREP-04, FND-04 | P0 | Done | 1. Forced failures (too-large fillet radius, boolean on an invalid argument, an injected `NotDone`) write a dump whose `manifest.json` validates against schema 1. 2. Replaying each dump **in a fresh process** gives `Reproduced` for 100 % of dumps in a ≥ 10-dump test set covering every op variant present. 3. Index stability: on 20 STEP parts + 200 generated parts, all edge/face indices survive `.brep` write → read; a forced re-index falls back to fingerprints and reports `reindexed_by_fingerprint`. 4. `WriteAhead`: a child process aborted inside the op leaves `pending/`, and `recover_pending` turns it into a `Crash` dump that replays. 5. The same failure twice gives one dump with `count = 2`; retention prunes to `max_dumps`/`max_bytes`. 6. `OnFailure` adds no file I/O and < 1 µs per successful call (criterion). |
 | KH-07 | `amg-nurbs` core: `CtrlPt`, `KnotVector`, `basis`, `NurbsCurve`/`NurbsSurface` + `Grid` with validation, eval + derivatives (A2.1–A2.3, A3.2, A3.6, A4.1–A4.4), reverse/reparametrize/transform/bbox, `analytic` module (A7.1, ellipse, A8.1, extrusion, ruled-with-equal-knots, cylinder, cone, sphere, torus), `NurbsError`; curvo dev-dep oracle | FND-03 | P1 | Done | 1. P&T Ex. 2.3 basis values to 1e-15, partition of unity to 1e-14. 2. Rational circle radius error ≤ 1e-14·r; sphere and torus points on the analytic surface ≤ 1e-13·R (1000 samples). 3. Derivatives match central finite differences within 1e-6 relative and analytic circle/helix tangent and curvature within 1e-12. 4. Differential test vs curvo 0.3.3 on 1000 random curves/surfaces (degree 1–7, rational and non-rational): ≤ 1e-12·max(1, D). 5. Constructors reject every invalid input with the right `NurbsError` (table test); no panic in a proptest over random inputs. 6. Benchmarks: cubic point < 60 ns, bicubic point + first derivatives < 250 ns. |
 | KH-12 | `amg-nurbs` knot operations: insertion (A5.1/A5.3), refinement (A5.4/A5.5), Bézier decomposition (A5.6/A5.7), removal (A5.8), degree elevation (A5.9/A5.10), split/segment/join, `continuity_at`, `KnotVector::union`/`missing_from` | KH-07 | P1 | Done | 1. Proptests (512 cases): insertion, refinement, elevation, decomposition and split + join keep the shape within 1e-12·max(1, D) at 1000 samples. 2. Removal keeps deviation ≤ `tol` and removes the knot when the curve was produced by insertion (round trip). 3. Elevating by k then removing knots gives the original pole count back for Bézier inputs. 4. Matches curvo `try_refine_knot`/`try_elevate_degree` ≤ 1e-12·D. 5. Benchmarks: refine 20 knots into 50 poles < 10 µs; elevate 3→5 of 50 poles < 20 µs. |
-| KH-13 | `amg-nurbs` fitting: `parametrize`, averaging/approximation knots, `interpolate` (A9.1 with D1/D2 end rows, closed), `approximate_lsq` (A9.6 constrained), `approximate_to_tolerance` (adaptive + Hoschek), `approximate_onto_knots`, arc length + inverse, curve/surface `closest_point` | KH-12 | P1 | Todo | 1. Interpolation reproduces data ≤ 1e-12·D and end derivatives within 1e-10 relative; P&T Ex. 9.1 data gives the book's parameters and knots. 2. `approximate_to_tolerance` on 1000 noisy samples of circles, helices and sine curves meets `tol` ∈ {1e-3, 1e-5} mm with ≤ 1.5× the pole count of a reference fit (the reference is the same algorithm without parameter correction, which proves that correction helps). 3. Reported `max_error` is within 1 % of the measured error at 2000 samples. 4. Closest point never exceeds the dense-sampling minimum + 1e-9 mm (10 k proptest queries, curves and surfaces). 5. Arc length of a circle arc is within 1e-12 relative. 6. Benchmarks: interpolate 200 points < 100 µs; fit 1000 points to 1e-5 mm < 5 ms. |
+| KH-13 | `amg-nurbs` fitting: `parametrize`, averaging/approximation knots, `interpolate` (A9.1 with D1/D2 end rows, closed), `approximate_lsq` (A9.6 constrained), `approximate_to_tolerance` (adaptive + Hoschek), `approximate_onto_knots`, arc length + inverse, curve/surface `closest_point` | KH-12 | P1 | Review | 1. Interpolation reproduces data ≤ 1e-12·D and end derivatives within 1e-10 relative; P&T Ex. 9.1 data gives the book's parameters and knots. 2. `approximate_to_tolerance` on 1000 noisy samples of circles, helices and sine curves meets `tol` ∈ {1e-3, 1e-5} mm with ≤ 1.5× the pole count of a reference fit (the reference is the same algorithm without parameter correction, which proves that correction helps). 3. Reported `max_error` is within 1 % of the measured error at 2000 samples. 4. Closest point never exceeds the dense-sampling minimum + 1e-9 mm (10 k proptest queries, curves and surfaces). 5. Arc length of a circle arc is within 1e-12 relative. 6. Benchmarks: interpolate 200 points < 100 µs; fit 1000 points to 1e-5 mm < 5 ms. |
 | KH-14 | `amg-nurbs` compatibility + skinning: `make_compatible` (exact/approximated, rules in nurbs note §5.2), `loft_surfaces` (one patch per segment, shared v-params, shared corner derivatives), all `EndCondition`s with `CrossBoundaryField`, ruled/closed, `check` module | KH-13 | P1 | Todo | 1. Exact path: outputs equal the inputs ≤ 1e-12·D; approximated path: ≤ `fit_tol` (1e-5 mm) with ≤ `max_poles`; it falls back to approximation exactly when the union exceeds `exact_pole_limit` (unit test at the boundary). 2. Skins reproduce every section at its v-parameter (≤ 1e-12·D exact path, ≤ `fit_tol` approximated). 3. Neighbouring patches have bit-identical shared boundaries (`to_bits`), and G1 across tangent-merged segments is ≤ 1e-8 rad. 4. G1 end condition against analytic planes/cylinders: angle ≤ 1e-8 rad at 100 boundary samples; G2: normal-curvature mismatch ≤ 1e-6 relative; `PointTangent` apex tangent plane ⊥ `normal` within 1e-9 rad. 5. Two sections without end conditions give a ruled surface. 6. Benchmarks: 6 sections × 8 segments exact < 2 ms; approximated < 10 ms. |
 | KH-15 | `amg-nurbs` Gordon surfaces (network sort, Fritsch–Carlson reparametrisation, compatible families, boolean sum, closed networks) + `frames::rotation_minimizing` + `frames::centerline_sections` | KH-14 | P1 | Todo | 1. Every network curve is reproduced within `max(fit_tol, 1e-12·D)` on synthetic networks (bilinear, 3×3 … 6×6, non-uniform intersection parameters, closed) and all TiGL `CurveNetworks` fixtures (Apache-2.0, attributed). 2. Networks that miss by > `net_tol` give `NetworkMiss` with the right indices; a doubly-crossing guide gives `NetworkMultiple`. 3. A counter-test shows the uniform-parameter/degree-1-tensor shortcut fails these fixtures (guards the design choice). 4. RMF: orthonormal to 1e-12; planar curve normal constant to 1e-12; helix rotation vs Frenet = −∫τ ds within 1e-6 rad at 1000 steps. 5. Centerline sections: original sections are reproduced exactly; intermediate frames follow the RMF. 6. Gordon 5×5 < 20 ms. |
 | KH-16 | `amg_brep::nurbs_conv`: amg-nurbs ↔ OCCT `Geom_BSplineCurve/Surface` (+ knots/mults), `curve_seg_to_nurbs`, `surface_to_nurbs`, `edge_to_nurbs`, `wire_to_chain`, `nurbs_face` (on S02 `make_face`); OCCT differential tests (incl. `GeomFill_Gordon` on TiGL networks when OCCT ≥ 8.0.0p1) | KH-07, KH-12, BREP-03 | P1 | Todo | 1. amg-nurbs → OCCT → amg-nurbs round-trips bit-identically (poles, weights, knots). 2. OCCT `D0/D1/D2` vs `eval/derivs` on 10 k random parameters of 200 random curves/surfaces ≤ 1e-11·max(1, D). 3. Lines, circles, ellipses, planes, cylinders, cones, spheres and tori from OCCT convert to exact NURBS (radius error ≤ 1e-12·r). 4. `nurbs_face` on a skinned patch gives a BRepCheck-valid face whose OCCT tessellation lies within 1e-6 mm of `eval`. 5. With OCCT ≥ 8.0.0p1, KH-15 Gordon results lie within 1e-4 mm of `GeomFill_Gordon` on the TiGL set (or the differences are explained in the PR). |
@@ -1375,6 +1380,103 @@ touches OCCT through `amg-brep`, and that gate is cleared (2026-10-20).
     faces, which OCCT's BOPAlgo does not offer.
   - A cheaper inverted check for freshly built tools: a prism of a planar face could be marked
     as not inverted when it is built, but that is an assumption, not the same test.
+
+### 2026-11-28 - KH-13 amg-nurbs fitting, arc length and closest point landed (lane A)
+- **Landed** in `crates/amg-nurbs` (no new dependency): `pub mod fit` (`fit/mod.rs`
+  parametrisation + knot builders + option types, `fit/interp.rs`, `fit/lsq.rs`,
+  `fit/adaptive.rs`), a crate-private banded solver (`linalg.rs`), arc length + inverse
+  (`arclen.rs`) and curve / surface `closest_point` (`project.rs`). Tests:
+  `tests/fit.rs`, `tests/closest_props.rs`, `tests/golden_fit.rs` (+ unit tests per module),
+  goldens in `tests/golden/nurbs/` (JSON curves, `AMG_BLESS=1` rewrites), bench
+  `benches/fit.rs`. The amg-nurbs suite (81 tests) runs in about 2.2 s under nextest.
+- **Measured** (tests print them; shared machine at 82 % CPU load for the benches):
+  - Done-when 1: 3000 random cases (degree 1–5, open, D1, D1 + D2, closed): data reproduced
+    within 1.9e-15·D (closed 1.3e-15·D); end derivatives 3.1e-13 (D1) and 2.2e-11 (D2)
+    relative. P&T Ex. 9.1 gives parameters {0, 5/17, 9/17, 14/17, 1} and knots
+    {0⁴, 28/51, 1⁴} to 1e-15.
+  - Done-when 2 (1000 samples, noise tol/10, degree 3, centripetal, `max_poles` 500):
+    poles with correction / reference: circle arc 23/19 (1.21) and 67/67 at 1e-3 / 1e-5,
+    helix 35/35 and 131/131, sine 73/163 (0.45) and 197/337 (0.58). Every fit meets `tol`.
+    The uniformly sampled circle and helix already have near-foot-point parameters, so the
+    correction has little to gain there; the sine (uniform in x, not in arc length) shows it.
+  - Done-when 3: reported `max_error` vs an independent measurement (2000 curve samples +
+    golden-section polish per data point / per source sample): within 2.3e-10 relative for
+    `approximate_to_tolerance`, within 1.4e-4 relative for `approximate_onto_knots`.
+  - Done-when 4: 10 240 proptest queries (64 curves of degree 1–7 + 64 surfaces of degree
+    1–4, half rational, 80 queries each) in about 2 s; worst excess over the dense-sampling
+    minimum 6.2e-14 mm (curves) / 6.7e-14 mm (surfaces). Ignored large run (500 cases per kind,
+    80 000 queries): 9.1e-14 / 3.5e-11 mm.
+  - Done-when 5: circle arcs (r 0.01–2500 mm, sweep 0.1 rad – 2π, whole and partial ranges)
+    within 3.2e-15 relative of r·θ; `param_at_length` round trip within 9e-13·L.
+  - Done-when 6 (`AMG_STRICT_TIMING=1` passed): interpolate 200 points 36 µs (< 100);
+    `approximate_to_tolerance` 1000 points to 1e-5 mm 2.7–2.8 ms (< 5; noisy helix, 131
+    poles). No budget: noisy sine 4.9 ms (197 poles), circle arc 3.7 ms, uncorrected
+    reference 0.9 ms; closest point on a 131-pole curve 56 µs, sphere 283 µs, torus 221 µs;
+    arc length of a 5 rad arc 23 µs, inverse 25 µs.
+  - Constrained LSQ (fixed ends, D1 both ends, D2 at the start, data weights) equals a dense
+    A9.6 KKT (Lagrange) reference within 7.5e-16·D.
+- **Decisions / deviations:**
+  - **No nalgebra.** All systems are banded or small: one crate-private banded Gaussian
+    elimination with partial pivoting (`linalg::Band`, the right-hand side is a slice of
+    poles, so all coordinates solve in one pass) handles A9.1, the LSQ normal equations and
+    the dense periodic system (`kl = ku = n − 1`). The nurbs note §4 planned nalgebra
+    Cholesky/QR; not needed, no dependency added.
+  - **A9.6 by elimination.** The end constraints exposed (end point, `C'`, `C''`) each fix
+    one end pole as an affine combination of the poles before it, so they are substituted
+    into the objective instead of adding Lagrange multipliers. Same minimiser (same affine
+    subspace, checked against a dense KKT), and the system stays banded.
+  - **Interpolation with derivatives:** knots average the parameter list with ū₀ / ū_m
+    repeated once per end constraint (for one D1 per end this is eq. 9.22); needs
+    `degree >= constraints at that end + 1`. After the solve the end poles are set from
+    their constraint formula (and the end points stored bit-identically), so derivative
+    errors are those of one formula, not of the solve.
+  - **Closed interpolation:** periodic averaged knots over the closing chord, a dense
+    periodic solve, then knots inserted at the seam (A5.1 on the unclamped vector) until the
+    curve is clamped at the first point; C^{p−1} at the seam, start = end bit-identical. A
+    repeated first point at the end of the input is dropped.
+  - **`approximate_to_tolerance`:** per round LSQ solve, up to 3 Hoschek corrections
+    (each kept only if it lowers the largest deviation; the corrected parameters carry
+    over), then every span over `tol` is bisected (worst first, ties by lowest index, only if
+    both halves keep two data parameters). Carrying corrections over from coarse rounds can
+    cluster the parameters and cost poles (measured: circle 35 vs 19 poles), so while the
+    last accepted correction moved a parameter by more than half a neighbouring gap the
+    initial parametrisation is refitted too and the better fit continues. Corrections use the
+    basis values (and first derivatives) cached by the solve. On success the data points are
+    projected (Newton) and `max_error` / `rms_error` / `params` are point-to-curve distances
+    and foot points; `approximate_lsq` reports the parametric deviation at the given
+    parameters. Pole limit or no splittable span: `ToleranceNotMet`; `max_poles <
+    degree + 1`: `TooManyPoles`.
+  - **`approximate_onto_knots`:** source domain mapped linearly onto the target domain;
+    `max(8, 2(p+1))` samples per target span + every interior source knot; end points always
+    interpolated, `fix_end_tangents` scales the source tangent by `ds/du`. `max_error` is
+    measured at the samples and their midpoints (Newton projection) and the local maxima are
+    refined by golden section; `ToleranceNotMet` if it exceeds `o.tol`.
+  - **Closest point is a certified global minimum:** a branch-and-bound over the Bézier pieces
+    with convex-hull lower bounds (curves: chord distance minus the largest pole offset;
+    surfaces: world box, two iso-direction-aligned boxes and the corner-hull distance minus
+    the largest pole offset, all second order), Newton (P&T eq. 6.3 / 6.6–6.8, projected at
+    bounds) from every piece midpoint that improves the best distance, run on that piece's
+    own Bézier form so minima on C0 knot creases converge, until every remaining bound is
+    within 1e-10 mm (or 4 ulp of the model scale). `tol.angular` is the Newton orthogonality
+    criterion; `seed` only starts an extra Newton run. Node budget 20 000 per query (not
+    reached in the tests). Two numerical traps found and fixed: diagonal-aligned boxes are
+    only first order at patch edges (38 s → 2 s proptest), and Ericson's triangle
+    barycentrics cancel for a far query against a deep, tiny node (expanded forms now).
+  - **Arc length:** adaptive 5-point Gauss–Legendre per knot span with a Richardson term,
+    `tol` absolute in mm (split evenly over the spans, floored at 1e-15 relative); range ends
+    are clamped and may come in either order. `param_at_length`: span lookup, then
+    safeguarded Newton with bisection fallback; `s` outside `[0, L]` gives the domain ends.
+  - Additive API beyond Interfaces: `Default` for `InterpOpts` / `OntoOpts`,
+    `#[doc(hidden)] fit::approximate_to_tolerance_uncorrected` (Done-when 2 reference).
+  - curvo was not used as an oracle here: the Done-when items have analytic or independent
+    references (book example, KKT, dense sampling, r·θ).
+- **Left for later WPs:** surface closest point costs 0.2–0.3 ms per query because every
+  query re-decomposes the surface into Bézier patches and certifies to 1e-10 mm; KH-14's
+  `check` sampling may want a reusable projector (cached patches, a looser certification
+  gap). `approximate_to_tolerance` bisects every bad span per round, which overshoots the
+  pole count by up to about 2× on smooth data (sine 1e-5: 197 poles); knot placement by
+  error distribution or knot removal afterwards would tighten it. No surface fitting (not in
+  KH-13).
 
 ## Interface changes
 
