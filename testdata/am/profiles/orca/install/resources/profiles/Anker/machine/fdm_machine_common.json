@@ -1,0 +1,16 @@
+{
+    "type": "machine",
+    "name": "fdm_machine_common",
+    "from": "system",
+    "instantiation": "false",
+    "printable_area": [
+        "0x0",
+        "999x0",
+        "999x999",
+        "0x999"
+    ],
+    "printable_height": "999",
+    "nozzle_diameter": [
+        "1.0"
+    ]
+}

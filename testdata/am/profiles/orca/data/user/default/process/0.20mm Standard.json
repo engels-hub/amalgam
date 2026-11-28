@@ -1,0 +1,6 @@
+{
+    "type": "process",
+    "name": "0.20mm Standard",
+    "from": "User",
+    "support_threshold_angle": "30"
+}

@@ -1,0 +1,12 @@
+{
+    "type": "machine",
+    "name": "fdm_creality_common",
+    "from": "system",
+    "instantiation": "false",
+    "inherits": "fdm_machine_common",
+    "printer_technology": "FFF",
+    "printable_height": "250",
+    "bed_exclude_area": [
+        "0x0"
+    ]
+}
